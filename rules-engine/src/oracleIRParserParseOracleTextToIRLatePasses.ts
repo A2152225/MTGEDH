@@ -14,7 +14,7 @@ import { repairIntraAbilityInsteadConditionalSteps } from './oracleIRParserPostp
 import { extractQuotedAbilityRiderSteps } from './oracleIRParserPostprocessQuotedAbilityRiders';
 import { pruneMalformedExploreReminderMoveZoneSteps, pruneRedundantExploreReminderAbilities, pruneRedundantInfectKeywordUnknownAbilities, pruneRedundantLandwalkKeywordUnknownAbilities, pruneRedundantScryReminderUnknownAbilities } from './oracleIRParserPostprocessClashScryExploreReminderPrunes';
 import { lowerRecruitKeywordAbilities, pruneRedundantAmassSubtypeReminderUnknownAbilities } from './oracleIRParserPostprocessAmassDiscoverConniveRecruitKeywords';
-import { pruneCascadeReminderAbilities, pruneCipherReminderAbilities, pruneConvokeReminderAbilities, pruneRedundantCascadeReminderUnknownAbilities } from './oracleIRParserPostprocessKeywordReminderPrunes';
+import { pruneCascadeReminderAbilities, pruneCipherReminderAbilities, pruneConvokeReminderAbilities, pruneRedundantCascadeReminderUnknownAbilities, pruneReinforceReminderAddCounterSteps } from './oracleIRParserPostprocessKeywordReminderPrunes';
 import { pruneLateKeywordReminderOnlyAbilities } from './oracleIRParserPostprocessCrewChampionLateKeywordPrunes';
 import { pruneRedundantEldraziTokenManaReminderUnknownAbilities, pruneRedundantEnchantAttachmentReminderUnknownAbilities } from './oracleIRParserPostprocessFutureSpellAndTokenReminderPrunes';
 import { applyGlobalImpulseUpgrades, expandRepeatThisProcessOnceAbilities, mergeLookSelectTopFollowupAbilities } from './oracleIRParserPostprocessSearchLibraryLookSelectImpulse';
@@ -60,6 +60,7 @@ export function applyParseOracleTextToIRLatePasses(params: {
   abilities = pruneRedundantAmassSubtypeReminderUnknownAbilities(abilities);
   abilities = pruneCipherReminderAbilities(abilities);
   abilities = pruneConvokeReminderAbilities(abilities);
+  abilities = pruneReinforceReminderAddCounterSteps(abilities);
   abilities = pruneLateKeywordReminderOnlyAbilities(abilities);
   abilities = pruneRedundantEldraziTokenManaReminderUnknownAbilities(abilities);
   abilities = pruneRedundantEnchantAttachmentReminderUnknownAbilities(abilities);

@@ -109,6 +109,10 @@ export function registerDelayedBattlefieldAction(
     {
       ...(watchingPermanentId ? { watchingPermanentId } : {}),
       targets: [...chosenObjectIds],
+      effectData: {
+        delayedAction: action,
+        lastAntecedentBattlefieldPermanentIds: [...chosenObjectIds],
+      },
       eventDataSnapshot: {
         sourceId: String(ctx.sourceId || '').trim() || undefined,
         sourceControllerId: String(controllerId || '').trim() || undefined,

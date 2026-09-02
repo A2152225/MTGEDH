@@ -358,6 +358,8 @@ export function resolveUniqueChosenAnyGraveyardTargetId(
   referencePower?: number
 ): string {
   const chosen = new Set(getChosenObjectIds(ctx));
+  const skipControllerId =
+    criteria.graveyardOwner === 'opponent' ? String(getControllerId(ctx) || '').trim() : '';
 
   const excluded = new Set<string>();
   for (const moved of Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []) {
@@ -365,41 +367,31 @@ export function resolveUniqueChosenAnyGraveyardTargetId(
     if (movedId) excluded.add(movedId);
   }
 
-  const matches: any[] = [];
   const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
-  for (const player of state.players || []) {
-    const playerId = String((player as any)?.id || '').trim() as PlayerID;
-    const graveyard = playerId
-      ? readPlayerOrZoneCards(state, player, playerId, 'graveyard')
-      : (Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : []);
-    for (const card of graveyard) {
-      const cardId = String((card as any)?.id || '').trim();
-      if (!cardId || excluded.has(cardId)) continue;
-      if (chosen.size > 0 && !chosen.has(cardId)) continue;
-      if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, currentTurn, referencePower)) continue;
-      matches.push(card);
-    }
-  }
-
-  if (matches.length > 0) return pickDeterministicGraveyardTargetId(matches, criteria);
-
-  if (chosen.size === 0) {
-    const allMatches: any[] = [];
+  const collect = (requireChosen: boolean): any[] => {
+    const matches: any[] = [];
     for (const player of state.players || []) {
       const playerId = String((player as any)?.id || '').trim() as PlayerID;
+      if (skipControllerId && playerId === skipControllerId) continue;
       const graveyard = playerId
         ? readPlayerOrZoneCards(state, player, playerId, 'graveyard')
         : (Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : []);
       for (const card of graveyard) {
         const cardId = String((card as any)?.id || '').trim();
         if (!cardId || excluded.has(cardId)) continue;
+        if (requireChosen && chosen.size > 0 && !chosen.has(cardId)) continue;
         if (!cardMatchesMoveZoneSingleTargetCriteria(card, criteria, referenceCardName, currentTurn, referencePower)) continue;
-        allMatches.push(card);
+        matches.push(card);
       }
     }
-    return pickDeterministicGraveyardTargetId(allMatches, criteria);
-  }
+    return matches;
+  };
 
+  const chosenMatches = chosen.size > 0 ? collect(true) : [];
+  if (chosenMatches.length > 0) return pickDeterministicGraveyardTargetId(chosenMatches, criteria);
+
+  const allMatches = collect(false);
+  if (allMatches.length === 1) return String((allMatches[0] as any)?.id || '').trim();
   return '';
 }
 

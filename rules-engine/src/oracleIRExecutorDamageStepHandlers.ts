@@ -289,19 +289,39 @@ function resolveDamageAmount(
       amount.subject === 'the_sacrificed_creature'
         ? (Array.isArray(runtime?.lastSacrificedPermanents) ? [...runtime.lastSacrificedPermanents] : [])
         :
-      amount.subject === 'that_card' || amount.subject === 'that_creature'
+      amount.subject === 'that_card' || amount.subject === 'that_creature' || amount.subject === 'that_spell'
         ? [
             ...(Array.isArray(runtime?.lastMovedCards) ? [...runtime.lastMovedCards] : []),
             ...(Array.isArray(runtime?.lastDiscardedCards) ? [...runtime.lastDiscardedCards] : []),
             ...(Array.isArray(runtime?.lastExiledCards) ? [...runtime.lastExiledCards] : []),
+            ...(Array.isArray((ctx as any).lastMovedCards) ? [...(ctx as any).lastMovedCards] : []),
           ]
         : resolveDamageAmountSourceObjects(state, source, ctx, runtime);
+    if (sourceObjects.length === 0 && amount.subject === 'that_spell') {
+      const spellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+      const stackItem = ((state as any).stack || []).find((entry: any) => String(entry?.id || '').trim() === spellId)
+        || ((state as any).stack || []).find((entry: any) => String(entry?.type || '').trim() === 'spell');
+      const card = (stackItem as any)?.card || stackItem;
+      if (card) {
+        const power = readObjectStat(card, amount.stat);
+        if (power !== null) return power;
+        const manaValue = getCardManaValue(card);
+        return manaValue === null ? 0 : manaValue;
+      }
+      return 0;
+    }
     if (sourceObjects.length === 0) return null;
 
     const values = sourceObjects
       .map((entry) => readObjectStat(entry, amount.stat))
       .filter((entry): entry is number => entry !== null);
-    if (values.length === 0) return null;
+    if (values.length === 0) {
+      if (amount.subject === 'that_spell') {
+        const manaValue = getCardManaValue(sourceObjects[0]);
+        return manaValue === null ? 0 : manaValue;
+      }
+      return null;
+    }
     const multiplier = Number.isFinite(Number((amount as any).multiplier)) ? Math.max(0, Number((amount as any).multiplier)) : 1;
     return values.reduce((sum, value) => sum + value, 0) * multiplier;
   }
@@ -320,6 +340,36 @@ function resolveDamageAmount(
   if (raw === 'twice that much' || raw === 'twice that') {
     const ref = Number(runtime?.lastReferenceAmount ?? (ctx as any).lastReferenceAmount ?? ctx.referenceAmount);
     return Number.isFinite(ref) ? Math.max(0, ref * 2) : null;
+  }
+  if (/(?:that spell's|the spell's) power/.test(raw)) {
+    const spellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
+    const stackItem = ((state as any).stack || []).find((entry: any) => String(entry?.id || '').trim() === spellId)
+      || ((state as any).stack || []).find((entry: any) => String(entry?.type || '').trim() === 'spell');
+    const moved = [
+      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+      ...(Array.isArray((ctx as any).lastMovedCards) ? (ctx as any).lastMovedCards : []),
+    ];
+    const card = (stackItem as any)?.card || stackItem || moved[moved.length - 1];
+    const power = readFiniteCardStat((card as any)?.power ?? (card as any)?.card?.power);
+    if (power !== null) return power;
+    const manaValue = getCardManaValue(card);
+    return manaValue === null ? 0 : manaValue;
+  }
+  if (/for each card put into your hand this way/.test(raw)) {
+    const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];
+    const ctxMoved = Array.isArray((ctx as any).lastMovedCards) ? (ctx as any).lastMovedCards : [];
+    const cards = moved.length > 0 ? moved : ctxMoved;
+    return Math.max(0, cards.length);
+  }
+  const voteMatch = raw.match(/for each (\w+) vote/);
+  if (voteMatch) {
+    const choice = String(voteMatch[1] || '').trim().toLowerCase();
+    const fromCtx = Number((ctx as any)?.voteChoiceCounts?.[choice] ?? (ctx as any)?.lastVoteResults?.[choice]);
+    const fromState = Number((state as any)?.lastVoteResults?.[choice] ?? (state as any)?.voteResults?.[choice]);
+    const count = Number.isFinite(fromCtx) ? fromCtx : fromState;
+    const perVote = raw.match(/^(\d+)\b/) ? Number(raw.match(/^(\d+)/)?.[1]) : 1;
+    const votes = Number.isFinite(count) ? Math.max(0, count) : 0;
+    return Math.max(0, (Number.isFinite(perVote) ? perVote : 1) * votes);
   }
 
   const moved = [
@@ -898,7 +948,12 @@ export function applyDealDamageStep(
   return {
     applied: false,
     message: `Skipped deal damage (unsupported target): ${step.raw}`,
-    reason: 'unsupported_target',
+    reason: /\bany target\b/i.test(String((step.target as any)?.text || step.raw || ''))
+      ? 'player_choice_required'
+      : 'unsupported_target',
+    ...(/\bany target\b/i.test(String((step.target as any)?.text || step.raw || ''))
+      ? { options: { classification: 'player_choice' as const } }
+      : {}),
   };
 }
 

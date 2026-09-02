@@ -191,15 +191,9 @@ export function applyMoveZoneStep(
       step,
     });
 
-    if (conditionEvaluation === null) {
-      return {
-        applied: false,
-        message: `Skipped move zone (unsupported condition): ${step.raw}`,
-        reason: 'unsupported_selector',
-      };
-    }
-
-    if (conditionEvaluation === false) {
+    if (conditionEvaluation === null || conditionEvaluation === false) {
+      // Rider like "if a Hero enters this way" is applied after the move, not as a
+      // pre-filter. An unrecognized rider must not skip the mandatory zone change.
       effectiveWithCounters = undefined;
     }
   }
@@ -743,7 +737,8 @@ export function applyMoveZoneStep(
     return {
       applied: false,
       message: `Skipped move zone (library placement is a player choice): ${step.raw}`,
-      reason: 'unsupported_destination',
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
     };
   }
 

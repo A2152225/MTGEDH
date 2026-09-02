@@ -70,6 +70,34 @@ export function tryEvaluateConditionalKicked(
     findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, idRaw)
   );
 
+  if (
+    normalizedRaw === "this creature's emerge cost was paid" ||
+    normalizedRaw === 'this creature emerge cost was paid' ||
+    normalizedRaw === 'its emerge cost was paid' ||
+    normalizedRaw === 'emerge cost was paid'
+  ) {
+    const explicit =
+      (ctx as any)?.emergeCostPaid ??
+      (ctx as any)?.emergePaid ??
+      (sourceRefForEarlyChecks as any)?.emergeCostPaid ??
+      (sourceRefForEarlyChecks as any)?.card?.emergeCostPaid;
+    if (typeof explicit === 'boolean') return explicit;
+    return false;
+  }
+
+  const castUsingKeyword = normalizedRaw.match(/^(?:this spell|it) was cast using ([a-z]+)$/i);
+  if (castUsingKeyword) {
+    const keyword = String(castUsingKeyword[1] || '').trim().toLowerCase();
+    const paidKey = `${keyword}Paid`;
+    const explicit =
+      (ctx as any)?.[paidKey]
+      ?? (ctx.selectorContext as any)?.[paidKey]
+      ?? (sourceRefForEarlyChecks as any)?.[paidKey]
+      ?? (sourceRefForEarlyChecks as any)?.card?.[paidKey];
+    if (typeof explicit === 'boolean') return explicit;
+    return false;
+  }
+
   if (normalizedRaw === 'it was kicked' || normalizedRaw === 'this spell was kicked') {
     const kicked = resolveKickedStatus(nextState, ctx, sourceRefForEarlyChecks);
     return kicked === null ? null : kicked;

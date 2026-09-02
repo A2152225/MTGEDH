@@ -39,5 +39,5 @@ export function resolveContextualCreature(
     if (match && permanentMatchesType(match, 'creature')) return match;
   }
   const creatures = battlefield.filter((perm) => permanentMatchesType(perm, 'creature'));
-  return creatures.length === 1 ? creatures[0] : creatures.find((perm) => permanentMatchesType(perm, 'creature'));
+  return creatures.length === 1 ? creatures[0] : undefined;
 }

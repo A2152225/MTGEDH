@@ -466,15 +466,37 @@ export function evaluateBatch369BulkConditionalClause(params: Batch369BulkParams
       String(ctx.targetPermanentId || ctx.selectorContext?.targetPermanentId || '').trim(),
       String((ctx as any)?.targetPermanentId2 || (ctx as any)?.secondTargetPermanentId || '').trim(),
       ...(Array.isArray((ctx as any)?.thoseCreatureIds) ? (ctx as any).thoseCreatureIds : []),
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim())
+        : []),
     ].filter(Boolean);
-    if (ids.length < 2) return null;
     const battlefield = getProcessedBattlefield(nextState) as any[];
-    const a = findObjectByIdInState(nextState, battlefield, ids[0]);
-    const b = findObjectByIdInState(nextState, battlefield, ids[1]);
-    if (!a || !b) return null;
-    const ownerA = String((a as any)?.controller || '').trim();
-    const ownerB = String((b as any)?.controller || '').trim();
+    const unique: any[] = [];
+    const seen = new Set<string>();
+    for (const id of ids) {
+      if (!id || seen.has(id)) continue;
+      const perm = findObjectByIdInState(nextState, battlefield, id);
+      if (!perm || !params.objectHasType(perm, 'creature')) continue;
+      seen.add(id);
+      unique.push(perm);
+    }
+    if (unique.length < 2) return null;
+    const ownerA = String((unique[0] as any)?.controller || '').trim();
+    const ownerB = String((unique[1] as any)?.controller || '').trim();
     return ownerA !== String(controllerId || '').trim() && ownerB !== String(controllerId || '').trim();
+  }
+
+  const powerGteMatch = normalizedRaw.match(
+    /^(?:her|his|its|this creature's|this permanent's) power is (\d+) or greater$/,
+  );
+  if (powerGteMatch) {
+    const needed = Number(powerGteMatch[1]);
+    const source = getContextSourceObject(ctx, (idRaw: string) =>
+      findObjectByIdInState(nextState, getProcessedBattlefield(nextState) as any, idRaw)
+    );
+    if (!source) return null;
+    const power = params.getCreaturePower(source);
+    return Number.isFinite(power) && Number.isFinite(needed) ? power >= needed : null;
   }
 
   if (normalizedRaw === 'there are ten or more creature cards total in all graveyards') {

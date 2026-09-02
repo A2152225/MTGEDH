@@ -390,7 +390,13 @@ export function parseMoveZoneCountTargetBattlefieldBounce(what: {
     const selectorText = `target ${String(anotherTargetMatch[1] || '').trim()}`;
     if (selectorText.length > 7) return { count: 1, selectorText };
   }
-  let match = raw.match(/^up to ([a-z0-9]+)\s+target\s+(.+)$/i);
+  let match = raw.match(/^up to ([a-z0-9]+)\s+other\s+target\s+(.+)$/i);
+  if (match) {
+    const count = parseSmallNumberWord(String(match[1] || '').trim());
+    const selectorText = `target ${String(match[2] || '').trim()}`;
+    if (count && count >= 1 && selectorText) return { count, selectorText };
+  }
+  match = raw.match(/^up to ([a-z0-9]+)\s+target\s+(.+)$/i);
   if (match && !/^non[a-z-]+\s+/i.test(String(match[2] || '').trim())) {
     const count = parseSmallNumberWord(String(match[1] || '').trim());
     const selectorText = `target ${String(match[2] || '').trim()}`;

@@ -19,6 +19,7 @@
     "trigger:effect-length-audit": "node --enable-source-maps --import tsx/esm scripts/trigger-effect-length-audit.ts",
     "executor:coverage": "node --enable-source-maps --import tsx/esm scripts/executor-coverage-audit.ts",
     "oracle-ir:live-seam": "node --enable-source-maps --import tsx/esm scripts/oracle-ir-live-seam-audit.ts",
+    "oracle-ir:corpus-canary": "node --enable-source-maps --import tsx/esm scripts/oracle-ir-corpus-canary.ts",
     "planeswalker:coverage": "node --enable-source-maps --import tsx/esm scripts/planeswalker-coverage.ts",
     "oracle-ir:delta": "node --enable-source-maps --import tsx/esm scripts/oracle-delta-coverage-audit.ts",
     "oracle-ir:delta:probe": "node --enable-source-maps --import tsx/esm scripts/oracle-delta-probe-gaps.ts",

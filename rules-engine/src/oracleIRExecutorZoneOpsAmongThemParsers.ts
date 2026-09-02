@@ -448,7 +448,10 @@ export function parseMoveZoneTypedCardFromAmongThem(
   const raw = String((what as any).text || '').trim();
   if (!raw) return null;
 
-  const cleaned = raw.replace(/[.\s]+$/g, '').trim();
+  const cleaned = raw
+    .replace(/[.\s]+$/g, '')
+    .replace(/\bfrom among the revealed cards\b/gi, 'from among them')
+    .trim();
 
   const splitAmongThem = parseAmongThemSplitFromMoveZoneParts(cleaned, step);
   if (splitAmongThem) return splitAmongThem;

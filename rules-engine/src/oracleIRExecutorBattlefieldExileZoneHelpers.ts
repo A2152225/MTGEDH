@@ -198,6 +198,7 @@ export function exileContextualSourceCardFromZone(
 
 export function normalizeExileTargetReferenceText(value: string): string {
   return normalizeBattlefieldTargetReferenceText(value)
+    .replace(/^(?:devoid|convoke|delve|flash|cascade|storm|rebound)\s+/i, '')
     .replace(/^exile\s+/i, '')
     .replace(
       /\s+with\s+(?:\d+|a|an|x|one|two|three|four|five|six|seven|eight|nine|ten)\s+time\s+counters?\s+on\s+it$/i,

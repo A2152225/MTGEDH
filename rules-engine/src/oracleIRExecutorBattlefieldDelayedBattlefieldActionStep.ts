@@ -21,9 +21,60 @@ import {
 } from './oracleIRExecutorBattlefieldSacrificeWhat';
 import { permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
+import { typeLineHasSubtype } from './oracleIRExecutorBattlefieldSubtypeUtils';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { trySpecialScheduleDelayedBattlefieldActionStep } from './oracleIRExecutorSpecialTargetHandlers';
 import { DelayedTriggerTiming } from './delayedTriggeredAbilities';
+
+function resolveDelayedDestroyFallbackPermanents(
+  battlefield: readonly BattlefieldPermanent[],
+  step: Extract<OracleEffectStep, { kind: 'schedule_delayed_battlefield_action' }>,
+  ctx: OracleIRExecutionContext,
+): BattlefieldPermanent[] {
+  const objectText = `${String((step.object as any)?.text || '')} ${String(step.raw || '')}`;
+  const sourceId = String(ctx.sourceId || '').trim();
+  const hostId = String(
+    ctx.targetCreatureId ||
+      ctx.targetPermanentId ||
+      ctx.selectorContext?.targetCreatureId ||
+      ctx.selectorContext?.combatOpponentCreatureId ||
+      '',
+  ).trim();
+
+  if (/all equipment attached to that creature/i.test(objectText)) {
+    if (!hostId) return [];
+    return battlefield.filter((perm: any) => {
+      if (!permanentMatchesType(perm, 'artifact') || !typeLineHasSubtype(perm, 'equipment')) return false;
+      return String((perm as any)?.attachedTo || '').trim() === hostId;
+    });
+  }
+
+  if (/that wall/i.test(objectText)) {
+    const boundIds = new Set(buildContextualBattlefieldTargetIds(battlefield, ctx, true, 'creature'));
+    const walls = battlefield.filter((perm: any) => typeLineHasSubtype(perm, 'wall'));
+    const boundWall = walls.find((perm: any) => boundIds.has(String(perm?.id || '').trim()));
+    if (boundWall) return [boundWall];
+    if (walls.length === 1) return walls;
+    return [];
+  }
+
+  if (/it and all creatures it blocked/i.test(objectText)) {
+    const source = sourceId
+      ? battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId)
+      : undefined;
+    if (!source) return [];
+    const sourceIdNorm = String((source as any)?.id || '').trim();
+    const blocked = battlefield.filter((perm: any) => {
+      const blocking = Array.isArray((perm as any)?.blockedBy) ? (perm as any).blockedBy : [];
+      const sourceBlocking = Array.isArray((source as any)?.blocking) ? (source as any).blocking : [];
+      const permId = String(perm?.id || '').trim();
+      return blocking.includes(sourceIdNorm) || sourceBlocking.includes(permId);
+    });
+    return [source, ...blocked];
+  }
+
+  return [];
+}
 
 export function applyScheduleDelayedBattlefieldActionStep(
   state: GameState,
@@ -53,12 +104,19 @@ export function applyScheduleDelayedBattlefieldActionStep(
         : DelayedTriggerTiming.NEXT_END_STEP;
 
   if (step.action === 'exile') {
+    const recentTokenTargets = resolveRecentlyCreatedTokenPermanents(battlefield, step.object as any, runtime);
     const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.object as any, runtime);
     const permanents =
-      recentTargets.length > 0
-        ? recentTargets
-        : resolveDirectBattlefieldPermanents(battlefield, step.object as any, ctx);
+      recentTokenTargets.length > 0
+        ? recentTokenTargets
+        : recentTargets.length > 0
+          ? recentTargets
+          : resolveDirectBattlefieldPermanents(battlefield, step.object as any, ctx);
     if (permanents.length === 0) {
+      const objectText = `${String((step.object as any)?.text || '')} ${String(step.raw || '')}`;
+      if (/\b(?:the|those)\s+tokens\b/i.test(objectText) || /exile the tokens\b/i.test(objectText)) {
+        return { applied: true, state, log: ['No created tokens to exile later'] };
+      }
       return {
         applied: false,
         message: `Skipped delayed exile scheduling (no deterministic target): ${step.raw}`,
@@ -107,11 +165,18 @@ export function applyScheduleDelayedBattlefieldActionStep(
 
   if (step.action === 'destroy') {
     const recentTargets = resolveRecentlyMovedBattlefieldPermanents(battlefield, step.object as any, runtime);
-    const permanents =
+    let permanents =
       recentTargets.length > 0
         ? recentTargets
         : resolveDirectBattlefieldPermanents(battlefield, step.object as any, ctx);
     if (permanents.length === 0) {
+      permanents = resolveDelayedDestroyFallbackPermanents(battlefield, step, ctx);
+    }
+    if (permanents.length === 0) {
+      const objectText = `${String((step.object as any)?.text || '')} ${String(step.raw || '')}`;
+      if (/all equipment attached to that creature/i.test(objectText) || /that wall/i.test(objectText)) {
+        return { applied: true, state, log: ['No matching permanents to destroy later'] };
+      }
       return {
         applied: false,
         message: `Skipped delayed destroy scheduling (no deterministic target): ${step.raw}`,

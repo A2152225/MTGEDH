@@ -421,19 +421,17 @@ export function pruneFirebendingReminderAbilities(
       return [];
     }
 
-    if (!normalizedText.includes('firebending')) {
-      return [ability];
-    }
-
     const nextSteps = ability.steps.filter((step) => {
       if (step.kind !== 'unknown') {
         return true;
       }
 
-      return !/^this mana lasts until end of combat$/i.test(normalizeReminderStepRaw(step));
+      return !/^this mana lasts until end of combat\.?\)?.*$/i.test(normalizeReminderStepRaw(step));
     });
 
-    return nextSteps.length === ability.steps.length ? [ability] : [{ ...ability, steps: nextSteps }];
+    if (nextSteps.length === ability.steps.length) return [ability];
+    if (nextSteps.length === 0) return [];
+    return [{ ...ability, steps: nextSteps }];
   });
 }
 
@@ -723,6 +721,24 @@ export function pruneRedundantSpellCantBeCounteredAbilities(
     }
 
     return nextSteps.length > 0 ? [{ ...ability, steps: nextSteps }] : [];
+  });
+}
+
+export function pruneReinforceReminderAddCounterSteps(
+  abilities: readonly OracleIRAbility[],
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const blob = `${String(ability.text || '')} ${String((ability as any).effectText || '')}`;
+    if (!/reinforce\s+\d+/i.test(blob)) return ability;
+    const nextSteps = ability.steps.filter((step) => {
+      if (step.kind !== 'add_counter') return true;
+      const raw = normalizeOracleText(String(step.raw || ''))
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+      return !/^put (?:a|\d+|two|three|four|five|six) \+1\/\+1 counters? on target creature$/.test(raw);
+    });
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });
 }
 

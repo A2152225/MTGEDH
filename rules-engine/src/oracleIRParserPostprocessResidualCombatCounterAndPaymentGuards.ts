@@ -199,12 +199,13 @@ export function parseResidualCombatCounterAndPaymentGuardsTwo(
     } as unknown as OracleEffectStep];
   }
 
-  if (/^you\s+may\s+cast\s+spells\s+this\s+turn\s+as\s+though\s+they\s+had\s+flash$/i.test(raw)) {
+  if (/^(?:you\s+may\s+)?cast\s+(?:(.+?)\s+)?spells\s+this\s+turn\s+as\s+though\s+they\s+had\s+flash$/i.test(raw)) {
+    const spellText = String((raw.match(/cast\s+(.+?)\s+spells\s+this\s+turn/i) || [])[1] || 'spells').trim();
     return [{
       kind: 'grant_temporary_ability',
       target: parseObjectSelector('you'),
       duration: 'this_turn',
-      effectText: ['may cast spells as though they had flash'],
+      effectText: [`may cast ${spellText === 'spells' ? 'spells' : `${spellText} spells`} as though they had flash`],
       raw,
       ...sequence,
     } as unknown as OracleEffectStep];

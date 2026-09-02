@@ -65,6 +65,7 @@ describe('trigger copy_permanent patterns', () => {
   });
 
   it('applies Permeating Mass copy when that_creature is provided in trigger context', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
     const gameId = 'permeating_mass_copy';
     const game = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;

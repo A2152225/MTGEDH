@@ -588,7 +588,7 @@ export function parseTriggerResidualTargetedPtAndCombatRestrictionsOne(
     return [createSemanticStaticGrantStep('an opponent', raw, raw, sequence)];
   }
 
-  if (/^you may choose new targets for the copies?\.?$/i.test(raw)) {
+  if (/^you may choose new targets for the cop(?:y|ies)(?: (?:you|they) control)?\.?$/i.test(raw)) {
     return [];
   }
 

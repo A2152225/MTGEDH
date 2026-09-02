@@ -56,14 +56,27 @@ export function trySpecialCopyPermanentStep(
   const applyCopyToTargets = (targetIds: string[], sourceCard: any): SpecialTargetStepResult => {
     const copiedName = String(sourceCard?.name || '').trim();
     const sourceTypeLine = String(sourceCard?.type_line || '').trim();
+    const copiedPower = Number.parseInt(String(sourceCard?.power ?? ''), 10);
+    const copiedToughness = Number.parseInt(String(sourceCard?.toughness ?? ''), 10);
     const nextBattlefield = battlefield.map((perm: any) => {
       const id = String(perm?.id || '').trim();
       if (!targetIds.includes(id)) return perm;
+      const existingCard = perm?.card && typeof perm.card === 'object' ? { ...perm.card } : {};
+      const nextCard = {
+        ...existingCard,
+        ...(copiedName ? { name: copiedName } : {}),
+        ...(sourceTypeLine ? { type_line: sourceTypeLine } : {}),
+        ...(Number.isFinite(copiedPower) ? { power: String(copiedPower) } : {}),
+        ...(Number.isFinite(copiedToughness) ? { toughness: String(copiedToughness) } : {}),
+      };
       return {
         ...perm,
         ...(copiedName ? { name: copiedName } : {}),
         ...(sourceTypeLine ? { cardType: sourceTypeLine, type_line: sourceTypeLine } : {}),
+        ...(Number.isFinite(copiedPower) ? { power: copiedPower, basePower: copiedPower } : {}),
+        ...(Number.isFinite(copiedToughness) ? { toughness: copiedToughness, baseToughness: copiedToughness } : {}),
         copiedFromCardId: String(sourceCard?.id || '').trim() || undefined,
+        card: nextCard,
       };
     });
     return {
@@ -113,8 +126,10 @@ export function trySpecialCopyPermanentStep(
   if (/that creature becomes a copy of this creature/.test(raw) || /it becomes a copy of this creature/.test(raw)) {
     const target = resolveContextualCreature(battlefield, ctx);
     const source = resolveSourcePermanent(battlefield, ctx);
-    if (!target || !source) return null;
-    return applyCopyToTargets([String((target as any)?.id || '').trim()], (source as any)?.card || source);
+    const targetId = String((target as any)?.id || '').trim();
+    const sourcePermanentId = String((source as any)?.id || '').trim();
+    if (!target || !source || !targetId || targetId === sourcePermanentId) return null;
+    return applyCopyToTargets([targetId], (source as any)?.card || source);
   }
 
   if (/this enchantment becomes a copy of that card/.test(raw)) {

@@ -20,7 +20,10 @@ import {
   hasNonBandingKeywordOnlyStaticText,
   isKeywordOnlyStaticAbilityText,
 } from './oracleIRParserPostprocessKeywordStaticGrantSteps';
-import { normalizeOracleText } from './oracleIRParserUtils';
+import {
+  normalizeOracleText,
+  parseObjectSelector,
+} from './oracleIRParserUtils';
 import { parseKeywordsFromOracleText } from './oracleTextParserSupport';
 
 export function repairSubjectlessDrawAfterZoneShuffleAbilities(
@@ -349,23 +352,37 @@ export function pruneExternallyHandledStaticUnknownAbilities(
   });
 }
 
-function isExternallyHandledTemporaryLandBonusUnknownStep(step: OracleEffectStep | undefined): boolean {
-  if (step?.kind !== 'unknown') return false;
+function lowerTemporaryLandBonusUnknownStep(step: OracleEffectStep | undefined): OracleEffectStep | null {
+  if (step?.kind !== 'unknown') return null;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/[.)\s]+$/g, '')
     .trim();
-  return /^you may play (?:(?:up to )?(?:a|an|one|two|three|four|five|\d+)) additional lands? this turn$/i.test(normalized);
+  if (!/^you may play (?:(?:up to )?(?:a|an|one|two|three|four|five|\d+)) additional lands? this turn$/i.test(normalized)
+    && !/^play (?:(?:up to )?(?:a|an|one|two|three|four|five|\d+)) additional lands? this turn$/i.test(normalized)) {
+    return null;
+  }
+  return {
+    kind: 'grant_static_ability',
+    target: parseObjectSelector('you'),
+    effectText: [normalized],
+    duration: 'this_turn',
+    raw: normalized,
+  } as OracleEffectStep;
 }
 
 export function pruneExternallyHandledTemporaryLandBonusUnknownSteps(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
-  return abilities.flatMap((ability) => {
-    const nextSteps = ability.steps.filter((step) => !isExternallyHandledTemporaryLandBonusUnknownStep(step));
-    if (nextSteps.length === ability.steps.length) return [ability];
-    if (nextSteps.length === 0) return [];
-    return [{ ...ability, steps: nextSteps }];
+  return abilities.map((ability) => {
+    let changed = false;
+    const nextSteps = ability.steps.map((step) => {
+      const lowered = lowerTemporaryLandBonusUnknownStep(step);
+      if (!lowered) return step;
+      changed = true;
+      return lowered;
+    });
+    return changed ? { ...ability, steps: nextSteps } : ability;
   });
 }
 

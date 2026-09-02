@@ -458,18 +458,29 @@ export function tryApplyMoveZoneGuardsFromGraveyardSelectors(args: MoveZoneGuard
     return finalizeAppliedResult(result);
   }
 
-  if (parsedSingleCardExiledWithIt && step.to === 'graveyard') {
+  if (parsedSingleCardExiledWithIt && (step.to === 'graveyard' || step.to === 'hand')) {
     const sourceId = String(ctx.sourceId || '').trim();
     const matches = findCardsExiledWithSource(nextState, sourceId, { cardType: 'any' });
     const preferred = getChosenObjectIds(ctx);
+    const atRandom = /\bat random\b/i.test(`${String((step.what as any)?.text || '')} ${String(step.raw || '')}`);
     const chosen =
-      preferred.length > 0
-        ? matches.find(match => preferred.includes(match.cardId)) || matches[0]
-        : matches[0];
+      matches.length === 0
+        ? undefined
+        : atRandom
+          ? matches[Math.floor(Math.random() * matches.length)]
+          : preferred.length > 0
+            ? matches.find(match => preferred.includes(match.cardId)) || matches[0]
+            : matches[0];
     if (!chosen) {
       return buildAppliedResult({ state: nextState, log: [`No card exiled with source: ${step.raw}`] });
     }
-    const result = moveTargetedCardFromExile(nextState, chosen.playerId, chosen.cardId, 'any', 'graveyard');
+    const result = moveTargetedCardFromExile(
+      nextState,
+      chosen.playerId,
+      chosen.cardId,
+      'any',
+      step.to === 'hand' ? 'hand' : 'graveyard',
+    );
     return finalizeAppliedResult(result);
   }
 

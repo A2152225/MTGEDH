@@ -466,8 +466,9 @@ export function applyExileStep(
     if (toRemove.length === 0) {
       return {
         applied: false,
-        message: `Skipped exile (unsupported target): ${step.raw}`,
-        reason: 'unsupported_target',
+        message: `Skipped exile (requires choosing two targets): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
       };
     }
     const removedIds = new Set<string>(toRemove.map(perm => perm.id));
@@ -655,6 +656,25 @@ export function applyExileStep(
       toRemove = candidates.slice(0, 1);
     }
     if (toRemove.length === 0) {
+      const namedSelfTarget = isNamedSelfSacrificeReference(
+        { kind: 'raw', text: normalizedExileTargetText } as any,
+        ctx,
+      );
+      if (namedSelfTarget) {
+        const stackExile = exileSourceStackObject(state, ctx);
+        if (stackExile) {
+          return { applied: true, state: stackExile.state, log: stackExile.log };
+        }
+        const zoneExile = exileContextualSourceCardFromZone(state, ctx);
+        if (zoneExile) {
+          return zoneExile;
+        }
+        return {
+          applied: true,
+          state,
+          log: [`Exiled source spell (already left the stack): ${step.raw}`],
+        };
+      }
       return {
         applied: false,
         message: `Skipped exile (no deterministic target): ${step.raw}`,
@@ -733,8 +753,25 @@ export function applyExileStep(
 
     return {
       applied: false,
-      message: `Skipped exile (unsupported target): ${step.raw}`,
-      reason: 'unsupported_target',
+      message: /two target (?:creatures?|lands?|permanents?)(?: and\/or (?:creatures?|lands?))?(?: you control)?/i.test(
+        `${normalizedExileTargetText} ${String(step.raw || '')}`,
+      )
+        ? `Skipped exile (requires choosing two targets): ${step.raw}`
+        : /\btarget\b/i.test(`${normalizedExileTargetText} ${String(step.raw || '')}`)
+          ? `Skipped exile (requires choosing a target): ${step.raw}`
+        : `Skipped exile (unsupported target): ${step.raw}`,
+      reason: /two target (?:creatures?|lands?|permanents?)(?: and\/or (?:creatures?|lands?))?(?: you control)?/i.test(
+        `${normalizedExileTargetText} ${String(step.raw || '')}`,
+      )
+        ? 'player_choice_required'
+        : /\btarget\b/i.test(`${normalizedExileTargetText} ${String(step.raw || '')}`)
+          ? 'player_choice_required'
+        : 'unsupported_target',
+      ...(/two target (?:creatures?|lands?|permanents?)(?: and\/or (?:creatures?|lands?))?(?: you control)?|\btarget\b/i.test(
+        `${normalizedExileTargetText} ${String(step.raw || '')}`,
+      )
+        ? { options: { classification: 'player_choice' as const } }
+        : {}),
     };
   }
 

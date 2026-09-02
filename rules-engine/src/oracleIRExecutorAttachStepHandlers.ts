@@ -174,8 +174,7 @@ function resolveBattlefieldPermanentBySelector(
     const preferred = matches.filter(perm => chosenObjectIds.includes(String((perm as any)?.id || '').trim()));
     if (preferred.length === 1) return String((preferred[0] as any)?.id || '').trim();
     if (matches.length === 1) return String((matches[0] as any)?.id || '').trim();
-    if (matches.length > 1) return 'player_choice_required';
-    return '';
+    return 'player_choice_required';
   }
 
   if (/^target legendary creature you control$/.test(normalized)) {

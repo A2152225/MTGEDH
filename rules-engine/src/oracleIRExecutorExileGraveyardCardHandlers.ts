@@ -23,7 +23,14 @@ type ExileGraveyardCardResult =
   | {
       readonly applied: false;
       readonly message: string;
-      readonly reason: 'no_deterministic_target' | 'unsupported_target';
+      readonly reason:
+        | 'no_deterministic_target'
+        | 'unsupported_target'
+        | 'player_choice_required'
+        | 'impossible_action';
+      readonly options?: {
+        readonly classification?: 'unsupported' | 'ambiguous' | 'player_choice' | 'invalid_input';
+      };
     };
 
 function isTargetCardFromGraveyardText(text: string): boolean {
@@ -111,6 +118,57 @@ function syncExiledCardToOwnerZones(
   } as GameState;
 }
 
+function listEligibleGraveyardCards(
+  state: GameState,
+  controllerId: string,
+  opponentOnly: boolean,
+): Array<{ readonly playerId: PlayerID; readonly card: any }> {
+  const out: Array<{ readonly playerId: PlayerID; readonly card: any }> = [];
+  const seen = new Set<string>();
+  const zones = ((state as any).zones || {}) as Record<string, { graveyard?: any[] }>;
+  for (const player of state.players || []) {
+    const playerId = String(player?.id || '').trim() as PlayerID;
+    if (!playerId) continue;
+    if (opponentOnly && playerId === controllerId) continue;
+    const piles = [
+      ...(Array.isArray((player as any)?.graveyard) ? (player as any).graveyard : []),
+      ...(Array.isArray(zones[playerId]?.graveyard) ? zones[playerId].graveyard : []),
+    ];
+    for (const card of piles) {
+      const id = String(card?.id || '').trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push({ playerId, card });
+    }
+  }
+  return out;
+}
+
+function exileFoundGraveyardCard(
+  state: GameState,
+  found: { readonly playerId: PlayerID; readonly card: any },
+): ExileGraveyardCardResult | null {
+  const cardId = String(found.card?.id || '').trim();
+  if (!cardId) return null;
+  const seeded = ensureCardOnPlayerGraveyard(state, found.playerId, found.card);
+  const moved = moveTargetedCardFromGraveyard(
+    seeded,
+    found.playerId,
+    cardId,
+    { cardType: 'any' },
+    'exile',
+  );
+  if (!moved || moved.kind !== 'applied') return null;
+  return {
+    applied: true,
+    state: syncExiledCardToOwnerZones(moved.state, found.playerId, found.card),
+    log: moved.log,
+    lastMovedCards: [found.card],
+    lastExiledCards: [found.card],
+    lastExiledCardCount: 1,
+  };
+}
+
 function findGraveyardCard(
   state: GameState,
   cardId: string,
@@ -145,34 +203,41 @@ export function tryApplyExileTargetCardFromGraveyard(
     targetText.replace(/\u2019/g, "'"),
   );
   const controllerId = String(ctx.controllerId || '').trim();
+  const boundIds = collectBoundCardIds(ctx);
+  const candidates: Array<{ readonly playerId: PlayerID; readonly card: any }> = [];
 
-  for (const cardId of collectBoundCardIds(ctx)) {
-    const found = findGraveyardCard(state, cardId);
-    if (!found) continue;
-    if (opponentOnly && found.playerId === controllerId) continue;
+  if (boundIds.length > 0) {
+    for (const cardId of boundIds) {
+      const found = findGraveyardCard(state, cardId);
+      if (!found) continue;
+      if (opponentOnly && found.playerId === controllerId) continue;
+      candidates.push(found);
+    }
+  }
+  // Leftover battlefield / stack ids in chosenObjectIds are not GY targets.
+  if (candidates.length === 0) {
+    candidates.push(...listEligibleGraveyardCards(state, controllerId, opponentOnly));
+  }
 
-    const seeded = ensureCardOnPlayerGraveyard(state, found.playerId, found.card);
-    const moved = moveTargetedCardFromGraveyard(
-      seeded,
-      found.playerId,
-      cardId,
-      { cardType: 'any' },
-      'exile',
-    );
-    if (!moved || moved.kind !== 'applied') continue;
+  if (candidates.length === 1) {
+    return exileFoundGraveyardCard(state, candidates[0]) || {
+      applied: false,
+      message: `Skipped exile (no graveyard target): ${step.raw}`,
+      reason: 'no_deterministic_target',
+    };
+  }
+  if (candidates.length === 0) {
     return {
-      applied: true,
-      state: syncExiledCardToOwnerZones(moved.state, found.playerId, found.card),
-      log: moved.log,
-      lastMovedCards: [found.card],
-      lastExiledCards: [found.card],
-      lastExiledCardCount: 1,
+      applied: false,
+      message: `Skipped exile (no graveyard target): ${step.raw}`,
+      reason: 'impossible_action',
     };
   }
 
   return {
     applied: false,
-    message: `Skipped exile (no graveyard target): ${step.raw}`,
-    reason: 'no_deterministic_target',
+    message: `Skipped exile (choose a graveyard card): ${step.raw}`,
+    reason: 'player_choice_required',
+    options: { classification: 'player_choice' },
   };
 }

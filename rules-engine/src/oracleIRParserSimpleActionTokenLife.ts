@@ -87,6 +87,17 @@ export function tryParseSimpleActionTokenLifeClauses(args: SimpleActionClausePar
       });
     }
 
+    const thisSpellCantBeCountered = clause.match(/^this spell can(?:not|(?:'|â€™)t) be countered$/i);
+    if (thisSpellCantBeCountered) {
+      return withMeta({
+        kind: 'grant_static_ability',
+        target: parseObjectSelector('this spell'),
+        effectText: ["can't be countered"],
+        duration: 'static',
+        raw: rawClause,
+      });
+    }
+
     const spellsCantBeCountered = clause.match(/^(.+?\s+spells?\s+you\s+control)\s+can(?:'|â€™)?t\s+be\s+countered$/i);
     if (spellsCantBeCountered) {
       return withMeta({
@@ -319,13 +330,15 @@ export function tryParseSimpleActionTokenLifeClauses(args: SimpleActionClausePar
       });
     }
 
-    const castAsThoughFlash = clause.match(/^(?:you\s+may\s+)?cast\s+(.+?)\s+spells\s+as\s+though\s+they\s+had\s+flash$/i);
+    const castAsThoughFlash = clause.match(/^(?:you\s+may\s+)?cast\s+(?:(.+?)\s+)?spells(?:\s+this\s+turn)?\s+as\s+though\s+they\s+had\s+flash$/i);
     if (castAsThoughFlash) {
+      const spellText = String(castAsThoughFlash[1] || '').trim();
+      const thisTurn = /\bthis\s+turn\b/i.test(clause);
       return withMeta({
-        kind: 'grant_static_ability',
-        target: parseObjectSelector(`you casting ${String(castAsThoughFlash[1] || '').trim()} spells`),
-        effectText: ['may cast as though they had flash'],
-        duration: 'static',
+        kind: thisTurn ? 'grant_temporary_ability' : 'grant_static_ability',
+        target: parseObjectSelector(spellText ? `you casting ${spellText} spells` : 'you'),
+        effectText: [spellText ? `may cast as though they had flash` : 'may cast spells as though they had flash'],
+        duration: thisTurn ? 'this_turn' : 'static',
         raw: rawClause,
       });
     }

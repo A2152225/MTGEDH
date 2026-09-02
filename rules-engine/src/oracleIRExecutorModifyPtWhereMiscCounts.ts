@@ -92,7 +92,7 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
   }
 
   {
-    const m = raw.match(/^x is the number of other creatures you control$/i);
+    const m = raw.match(/^x is the number of other creatures? you control$/i);
     if (m) {
       const excludedId = getExcludedId();
       return controlled.filter((p: any) => {
@@ -321,6 +321,22 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
         const playerId = String(player?.id || '').trim();
         if (!playerId || playerId === String(controllerId || '').trim()) return false;
         return Boolean(player?.investigatedThisWay);
+      }).length;
+    }
+  }
+
+  {
+    const m = raw.match(
+      /^x is the number of (?:noncreature, nonland|noncreature nonland) cards in your graveyard$/i,
+    );
+    if (m) {
+      const player = (state.players || []).find(
+        (entry: any) => String(entry?.id || '').trim() === String(controllerId || '').trim(),
+      ) as any;
+      const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
+      return graveyard.filter((card: any) => {
+        const typeLine = String((card as any)?.type_line || (card as any)?.typeLine || '').toLowerCase();
+        return !/\bcreature\b/.test(typeLine) && !/\bland\b/.test(typeLine);
       }).length;
     }
   }

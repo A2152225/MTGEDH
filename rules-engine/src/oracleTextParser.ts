@@ -107,6 +107,12 @@ function splitWhenWheneverTriggeredLine(text: string): {
  * Parse a triggered ability from oracle text line
  */
 export function parseTriggeredAbility(text: string): ParsedAbility | null {
+  // Delayed "When you next cast … this turn" is created by resolving a spell, not
+  // a card-level triggered ability. Leave it for delayed-trigger IR.
+  if (/^when you next (?:cast|play)\b/i.test(String(text || '').trim())) {
+    return null;
+  }
+
   const parseInterveningIfEffect = (
     triggerKeyword: 'when' | 'whenever' | 'at',
     triggerCondition: string,

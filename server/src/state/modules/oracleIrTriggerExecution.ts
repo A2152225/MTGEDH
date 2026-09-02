@@ -340,7 +340,9 @@ function resolveTriggerTargetBinding(
   // "put a +1/+1 counter on it"; the watcher itself remains the source for
   // "this creature" / "this permanent".
   const damagedPermanentId = String(
-    triggerItem?.effectData?.damagedPermanentId || '',
+    triggerItem?.effectData?.damagedPermanentId
+      || triggerItem?.effectData?.targetPermanentId
+      || '',
   ).trim();
   const discardedCardId = String(triggerItem?.effectData?.discardedCardId || '').trim();
   const boundGraveyardCardId = String(triggerItem?.boundGraveyardCardId || '').trim();

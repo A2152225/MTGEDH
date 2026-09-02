@@ -41,7 +41,7 @@ export function parseMoveZoneAllFromYourHand(what: { readonly kind: string; read
   if (!/\bfrom your hand\b/i.test(lower) && !/^all\s+cards?\s+from\s+your\s+hand(?:\s+face\s+down)?$/i.test(lower)) return null;
   if (/\b(and|or)\b/i.test(lower)) return null;
 
-  if (/^all\s+cards?\s+from\s+your\s+hand$/i.test(lower)) {
+  if (/^all\s+(?:the\s+)?cards?\s+from\s+your\s+hand$/i.test(lower)) {
     return { cardType: 'any' };
   }
 
@@ -448,10 +448,18 @@ export function parseMoveZoneMassBattlefieldCreatureBounce(what: {
       readonly excludeChosenCreatureType?: true;
       readonly excludeCardColor?: string;
       readonly eachCreatureWithoutCounter?: string;
+      readonly chosenCreaturesOnly?: true;
     }
   | null {
   if (what.kind !== 'raw') return null;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
+  if (
+    raw === 'each chosen creature' ||
+    raw === 'the chosen creatures' ||
+    raw === 'all chosen creatures'
+  ) {
+    return { chosenCreaturesOnly: true };
+  }
   const withoutCounterMatch = raw.match(/^each creature without a (\+1\/\+1) counter on it$/);
   if (withoutCounterMatch) {
     return { eachCreatureWithoutCounter: String(withoutCounterMatch[1] || '').trim() };

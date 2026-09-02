@@ -151,6 +151,29 @@ export function evaluateBatch378BulkConditionalClause(params: Batch378BulkParams
     return params.objectHasKeyword(ref, 'flying');
   }
 
+  {
+    const tokenSubtypeMatch = normalizedRaw.match(/^that token is an? (.+)$/i);
+    if (tokenSubtypeMatch) {
+      const subtype = String(tokenSubtypeMatch[1] || '').trim().toLowerCase();
+      if (!subtype) return null;
+      const createdIds = [
+        ...(Array.isArray((ctx as any)?.lastCreatedTokenIds) ? (ctx as any).lastCreatedTokenIds : []),
+        ...(Array.isArray((ctx as any)?.lastAntecedentBattlefieldPermanentIds)
+          ? (ctx as any).lastAntecedentBattlefieldPermanentIds
+          : []),
+      ]
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
+      const battlefield = getProcessedBattlefield(nextState) as any[];
+      const tokens = createdIds.length
+        ? battlefield.filter((perm) => createdIds.includes(String(perm?.id || '').trim()))
+        : [];
+      const subject = tokens[0] ?? params.getReferencedObject(nextState, ctx) ?? params.getConditionalSubjectCard(params);
+      if (!subject) return false;
+      return getExecutorTypeLineLower(subject).includes(subtype);
+    }
+  }
+
   if (normalizedRaw === "this spell is the first spell you've cast this game") {
     const count = Number((nextState as any)?.spellsCastThisGame?.[String(controllerId || '').trim()] ?? NaN);
     if (Number.isFinite(count)) return count === 0;

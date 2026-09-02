@@ -1,0 +1,41 @@
+---
+description: When writing or fixing vitest card/spell/trigger tests — use production IR flags, assert every oracle clause, and do not let leftover legacy mask incomplete IR
+globs: "**/*.{test,spec}.{ts,tsx}"
+alwaysApply: false
+---
+
+# Robust card-behavior tests
+
+Reins of Power stayed green for months under `ORACLE_IR_SPELL_PRIMARY=0` because **legacy finished the spell**. IR only untapped your creatures (substring `/untap all creatures you control/`) and later a second engine reversed the swap. The outcome asserts were already good; the **wrong engine** ran.
+
+## Use the live engine
+
+`server/tests/vitest.setup.ts` defaults `ORACLE_IR_*_PRIMARY=0`. Production is primary-on.
+
+- A test that a **card or ability works** must set `ORACLE_IR_SPELL_PRIMARY=1` and/or `ORACLE_IR_TRIGGER_PRIMARY=1`, or live in `npm run test:oracle-ir-migration`.
+- A PRIMARY=0 pass is not proof IR is correct.
+- If uncategorized IR fallback applied, legacy must **not** apply the same effect. Assert `appliedSteps` kinds and a **single** coherent `controlChangeEffects` batch (not two timestamps / a swapped-then-swapped-back board).
+- Files that unit-test `applyOracleIRFallbackForTriggeredEffect` (or other PRIMARY=0 seams) must **pin** `ORACLE_IR_TRIGGER_PRIMARY=0` in their own `beforeEach`. Census (`ORACLE_IR_CENSUS_*`) makes the fallback helper return 0 for owned effects; that is not 72 product bugs. Do not put those files in a census-on “does the card work?” run.
+
+## Assert every clause, from the failing start state
+
+- Start permanents where a no-op would fail (tapped if testing untap; `summoningSickness: false` if testing a steal).
+- One expect per oracle conjunct: yours **and** opponents; lands / non-matches unchanged; EOT cleanup reverts.
+- Parse `steps.map(s => s.kind)` is not enough. Execute those steps; server post-sync must not undo them (haste must not wipe steal sickness).
+- Prefix special-cases without an end-of-clause bound will steal compound selectors. If parse `target.text` is longer than the special-case, that handler must return null.
+
+## Not success
+
+- “Legacy handler ran”, `KNOWN_*` table rows, or `handled: true` when IR applied only part of a multi-step effect.
+
+Canonical fixtures: `server/tests/spell-control-change.integration.test.ts` (Reins) and `rules-engine/test/oracleIRReinsOfPowerExchange.test.ts`.
+
+## Corpus holes (not the fallback-seam file)
+
+The 72-test fallback file does **not** measure remaining IR coverage. Use:
+
+- `npm run oracle-ir:corpus-canary` — bounded commander sample; flags **owned but unexecuted** (wired, then skip). Must-cover list is asserted in `oracle-ir-corpus-canary.unit.test.ts` (includes Disposal Mummy unique opponent-GY exile and Green Sun's Twilight among-them choice). Multi-face cards are assessed per `card_faces`, not concatenated oracle (Maelstrom Artisan // Rocket Volley).
+- `npm run executor:coverage` — full trigger-effect dry-run (`EXECUTOR_COVERAGE_SCOPE=full_card` for permanents).
+- `npm run trigger:coverage` — detect + intervening-if + unknown IR steps.
+- `npm run oracle-ir:live-seam` — lords / compound timings / watchers outside the assisted fixture.
+- `npm run oracle-ir:delta` — new/changed oracle cards vs committed baseline.

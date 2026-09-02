@@ -14,22 +14,9 @@ import {
   createDelayedTriggerRegistry,
 } from '../../../../../rules-engine/src/delayedTriggeredAbilities.js';
 import { inferTriggeredAbilityTargetMetadata } from '../inferTriggeredAbilityTargetMetadata.js';
+import { delayedCleanupStackFieldsFromRegistry } from './delayed-registry-watcher-metadata.js';
 import { detectRequiresChoice } from './turn-phases-handlers/turnPhaseEffectChoiceHelpers.js';
 import type { EndStepTrigger } from './turn-phases-handlers/turnPhaseTriggerTypes.js';
-
-function readDelayedAntecedentIds(delayed: {
-  effectData?: Record<string, unknown>;
-  eventDataSnapshot?: { targetPermanentId?: string; chosenObjectIds?: readonly string[] };
-}): string[] {
-  const fromEffect = Array.isArray(delayed.effectData?.lastAntecedentBattlefieldPermanentIds)
-    ? delayed.effectData.lastAntecedentBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean)
-    : [];
-  const snapshotTarget = String(delayed.eventDataSnapshot?.targetPermanentId || '').trim();
-  return Array.from(new Set([
-    ...fromEffect,
-    ...(snapshotTarget ? [snapshotTarget] : []),
-  ]));
-}
 
 export function collectDelayedEndStepRegistryTriggers(
   ctx: GameContext,
@@ -69,7 +56,7 @@ export function collectDelayedEndStepRegistryTriggers(
   return delayedCheck.triggersToFire.map((delayed) => {
     const effect = String(delayed.effect || '').trim();
     const targetMetadata = inferTriggeredAbilityTargetMetadata(effect);
-    const lastAntecedentBattlefieldPermanentIds = readDelayedAntecedentIds(delayed);
+    const cleanupFields = delayedCleanupStackFieldsFromRegistry(delayed);
     return {
       permanentId: String(delayed.sourceId || ''),
       cardName: String(delayed.sourceName || 'Delayed trigger'),
@@ -81,11 +68,11 @@ export function collectDelayedEndStepRegistryTriggers(
       requiresChoice: detectRequiresChoice(effect) || targetMetadata.requiresTarget === true,
       stackItem: {
         ...targetMetadata,
-        lastAntecedentBattlefieldPermanentIds,
+        ...cleanupFields,
         effectData: {
           ...(delayed.effectData && typeof delayed.effectData === 'object' ? delayed.effectData : {}),
-          ...(lastAntecedentBattlefieldPermanentIds.length > 0
-            ? { lastAntecedentBattlefieldPermanentIds }
+          ...(cleanupFields.lastAntecedentBattlefieldPermanentIds.length > 0
+            ? { lastAntecedentBattlefieldPermanentIds: cleanupFields.lastAntecedentBattlefieldPermanentIds }
             : {}),
         },
       },

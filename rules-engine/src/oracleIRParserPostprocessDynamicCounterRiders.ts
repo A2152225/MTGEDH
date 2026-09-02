@@ -47,6 +47,7 @@ import {
   splitMillDrawLifeStep,
   splitMoveZoneAndLifeUnknownStep,
   splitSacrificeAndLifeStep,
+  splitSacrificeFollowOnInstructionsStep,
   splitTapAndCounterStep,
 } from './oracleIRParserPostprocessDiscardMillLifeStepSplitters';
 import {
@@ -225,6 +226,11 @@ function expandDynamicCounterRiderSteps(steps: readonly OracleEffectStep[]): Ora
     const parsedDiscardUnknown = parseDiscardUnknownStep(cleanedStep);
     if (parsedDiscardUnknown) {
       expanded.push(parsedDiscardUnknown);
+      continue;
+    }
+    const splitSacrificeFollowOn = splitSacrificeFollowOnInstructionsStep(cleanedStep);
+    if (splitSacrificeFollowOn) {
+      expanded.push(...splitSacrificeFollowOn);
       continue;
     }
     const splitSacrificeLife = splitSacrificeAndLifeStep(cleanedStep);

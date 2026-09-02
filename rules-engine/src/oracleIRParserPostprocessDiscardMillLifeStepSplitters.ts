@@ -193,6 +193,57 @@ function parseClauseUnknownStep(step: OracleEffectStep): OracleEffectStep | null
   return parsed && parsed.kind !== 'unknown' ? parsed : null;
 }
 
+function splitSacrificeFollowOnInstructionsStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'sacrifice') return null;
+  const whatText = String((step as { what?: { text?: string } }).what?.text || '').trim();
+  const followOn = whatText.match(
+    /^(it|this (?:creature|enchantment|artifact|permanent|land|aura|equipment))\s*,\s+(.+)$/i,
+  );
+  if (!followOn) return null;
+  const remainder = String(followOn[2] || '')
+    .replace(/[,\s]+$/g, '')
+    .trim();
+  if (!remainder) return null;
+  if (!/^(draw|put|gain|lose|create|exile|return|search|look|mill|scry|surveil|discard)\b/i.test(remainder)) {
+    return null;
+  }
+
+  const objectText = String(followOn[1] || '').trim();
+  const sacrificeStep = {
+    ...step,
+    what: parseObjectSelector(objectText),
+    raw: String(step.raw || '')
+      .replace(/,\s+[\s\S]+$/, '')
+      .trim() || `sacrifice ${objectText}`,
+  } as OracleEffectStep;
+
+  const remainderClauses = remainder
+    .split(/\s*,\s*(?:and\s+)?/i)
+    .map((clause) => clause.replace(/^and\s+/i, '').trim())
+    .filter(Boolean);
+  if (remainderClauses.length === 0) return [sacrificeStep];
+
+  const extra: OracleEffectStep[] = [];
+  for (const clause of remainderClauses) {
+    const clauseNormalized = normalizeClauseForParse(clause);
+    let parsed = tryParseSimpleActionClause({
+      clause: clauseNormalized.clause,
+      rawClause: clause,
+      withMeta: <T extends OracleEffectStep>(value: T) => value,
+    });
+    if (!parsed || parsed.kind === 'unknown') {
+      parsed = tryParseZoneAndRemovalClause({
+        clause: clauseNormalized.clause,
+        rawClause: clause,
+        withMeta: <T extends OracleEffectStep>(value: T) => value,
+      });
+    }
+    if (!parsed || parsed.kind === 'unknown') return null;
+    extra.push({ ...parsed, sequence: 'then' } as OracleEffectStep);
+  }
+  return [sacrificeStep, ...extra];
+}
+
 function splitSacrificeAndLifeStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
   if (step.kind !== 'sacrifice') return null;
   const raw = normalizeOracleText(String(step.raw || '')).replace(/^�\s*/, '').trim();
@@ -517,5 +568,6 @@ export {
   splitMillDrawLifeStep,
   splitMoveZoneAndLifeUnknownStep,
   splitSacrificeAndLifeStep,
+  splitSacrificeFollowOnInstructionsStep,
   splitTapAndCounterStep,
 };

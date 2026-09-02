@@ -196,7 +196,7 @@ export function parseMoveZoneSingleCardExiledWithIt(what: {
 }): boolean {
   if (what.kind !== 'raw') return false;
   const raw = String((what as any).text || '').trim().toLowerCase().replace(/[.\s]+$/g, '');
-  return raw === 'a card exiled with it';
+  return raw === 'a card exiled with it' || raw === 'a card exiled with it at random';
 }
 
 export function parseMoveZoneDiscardedCardFromYourGraveyard(what: {

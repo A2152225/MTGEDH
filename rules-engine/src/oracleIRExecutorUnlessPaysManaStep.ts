@@ -10,7 +10,7 @@ import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { UnlessPaysManaResult } from './oracleIRExecutorPlayerStepTypes';
 import { normalizeOracleManaCostString } from './oracleIRExecutorManaUtils';
-import { parseSupportedManaCostString } from './oracleIRExecutorPlayerGraveyardPermissionHelpers';
+import { parseEnergyCostAmount, parseSupportedManaCostString } from './oracleIRExecutorPlayerGraveyardPermissionHelpers';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { resolveUnlessPaysManaCostString } from './oracleIRExecutorUnlessPaysManaAmount';
 import { payManaCost } from './spellCasting';
@@ -137,6 +137,24 @@ export function evaluateUnlessPaysManaStep(
     : (resolvedMana || manaOptions[0] || step.mana);
   const manaCost = parseSupportedManaCostString(resolvedManaLabel, Number(ctx.xValue));
   if (!manaCost) {
+    const energyAmount = parseEnergyCostAmount(resolvedManaLabel || String(step.mana || ''));
+    if (energyAmount > 0) {
+      return {
+        applied: false,
+        message: `Skipped unless-pays-mana step (energy payment choice required): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: {
+          classification: 'player_choice',
+          metadata: {
+            payerId,
+            manaCost: resolvedManaLabel || step.mana,
+            energyAmount,
+            ...(boundSpellId ? { targetSpellId: boundSpellId } : {}),
+            ...(boundPermanentId ? { targetPermanentId: boundPermanentId } : {}),
+          },
+        },
+      };
+    }
     return {
       applied: false,
       message: `Skipped unless-pays-mana step (unsupported mana cost): ${step.raw}`,

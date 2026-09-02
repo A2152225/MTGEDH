@@ -57,6 +57,65 @@ export function parseCurrentResidualUnknownStepTail(
     return staticMetadata('named card option', raw);
   }
 
+  if (/^it\s+becomes\s+(?:day|night)$/i.test(raw)) {
+    return [{
+      kind: 'grant_static_ability',
+      target: parseObjectSelector('the game'),
+      effectText: [raw],
+      duration: 'static',
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
+  }
+
+  if (/^for\s+each\s+player,\s+you\s+choose\s+a\s+creature\s+that\s+player\s+controls$/i.test(raw)) {
+    return [{ kind: 'player_choice', choice: 'generic', raw, ...sequence } as unknown as OracleEffectStep];
+  }
+
+  if (/^(?:then\s+)?each\s+player\s+sacrifices\s+all\s+other\s+creatures\s+they\s+control\s+that\s+don(?:'|’)?t\s+share\s+a\s+creature\s+type\s+with\s+the\s+chosen\s+creature(?:\s+they\s+control)?$/i.test(raw)) {
+    return [{
+      kind: 'sacrifice',
+      who: parsePlayerSelector('each player'),
+      what: parseObjectSelector("all other creatures they control that don't share a creature type with the chosen creature they control"),
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
+  }
+
+  const winnowChooseThenSacrifice = raw.match(
+    /^for\s+each\s+player,\s+you\s+choose\s+a\s+creature\s+that\s+player\s+controls\.?\s+(?:then\s+)?each\s+player\s+sacrifices\s+all\s+other\s+creatures\s+they\s+control\s+that\s+don(?:'|’)?t\s+share\s+a\s+creature\s+type\s+with\s+the\s+chosen\s+creature(?:\s+they\s+control)?$/i,
+  );
+  if (winnowChooseThenSacrifice) {
+    return [
+      { kind: 'player_choice', choice: 'generic', raw, ...sequence } as unknown as OracleEffectStep,
+      {
+        kind: 'sacrifice',
+        who: parsePlayerSelector('each player'),
+        what: parseObjectSelector("all other creatures they control that don't share a creature type with the chosen creature they control"),
+        sequence: 'then',
+        raw,
+      } as unknown as OracleEffectStep,
+    ];
+  }
+
+  if (/^each\s+opponent\s+chooses\s+a\s+creature\s+they\s+control\.?\s+you\s+gain\s+control\s+of\s+those\s+creatures$/i.test(raw)) {
+    return [
+      { kind: 'player_choice', choice: 'generic', raw, ...sequence } as unknown as OracleEffectStep,
+      {
+        kind: 'gain_control',
+        what: parseObjectSelector('those creatures'),
+        newController: { kind: 'you' },
+        duration: 'indefinite',
+        raw,
+        ...sequence,
+      } as unknown as OracleEffectStep,
+    ];
+  }
+
+  if (/^each\s+opponent\s+chooses\s+a\s+creature\s+they\s+control$/i.test(raw)) {
+    return [{ kind: 'player_choice', choice: 'generic', raw, ...sequence } as unknown as OracleEffectStep];
+  }
+
   if (/^for\s+each\s+opponent,\s+exile\s+cards\s+from\s+the\s+top\s+of\s+their\s+library\s+until\s+you\s+exile\s+a\s+nonland\s+card$/i.test(raw)) {
     return staticMetadata('opponent library exile mode', raw);
   }
@@ -121,21 +180,48 @@ export function parseCurrentResidualUnknownStepTail(
     } as unknown as OracleEffectStep];
   }
 
-  const selfCreatureAnimation = raw.match(/^until\s+end\s+of\s+turn,\s+this\s+creature\s+becomes\s+a\s+([a-z][a-z -]+?)\s+with\s+base\s+power\s+and\s+toughness\s+(\d+)\/(\d+)(?:\s+and\s+gains\s+(.+))?$/i);
+  const selfCreatureAnimation = raw.match(/^until\s+end\s+of\s+turn,\s+(this\s+creature|target\s+creature)\s+becomes\s+a\s+([a-z][a-z -]+?)\s+with\s+base\s+power\s+and\s+toughness\s+(\d+)\/(\d+)(?:\s+and\s+gains\s+(.+))?$/i);
   if (selfCreatureAnimation) {
-    const typeText = String(selfCreatureAnimation[1] || '').trim();
-    const abilityText = String(selfCreatureAnimation[4] || '').trim();
+    const typeText = String(selfCreatureAnimation[2] || '').trim();
+    const abilityText = String(selfCreatureAnimation[5] || '').trim();
     return [{
       kind: 'animate_permanent',
-      target: parseObjectSelector('this creature'),
+      target: parseObjectSelector(String(selfCreatureAnimation[1] || 'this creature').trim()),
       addTypes: typeText ? [typeText] : ['creature'],
-      power: Number.parseInt(String(selfCreatureAnimation[2] || '0'), 10),
-      toughness: Number.parseInt(String(selfCreatureAnimation[3] || '0'), 10),
+      power: Number.parseInt(String(selfCreatureAnimation[3] || '0'), 10),
+      toughness: Number.parseInt(String(selfCreatureAnimation[4] || '0'), 10),
       ...(abilityText ? { abilities: [abilityText.toLowerCase()] } : {}),
       duration: 'end_of_turn',
       raw,
       ...sequence,
     } as unknown as OracleEffectStep];
+  }
+
+  const ptKeywordAndQuoted = raw.match(
+    /^(?:until\s+end\s+of\s+turn,\s+)?(target\s+creature(?:\s+you\s+control)?)\s+gets\s+([+-]\d+)\/([+-]\d+)\s+and\s+gains?\s+(flying|trample|vigilance|lifelink|deathtouch|reach|menace|haste|first strike|double strike)\s+and\s+"([^"]+)"?$/i,
+  );
+  if (ptKeywordAndQuoted) {
+    const target = parseObjectSelector(String(ptKeywordAndQuoted[1] || '').trim());
+    return [
+      {
+        kind: 'modify_pt',
+        target,
+        power: Number.parseInt(String(ptKeywordAndQuoted[2] || '0'), 10),
+        toughness: Number.parseInt(String(ptKeywordAndQuoted[3] || '0'), 10),
+        duration: 'end_of_turn',
+        raw,
+        ...sequence,
+      } as unknown as OracleEffectStep,
+      {
+        kind: 'grant_temporary_ability',
+        target,
+        duration: 'end_of_turn',
+        abilities: [String(ptKeywordAndQuoted[4] || '').trim().toLowerCase()],
+        effectText: [String(ptKeywordAndQuoted[5] || '').trim()],
+        raw,
+        sequence: 'then',
+      } as unknown as OracleEffectStep,
+    ];
   }
 
   const hoistedResidualCombatCounterAndPaymentGuardsThree = parseResidualCombatCounterAndPaymentGuardsThree(raw, sequence);

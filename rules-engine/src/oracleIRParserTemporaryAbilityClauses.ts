@@ -82,6 +82,25 @@ export function tryParseTemporaryAbilityClause(args: {
         });
       }
     }
+
+    const keywordAndQuoted = normalized.match(
+      /^(?:until end of turn,\s+)?(.+?)\s+gains?\s+((?:banding|flying|trample|vigilance|lifelink|deathtouch|reach|menace|shroud|hexproof|indestructible|fear|intimidate|shadow|horsemanship|first strike|double strike|haste|ward|myriad|infect)(?:\s*,\s*(?:banding|flying|trample|vigilance|lifelink|deathtouch|reach|menace|shroud|hexproof|indestructible|fear|intimidate|shadow|horsemanship|first strike|double strike|haste|ward|myriad|infect))*)\s+and\s+"([^"]+)"(?:\s+until end of turn)?$/i,
+    );
+    if (keywordAndQuoted && (/^until end of turn,/i.test(normalized) || /\buntil end of turn$/i.test(normalized) || /"[^"]+"$/.test(normalized))) {
+      const targetText = String(keywordAndQuoted[1] || '').trim();
+      const abilities = parseKeywordAbilityList(String(keywordAndQuoted[2] || '').trim());
+      const grantedText = String(keywordAndQuoted[3] || '').trim();
+      if (abilities && grantedText) {
+        return withMeta({
+          kind: 'grant_temporary_ability',
+          target: parseObjectSelector(targetText),
+          duration: 'end_of_turn',
+          abilities,
+          effectText: [grantedText],
+          raw: rawClause,
+        });
+      }
+    }
   }
 
   {
@@ -209,6 +228,27 @@ export function tryParseTemporaryAbilityClause(args: {
         target: parseObjectSelector(String(m[1] || '').trim()),
         duration: 'end_of_turn',
         effectText: ['loses all abilities'],
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
+    const m = workingClause.match(
+      /^(?:until end of turn,\s+)?(.+?)\s+ha(?:s|ve)\s+base\s+power\s+and\s+toughness\s+([^\s,]+)\s*,\s*gains?\s+all creature types,\s*and\s+gains?\s+(.+)$/i,
+    );
+    if (m && (/^until end of turn,/i.test(workingClause) || /\buntil end of turn\b/i.test(workingClause))) {
+      const flying = /flying/i.test(String(m[3] || ''));
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector(String(m[1] || '').trim()),
+        duration: 'end_of_turn',
+        ...(flying ? { abilities: ['flying'] } : {}),
+        effectText: [
+          `has base power and toughness ${String(m[2] || '').trim()}`,
+          'gains all creature types',
+          ...(flying ? [] : [String(m[3] || '').trim()]),
+        ],
         raw: rawClause,
       });
     }

@@ -63,6 +63,26 @@ export function tryParseSimpleActionDiscardVoteClauses(args: SimpleActionClauseP
         raw: rawClause,
       });
     }
+
+    const discardAllMatching = clause.match(
+      new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?discards?\\s+all\\s+(.+)$`, 'i'),
+    );
+    if (discardAllMatching) {
+      const filter = String(discardAllMatching[2] || '').trim();
+      const isWholeHand =
+        /^(?:the\s+)?cards?\s+(?:in|from)\s+(?:your|their)\s+hand$/i.test(filter) ||
+        /^(?:your|their)\s+hand$/i.test(filter);
+      if (filter && !isWholeHand) {
+        return withMeta({
+          kind: 'discard',
+          who: parsePlayerSelector(discardAllMatching[1]),
+          amount: { kind: 'all' },
+          target: parseObjectSelector(filter),
+          optional: /\bmay\b/i.test(clause) || undefined,
+          raw: rawClause,
+        });
+      }
+    }
   }
 
   {

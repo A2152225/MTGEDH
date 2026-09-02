@@ -162,7 +162,11 @@ export function applyTapOrUntapStep(
         };
       }
     }
-    if (isMassTapOrUntapSelectorText(`${targetText} ${String(step.raw || '')}`)) {
+    const massFromTarget = isMassTapOrUntapSelectorText(targetText);
+    const massFromRaw = isMassTapOrUntapSelectorText(
+      String(step.raw || '').replace(/^target (?:player|opponent)\s+/i, ''),
+    );
+    if (massFromTarget || (massFromRaw && !/\btarget\b/i.test(targetText))) {
       return {
         applied: true,
         state,

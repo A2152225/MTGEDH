@@ -62,6 +62,35 @@ export function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
     return out;
   };
 
+  if (!clause) {
+    return withMeta({ kind: 'unknown', raw: '' });
+  }
+
+  {
+    const playExiledThisWay = clause.match(
+      /^(?:until the end of your next turn|until your next turn|until end of turn),?\s+you may play (?:cards exiled this way|those cards|them|it)$/i,
+    );
+    if (playExiledThisWay) {
+      return withMeta({
+        kind: 'grant_cast_permission',
+        who: { kind: 'you' },
+        filter: 'cards exiled this way',
+        duration: /next turn/i.test(clause) ? 'until_end_of_next_turn' : 'this_turn',
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
+  if (/^for each player, choose up to one target creature card in that player's graveyard$/i.test(clause)) {
+    return withMeta({
+      kind: 'player_choice',
+      who: { kind: 'you' },
+      choice: 'generic',
+      choiceText: clause,
+      raw: rawClause,
+    } as OracleEffectStep);
+  }
+
   if (/^if\s+you\s+gain\s+control\s+of\s+a\s+creature\s+this\s+way,\s+tap\s+it,\s+and\s+it(?:'|’)s\s+attacking\s+that\s+player$/i.test(clause)) {
     return withMeta({
       kind: 'grant_static_ability',

@@ -652,7 +652,7 @@ export function tryBatch389DealDamageStep(
     return { applied: true, state, log: ['Resolved mutual combat damage reminder'] };
   }
 
-  if (/it deals twice that much damage to itself instead/i.test(raw)) {
+  if (/it deals twice that much damage to itself(?: instead)?/i.test(raw)) {
     const targetId =
       contextualBattlefieldIds(ctx, false)[0] ||
       String(ctx.targetCreatureId || ctx.sourceId || '').trim();

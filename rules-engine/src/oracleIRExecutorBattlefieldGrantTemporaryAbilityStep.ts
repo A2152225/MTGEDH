@@ -509,6 +509,19 @@ export function applyGrantTemporaryAbilityStep(
     };
   }
 
+  const needsKeywordChoice = [
+    ...(Array.isArray(step.abilities) ? step.abilities : []),
+    ...(Array.isArray(step.effectText) ? step.effectText : []),
+  ].some((value) => /^your choice of\b/i.test(String(value || '').trim()));
+  if (needsKeywordChoice) {
+    return {
+      applied: false,
+      message: `Skipped temporary ability grant (requires player keyword choice): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+
   const descriptions = [...grantedAbilities, ...effectText].filter(Boolean);
 
   if (descriptions.length === 0) {

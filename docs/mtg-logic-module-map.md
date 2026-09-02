@@ -61,7 +61,9 @@ See [`mtg-logic-module-map-resolution.md`](mtg-logic-module-map-resolution.md).
 | `death-emission.ts` | Leftover-merged death emission: `getDeathTriggers`, `getDeathTriggersForCreature`, `processUndyingPersist`, `getPlayersWhoMustSacrifice`. Re-exported through `zone-changes.ts` and leftover. Also fires delayed `WHEN_DIES` watchers via `delayed-dies-watchers.ts`. |
 | `death-emission-helpers.ts` | Leftover-rich `DeathTriggerResult` plus detector-to-emitter adapters used by `getDeathTriggers`. `getPermanentRulesTextFragments` includes continuous granted quotes when `gameState` is passed (self-dies live scan). Watcher subject extraction also uses those fragments so blank commanders with Agent of the Iron Throne still match. `put_into_graveyard_from_battlefield` may fire when the source itself dies (you-control, not “another”). |
 | `delayed-dies-watchers.ts` | Spell-created `WHEN_DIES` delayed triggers on `state.delayedTriggerRegistry` (Reckless Blaze / Skeletonize “dealt damage this way dies this turn”). Entry: `collectDelayedDiesWatcherTriggers`. |
-| `delayed-end-step-watchers.ts` | Spell/ability-created `NEXT_END_STEP` delayed triggers on `state.delayedTriggerRegistry` (Swooping Pteranodon “target land deals 3 damage to that creature”). Entry: `collectDelayedEndStepRegistryTriggers`. Called from `getEndStepTriggers`. “At the beginning of the next end step” is a delayed rider (CR 603.7), not `detectEndStepTriggers`. |
+| `delayed-end-step-watchers.ts` | Spell/ability-created `NEXT_END_STEP` delayed triggers on `state.delayedTriggerRegistry` (Swooping Pteranodon “target land deals 3 damage to that creature”). Entry: `collectDelayedEndStepRegistryTriggers`. Called from `getEndStepTriggers`. “At the beginning of the next end step” is a delayed rider (CR 603.7), not `detectEndStepTriggers`. Stamps `delayedAction` / bound ids from the registry so delayed destroy/exile/sacrifice use `applyDelayedCleanupTriggersFromMetadata`. |
+| `delayed-end-combat-watchers.ts` | Spell/ability-created `END_OF_COMBAT` delayed triggers on `state.delayedTriggerRegistry` (Corrosive Ooze / Defiant Vanguard “destroy that creature at end of combat”). Entry: `collectDelayedEndOfCombatRegistryTriggers`. Called from `getEndOfCombatTriggers`. Printed “at end of combat” abilities stay in `end-combat.ts`; delayed riders are CR 603.7. |
+| `delayed-registry-watcher-metadata.ts` | Bound-object ids + delayed destroy/exile/sacrifice stack fields for delayed-registry collectors. Entries: `readDelayedAntecedentIds`, `delayedCleanupStackFieldsFromRegistry`. |
 | `etb-detection.ts` (+ `etb-detection-early/mid/late/helpers/state.ts`) | `detectETBTriggers`, `getETBTriggersForPermanent` (detector wire type, not skinny). Optional 3rd `gameState` merges continuous granted quotes (Lavabelly / Constricting). Late: `land_you_control_etb` / `enchanted_player_land_etb` / `any_land_etb` / `multi_typed_you_control_etb` (live-seam watcher scan; landfall.ts still emits land enters). Emission (`queueSelfETBTriggersForPermanent`, other-permanent ETB, face-up) passes `ctx.state`. |
 | `hideaway-ability.ts` | `detectHideawayAbility`. |
 | `detect-target-type.ts` | `detectTargetType`. |
@@ -154,6 +156,8 @@ See [`mtg-logic-module-map-resolution.md`](mtg-logic-module-map-resolution.md).
 | `oracleIRParserLifeAndCombatClauses-handlers/oracleIRParserLifeAndCombatParseUtils.ts` | `oracleIRParserLifeAndCombatClauses.ts` | `parseDamageAmount`, `parseLifeChangeAmount`, damage-clause subject/amount patterns, `isDamageAmountDescriptor`, `shouldSkipGenericDamageSource`, `normalizeDamageClauseForParse`. Do not import the parent. |
 | `oracleIRParserLifeAndCombatClauses-handlers/oracleIRParserLifeAndCombatClause.ts` | `oracleIRParserLifeAndCombatClauses.ts` | `tryParseLifeAndCombatClause` (parent re-exports). **33.0 KB** — do not append. Never create `oracleIRParserLifeAndCombatClauses/` beside the `.ts`. |
 | `oracleIRParserUtils-handlers/oracleIRParserUtilsQuantityEarlyReferences.ts` | `oracleIRParserUtils.ts` | First if-chain of `parseQuantity` (reference-amount / object-stat / phrase). Recursion is a `parseRest` callback — do not import the parent. `null` = fall through. |
+| `oracleIRParserLeadingCastKeywordPrefix.ts` | `oracleIRParserUtils.ts` (`normalizeClauseForParse`) | `stripLeadingCastKeywordPrefix` / `stripTrailingCastKeywordSuffix` — Delve/Convoke/Suspend/Spree/Fuse/Infusion/Freerunning/Undaunted/Ascend/Aftermath/Flashback/Kicker/Spell mastery/Reinforce glued onto the next instruction, including a trailing reminder parenthetical or dash-only cost, are stripped. Residual unknown lowering peels those leftovers only when the remainder looks like an instruction (`you`/`target`/`if`/`this permanent`/`Card Name deals …`). Whole-clause “You may choose new targets for the copies you control” leftovers are pruned. Trailing Flashback/Fuse/Reinforce is stripped without eating “as though they had flash”. |
+| `oracleIRParserChooseMode.ts` | `oracleIRParserAbilityToIR.ts` | `tryParseChooseModeBlock`. Header `Choose up to that many` is a real modal (min 0), not sequential leftover mode bullets. |
 | `oracleIR-handlers/oracleIRSharedTypes.ts` | `oracleIR.ts` | `OracleQuantity`, `OraclePlayerSelector`, `OracleObjectSelector`, `OracleScaler`, `OracleClauseCondition`, `OracleGraveyardAdditionalCost`, `OracleBattlefieldObjectCondition`, `OracleZone`. |
 | `oracleIR-handlers/oracleIREffectStepA.ts` | `oracleIR.ts` | `OracleEffectStepA` (`grant_next_spell_cost_reduction` … `fateseal`). Nested `steps` use the full `OracleEffectStep` alias. Do not import the parent or index. |
 | `oracleIR-handlers/oracleIREffectStepB.ts` | `oracleIR.ts` | `OracleEffectStepB` (`learn` … `prevent_damage`). |
@@ -189,7 +193,7 @@ Coordinator merges owed extract-family rows there.
 | `oracleIRParserPostprocessGraveyardAdditionalCostPermission.ts` | GY additional-cost permission. |
 | `oracleIRParserPostprocessExileAndGraveyardPermissionModifiers.ts` | Exile/GY permission modifiers. |
 | `oracleIRParserPostprocessCopySpellTailHelpers.ts` / `…CopySpellUnknownSteps.ts` | Copy-spell tail + unknown-step lowering. `each other player copies that spell` (Hive Mind) is `copy_spell` with `who: each_opponent` plus the “each of those players may choose new targets” tail. |
-| `oracleIRParserPostprocessKeywordReminderPrunes.ts` | Keyword reminder prunes. |
+| `oracleIRParserPostprocessKeywordReminderPrunes.ts` | Keyword reminder prunes. `pruneReinforceReminderAddCounterSteps` drops reminder `Put N +1/+1 counters on target creature` leftover after Reinforce. |
 | `oracleIRParserPostprocessGraveyardKeywordExpansions.ts` | GY keyword expansions. |
 | `oracleIRParserPostprocessTokenCreationMetadata.ts` | Token-create metadata. |
 | `oracleIRParserPostprocessUnlessSacrificeConditionals.ts` | Unless-sacrifice conditionals. |
@@ -200,13 +204,13 @@ Coordinator merges owed extract-family rows there.
 | `oracleIRParserPostprocessCompoundMoveZoneAndChoiceExpansions.ts` | Compound move-zone + choice expansions. |
 | `oracleIRParserPostprocessVoteRestrictionAndEmblemExpansions.ts` | Vote restriction + emblem expansions. |
 | `oracleIRParserPostprocessGapClosureStepRepairs.ts` | Gap-closure step repairs (37 KB — do not append). |
-| `oracleIRParserPostprocessDiscardMillLifeStepSplitters.ts` | Discard/mill/life splitters. |
+| `oracleIRParserPostprocessDiscardMillLifeStepSplitters.ts` | Discard/mill/life splitters. `splitSacrificeFollowOnInstructionsStep` splits `sacrifice it, draw a card` (and similar pronoun + comma + instruction) into sacrifice + follow-on steps. |
 | `oracleIRParserPostprocessDynamicCounterRiders.ts` | Dynamic counter riders. |
 | `oracleIRParserPostprocessMoveZoneCopyAndLandAnimationExpansions.ts` | Move-zone copy + land-animation expansions. |
 | `oracleIRParserPostprocessKeywordActionUnknownSteps.ts` | Keyword-action unknown-step lowering. |
 | `oracleIRParserPostprocessAmassDiscoverConniveRecruitKeywords.ts` | Amass / discover / connive / recruit. |
 | `oracleIRParserPostprocessClashScryExploreReminderPrunes.ts` | Clash/scry/explore reminder prunes. |
-| `oracleIRParserPostprocessVanishingModularStaticPrunes.ts` | Vanishing/modular static prunes. |
+| `oracleIRParserPostprocessVanishingModularStaticPrunes.ts` | Vanishing/modular static prunes. `pruneExternallyHandledTemporaryLandBonusUnknownSteps` lowers “you may play N additional lands this turn” to a this-turn `grant_static_ability` instead of deleting the step. |
 | `oracleIRParserPostprocessReminderPlatformTextPredicates.ts` | Reminder/platform-only text predicates. |
 | `oracleIRParserPostprocessCrewChampionLateKeywordPrunes.ts` | Crew/champion late keyword prunes. |
 | `oracleIRParserPostprocessBareTriggerFragmentSteps.ts` | Isolated trigger-effect fragments. `parseBareTriggerEffectFragmentSteps` also wraps leading `if <cond>, <effect>` (Wakening Sun's Avatar “if you cast it from your hand, destroy all non-Dinosaur creatures”). |

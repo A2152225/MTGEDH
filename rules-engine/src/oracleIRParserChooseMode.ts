@@ -12,7 +12,7 @@ import { normalizeOracleText } from './oracleIRParserUtils';
  * - "Choose any number of modes -"
  */
 const CHOOSE_MODE_HEADER_RE =
-  /^(?:You\s+(?:may\s+)?)?Choose\s+(?:one\s+at\s+random|one\s+that\s+has(?:n't| not)\s+been\s+chosen|one\s+or\s+both|one\s+or\s+more|up\s+to\s+one|one|two|three|four|up\s+to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\w+)(?:\s*\{P\}\s*worth\s+of\s+modes)?|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?(?:you\s+may\s+)?choose\s+(?:both|any\s+number)\s+instead[.\u2014-]?)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014]|\.|)\s*(?:Each mode must target a different player\.?)?\s*$/i;
+  /^(?:You\s+(?:may\s+)?)?Choose\s+(?:one\s+at\s+random|one\s+that\s+has(?:n't| not)\s+been\s+chosen|one\s+or\s+both|one\s+or\s+more|up\s+to\s+one|one|two|three|four|up\s+to\s+(?:that\s+many|one|two|three|four|five|six|seven|eight|nine|ten|\w+)(?:\s*\{P\}\s*worth\s+of\s+modes)?|any\s+number(?:\s+of\s+modes?)?)(?:\.\s*If\s+[^.]*?(?:you\s+may\s+)?choose\s+(?:both|any\s+number)\s+instead[.\u2014-]?)?(?:\.\s*You may choose the same mode more than once\.)?\s*(?:[-\u2014]|\.|)\s*(?:Each mode must target a different player\.?)?\s*$/i;
 
 const P_WORTH_HEADER_RE =
   /^Choose\s+up\s+to\s+(\w+)\s*\{P\}\s*worth\s+of\s+modes\.(?:\s*You may choose the same mode more than once\.)?\s*$/i;
@@ -67,6 +67,7 @@ function resolveChooseModeLimits(headerText: string): {
   const oneOrBothMatch = chooseHeaderText.match(/^choose\s+one\s+or\s+both\b/i);
   const oneOrMoreMatch = chooseHeaderText.match(/^choose\s+one\s+or\s+more\b/i);
   const chooseOneAtRandomMatch = chooseHeaderText.match(/^choose\s+one\s+at\s+random\b/i);
+  const thatManyMatch = chooseHeaderText.match(/^choose\s+up\s+to\s+that\s+many\b/i);
   const upToMatch = chooseHeaderText.match(/^choose\s+up\s+to\s+(\w+)/i);
   const exactMatch = chooseHeaderText.match(/^choose\s+(one|two|three|four)\b/i);
 
@@ -82,6 +83,9 @@ function resolveChooseModeLimits(headerText: string): {
     maxModes = 1;
   } else if (oneOrMoreMatch || chooseAnyNumberInstead) {
     minModes = 1;
+    maxModes = 99;
+  } else if (thatManyMatch) {
+    minModes = 0;
     maxModes = 99;
   } else if (upToMatch) {
     minModes = 0;

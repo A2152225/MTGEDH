@@ -8,6 +8,7 @@
  * expandGraveyardOrExilePermissionAbilities, expandFreeGraveyardCastPermissionAbilities.
  */
 import type { OracleClauseCondition, OracleEffectStep, OracleIRAbility } from './oracleIR';
+import { stripLeadingCastKeywordPrefix } from './oracleIRParserLeadingCastKeywordPrefix';
 import { normalizeOracleText, parseObjectSelector, parsePlayerSelector } from './oracleIRParserUtils';
 
 function parseGraveyardPermissionDuration(raw: string | undefined):
@@ -96,7 +97,7 @@ function parseGraveyardKeywordAbilityCost(rawCost: string | undefined): string |
 }
 
 function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
-  const normalized = normalizeOracleText(String(step.raw || ''))
+  const normalized = stripLeadingCastKeywordPrefix(normalizeOracleText(String(step.raw || '')))
     .replace(/^then\b\s*/i, '')
     .replace(/^when you do,\s*/i, '')
     .replace(/^[\u2022]\s+/, '')
@@ -395,7 +396,7 @@ function parseGraveyardPermissionUnknownStep(step: Extract<OracleEffectStep, { k
 function parseCombinedGraveyardPlayCastPermissionUnknownSteps(
   step: Extract<OracleEffectStep, { kind: 'unknown' }>
 ): OracleEffectStep[] | null {
-  let normalized = normalizeOracleText(String(step.raw || ''))
+  let normalized = stripLeadingCastKeywordPrefix(normalizeOracleText(String(step.raw || '')))
     .replace(/^then\b\s*/i, '')
     .replace(/^[\u2022]\s+/, '')
     .replace(

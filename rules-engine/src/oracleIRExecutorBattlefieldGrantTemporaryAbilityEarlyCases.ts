@@ -43,6 +43,16 @@ export function tryApplyGrantTemporaryAbilityEarlyCases(
   normalizedTargetText: string,
   sourceNameAliases: Set<string>,
 ): BattlefieldStepHandlerResult | null {
+  if (
+    /your life total can(?:not|'t) change/i.test(stepRaw) &&
+    /protection from everything/i.test(stepRaw)
+  ) {
+    return registerTemporaryStaticAbilityGrant(state, step, ctx, {
+      targetPlayerId: String(ctx.controllerId || '').trim(),
+      duration: /until your next turn/i.test(stepRaw) ? 'until_next_turn' : 'end_of_turn',
+    });
+  }
+
   if (/^annihilator 1$/i.test(targetText) || /^annihilator 1$/i.test(stepRaw.trim())) {
     const sourceId = String(ctx.sourceId || '').trim();
     const source = sourceId
@@ -301,6 +311,37 @@ export function tryApplyGrantTemporaryAbilityEarlyCases(
     };
   }
 
+  if (/^those creatures also gain (trample|lifelink|vigilance|haste|flying|first strike|double strike|deathtouch|menace|reach|hexproof|indestructible|ward) until end of turn$/i.test(stepRaw)) {
+    const keywordMatch = stepRaw.match(
+      /^those creatures also gain ([a-z][a-z ]*?) until end of turn$/i,
+    );
+    const keyword = String(keywordMatch?.[1] || '').trim().toLowerCase();
+    const contextualIds = buildContextualBattlefieldTargetIds(battlefield, ctx, true);
+    let targets = battlefield.filter((perm: any) =>
+      contextualIds.includes(String((perm as any)?.id || '').trim())
+    );
+    if (targets.length === 0) {
+      const controllerId = String(ctx.controllerId || '').trim();
+      targets = battlefield.filter(
+        (perm: any) =>
+          String((perm as any)?.controller || '').trim() === controllerId &&
+          permanentMatchesType(perm, 'creature'),
+      );
+    }
+    if (targets.length > 0 && keyword) {
+      const nextState = applyTemporaryEffectToPermanents(state, targets, ctx, {
+        descriptions: [keyword],
+        grantedAbilities: [keyword],
+        expiresAt: 'end_of_turn',
+      });
+      return {
+        applied: true,
+        state: nextState,
+        log: [`Granted ${keyword} to ${targets.length} creature(s) until end of turn`],
+      };
+    }
+  }
+
   if (/^those creatures also gain trample until end of turn$/i.test(stepRaw)) {
     const contextualIds = buildContextualBattlefieldTargetIds(battlefield, ctx, true);
     const targets = battlefield.filter((perm: any) =>
@@ -320,7 +361,7 @@ export function tryApplyGrantTemporaryAbilityEarlyCases(
     }
   }
 
-  if (/^target creature can't be blocked this turn$/i.test(stepRaw.trim())) {
+  if (/target creature can't be blocked this turn/i.test(stepRaw)) {
     const boundIds = collectBoundBattlefieldIds(ctx);
     const targets = battlefield.filter((perm: any) => {
       const id = String((perm as any)?.id || '').trim();

@@ -159,6 +159,32 @@ export function resolveMassCreatureRestrictionTargets(
   const controlledByOpponents = (perm: any) =>
     Boolean(controllerId) && String(perm?.controller || '').trim() !== controllerId;
 
+  if (
+    /^all non-wall creatures that player controls that (?:didn't|did not) attack(?: this turn)?$/i.test(text)
+  ) {
+    const targetPlayerId = String(
+      ctx.selectorContext?.targetPlayerId ||
+        ctx.targetPlayerId ||
+        ctx.selectorContext?.targetOpponentId ||
+        ctx.targetOpponentId ||
+        '',
+    ).trim();
+    return battlefield.filter((perm: any) => {
+      if (!isCreature(perm)) return false;
+      if (typeLineHasSubtype(perm, 'wall')) return false;
+      const controller = String(perm?.controller || '').trim();
+      if (targetPlayerId) {
+        if (controller !== targetPlayerId) return false;
+      } else if (!controlledByOpponents(perm)) {
+        return false;
+      }
+      const attacked = Boolean(
+        perm?.attacking || perm?.attackedThisTurn || perm?.attackingPlayerId || perm?.isAttacking,
+      );
+      return !attacked;
+    });
+  }
+
   if (/^creatures without flying$/i.test(text)) {
     return battlefield.filter((perm) => isCreature(perm) && !permanentHasFlying(perm));
   }
@@ -256,6 +282,24 @@ export function resolveTargetPrefixedPermanents(
 ): BattlefieldPermanent[] | null {
   const text = normalizeExtendedTargetText(targetText);
   if (!/^target\b/.test(text)) return null;
+
+  if (/^target attacking creatures?$/i.test(text)) {
+    const boundIds = new Set(collectBoundIds(ctx));
+    const isAttacking = (perm: any) =>
+      Boolean(perm?.attacking || perm?.attackedThisTurn || perm?.attackingPlayerId || perm?.isAttacking);
+    const boundCreatures = battlefield.filter((perm) => {
+      const id = String((perm as any)?.id || '').trim();
+      if (boundIds.size > 0 && !boundIds.has(id)) return false;
+      return permanentMatchesType(perm, 'creature');
+    });
+    if (boundCreatures.length > 0) {
+      const attackingBound = boundCreatures.filter((perm) => isAttacking(perm));
+      return (attackingBound.length > 0 ? attackingBound : boundCreatures).slice(0, 1);
+    }
+    const attacking = battlefield.filter((perm) => permanentMatchesType(perm, 'creature') && isAttacking(perm));
+    if (attacking.length === 1) return attacking;
+    return [];
+  }
 
   if (/^target permanent you neither own nor control$/i.test(text)) {
     const boundIds = new Set(collectBoundIds(ctx));

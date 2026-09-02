@@ -456,11 +456,9 @@ export function tryApplyMainLoopLibraryTurnControlSteps(
 
         if (!chosenOpponentId) {
           if (eligibleOpponentIds.length === 0) {
-            recordSkippedStep(
-              step,
-              `Skipped choose opponent (no eligible opponents): ${step.raw}`,
-              'no_applicable_targets',
-            );
+            setLastStepOutcome(step, 'applied');
+            log.push(`No eligible opponents to choose: ${step.raw}`);
+            appliedSteps.push(step);
             break;
           }
           recordSkippedStep(

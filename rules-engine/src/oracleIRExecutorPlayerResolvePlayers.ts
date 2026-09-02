@@ -338,7 +338,9 @@ export function resolvePlayersFromDamageTarget(
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim()
-    .replace(/[\.!]$/, '');
+    .replace(/[\.!]$/, '')
+    .replace(/\s+for each\b.+$/i, '')
+    .trim();
   if (!t) return [];
 
   if (t === 'you') return resolvePlayers(state, { kind: 'you' }, ctx);
@@ -362,6 +364,7 @@ export function resolvePlayersFromDamageTarget(
   if (t === 'target opponent') return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
   if (
     t === 'that player' ||
+    t === 'the player' ||
     t === 'he or she' ||
     t === 'him or her' ||
     t === 'they' ||

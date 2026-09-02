@@ -114,7 +114,9 @@ export function parseMoveZoneSingleTargetFromYourGraveyard(what: {
 
     const withTurn = stripPutIntoGraveyardThisTurnQualifier(raw);
     const withCounter = parseTrailingZoneCounterRequirement(withTurn.selectorText, 'from your graveyard');
-    const cleaned = withCounter.selectorText;
+    const cleaned = withCounter.selectorText
+      .replace(/\s+with\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+time\s+counters?\s+on\s+it$/i, '')
+      .trim();
     const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
     if (!/^(?:up to one\s+)?(?:(?:other|another)\s+)?target\s+/i.test(lower)) continue;
@@ -139,7 +141,9 @@ export function parseMoveZoneSingleTargetFromYourGraveyard(what: {
     if (!parsed) continue;
     return {
       ...parsed,
-      ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
+      ...(withCounter.requiredCounter && withCounter.requiredCounter !== 'time'
+        ? { requiredCounter: withCounter.requiredCounter }
+        : {}),
       ...graveyardThisTurnCriteriaFromQualifier(withTurn),
     };
   }
@@ -194,10 +198,20 @@ export function parseMoveZoneRandomSingleFromYourGraveyard(
     const cleaned = raw.replace(/[.\s]+$/g, '').trim();
     const lower = cleaned.toLowerCase().replace(/\s+/g, ' ');
 
-    if (!/\bat random\b/i.test(lower) || !/\bfrom your graveyard\b/i.test(lower)) continue;
+    if (!/\bat random\b/i.test(lower) && !/\bchosen at random\b/i.test(lower)) continue;
+    if (!/\bfrom your graveyard\b/i.test(lower)) continue;
 
     if (/^x cards? at random from your graveyard$/i.test(lower)) {
       return { count: 0, criteria: { cardType: 'any' }, useXValue: true };
+    }
+
+    const chosenAtRandomMatch = cleaned.match(
+      /^(?:exile\s+)?target\s+(.+?)\s+from your graveyard chosen at random$/i,
+    );
+    if (chosenAtRandomMatch) {
+      const typeText = String(chosenAtRandomMatch[1] || '').trim();
+      const parsed = parseMoveZoneSingleTargetCriteria(typeText);
+      if (parsed) return parsed;
     }
 
     const countMatch = cleaned.match(/^([a-z0-9]+)\s+(.+?)\s+at random from your graveyard$/i);
@@ -494,6 +508,7 @@ export function parseMoveZoneSingleTargetFromAGraveyard(what: {
     if (!parsed) continue;
     return {
       ...parsed,
+      ...(opponentGraveyard ? { graveyardOwner: 'opponent' as const } : {}),
       ...(withCounter.requiredCounter ? { requiredCounter: withCounter.requiredCounter } : {}),
       ...graveyardThisTurnCriteriaFromQualifier(withTurn),
     };

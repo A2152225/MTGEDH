@@ -190,8 +190,8 @@ export function tryApplyMoveZoneGuardsFromSingleTargetFromTargetPlayerExile(args
   if (parsedSingleTargetFromYourGraveyard) {
     const effectiveCriteria = resolveMoveZoneSingleTargetCriteriaWithX(parsedSingleTargetFromYourGraveyard, ctx);
     // This selector is always an explicit "target ... from your graveyard" reference, so a legal
-    // candidate alone is not enough: without a bound target or an explicit choice the move stays
-    // targeting-dependent and must be skipped rather than auto-picked.
+    // candidate alone is not enough: without a bound target the move stays targeting-dependent
+    // and prompts rather than auto-picking.
     const boundGraveyardTargetId = resolveBoundGraveyardTargetObjectId(
       nextState,
       boundTargetObjectId,
@@ -215,18 +215,11 @@ export function tryApplyMoveZoneGuardsFromSingleTargetFromTargetPlayerExile(args
     const libraryPlacement = getLibraryPlacement(step);
     if (!targetObjectId) {
       if (isUpToOneTargetReference(step.what)) return buildNoOpOptionalSingleTargetResult(nextState, step);
-      if (ctx.interactivePlayerChoices === true) {
-        return {
-          applied: false,
-          message: `Skipped move zone (needs player card selection): ${step.raw}`,
-          reason: 'player_choice_required',
-          options: { classification: 'player_choice' },
-        };
-      }
       return {
         applied: false,
-        message: `Skipped move zone (unsupported selector): ${step.raw}`,
-        reason: 'unsupported_selector',
+        message: `Skipped move zone (needs player card selection): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
       };
     }
 

@@ -13,6 +13,7 @@ import {
   permanentMatchesType,
   resolveTapOrUntapTargetIds,
 } from './oracleIRExecutorBattlefieldOps';
+import { resolveDirectBattlefieldPermanents } from './oracleIRExecutorBattlefieldPermanentSelectors';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
@@ -141,7 +142,54 @@ export function applyPhaseOutStep(
   step: Extract<OracleEffectStep, { kind: 'phase_out' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
-  const targetIds = resolveTapOrUntapTargetIds(state, step.target as any, ctx);
+  const simultaneousRaw = String(step.raw || '').replace(/\u2019/g, "'");
+  if (
+    /simultaneously,\s*all phased-out creatures phase in and all creatures with phasing phase out/i.test(
+      simultaneousRaw,
+    )
+  ) {
+    const hasPhasing = (permanent: any): boolean => {
+      const typeLine = getExecutorTypeLineLower(permanent);
+      const granted = Array.isArray((permanent as any)?.grantedAbilities)
+        ? (permanent as any).grantedAbilities.join(' ')
+        : '';
+      const keywords = String((permanent as any)?.keywords || (permanent as any)?.card?.keywords || '');
+      return /\bphasing\b/i.test(`${typeLine} ${granted} ${keywords}`);
+    };
+    const battlefield = ((state.battlefield || []) as any[]).map((permanent: any) => {
+      if (!permanentMatchesType(permanent, 'creature')) return permanent;
+      if (permanent?.phasedOut) {
+        return {
+          ...permanent,
+          phasedOut: false,
+          phasedOutBy: undefined,
+          phasedOutControllerId: undefined,
+        };
+      }
+      if (hasPhasing(permanent)) {
+        return {
+          ...permanent,
+          phasedOut: true,
+          phasedOutBy: 'effect',
+          phasedOutControllerId: String(permanent?.controllerId || permanent?.ownerId || '').trim() || undefined,
+        };
+      }
+      return permanent;
+    });
+    return {
+      applied: true,
+      state: { ...state, battlefield: getProcessedBattlefield({ ...state, battlefield } as any) as any },
+      log: ['Simultaneously phased in phased-out creatures and phased out creatures with phasing'],
+    };
+  }
+
+  let targetIds = resolveTapOrUntapTargetIds(state, step.target as any, ctx);
+  if (targetIds.length === 0) {
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    targetIds = resolveDirectBattlefieldPermanents(battlefield, step.target as any, ctx)
+      .map((perm: any) => String(perm?.id || '').trim())
+      .filter(Boolean);
+  }
   if (targetIds.length === 0) {
     return {
       applied: false,

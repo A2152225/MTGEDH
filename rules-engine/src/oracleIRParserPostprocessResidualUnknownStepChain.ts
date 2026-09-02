@@ -92,10 +92,11 @@ import {
   parseObjectSelector,
   parsePlayerSelector,
 } from './oracleIRParserUtils';
+import { stripLeadingCastKeywordPrefix, stripTrailingCastKeywordSuffix } from './oracleIRParserLeadingCastKeywordPrefix';
 
 function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
   if (step.kind !== 'unknown') return null;
-  const raw = normalizeOracleText(String(step.raw || ''))
+  const rawNormalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^�\s*/, '')
     .replace(/[.)"]+$/g, '')
     .trim();
@@ -104,11 +105,49 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
   const keywordFragment = parseStandaloneKeywordFragmentUnknownStep(step);
   if (keywordFragment) return keywordFragment;
 
-  const keywordActionGrant = parseStructuredKeywordActionGrant(raw, sequence);
+  const keywordActionGrant = parseStructuredKeywordActionGrant(rawNormalized, sequence);
   if (keywordActionGrant) return keywordActionGrant;
 
-  const triggerResidualGrant = parseStructuredTriggerResidualGrant(raw, sequence);
+  const triggerResidualGrant = parseStructuredTriggerResidualGrant(rawNormalized, sequence);
   if (triggerResidualGrant) return triggerResidualGrant;
+
+  const peeledKeyword = stripLeadingCastKeywordPrefix(rawNormalized)
+    .replace(/^\+\s*(?:\{[^}]+\})+\s*[-|—–]\s*/i, '')
+    .trim();
+  const looksLikeInstruction = /^(?:you|target|each|the owner|for each|it becomes|starting with|as an additional|until|when|whenever|at the|destroy|draw|exile|return|put|create|look|choose|search|sacrifice|counter|copy|cast|play|prevent|proliferate|shuffle|if|this (?:creature|permanent|spell|enchantment|artifact))\b/i.test(peeledKeyword)
+    || /^(?:\S+(?:\s+\S+){0,5})\s+deals\b/i.test(peeledKeyword);
+  const afterKeyword = peeledKeyword && looksLikeInstruction
+    ? peeledKeyword
+    : rawNormalized;
+
+  const modeChunks = afterKeyword
+    .split(/\s+\+\s*(?:\{[^}]+\})+\s*[-|—–]\s*/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
+  if (modeChunks.length > 1) {
+    const loweredModes = modeChunks.flatMap((chunk) => {
+      const lowered = parseCurrentResidualUnknownStep({
+        kind: 'unknown',
+        raw: chunk,
+        ...sequence,
+      } as OracleEffectStep);
+      return lowered && lowered.length > 0
+        ? [...lowered]
+        : [{ kind: 'unknown', raw: chunk, ...sequence } as OracleEffectStep];
+    });
+    if (loweredModes.every((step) => step.kind !== 'unknown')) return loweredModes;
+  }
+
+  const raw = stripTrailingCastKeywordSuffix(afterKeyword
+    .replace(/^\+\s*(?:\{[^}]+\})+\s*[-|—–]\s*/i, '')
+    .replace(/^[-—–]\s*/, '')
+    .replace(/^you may choose new targets for the cop(?:y|ies)(?: (?:you|they) control)?\.?\s+(?=\S)/i, '')
+    .replace(/^as an additional cost to cast this spell,[^.]+(?:\.\s*)?/i, '')
+    .trim());
+  if (!raw) return [];
+  if (/^you may choose new targets for the cop(?:y|ies)(?: (?:you|they) control)?\.?$/i.test(raw)) {
+    return [];
+  }
 
   const staticMetadata = (target: string, effectText: string): readonly OracleEffectStep[] => [{
     kind: 'grant_static_ability',

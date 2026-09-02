@@ -256,6 +256,23 @@ export function applyRemoveCounterStep(
   }
   if (
     targets.length === 0 &&
+    /^up to (?:one|x|\d+)\s+target\b/i.test(normalizedTargetText)
+  ) {
+    return { applied: true, state, log: ['No target chosen for up-to remove-counter'] };
+  }
+  if (
+    targets.length > 1 &&
+    /^up to one target\b/i.test(normalizedTargetText)
+  ) {
+    return {
+      applied: false,
+      message: `Skipped remove counter (requires choosing a target): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
+  if (
+    targets.length === 0 &&
     (normalizedTargetText === 'among creatures you control' ||
       /^any number of \+1\/\+1 counters from among creatures you control$/i.test(normalizedTargetText))
   ) {

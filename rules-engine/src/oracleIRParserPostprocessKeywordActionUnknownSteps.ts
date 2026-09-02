@@ -21,11 +21,14 @@ import {
 } from './oracleIRParserUtils';
 import { tryParseZoneAndRemovalClause } from './oracleIRParserZoneAndRemovalActions';
 import { parseKeywordActionAbility } from './oracleTextParserKeywordActionAbilities';
+import { stripLeadingCastKeywordPrefix } from './oracleIRParserLeadingCastKeywordPrefix';
 
 export function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
-  const normalized = normalizeOracleText(String(step.raw || ''))
-    .replace(/^then\b\s*/i, '')
-    .trim();
+  const normalized = stripLeadingCastKeywordPrefix(
+    normalizeOracleText(String(step.raw || ''))
+      .replace(/^then\b\s*/i, '')
+      .trim(),
+  ).trim();
   if (!normalized) return null;
 
   const adaptMatch = normalized.match(/^adapt\s+(\d+|x)$/i);

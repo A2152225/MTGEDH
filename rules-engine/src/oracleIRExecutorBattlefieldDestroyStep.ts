@@ -52,11 +52,37 @@ export function applyDestroyStep(
       return { applied: true, state, log: ['No matching permanents to destroy'] };
     }
     if (
+      /(?:destroy\s+)?two target (?:creatures?(?: and\/or lands)?|permanents?)(?: you control)?/i.test(
+        `${targetText} ${String(step.raw || '')}`,
+      )
+    ) {
+      return {
+        applied: false,
+        message: `Skipped destroy (requires choosing two targets): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+    if (/\btarget\b/i.test(`${targetText} ${String(step.raw || '')}`)) {
+      return {
+        applied: false,
+        message: `Skipped destroy (requires choosing a target): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+    if (
       /if\s+it\s+has\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+or\s+more\b/i.test(
         rawTargetText
       )
     ) {
       return { applied: true, state, log: ['Destroy condition not met'] };
+    }
+    if (
+      /\bif its mana value is (?:\d+|x) or less(?: instead)?$/i.test(targetText) ||
+      /\bthat artifact if its mana value is (?:\d+|x) or less(?: instead)?$/i.test(rawTargetText)
+    ) {
+      return { applied: true, state, log: ['Destroy mana-value condition not met or artifact already gone'] };
     }
     return {
       applied: false,

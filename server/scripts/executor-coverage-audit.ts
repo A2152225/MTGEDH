@@ -454,7 +454,12 @@ export function enrichAuditStateAndContextForTargets(
 ): { state: GameState; ctx: ReturnType<typeof buildOracleIRExecutionContext> } {
   let nextCtx = ctx;
   let nextState = state;
-  const oracleTextLower = String(options?.oracleText || '').toLowerCase();
+  const oracleTextLower = [
+    String(options?.oracleText || ''),
+    ...steps.map((step) => String((step as any)?.raw || '')),
+  ]
+    .join(' ')
+    .toLowerCase();
   if (/that player shuffles/i.test(oracleTextLower) || /that player mills/i.test(oracleTextLower)) {
     nextCtx = {
       ...nextCtx,
@@ -728,9 +733,9 @@ export function enrichAuditStateAndContextForTargets(
 
   const needsOpponentGraveyardReturn = steps.some(
     (step) =>
-      step.kind === 'move_zone' &&
+      (step.kind === 'move_zone' || step.kind === 'exile') &&
       /\bfrom (?:an opponent(?:'s)?|target opponent(?:'s)?)\s+graveyard\b/i.test(
-        String((step as any).what?.text || step.raw || '')
+        String((step as any).what?.text || (step as any).target?.text || step.raw || '')
       )
   );
   if (needsOpponentGraveyardReturn) {
@@ -753,6 +758,12 @@ export function enrichAuditStateAndContextForTargets(
         ...(nextCtx.selectorContext || {}),
         targetPlayerId: 'p2',
         targetOpponentId: 'p2',
+        chosenObjectIds: [
+          'gy-audit-opponent-1',
+          ...(Array.isArray(nextCtx.selectorContext?.chosenObjectIds)
+            ? nextCtx.selectorContext.chosenObjectIds
+            : []),
+        ],
       },
     } as typeof nextCtx;
   }
@@ -18811,7 +18822,7 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
     descendedThisTurn: { p1: true, p2: false, p3: false, p4: false },
     noncreatureSpellsCastThisTurn: { p1: 1, p2: 1 },
     commanderCastsFromCommandZoneThisGame: { p1: 2, p2: 0, p3: 0, p4: 0 },
-    lastVoteResults: { planeswalk: 3, chaos: 1 },
+    lastVoteResults: { planeswalk: 3, chaos: 1, truth: 2, consequences: 2 },
     abilityResolveCountThisTurn: 3,
     abilityActivateCountThisTurn: { 'bf-source': 4 },
     cardLeftGraveyardThisTurn: { p1: true, p2: false, p3: false, p4: false },
@@ -18931,11 +18942,7 @@ export function buildAuditExecutionContext(cardName: string): ReturnType<typeof 
       giftPromised: true,
       abilityResolveCountThisTurn: 3,
       lifePaidThisWay: true,
-      lastVoteResults: { planeswalk: 3, chaos: 1 },
-      referenceSpellManaValue: 5,
-      lastClashWon: true,
-      wonCoinFlip: false,
-      winningVoteChoice: null,
+      lastVoteResults: { planeswalk: 3, chaos: 1, truth: 2, consequences: 2 },
       voteChoiceCounts: {
         grace: 2,
         condemnation: 2,
@@ -18943,7 +18950,13 @@ export function buildAuditExecutionContext(cardName: string): ReturnType<typeof 
         death: 2,
         yes: 2,
         no: 2,
+        truth: 2,
+        consequences: 2,
       },
+      referenceSpellManaValue: 5,
+      lastClashWon: true,
+      wonCoinFlip: false,
+      winningVoteChoice: null,
       targetCreatureId: 'bf-creature-1',
       targetPermanentId: 'bf-creature-1',
       targetSpellId: 'stack-spell-1',
@@ -19287,6 +19300,7 @@ export function dryRunOracleSteps(
   const declineOptional = shouldDeclineOptionalStepsForAudit(steps);
   const result = applyOracleIRStepsToGameState(state, steps, ctx, {
     allowOptional: declineOptional ? false : true,
+    haltOnPlayerChoiceRequired: true,
     ...(declineOptional ? { declineOptionalSteps: true } : {}),
     ...(selectedModeIds.length > 0 ? { selectedModeIds } : {}),
   });

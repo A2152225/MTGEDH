@@ -734,9 +734,9 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
   }
 
   if (parsedSingleTargetFromAnyGraveyard) {
-    // "target ... from a graveyard" is an explicit target, so a single legal candidate is not a
-    // licence to auto-pick it: without a bound target or an explicit choice the move stays
-    // targeting-dependent and must be skipped.
+    // "target ... from a graveyard" is targeting-dependent. Bound GY ids apply;
+    // leftover battlefield ids are ignored. A unique legal card applies; several
+    // legal cards skip player_choice_required. Opponent-only skips the controller pile.
     const boundAnyGraveyardTargetId = resolveBoundGraveyardTargetObjectId(
       nextState,
       boundTargetObjectId,
@@ -748,7 +748,6 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
     // caller did not supply) still counts as someone having chosen a target, so the unique-candidate
     // resolver may run. What must not happen is auto-picking when nothing was targeted at all.
     const boundTargetRaw = String(getTargetObjectId(ctx) || '').trim();
-    const callerSuppliedATarget = hasExplicitChosenObjectIds(ctx) || Boolean(boundTargetRaw);
     // getTargetObjectId also surfaces ids the caller bound as permanents, which is how a graveyard
     // card gets named for "target ... from a graveyard". boundTargetObjectId ignores those fields, so
     // validate the raw id against the selector here rather than reading legality off that result.
@@ -772,19 +771,20 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
       parsedSingleTargetFromAnyGraveyard.graveyardOwner === 'opponent'
         ? getTargetPlayerId(ctx)
         : '';
+    const uniqueAnyGraveyardTargetId = boundTargetIsIllegalGraveyardCard
+      ? ''
+      : resolveUniqueChosenAnyGraveyardTargetId(
+          nextState,
+          parsedSingleTargetFromAnyGraveyard,
+          ctx,
+          runtime,
+          ctx.sourceName,
+          sourcePermanentPower,
+        );
     const targetObjectId =
       boundAnyGraveyardTargetId ||
       validatedBoundTargetId ||
-      (callerSuppliedATarget && !boundTargetIsIllegalGraveyardCard
-        ? resolveUniqueChosenAnyGraveyardTargetId(
-            nextState,
-            parsedSingleTargetFromAnyGraveyard,
-            ctx,
-            runtime,
-            ctx.sourceName,
-            sourcePermanentPower
-          )
-        : '') ||
+      uniqueAnyGraveyardTargetId ||
       (boundOpponentId
         ? resolveUniqueChosenGraveyardTargetId(
             nextState,
@@ -804,8 +804,9 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
       if (loc?.playerId && loc.playerId === controllerId) {
         return {
           applied: false,
-          message: `Skipped move zone (illegal opponent-graveyard target): ${step.raw}`,
-          reason: 'unsupported_selector',
+          message: `Skipped move zone (choose an opponent graveyard card): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: { classification: 'player_choice' },
         };
       }
     }
@@ -814,8 +815,9 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
       if (isUpToOneTargetReference(step.what)) return buildNoOpOptionalSingleTargetResult(nextState, step);
       return {
         applied: false,
-        message: `Skipped move zone (unsupported selector): ${step.raw}`,
-        reason: 'unsupported_selector',
+        message: `Skipped move zone (choose a graveyard card): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
       };
     }
 

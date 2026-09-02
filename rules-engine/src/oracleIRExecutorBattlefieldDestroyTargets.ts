@@ -43,6 +43,26 @@ export function resolveDestroyTargets(
     return matches.length > 0 ? matches : [];
   }
 
+  if (/^(?:destroy )?target attacking creature without flying$/i.test(targetText)) {
+    const boundIds = new Set(collectBoundBattlefieldIds(ctx));
+    const withoutFlying = (perm: any) =>
+      permanentMatchesType(perm, 'creature') && !battlefieldPermanentHasFlying(perm);
+    const bound = battlefield.filter(
+      (perm: any) => boundIds.has(String((perm as any)?.id || '').trim()) && withoutFlying(perm),
+    );
+    if (bound.length > 0) return bound.slice(0, 1);
+    const attacking = battlefield.filter((perm: any) => {
+      if (!withoutFlying(perm)) return false;
+      return Boolean(
+        (perm as any)?.isAttacking ||
+          (perm as any)?.attacking ||
+          (perm as any)?.attackingPlayerId ||
+          (perm as any)?.defendingPlayerId,
+      );
+    });
+    return attacking.slice(0, 1);
+  }
+
   const conditionalCounterMatch = rawTargetText.match(
     /if\s+it\s+has\s+((?:\d+)|(?:one|two|three|four|five|six|seven|eight|nine|ten))\s+or\s+more\s+([a-z+/-]+)\s+counters?\s+on\s+it$/i
   );

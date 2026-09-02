@@ -150,6 +150,12 @@ export function parseActivatedAbility(text: string): ParsedAbility | null {
     ) {
       return null;
     }
+    // Suspend N—{cost} is a keyword line. Do not swallow the spell's resolution
+    // text when reminder parentheses were stripped ("Suspend 3-{R}{R} Shuffle…").
+    if (String(keywordMatch[1] || '').trim().toLowerCase() === 'suspend') {
+      const suspendCostOnly = /^(?:\d+\s*[-—–]\s*(?:\{[^}]+\})+)$/.test(cost || rawCost);
+      if (!suspendCostOnly) return null;
+    }
     const expandedKeywordAbility = expandKeywordCostAbility(text, keywordMatch[1], cost || rawCost);
     if (expandedKeywordAbility) {
       const isManaAbility =

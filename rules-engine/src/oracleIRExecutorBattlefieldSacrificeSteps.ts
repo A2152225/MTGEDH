@@ -387,6 +387,18 @@ export function applySacrificeStep(
     const chosenIds = collectSacrificeChoiceBoundIds(battlefield, ctx);
     const wantsCreature = /\bcreature\b/i.test(sacrificeWhatText);
     const wantsAttacking = sacrificeRequiresAttackingCreature(sacrificeWhatText);
+    if (
+      /\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|\d+)\s+(?:creatures?|permanents?|artifacts?|enchantments?|lands?)\b/i.test(
+        sacrificeWhatText,
+      )
+    ) {
+      return {
+        applied: false,
+        message: `Skipped sacrifice (requires player choice): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
     const pickOneForPlayer = (playerId: string): BattlefieldPermanent | undefined => {
       const sourceId = String(ctx.sourceId || '').trim();
       const matchesPlayer = (perm: any) =>
@@ -443,8 +455,9 @@ export function applySacrificeStep(
       if (selected.length === 0) {
         return {
           applied: false,
-          message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
-          reason: 'no_deterministic_target',
+          message: `Skipped sacrifice (requires player choice): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: { classification: 'player_choice' },
         };
       }
 

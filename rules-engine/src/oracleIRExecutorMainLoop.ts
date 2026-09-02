@@ -38,6 +38,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'choose_pile',
   'connive',
   'discard',
+  'exile',
   'explore',
   'flip_coin',
   'look_choose_from_top',
@@ -69,6 +70,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'unless_pays_mana',
   'unless_pays_life',
   'pay_energy',
+  'grant_temporary_ability',
 ]);
 
 export function applyOracleIRStepsToGameStateImpl(

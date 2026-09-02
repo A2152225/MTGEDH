@@ -73,6 +73,10 @@ export function parseContextualBattlefieldReference(
     return { mode: 'contextual', type: 'creature' };
   }
 
+  if (/^(?:that wall|the wall)$/i.test(normalized)) {
+    return { mode: 'contextual', type: 'creature', subtype: 'wall' };
+  }
+
   if (/^(?:that vehicle|the vehicle)$/i.test(normalized)) {
     return { mode: 'contextual', type: 'vehicle' };
   }

@@ -45,7 +45,7 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
     parsedThisPermanentAndAnotherTargetCreature,
   } = args.referenceQueries;
 
-  if (parsedThatPile && (step.to === 'hand' || step.to === 'graveyard')) {
+  if (parsedThatPile && (step.to === 'hand' || step.to === 'graveyard' || step.to === 'library')) {
     const destination = step.to;
     const candidateIds = resolveContextualCardIdsInZones(nextState, ctx, runtime, ['exile', 'hand', 'graveyard']);
     let workingState = nextState;
@@ -64,7 +64,7 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
                 location.playerId,
                 cardId,
                 'any',
-                destination === 'hand' ? 'hand' : 'graveyard'
+                destination === 'hand' ? 'hand' : destination === 'library' ? 'library_top' : 'graveyard'
               )
             : { kind: 'impossible' as const };
       if (result.kind !== 'applied') continue;
@@ -79,7 +79,9 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
           : [
               destination === 'hand'
                 ? `Moved that pile to hand: ${step.raw}`
-                : `Moved that pile to graveyard: ${step.raw}`,
+                : destination === 'library'
+                  ? `Moved that pile to library: ${step.raw}`
+                  : `Moved that pile to graveyard: ${step.raw}`,
             ],
     });
   }
@@ -256,6 +258,14 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
       text: bounceSelectorText,
     } as any);
     if (!selector) {
+      if (/\btarget\b/i.test(bounceSelectorText) || /\bup to\b/i.test(String(step.raw || ''))) {
+        return {
+          applied: false,
+          message: `Skipped move zone (requires choosing bounce targets): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: { classification: 'player_choice' },
+        };
+      }
       return {
         applied: false,
         message: `Skipped move zone (unsupported selector): ${step.raw}`,
@@ -591,6 +601,27 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
   }
 
   if (parsedMassBattlefieldCreatureBounce && step.to === 'hand') {
+    if (parsedMassBattlefieldCreatureBounce.chosenCreaturesOnly) {
+      const chosenIds = new Set(getChosenObjectIds(ctx));
+      if (chosenIds.size === 0) {
+        return {
+          applied: false,
+          message: `Skipped move zone (requires player choice): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: { classification: 'player_choice' },
+        };
+      }
+      const targetIds = ((nextState.battlefield || []) as any[])
+        .filter((perm) => {
+          const permanentId = String((perm as any)?.id || '').trim();
+          if (!chosenIds.has(permanentId)) return false;
+          return hasExecutorClass(perm as any, 'creature');
+        })
+        .map((perm) => String((perm as any)?.id || '').trim())
+        .filter(Boolean);
+      const result = moveBattlefieldPermanentsByIdToOwnersHands(nextState, targetIds);
+      return finalizeAppliedResult(result);
+    }
     const chosenType = String(ctx.selectorContext?.chosenCreatureType || 'human').trim().toLowerCase();
     const colorLetterMap: Record<string, string> = {
       white: 'W',

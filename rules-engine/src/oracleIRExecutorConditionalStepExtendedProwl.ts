@@ -676,13 +676,31 @@ export function tryEvaluateExtendedProwlClause(params: ExtendedConditionalParams
     }
   }
 
-  if (normalizedRaw === "it's equipped" || normalizedRaw === 'it is equipped') {
+  if (
+    normalizedRaw === "it's equipped" ||
+    normalizedRaw === 'it is equipped' ||
+    normalizedRaw === 'that creature is equipped' ||
+    normalizedRaw === 'that permanent is equipped'
+  ) {
     const subject = getConditionalSubjectCard(params) ?? getReferencedObject(nextState, ctx);
-    if (!subject) return null;
+    const subjectId = String(
+      (subject as any)?.id ||
+        ctx.targetCreatureId ||
+        ctx.targetPermanentId ||
+        ctx.selectorContext?.targetCreatureId ||
+        ctx.selectorContext?.targetPermanentId ||
+        '',
+    ).trim();
+    if (!subject && !subjectId) return null;
     if (Boolean((subject as any)?.isEquipped)) return true;
     const attachedEquipment = (subject as any)?.attachedEquipment;
     if (Array.isArray(attachedEquipment) && attachedEquipment.length > 0) return true;
-    return false;
+    if (!subjectId) return false;
+    return (getProcessedBattlefield(nextState) as any[]).some((perm: any) => {
+      if (String(perm?.attachedTo || '').trim() !== subjectId) return false;
+      const typeLine = getExecutorTypeLineLower(perm);
+      return typeLine.includes('equipment') || typeLine.includes('artifact');
+    });
   }
 
   if (

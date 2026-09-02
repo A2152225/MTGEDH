@@ -10,6 +10,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep, OracleObjectSelector } from './oracleIR';
 import { evaluateOracleStepUnlessCondition } from './oracleIRExecutorConditionalStepSupport';
 import { cardMatchesLookChooseSelector } from './oracleIRExecutorPlayerLookChooseSelector';
+import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import {
   buildPlayerZoneBridgeOptions,
   filterChosenHandCardIds,
@@ -30,6 +31,7 @@ export function discardSelectorRequiresPlayerChoice(
   step: Extract<OracleEffectStep, { kind: 'discard' }>,
 ): boolean {
   if ((step.amount as any)?.kind === 'any_number') return true;
+  if ((step.amount as any)?.kind === 'all') return false;
   if (step.target) return true;
 
   const amountRaw = String((step.amount as any)?.raw || '').trim().toLowerCase();
@@ -44,7 +46,30 @@ export function discardSelectorRequiresPlayerChoice(
   return staticAmount === null || staticAmount > 0;
 }
 
-function handCardMatchesDiscardTarget(card: any, target: OracleObjectSelector | undefined): boolean {
+function cardMatchesChosenColorForDiscard(card: any, chosenColor: string): boolean {
+  const normalized = String(chosenColor || '').trim().toLowerCase();
+  if (!normalized) return false;
+  const letterMap: Record<string, string> = {
+    white: 'W',
+    blue: 'U',
+    black: 'B',
+    red: 'R',
+    green: 'G',
+    w: 'W',
+    u: 'U',
+    b: 'B',
+    r: 'R',
+    g: 'G',
+  };
+  const letter = letterMap[normalized] || normalized.slice(0, 1).toUpperCase();
+  return getColorsFromObject(card).some((entry) => String(entry || '').trim().toUpperCase() === letter);
+}
+
+function handCardMatchesDiscardTarget(
+  card: any,
+  target: OracleObjectSelector | undefined,
+  ctx?: OracleIRExecutionContext,
+): boolean {
   if (!target) return true;
   const text = String((target as any)?.text || (target as any)?.raw || '').trim();
   if (!text) return true;
@@ -53,7 +78,16 @@ function handCardMatchesDiscardTarget(card: any, target: OracleObjectSelector | 
     .replace(/\s+cards?$/i, '')
     .trim();
   if (!normalized) return true;
-  return cardMatchesLookChooseSelector(card, normalized);
+  const chosenType = String(
+    ctx?.selectorContext?.chosenCreatureType || (ctx as { chosenCreatureType?: string }).chosenCreatureType || '',
+  ).trim();
+  const chosenColor = String(
+    ctx?.selectorContext?.chosenColor || (ctx as { chosenColor?: string }).chosenColor || '',
+  ).trim();
+  if (/of that color/i.test(text)) {
+    return Boolean(chosenColor) && cardMatchesChosenColorForDiscard(card, chosenColor);
+  }
+  return cardMatchesLookChooseSelector(card, normalized, null, chosenType);
 }
 
 export function buildDiscardSelectionOptionsForPlayer(
@@ -76,7 +110,7 @@ export function buildDiscardSelectionOptionsForPlayer(
   if (hand.length === 0) return null;
 
   const eligibleHand = step.target
-    ? hand.filter((card: any) => handCardMatchesDiscardTarget(card, step.target))
+    ? hand.filter((card: any) => handCardMatchesDiscardTarget(card, step.target, ctx))
     : hand;
 
   const options = eligibleHand
@@ -240,7 +274,7 @@ export function applyDiscardStep(
       (Array.isArray((state.players.find(p => p.id === players[0]) as any)?.hand)
         ? (state.players.find(p => p.id === players[0]) as any).hand
         : [])
-        .filter((card: any) => handCardMatchesDiscardTarget(card, step.target))
+        .filter((card: any) => handCardMatchesDiscardTarget(card, step.target, ctx))
         .map((card: any) => String(card?.id || '').trim())
         .filter(Boolean)
     );
@@ -285,10 +319,7 @@ export function applyDiscardStep(
     };
   }
 
-  if (
-    step.amount.kind === 'all' &&
-    /each discard their hands/i.test(String(step.raw || ''))
-  ) {
+  if (step.amount.kind === 'all') {
     let nextState = state;
     const log: string[] = [];
     let totalDiscarded = 0;
@@ -297,11 +328,14 @@ export function applyDiscardStep(
     for (const playerId of players) {
       const player = nextState.players.find((entry) => entry.id === playerId) as any;
       const hand = Array.isArray(player?.hand) ? [...player.hand] : [];
-      if (hand.length === 0) continue;
+      const matching = step.target
+        ? hand.filter((card: any) => handCardMatchesDiscardTarget(card, step.target, ctx))
+        : hand;
+      if (matching.length === 0) continue;
       const result = discardSpecificCardsForPlayer(
         nextState,
         playerId,
-        hand.map((card: any) => String(card?.id || '').trim()).filter(Boolean),
+        matching.map((card: any) => String(card?.id || '').trim()).filter(Boolean),
         bridgeOptions
       );
       if (!result.applied) {

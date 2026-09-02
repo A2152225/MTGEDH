@@ -133,6 +133,32 @@ export function tryParseSimpleActionEarlyClauses(args: SimpleActionClauseParseAr
   }
 
   {
+    const unlessSacrificesOrPaysLife = clause.match(
+      /^(.+?)\s+unless\s+(target opponent|an opponent|target player|that player|that opponent)\s+sacrifices?\s+(.+?)\s+or\s+pays?\s+(\d+)\s+life$/i,
+    );
+    if (unlessSacrificesOrPaysLife) {
+      const innerClause = String(unlessSacrificesOrPaysLife[1] || '').trim();
+      const innerStep = tryParseSimpleActionClause({
+        clause: innerClause,
+        rawClause: innerClause,
+        withMeta,
+      });
+      if (innerStep && innerStep.kind !== 'unknown') {
+        const nestedSteps = (innerStep as { optional?: boolean }).optional === true
+          ? [{ ...innerStep, optional: undefined } as typeof innerStep]
+          : [innerStep];
+        return withMeta({
+          kind: 'unless_sacrifices',
+          who: parsePlayerSelector(String(unlessSacrificesOrPaysLife[2] || 'target opponent').trim()),
+          what: { kind: 'raw', text: String(unlessSacrificesOrPaysLife[3] || '').trim() },
+          steps: nestedSteps,
+          raw: rawClause,
+        });
+      }
+    }
+  }
+
+  {
     const unlessThatPlayerPays = clause.match(
       /^(.+?)\s+unless\s+(you|that\s+player|that\s+opponent|its\s+controller|they)\s+pays?\s+(.+)$/i,
     );

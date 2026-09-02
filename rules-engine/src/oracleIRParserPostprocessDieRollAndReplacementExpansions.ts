@@ -16,6 +16,7 @@ import type { OracleEffectStep, OracleIRAbility } from './oracleIR';
 import { parseTokenCreationMetadataStep } from './oracleIRParserPostprocessTokenCreationMetadata';
 import { normalizeCounterName } from './oracleIRParserSacrificeHelpers';
 import { normalizeOracleText, parseObjectSelector, parseQuantity } from './oracleIRParserUtils';
+import { stripLeadingCastKeywordPrefix } from './oracleIRParserLeadingCastKeywordPrefix';
 
 type DieRollResultBand = {
   readonly min: number;
@@ -452,9 +453,11 @@ export function expandCopyPermanentUnknownAbilities(
 function parsePreventDamageUnknownStep(
   step: Extract<OracleEffectStep, { kind: 'unknown' }>
 ): OracleEffectStep | null {
-  const normalized = normalizeOracleText(String(step.raw || ''))
-    .replace(/^then\b\s*/i, '')
-    .trim();
+  const normalized = stripLeadingCastKeywordPrefix(
+    normalizeOracleText(String(step.raw || ''))
+      .replace(/^then\b\s*/i, '')
+      .trim(),
+  ).trim();
   if (!normalized) return null;
 
   if (/^prevent all combat damage that would be dealt this turn$/i.test(normalized)) {

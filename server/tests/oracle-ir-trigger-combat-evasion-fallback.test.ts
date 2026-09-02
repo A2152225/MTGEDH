@@ -1,9 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { applyOracleIRFallbackForTriggeredEffect } from '../src/state/modules/stackExecuteTriggerEffectIrFallbackUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
+
+beforeEach(() => {
+  // Direct calls to applyOracleIRFallbackForTriggeredEffect no-op when IR primary
+  // owns the effect (shouldSkipTriggerUncategorizedFallback). This file pins that
+  // fallback seam; keep PRIMARY=0 even if the process set ORACLE_IR_CENSUS_*.
+  process.env.ORACLE_IR_TRIGGER_PRIMARY = '0';
+  process.env.ORACLE_IR_SPELL_PRIMARY = '0';
+});
 
 describe('oracle IR trigger fallback — combat evasion + counter-scaled modify_pt', () => {
   it('applies counter-scaled +X/+X via uncategorized IR fallback (Hydra Trainer exert reward)', () => {

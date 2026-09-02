@@ -1,6 +1,7 @@
 import type { GameContext } from '../../context.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { timingTriggerEffect } from './timing-effect-extraction.js';
+import { collectDelayedEndOfCombatRegistryTriggers } from './delayed-end-combat-watchers.js';
 import {
   inferEndCombatWhoseTurn,
   shouldQueuePhaseTriggerForActivePlayer,
@@ -14,6 +15,8 @@ export interface EndOfCombatTrigger {
   effect?: string;
   mandatory: boolean;
   triggerType?: 'end_combat' | 'your_turn_end_combat' | 'each_combat_end';
+  requiresChoice?: boolean;
+  stackItem?: Record<string, unknown>;
 }
 
 export function detectEndOfCombatTriggers(card: any, permanent: any): EndOfCombatTrigger[] {
@@ -108,6 +111,8 @@ export function getEndOfCombatTriggers(
       triggers.push(trigger);
     }
   }
+
+  triggers.push(...collectDelayedEndOfCombatRegistryTriggers(ctx, activePlayerId));
 
   return triggers;
 }

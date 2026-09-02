@@ -22,7 +22,7 @@ export interface TriggerDelayedCleanupParams {
 export function applyDelayedCleanupTriggersFromMetadata(
   params: TriggerDelayedCleanupParams,
 ): boolean {
-  const action = params.triggerItem?.delayedAction as ('draw' | 'exile' | 'sacrifice' | 'return_hand' | 'graveyard_return' | undefined);
+  const action = params.triggerItem?.delayedAction as ('draw' | 'destroy' | 'exile' | 'sacrifice' | 'return_hand' | 'graveyard_return' | undefined);
 
   if (action === 'draw') {
     const count = Math.max(1, Math.floor(Number(params.triggerItem?.delayedDrawCount || 1)));
@@ -146,6 +146,18 @@ export function applyDelayedCleanupTriggersFromMetadata(
         const permanentId = String(rawId || '').trim();
         if (!permanentId) continue;
         movePermanentToHand(params.ctx, permanentId);
+      }
+      return true;
+    }
+
+    if (action === 'destroy' && Array.isArray(permanentIds) && permanentIds.length > 0) {
+      const battlefield = Array.isArray(params.state.battlefield) ? params.state.battlefield : [];
+      for (const rawId of permanentIds) {
+        const permanentId = String(rawId || '').trim();
+        if (!permanentId) continue;
+        const perm = battlefield.find((p: any) => p?.id === permanentId);
+        if (!perm) continue;
+        destroyPermanent(params.ctx, permanentId, true);
       }
       return true;
     }

@@ -263,6 +263,32 @@ export function applyCantBlockStep(
     return { applied: true, state: nextState, log: [`Applied can't-block to ${creatures.length} enchanted creature(s)`] };
   }
 
+  if (
+    /creatures controlled by that player or by that planeswalker's controller can't block this turn/i.test(
+      String(step.raw || ''),
+    )
+  ) {
+    const playerId = String(
+      ctx.selectorContext?.targetOpponentId || ctx.selectorContext?.targetPlayerId || ctx.targetPlayerId || 'p2',
+    ).trim();
+    const creatures = battlefield.filter((perm: any) => {
+      if (String(perm?.controller || '').trim() !== playerId) return false;
+      return permanentMatchesType(perm, 'creature');
+    });
+    if (creatures.length === 0) {
+      return { applied: true, state, log: ['No creatures to restrict from blocking'] };
+    }
+    const nextState = applyTemporaryEffectToPermanents(state, creatures, ctx, {
+      descriptions: ["can't block"],
+      expiresAt: 'end_of_turn',
+    });
+    return {
+      applied: true,
+      state: nextState,
+      log: [`Applied can't-block to ${creatures.length} creature(s)`],
+    };
+  }
+
   if (/creatures that player controls without flying can't block this turn/i.test(String(step.raw || ''))) {
     const playerId = String(ctx.selectorContext?.targetOpponentId || ctx.selectorContext?.targetPlayerId || 'p2').trim();
     const creatures = battlefield.filter((perm: any) => {

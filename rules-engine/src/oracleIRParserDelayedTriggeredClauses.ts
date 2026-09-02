@@ -79,6 +79,31 @@ export function tryParseDelayedTriggerClause(args: {
     }
   }
 
+  const whenYouNextCast = clause.match(
+    /^when you next cast (?:an? )?(.+?) this turn,?\s*(.+)$/i,
+  );
+  if (whenYouNextCast) {
+    const effect = normalizeEffectText(String(whenYouNextCast[2] || ''));
+    if (effect) {
+      const allowNewTargets = /choose new targets/i.test(`${rawClause} ${effect}`);
+      const copiesTwice = /\btwice\b/i.test(effect);
+      return withMeta({
+        kind: 'schedule_delayed_trigger',
+        timing: 'on_event',
+        effect,
+        steps: [{
+          kind: 'copy_spell',
+          subject: 'target_spell',
+          target: { kind: 'raw', text: 'that spell' },
+          ...(copiesTwice ? { copies: { kind: 'number', value: 2 } } : {}),
+          ...(allowNewTargets ? { allowNewTargets: true } : {}),
+          raw: effect,
+        }],
+        raw: rawClause,
+      });
+    }
+  }
+
   // Arcbond-style: "Whenever that creature is dealt damage this turn, …"
   const dealtDamageThisTurn = clause.match(
     /^whenever that creature is dealt damage this turn,?\s*(.+)$/i,

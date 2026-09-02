@@ -362,6 +362,10 @@ export function parseAbilityToIRAbility(
     }
 
     const next = parseEffectClauseToStep(clauses[i]);
+    if (next.kind === 'unknown' && !String(next.raw || '').trim()) {
+      i += 1;
+      continue;
+    }
     if (next.kind === 'unknown') {
       const trailingConditionalWrapped = tryParseTrailingConditionalStep({
         rawClause: clauses[i],

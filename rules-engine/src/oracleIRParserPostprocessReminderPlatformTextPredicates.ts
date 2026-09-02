@@ -79,7 +79,7 @@ function isOrphanReminderOnlyAbilityText(raw: string): boolean {
     /^then put any number of them on the bottom and the rest on top in any order\.?$/i.test(normalizedText) ||
     /^then shuffle\.?$/i.test(normalizedText) ||
     /^then give each another counter of each kind already there\.?$/i.test(normalizedText) ||
-    /^you may choose new targets for the copies?\.?$/i.test(normalizedText) ||
+    /^you may choose new targets for the cop(?:y|ies)(?: (?:you|they) control)?\.?$/i.test(normalizedText) ||
     /^that much\.?$/i.test(normalizedText) ||
     /^otherwise,?\s*(?:you may )?put it into your (?:hand|graveyard)\.?$/i.test(normalizedText) ||
     /^if you cast a (?:card|spell) this way, you still pay its costs\.?$/i.test(normalizedText) ||

@@ -111,6 +111,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'attach',
   'fight',
   'modify_pt',
+  'set_base_pt',
   'cant_attack',
   'cant_block',
   'remove_counter',

@@ -441,10 +441,52 @@ function resolveTokenAmount(
   if (evaluated !== null) return evaluated * twiceXMultiplier;
 
   const normalizedWhere = String(whereRaw || '').trim().toLowerCase();
-  if (/^x is that creature's mana value$/.test(normalizedWhere) && targetCreatureId) {
-    const creature = (state.battlefield || []).find((perm) => String((perm as any)?.id || '').trim() === targetCreatureId);
-    const creatureManaValue = creature ? getCardManaValue(creature) : null;
+  if (/^x is that creature's mana value$/.test(normalizedWhere)) {
+    const creature = targetCreatureId
+      ? (state.battlefield || []).find((perm) => String((perm as any)?.id || '').trim() === targetCreatureId)
+      : undefined;
+    const moved = [
+      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+      ...(Array.isArray((ctx as any).lastMovedCards) ? (ctx as any).lastMovedCards : []),
+    ];
+    const destroyed = [
+      ...(Array.isArray((runtime as any)?.lastDestroyedPermanents) ? (runtime as any).lastDestroyedPermanents : []),
+      ...(Array.isArray((ctx as any).lastDestroyedPermanents) ? (ctx as any).lastDestroyedPermanents : []),
+    ];
+    const snapshot = creature || moved[moved.length - 1] || destroyed[destroyed.length - 1];
+    const creatureManaValue = snapshot ? getCardManaValue(snapshot) : null;
     if (creatureManaValue !== null) return creatureManaValue * twiceXMultiplier;
+    const boundCmc = Number((ctx as any)?.referenceSpellManaValue ?? ctx.xValue);
+    if (Number.isFinite(boundCmc) && boundCmc > 0) return Math.floor(boundCmc) * twiceXMultiplier;
+  }
+
+  const sacrificed = Array.isArray(runtime?.lastSacrificedPermanents)
+    ? runtime.lastSacrificedPermanents
+    : Array.isArray((ctx as any).lastSacrificedPermanents)
+      ? (ctx as any).lastSacrificedPermanents
+      : [];
+  if (sacrificed.length > 0) {
+    const snapshot = sacrificed[sacrificed.length - 1] as any;
+    const readFiniteStat = (value: unknown): number | null => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    };
+    if (
+      /^x is that creature's toughness$/.test(normalizedWhere) ||
+      /^x is the sacrificed creature's toughness$/.test(normalizedWhere)
+    ) {
+      const toughness = readFiniteStat(
+        snapshot?.toughness ?? snapshot?.effectiveToughness ?? snapshot?.card?.toughness,
+      );
+      if (toughness !== null) return toughness * twiceXMultiplier;
+    }
+    if (
+      /^x is that creature's power$/.test(normalizedWhere) ||
+      /^x is the sacrificed creature's power$/.test(normalizedWhere)
+    ) {
+      const power = readFiniteStat(snapshot?.power ?? snapshot?.effectivePower ?? snapshot?.card?.power);
+      if (power !== null) return power * twiceXMultiplier;
+    }
   }
 
   const moved = Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : [];

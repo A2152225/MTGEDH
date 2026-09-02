@@ -21,6 +21,42 @@ import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
 import { trySpecialCopyPermanentStep } from './oracleIRExecutorSpecialTargetHandlers';
 import { tryApplyMassExchangeControlStep } from './oracleIRExecutorBattlefieldExchangeMassSteps';
 
+const EXCHANGE_PERMANENT_CARD_TYPES = [
+  'artifact',
+  'battle',
+  'creature',
+  'enchantment',
+  'land',
+  'planeswalker',
+] as const;
+
+function exchangeRequiresSharedCardType(step: Extract<OracleEffectStep, { kind: 'exchange_control' }>): boolean {
+  const blob = [
+    String(step.raw || ''),
+    String((step.first as any)?.text || ''),
+    String((step.second as any)?.text || ''),
+  ].join(' ');
+  return /\bshare\s+a\s+(?:card|permanent)\s+type\b/i.test(blob);
+}
+
+function exchangePermanentCardTypes(permanent: any): Set<string> {
+  const typeLine = getExecutorTypeLineLower(permanent);
+  const cardTypeSegment = typeLine.split(/[—-]/)[0] || typeLine;
+  return new Set(
+    EXCHANGE_PERMANENT_CARD_TYPES.filter((cardType) => new RegExp(`\\b${cardType}\\b`, 'i').test(cardTypeSegment)),
+  );
+}
+
+function exchangeTargetsShareCardType(first: any, second: any): boolean {
+  const firstTypes = exchangePermanentCardTypes(first);
+  const secondTypes = exchangePermanentCardTypes(second);
+  if (firstTypes.size === 0 || secondTypes.size === 0) return false;
+  for (const cardType of firstTypes) {
+    if (secondTypes.has(cardType)) return true;
+  }
+  return false;
+}
+
 export function applyExchangeControlStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'exchange_control' }>,
@@ -112,6 +148,13 @@ export function applyExchangeControlStep(
   const secondPermanent = battlefield[secondIndex] as any;
   const firstController = String(firstPermanent?.controller || '').trim();
   const secondController = String(secondPermanent?.controller || '').trim();
+  if (exchangeRequiresSharedCardType(step) && !exchangeTargetsShareCardType(firstPermanent, secondPermanent)) {
+    return {
+      applied: true,
+      state,
+      log: [`Skipped exchange-control (do not share a card type): ${step.raw}`],
+    };
+  }
   if (!firstController || !secondController) {
     return {
       applied: false,

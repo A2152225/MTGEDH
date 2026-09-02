@@ -28,7 +28,7 @@ Do **not** add new card-name checks, `KNOWN_*_TRIGGERS` table entries, or `Resol
 
 - **Full effect clauses** — never truncate triggered-ability effects at the first `.` when the ability continues (`Then`, `Each player`, `If you do`, second sentence on same ability). Use `extractTriggerEffectAfterPrefix` from `rules-engine/src/triggerEffectTextExtraction.ts`.
 - **All-or-nothing** — multi-step IR must complete mandatory steps or return `handled: false` (see `oracleIrStepWiring.ts`).
-- **Tests** — behavior tests assert outcomes (choices queued, zones changed), not “legacy handler ran”. Prefer `npm run test:oracle-ir-migration` for production-default IR.
+- **Tests** — behavior tests assert outcomes (choices queued, zones changed), not “legacy handler ran”. Prefer `npm run test:oracle-ir-migration` for production-default IR. Card-works tests: `.cursor/rules/card-behavior-test-robustness.mdc` (live `ORACLE_IR_*_PRIMARY=1`, every clause, no dual-engine mask).
 
 ## When a bespoke bridge already exists
 

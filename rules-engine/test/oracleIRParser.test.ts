@@ -14123,10 +14123,15 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(copyAbility?.steps.some((step: any) => String(step?.raw || '').trim() === 'You may choose new targets for the copy')).toBe(false);
     expect(copyAbility?.steps[0]).toEqual(
       expect.objectContaining({
+        kind: 'schedule_delayed_trigger',
+        timing: 'on_event',
+      })
+    );
+    expect((copyAbility?.steps[0] as { steps?: readonly unknown[] } | undefined)?.steps?.[0]).toEqual(
+      expect.objectContaining({
         kind: 'copy_spell',
         allowNewTargets: true,
         target: { kind: 'raw', text: 'that spell' },
-        raw: expect.stringContaining('You may choose new targets for the copy'),
       })
     );
   });

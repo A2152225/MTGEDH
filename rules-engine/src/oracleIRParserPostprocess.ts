@@ -150,6 +150,7 @@ export {
   upgradeManifestDreadGrantAbilities,
   pruneRedundantFaceDownReminderUnknownAbilities,
   pruneConvokeReminderAbilities,
+  pruneReinforceReminderAddCounterSteps,
   pruneCascadeReminderAbilities,
   pruneKickerReminderAbilities,
   pruneRedundantCascadeReminderUnknownAbilities,

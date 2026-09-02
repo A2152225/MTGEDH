@@ -428,6 +428,17 @@ export function applyCounterSpellStep(
     if (candidates.length === 1) {
       targetStackItem = candidates[0];
     } else if (candidates.length === 0) {
+      const thatSpell =
+        /^(?:counter\s+)?(?:that spell|it)$/i.test(
+          String((step as any)?.target?.text || '').trim(),
+        ) || /^(?:instead\s+)?counter that spell(?:\s+instead)?$/i.test(String(step.raw || '').trim());
+      if (thatSpell) {
+        return {
+          applied: true,
+          state,
+          log: [`No ${targetLabel} left on the stack to counter`],
+        };
+      }
       return {
         applied: false,
         message: `Skipped counter ${targetLabel} (no legal ${targetLabel} target on stack): ${step.raw}`,

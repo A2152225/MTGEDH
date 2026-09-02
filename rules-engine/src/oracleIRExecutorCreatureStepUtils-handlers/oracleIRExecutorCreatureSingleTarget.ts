@@ -173,10 +173,13 @@ export function resolveCreatureExtremaQualifiedTargetIdFromBattlefield(
   if (chosenIds.length > 0) {
     const legalIdSet = new Set(legalTargets.map(permanent => String((permanent as any)?.id || '').trim()));
     const matchedChosenIds = Array.from(new Set(chosenIds)).filter(id => legalIdSet.has(id));
-    return matchedChosenIds.length === 1 ? matchedChosenIds[0] : undefined;
+    if (matchedChosenIds.length >= 1) return matchedChosenIds[0];
   }
 
-  return legalTargets.length === 1 ? String((legalTargets[0] as any)?.id || '').trim() || undefined : undefined;
+  const sortedLegal = [...legalTargets].sort((left, right) =>
+    String((left as any)?.id || '').trim().localeCompare(String((right as any)?.id || '').trim()),
+  );
+  return String((sortedLegal[0] as any)?.id || '').trim() || undefined;
 }
 
 export function resolveBolsterTargetCreatureIdFromBattlefield(
@@ -350,8 +353,7 @@ export function resolveSingleCreatureTargetId(
   const normalizedSelfTargetText = targetText.trim().toLowerCase();
   const isSelfReferencedCreatureTarget =
     normalizedSelfTargetText === 'this creature' ||
-    normalizedSelfTargetText === 'this permanent' ||
-    normalizedSelfTargetText === 'it';
+    normalizedSelfTargetText === 'this permanent';
   if (directTargetCreatureId && !isSelfReferencedCreatureTarget) {
     const matched = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === directTargetCreatureId);
     if (matched && isExecutorCreature(matched)) return directTargetCreatureId;
@@ -362,7 +364,7 @@ export function resolveSingleCreatureTargetId(
   ).trim();
   if (
     directTargetPermanentId &&
-    /^(?:that|the) creature$|^that permanent$/.test(targetText)
+    /^(?:that|the) creature$|^that permanent$|^it$/.test(targetText)
   ) {
     const matched = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === directTargetPermanentId);
     if (matched && isExecutorCreature(matched)) {
@@ -424,7 +426,7 @@ export function resolveSingleCreatureTargetId(
   }
 
   if (
-    (targetText === 'this creature' || targetText === 'this permanent' || targetText === 'it') &&
+    (targetText === 'this creature' || targetText === 'this permanent') &&
     sourceId
   ) {
     if (creatures.some(permanent => String((permanent as any)?.id || '').trim() === sourceId)) {
@@ -461,7 +463,7 @@ export function resolveSingleCreatureTargetId(
     return resolveTrepanationBoostTargetCreatureId(state, ctx);
   }
 
-  if (targetText === 'that creature' || targetText === 'the creature') {
+  if (targetText === 'that creature' || targetText === 'the creature' || targetText === 'it') {
     const preferredIds = [
       ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds) ? ctx.lastAntecedentBattlefieldPermanentIds : []),
       String(ctx.targetCreatureId || ''),
@@ -479,7 +481,7 @@ export function resolveSingleCreatureTargetId(
     }
   }
 
-  if ((targetText === 'that creature' || targetText === 'the creature') && sourceId) {
+  if ((targetText === 'that creature' || targetText === 'the creature' || targetText === 'it') && sourceId) {
     const sourcePermanent = battlefield.find(
       (permanent) => String((permanent as any)?.id || '').trim() === sourceId,
     ) as any;
@@ -489,6 +491,12 @@ export function resolveSingleCreatureTargetId(
       creatures.some((permanent) => String((permanent as any)?.id || '').trim() === attachedToId)
     ) {
       return attachedToId;
+    }
+    if (
+      targetText === 'it' &&
+      creatures.some((permanent) => String((permanent as any)?.id || '').trim() === sourceId)
+    ) {
+      return sourceId;
     }
   }
 

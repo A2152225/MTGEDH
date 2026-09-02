@@ -351,7 +351,7 @@ export function parseSimpleBattlefieldSelector(
     };
   }
 
-  if (/^attacking creatures$/i.test(cleaned)) {
+  if (/^attacking creatures?$/i.test(cleaned)) {
     return {
       kind: 'battlefield_selector',
       types: ['creature'],

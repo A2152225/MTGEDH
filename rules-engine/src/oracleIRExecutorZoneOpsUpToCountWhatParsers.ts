@@ -526,7 +526,10 @@ export function parseMoveZoneUpToTypedCardsFromAmongThem(what: {
   readonly raw?: string;
 }): { readonly maxCount: number; readonly cardType: SimpleCardType } | null {
   if (what.kind !== 'raw') return null;
-  const raw = String((what as any).text || '').trim().replace(/[.\s]+$/g, '');
+  const raw = String((what as any).text || '')
+    .trim()
+    .replace(/[.\s]+$/g, '')
+    .replace(/\bfrom among the revealed cards\b/gi, 'from among them');
   const match = raw.match(/^up to (\w+) (.+?) cards? from among them$/i);
   if (!match) return null;
   const maxCount = parseSmallNumberWord(String(match[1] || '').trim());

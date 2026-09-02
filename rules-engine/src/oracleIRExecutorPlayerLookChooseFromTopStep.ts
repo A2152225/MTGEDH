@@ -134,14 +134,17 @@ export function resolveLookChooseAmount(
 ): number | null {
   if (step.amount.kind === 'reference_amount') {
     const players = resolvePlayers(state, step.who, ctx);
-    if (players.length !== 1) return null;
-    const untilReveal = resolveRevealUntilReferenceAmountForPlayer(
-      state,
-      players[0],
-      step.amount,
-      ctx,
-    );
-    return untilReveal?.count ?? null;
+    if (players.length === 1) {
+      const untilReveal = resolveRevealUntilReferenceAmountForPlayer(
+        state,
+        players[0],
+        step.amount,
+        ctx,
+      );
+      if (untilReveal && Number.isFinite(untilReveal.count)) {
+        return untilReveal.count;
+      }
+    }
   }
 
   const resolved = resolveOracleQuantity(state, ctx.controllerId, step.amount, ctx, {

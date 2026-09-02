@@ -1,5 +1,6 @@
 import { parseNumberFromText } from '../../shared/src/textUtils';
 import type { OracleObjectSelector, OraclePlayerSelector, OracleQuantity } from './oracleIR';
+import { stripLeadingCastKeywordPrefix, stripTrailingCastKeywordSuffix } from './oracleIRParserLeadingCastKeywordPrefix';
 import { tryParseQuantityEarlyReferences } from './oracleIRParserUtils-handlers/oracleIRParserUtilsQuantityEarlyReferences';
 
 export function normalizeOracleText(text: string): string {
@@ -416,18 +417,28 @@ export function normalizeClauseForParse(clause: string): {
     working = working.replace(/^then\b\s*,?\s*/i, '');
   }
 
-  if (/^you\s+may\b/i.test(working)) {
-    optional = true;
-    working = working.replace(/^you\s+may\b\s*/i, '');
-  }
-
   // Saga chapter lines commonly prefix the real clause with a roman numeral marker
   // like "III -", but corpus text can arrive with mojibake punctuation as well.
   // Strip the whole marker so downstream clause parsers see the action text.
   working = working.replace(/^(?:[ivxlcdm]+)\s*(?:[-?]|[^\w\s])+\s*/i, '');
 
+  // Cost/typal keywords whose reminder period sits inside parentheses glue onto the
+  // next instruction once reminders are stripped ("Delve Target player…").
+  // Run before "you may" so "Convoke You may cast…" still stamps optional.
+  working = stripLeadingCastKeywordPrefix(working);
+  working = stripTrailingCastKeywordSuffix(working);
+
+  if (/^you\s+may\b/i.test(working)) {
+    optional = true;
+    working = working.replace(/^you\s+may\b\s*/i, '');
+  }
+
+  // Firebending reminder tails plus the next printed ability (Flashback / Foretell)
+  // after a broken parenthetical split.
+  working = working.replace(/\s*this mana lasts until end of combat\.?\)?.*$/i, '');
+
   working = working
-    .replace(/^\+\s*\{[^}]+\}\s*[-|]\s*/i, '')
+    .replace(/^\+\s*(?:\{[^}]+\})+\s*[-|—–]\s*/i, '')
     .replace(/^\d+\s*(?:\||[-—])\s*/i, '')
     .replace(/^\d+\+\s*\|\s*/i, '')
     .replace(/^-+\s+(?=[a-z])/i, '')

@@ -162,7 +162,7 @@ function parseCopySpellUnknownStep(
     };
   }
 
-  const copyItForEachCommanderCastMatch = normalized.match(/^copy\s+it\s+for\s+each\s+time\s+you(?:'|’)?ve\s+cast\s+your\s+commander\s+from\s+the\s+command\s+zone\s+this\s+game$/i);
+  const copyItForEachCommanderCastMatch = normalized.match(/^(?:when you cast this spell,\s+)?copy\s+it\s+for\s+each\s+time\s+you(?:'|’)?ve\s+cast\s+your\s+commander\s+from\s+the\s+command\s+zone\s+this\s+game$/i);
   if (copyItForEachCommanderCastMatch) {
     return {
       kind: 'copy_spell',
@@ -193,7 +193,7 @@ function parseCopySpellUnknownStep(
     };
   }
 
-  const copyThatSpellOrAbility = normalized.match(/^(?:if you do,\s*)?copy that (spell|ability)(?:\s+(twice))?$/i);
+  const copyThatSpellOrAbility = normalized.match(/^(?:if you do,\s*)?(?:(?:you|they|that player|the player|each opponent|each player|up to one target opponent)\s+may\s+(?:also\s+)?)?copy that (spell|ability)(?:\s+(twice))?$/i);
   if (copyThatSpellOrAbility) {
     return {
       kind: 'copy_spell',
@@ -201,7 +201,7 @@ function parseCopySpellUnknownStep(
       target: { kind: 'raw', text: `that ${String(copyThatSpellOrAbility[1] || '').trim()}` },
       ...(copyThatSpellOrAbility[2] ? { copies: { kind: 'number', value: 2 } as const } : {}),
       ...(allowNewTargets ? { allowNewTargets: true } : {}),
-      ...(optional ? { optional: true } : {}),
+      ...(optional || /\bmay\s+(?:also\s+)?copy that (?:spell|ability)/i.test(normalized) ? { optional: true } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: appendFollowupSentence(normalized, rawRetargetTail),
     };
@@ -502,6 +502,30 @@ function expandCopySpellUnknownSteps(
     const retargetTail = parseCopySpellRetargetTail(nextStep);
 
     if (step.kind === 'conditional' || step.kind === 'unless_pays_life' || step.kind === 'unless_pays_mana') {
+      const nested = expandCopySpellUnknownSteps(step.steps);
+      const nestedRetarget = retargetTail !== null
+        ? applyCopySpellRetargetTailToSteps(nested.steps, retargetTail)
+        : { steps: nested.steps, changed: false, applied: false };
+      if (nested.changed || nestedRetarget.changed) {
+        changed = true;
+        expandedSteps.push({
+          ...step,
+          steps: nestedRetarget.steps,
+        });
+        if (nestedRetarget.applied) {
+          i += 1;
+        }
+      } else {
+        expandedSteps.push(step);
+        if (nestedRetarget.applied) {
+          changed = true;
+          i += 1;
+        }
+      }
+      continue;
+    }
+
+    if (step.kind === 'schedule_delayed_trigger' && Array.isArray(step.steps)) {
       const nested = expandCopySpellUnknownSteps(step.steps);
       const nestedRetarget = retargetTail !== null
         ? applyCopySpellRetargetTailToSteps(nested.steps, retargetTail)

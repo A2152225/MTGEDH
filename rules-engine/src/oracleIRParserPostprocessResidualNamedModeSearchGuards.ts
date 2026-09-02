@@ -115,11 +115,11 @@ export function parseResidualNamedModeSearchGuardsOne(
     return staticMetadata('target nonsnow basic land', 'becomes snow');
   }
 
-  const ownerPutsPermanentIntoLibrary = raw.match(/^(target\s+nonland\s+permanent)(?:'|�)s\s+owner\s+puts\s+it\s+into\s+their\s+library\s+second\s+from\s+the\s+top\s+or\s+on\s+the\s+bottom$/i);
+  const ownerPutsPermanentIntoLibrary = raw.match(/^(?:(target\s+nonland\s+permanent)(?:'|’|\u2019)s\s+owner|the owner of (target\s+nonland\s+permanent))\s+puts\s+it\s+into\s+their\s+library\s+second\s+from\s+the\s+top\s+or\s+on\s+the\s+bottom$/i);
   if (ownerPutsPermanentIntoLibrary) {
     return [{
       kind: 'move_zone',
-      what: parseObjectSelector(String(ownerPutsPermanentIntoLibrary[1] || '').trim()),
+      what: parseObjectSelector(String(ownerPutsPermanentIntoLibrary[1] || ownerPutsPermanentIntoLibrary[2] || '').trim()),
       to: 'library',
       toRaw: 'second from the top or on the bottom of its owner\'s library',
       raw,
