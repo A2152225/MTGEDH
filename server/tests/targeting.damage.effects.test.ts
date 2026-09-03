@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, TargetRef } from '../../shared/src';
-import { categorizeSpell, evaluateTargeting, resolveSpell, type SpellSpec } from '../src/rules-engine/targeting';
+import { categorizeSpellWithoutPrimaryRetirement as categorizeSpell, evaluateTargeting, resolveSpell, type SpellSpec } from '../src/rules-engine/targeting';
 
 describe('Damage effects via resolveSpell (ANY_TARGET_DAMAGE, DAMAGE_EACH)', () => {
   it('DAMAGE_* / ANY_TARGET_DAMAGE resolveSpell ops are deleted (P1a; categorize patterns kept for cast)', () => {

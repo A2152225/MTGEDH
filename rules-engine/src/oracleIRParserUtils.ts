@@ -433,9 +433,9 @@ export function normalizeClauseForParse(clause: string): {
     working = working.replace(/^you\s+may\b\s*/i, '');
   }
 
-  // Firebending reminder tails plus the next printed ability (Flashback / Foretell)
-  // after a broken parenthetical split.
-  working = working.replace(/\s*this mana lasts until end of combat\.?\)?.*$/i, '');
+  // Broken parenthetical shards only: "... This mana lasts until end of combat.) Flashback".
+  // Isolated firebending effect clauses have no leftover ')', so they parse as retain_mana.
+  working = working.replace(/\s*this mana lasts until end of combat\.?\)\s*.*$/i, '');
 
   working = working
     .replace(/^\+\s*(?:\{[^}]+\})+\s*[-|—–]\s*/i, '')

@@ -407,7 +407,7 @@ describe('graveyard provenance ETB integration', () => {
     executeTriggerEffect(ctx, 'p1', 'Chainer, Nightmare Adept', trigger.description, trigger);
 
     const creatureAfter = ctx.state.battlefield.find((entry: any) => entry.id === 'zombie_perm');
-    expect(creatureAfter?.grantedAbilities).toContain('haste');
+    expect((creatureAfter?.grantedAbilities || []).some((ability: unknown) => String(ability || '').toLowerCase() === 'haste')).toBe(true);
     expect(creatureAfter?.summoningSickness).toBe(false);
   });
 });

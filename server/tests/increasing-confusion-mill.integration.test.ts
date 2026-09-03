@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { PlayerID } from '../../shared/src/index.js';
-import { categorizeSpell, resolveSpell, type TargetRef } from '../src/rules-engine/targeting.js';
+import { categorizeSpellWithoutPrimaryRetirement as categorizeSpell, resolveSpell, type TargetRef } from '../src/rules-engine/targeting.js';
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 

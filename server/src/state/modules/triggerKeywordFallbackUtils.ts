@@ -81,6 +81,7 @@ function resolveKeywordTriggerTiming(
     || triggerType === 'battle_cry'
     || triggerType === 'mentor'
     || triggerType === 'training'
+    || triggerType === 'firebending'
   ) {
     return 'attacks';
   }

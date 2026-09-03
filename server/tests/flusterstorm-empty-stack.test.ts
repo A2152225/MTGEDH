@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getCastableSpellCandidates } from '../src/state/modules/can-respond.js';
 import { hasValidTargetsForSpell } from '../src/rules-engine/target-availability.js';
-import { categorizeSpell } from '../src/rules-engine/targeting.js';
+import { categorizeSpellWithoutPrimaryRetirement as categorizeSpell } from '../src/rules-engine/targeting.js';
 
 const playerId = 'p1';
 

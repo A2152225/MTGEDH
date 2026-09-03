@@ -11,6 +11,7 @@ import type {
   OracleIRExecutionContext,
   OracleIRExecutionOptions,
   OracleIRExecutionResult,
+  OracleIRTransitionHaltState,
 } from './oracleIRExecutionTypes';
 import {
   acquireStepLedgerForExecution,
@@ -72,6 +73,19 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'pay_energy',
   'grant_temporary_ability',
 ]);
+
+function deferredReplacementEffectId(transition: { readonly event?: { readonly metadata?: unknown } }): string {
+  const metadata = transition.event?.metadata as { replacementChoice?: { effectId?: string } } | undefined;
+  return String(metadata?.replacementChoice?.effectId || '').trim();
+}
+
+/** 903.9a destination choice: remaining spell instructions still use LKI (Swords life). */
+function isCommanderZoneReplacementHalt(haltState: OracleIRTransitionHaltState | undefined): boolean {
+  if (!haltState?.halted || haltState.deferred.length === 0) return false;
+  return haltState.deferred.every(
+    (transition) => deferredReplacementEffectId(transition) === 'commander-zone-replacement-choice',
+  );
+}
 
 export function applyOracleIRStepsToGameStateImpl(
   state: GameState,
@@ -149,6 +163,7 @@ export function applyOracleIRStepsToGameStateImpl(
   let nextState = Array.isArray(state.players) ? state : { ...state, players: [] };
   const pendingOptionalSteps: OracleEffectStep[] = [];
   let haltedForPlayerChoice = false;
+  let commanderZoneReplacementConsumed = false;
   let pendingContinuationSteps: OracleEffectStep[] | undefined;
   let automationGapSequence = 0;
   const stepLedger: StepLedger = acquireStepLedgerForExecution(ctx);
@@ -280,13 +295,29 @@ export function applyOracleIRStepsToGameStateImpl(
 
     nextState = result.state;
     if (currentCtx.transitionHaltState?.halted) {
-      recordSkippedStep(
-        step,
-        'Deferred replacement effect choice required',
-        'player_choice_required',
-        { classification: 'player_choice' },
-      );
-      return false;
+      const commanderOnly = isCommanderZoneReplacementHalt(currentCtx.transitionHaltState);
+      if (!(commanderOnly && commanderZoneReplacementConsumed)) {
+        recordSkippedStep(
+          step,
+          'Deferred replacement effect choice required',
+          'player_choice_required',
+          { classification: 'player_choice' },
+        );
+        if (commanderOnly) {
+          // Queue the 903.9a prompt after apply, but do not abort LKI riders.
+          haltedForPlayerChoice = false;
+          commanderZoneReplacementConsumed = true;
+          const moved = Array.isArray(result.lastMovedCards) ? result.lastMovedCards : [];
+          if (moved.length > 0) {
+            lastMovedCards = [...moved];
+            currentCtx = {
+              ...currentCtx,
+              lastMovedCards,
+            };
+          }
+        }
+        return false;
+      }
     }
     if (typeof result?.count === 'number' && Number.isFinite(result.count)) {
       setLastStepOutcome(step, 'applied', { count: result.count });

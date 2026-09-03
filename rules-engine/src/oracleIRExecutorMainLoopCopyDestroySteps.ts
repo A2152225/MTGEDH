@@ -461,10 +461,10 @@ export function tryApplyMainLoopCopyDestroySteps(
         let appliedCopyCount = 0;
 
         for (const copiedCard of sourceResolution.cards) {
-          if (
-            step.optional === true
-            && (!options.allowOptional || currentCtx.interactivePlayerChoices === true)
-          ) {
+          // "You may cast the copy" is a may-cast, not an auto-replay of the copied
+          // card's effects. Deterministic sorceries (Divination) used to skip this
+          // branch whenever allowOptional was already true, so combat copies vanished.
+          if (step.optional === true) {
             const created = createCastableCopiedSpellCards({
               state: workingState,
               controllerId,

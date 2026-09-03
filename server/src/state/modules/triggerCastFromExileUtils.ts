@@ -38,6 +38,8 @@ export function queueCastFromExileResolutionPrompt(
       sourceId,
       sourceName,
       costMode: 'without_paying_mana_cost',
+      grantsFlash: true,
+      timingOverride: { ignoreTiming: true },
       usageLimit: { type: 'one_shot', maxUses: 1 },
     }));
   }
@@ -59,5 +61,6 @@ export function queueCastFromExileResolutionPrompt(
     castFromExileCardId: exiledCard?.id,
     castFromExileCard: exiledCard,
     castFromExileDeclineDestination: declineDestination,
+    castFromExileIgnoreTimingRestrictions: true,
   } as any);
 }

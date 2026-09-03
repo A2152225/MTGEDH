@@ -120,4 +120,79 @@ describe('oracleIR zone transition bridge', () => {
     expect((result.state as any).battlefield).toHaveLength(1);
     expect((result.skippedSteps || []).length + (result.automationGaps || []).length).toBeGreaterThan(0);
   });
+
+  it('still grants Swords-style life while 903.9a commander exile is deferred', () => {
+    const state: any = {
+      players: [{
+        id: 'p1',
+        life: 40,
+        hand: [],
+        graveyard: [],
+        exile: [],
+        library: [],
+        commandZone: [],
+      }],
+      life: { p1: 40 },
+      battlefield: [{
+        id: 'cmd-1',
+        controller: 'p1',
+        owner: 'p1',
+        isCommander: true,
+        effectivePower: 3,
+        card: {
+          id: 'cmd-card',
+          name: 'Test Commander',
+          type_line: 'Legendary Creature — Human Soldier',
+          isCommander: true,
+          power: '3',
+          toughness: '4',
+        },
+      }],
+      commanderIds: ['cmd-card'],
+    };
+
+    const steps: OracleEffectStep[] = [
+      {
+        kind: 'exile',
+        raw: 'Exile target creature.',
+        target: { kind: 'raw', text: 'target creature' },
+      },
+      {
+        kind: 'gain_life',
+        raw: 'Its controller gains life equal to its power.',
+        who: { kind: 'controller_of_referenced_object' },
+        amount: { kind: 'object_stat', subject: 'it', stat: 'power' },
+      },
+    ];
+
+    const ledger = createEmptyStepLedger();
+    const haltState: OracleIRTransitionHaltState = { halted: false, deferred: [] };
+    const serverBridge = createOracleIRServerExecutionBridge({
+      state,
+      ledger,
+      interactivePlayerChoices: true,
+      haltState,
+    });
+
+    const ctx = buildOracleIRExecutionContext({
+      controllerId: 'p1' as PlayerID,
+      sourceId: 'swords-1',
+      targetPermanentId: 'cmd-1',
+      selectorContext: { targetPermanentId: 'cmd-1', chosenObjectIds: ['cmd-1'] },
+      serverBridge,
+      transitionHaltState: haltState,
+      currentStepIndex: 0,
+    });
+
+    const result = applyOracleIRStepsToGameState(state, steps, ctx, {
+      allowOptional: true,
+      haltOnPlayerChoiceRequired: true,
+    });
+
+    expect(haltState.halted).toBe(true);
+    expect(haltState.deferred.length).toBeGreaterThan(0);
+    expect((result.state as any).battlefield).toHaveLength(1);
+    expect((result.state as any).life?.p1).toBe(43);
+    expect((result.appliedSteps || []).some((step) => step.kind === 'gain_life')).toBe(true);
+  });
 });

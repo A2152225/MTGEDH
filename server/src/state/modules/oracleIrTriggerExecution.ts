@@ -193,6 +193,14 @@ function resolveTriggerTargetBinding(
   let targetPlayerId = String(
     targets[0]?.id || targets[0] || triggerItem?.targetPlayerId || '',
   ).trim() as PlayerID;
+  const knownPlayerIds = new Set(
+    (Array.isArray(state?.players) ? state.players : [])
+      .map((player: any) => String(player?.id || '').trim())
+      .filter(Boolean),
+  );
+  if (targetPlayerId && !knownPlayerIds.has(targetPlayerId)) {
+    targetPlayerId = '' as PlayerID;
+  }
 
   if (!targetPlayerId) {
     const players = Array.isArray(state?.players) ? state.players : [];

@@ -46,10 +46,11 @@ function libraryCardsForPlayer(player: any, ctx?: PriorityEligibilityContext): a
 }
 
 /**
- * True when this seat imported a deck or is an AI fixture.
- * Battlefield permanents are intentionally excluded: the first token/creature
- * to enter an otherwise empty test table must not mark "someone imported a
- * deck" and ghost every other seat (Tribute opponent choices, etc.).
+ * True when this seat imported a deck (commander identity and/or a library).
+ * Hand, isAI, and battlefield are seated-circle exceptions — they must not
+ * count here or empty human test seats get ghosted by an AI opponent or a
+ * one-card hand. Battlefield is also excluded so the first token on an empty
+ * table does not mark "someone imported a deck" (Tribute opponent choices).
  */
 function playerHasImportedDeck(player: any, ctx?: PriorityEligibilityContext): boolean {
   const pid = String(player?.id || '').trim();
@@ -74,12 +75,25 @@ function playerHasImportedDeck(player: any, ctx?: PriorityEligibilityContext): b
   const library = libraryCardsForPlayer(player, ctx);
   if (Array.isArray(library) && library.length > 0) return true;
   if (zoneHasCards(ctx?.state?.zones, pid, 'library')) return true;
+  return false;
+}
 
-  if (player?.isAI === true) return true;
+function playerIsExplicitlyOutOfGame(player: any): boolean {
+  return Boolean(
+    player?.hasLost
+    || player?.eliminated
+    || player?.conceded
+    || player?.leftGame
+    || player?.spectator
+    || player?.isSpectator
+  );
+}
+
+function playerHasHandCards(player: any, ctx?: PriorityEligibilityContext): boolean {
+  const pid = String(player?.id || '').trim();
   const hand = Array.isArray(player?.hand) ? player.hand : ctx?.state?.zones?.[pid]?.hand;
   if (Array.isArray(hand) && hand.length > 0) return true;
-  if (zoneHasCards(ctx?.state?.zones, pid, 'hand')) return true;
-  return false;
+  return zoneHasCards(ctx?.state?.zones, pid, 'hand');
 }
 
 /**
@@ -91,6 +105,10 @@ export function playerHasSeatedDeck(player: any, ctx?: PriorityEligibilityContex
   if (playerHasImportedDeck(player, ctx)) return true;
   const pid = String(player?.id || '').trim();
   if (!pid) return false;
+  // Empty AI fixtures and a live hand keep the seat in the circle; they are not
+  // "someone imported a deck" evidence (that would ghost empty human test seats).
+  if (player?.isAI === true) return true;
+  if (playerHasHandCards(player, ctx)) return true;
   if (zoneHasCards(ctx?.state?.zones, pid, 'graveyard')) return true;
   if (zoneHasCards(ctx?.state?.zones, pid, 'exile')) return true;
   if (Array.isArray(player?.graveyard) && player.graveyard.length > 0) return true;
@@ -101,7 +119,9 @@ export function playerHasSeatedDeck(player: any, ctx?: PriorityEligibilityContex
 
 function gameHasAnyImportedDeck(ctx?: PriorityEligibilityContext): boolean {
   const players = Array.isArray(ctx?.state?.players) ? ctx.state.players : [];
-  return players.some((entry: any) => playerHasImportedDeck(entry, ctx));
+  return players.some((entry: any) => (
+    !playerIsExplicitlyOutOfGame(entry) && playerHasImportedDeck(entry, ctx)
+  ));
 }
 
 /**
@@ -115,14 +135,7 @@ function gameHasAnyImportedDeck(ctx?: PriorityEligibilityContext): boolean {
  */
 export function playerCannotReceivePriority(player: any, ctx?: PriorityEligibilityContext): boolean {
   if (!player) return true;
-  if (
-    player.hasLost
-    || player.eliminated
-    || player.conceded
-    || player.leftGame
-    || player.spectator
-    || player.isSpectator
-  ) {
+  if (playerIsExplicitlyOutOfGame(player)) {
     return true;
   }
   const pid = String(player.id || '').trim();

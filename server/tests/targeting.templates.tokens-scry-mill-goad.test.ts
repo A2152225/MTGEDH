@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, TargetRef } from '../../shared/src';
-import { categorizeSpell, evaluateTargeting, resolveSpell, type SpellSpec } from '../src/rules-engine/targeting';
+import { categorizeSpellWithoutPrimaryRetirement as categorizeSpell, evaluateTargeting, resolveSpell, type SpellSpec } from '../src/rules-engine/targeting';
 
 describe('Oracle templates: tokens / scry / mill / goad', () => {
   it('categorizeSpell: "Investigate." -> INVESITGATE (Clue token)', () => {

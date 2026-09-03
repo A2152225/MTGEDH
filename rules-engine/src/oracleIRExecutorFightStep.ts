@@ -96,11 +96,26 @@ function addFightDamage(
   });
 }
 
+function fightSourceIsSelfReferent(step: Extract<OracleEffectStep, { kind: 'deal_damage' }>): boolean {
+  const source = step.source as { kind?: string; text?: string } | undefined;
+  const text = source?.kind === 'raw' ? String(source.text || '').trim().toLowerCase() : '';
+  return text === 'it'
+    || text === 'this creature'
+    || text === 'this permanent'
+    || text === 'that creature';
+}
+
 function resolveSourceCreatureId(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'deal_damage' }>,
   ctx: OracleIRExecutionContext,
 ): string {
+  // "It fights …" is the trigger source, not the bound fight target in chosenObjectIds.
+  if (fightSourceIsSelfReferent(step)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const source = findCreature(state, sourceId);
+    if (source && isExecutorCreature(source)) return sourceId;
+  }
   const fromSelector = resolveSingleCreatureTargetId(state, step.source as any, ctx);
   if (fromSelector) return fromSelector;
   const sourceId = String(ctx.sourceId || '').trim();

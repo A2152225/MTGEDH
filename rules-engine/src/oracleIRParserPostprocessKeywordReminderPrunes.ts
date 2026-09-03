@@ -421,15 +421,29 @@ export function pruneFirebendingReminderAbilities(
       return [];
     }
 
-    const nextSteps = ability.steps.filter((step) => {
-      if (step.kind !== 'unknown') {
-        return true;
+    const hasAddMana = ability.steps.some((step) => step.kind === 'add_mana');
+    const nextSteps = ability.steps.flatMap((step): OracleEffectStep[] => {
+      const isRetainReminder = /^this mana lasts until end of combat\.?\)?.*$/i.test(normalizeReminderStepRaw(step));
+      if (step.kind === 'unknown' && isRetainReminder) {
+        // Isolated firebending effect clauses ("Add {R}. This mana lasts until end of combat.")
+        // must keep the retain instruction. Pure reminder leftovers after keyword prune do not.
+        if (!hasAddMana) return [];
+        return [{
+          kind: 'retain_mana',
+          who: { kind: 'you' },
+          duration: 'until_end_of_combat',
+          raw: String(step.raw || 'This mana lasts until end of combat.'),
+          ...(step.sequence ? { sequence: step.sequence } : {}),
+        } as OracleEffectStep];
       }
-
-      return !/^this mana lasts until end of combat\.?\)?.*$/i.test(normalizeReminderStepRaw(step));
+      return [step];
     });
 
-    if (nextSteps.length === ability.steps.length) return [ability];
+    const convertedRetain = nextSteps.some((step, index) => (
+      step.kind === 'retain_mana'
+      && ability.steps[index]?.kind === 'unknown'
+    ));
+    if (nextSteps.length === ability.steps.length && !convertedRetain) return [ability];
     if (nextSteps.length === 0) return [];
     return [{ ...ability, steps: nextSteps }];
   });

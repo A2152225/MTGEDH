@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, TargetRef } from '../../shared/src';
-import { categorizeSpell, evaluateTargeting, parseTargetRequirements, resolveSpell, type SpellSpec } from '../src/rules-engine/targeting';
+import { categorizeSpellWithoutPrimaryRetirement as categorizeSpell, evaluateTargeting, parseTargetRequirements, resolveSpell, type SpellSpec } from '../src/rules-engine/targeting';
 
 describe('Oracle templates: gain / lose life', () => {
   it('categorizeSpell: "Gain 3 life." -> GAIN_LIFE', () => {

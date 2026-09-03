@@ -56,7 +56,8 @@ function createMockSocket(playerId: string, emitted: Array<{ room?: string; even
 }
 
 describe('Attack trigger mana payment via Resolution Queue (integration)', () => {
-  const gameId = 'test_attack_trigger_mana_payment_resolution_queue';
+  let gameId = 'test_attack_trigger_mana_payment_resolution_queue';
+  let testSeq = 0;
 
   beforeAll(async () => {
     await initDb();
@@ -66,6 +67,8 @@ describe('Attack trigger mana payment via Resolution Queue (integration)', () =>
   });
 
   beforeEach(async () => {
+    testSeq += 1;
+    gameId = `test_attack_trigger_mana_payment_resolution_queue_${testSeq}`;
     await resetGame(gameId);
   });
 

@@ -88,6 +88,49 @@ describe('deckless seats are not in the current player list after pre-game', () 
     expect(getActivePriorityPlayers(ctx).map((entry) => entry.id)).toEqual(['p1', 'p2']);
   });
 
+  it('does not ghost an empty human when the only other seat is an empty AI', () => {
+    const ctx = {
+      state: {
+        phase: 'precombatMain',
+        players: [
+          { id: 'p_human', name: 'Human', seat: 0 },
+          { id: 'p_opp', name: 'Opp', seat: 1, isAI: true },
+        ],
+        zones: {
+          p_human: { hand: [], graveyard: [], library: [] },
+          p_opp: { hand: [], graveyard: [], library: [] },
+        },
+        battlefield: [],
+      },
+    };
+    expect(playerCannotReceivePriority(ctx.state.players[0], ctx)).toBe(false);
+    expect(getActivePriorityPlayers(ctx).map((entry) => entry.id)).toEqual(['p_human', 'p_opp']);
+  });
+
+  it('does not ghost an empty player when another seat only has a hand', () => {
+    const ctx = {
+      state: {
+        phase: 'precombatMain',
+        players: [
+          { id: 'p1', name: 'P1', seat: 0 },
+          { id: 'p2', name: 'P2', seat: 1 },
+        ],
+        zones: {
+          p1: { hand: [], graveyard: [], library: [] },
+          p2: {
+            hand: [{ id: 'bolt_1', name: 'Lightning Bolt', type_line: 'Instant' }],
+            graveyard: [],
+            library: [],
+          },
+        },
+        battlefield: [],
+      },
+    };
+    expect(playerHasSeatedDeck(ctx.state.players[1], ctx)).toBe(true);
+    expect(playerCannotReceivePriority(ctx.state.players[0], ctx)).toBe(false);
+    expect(getActivePriorityPlayers(ctx).map((entry) => entry.id)).toEqual(['p1', 'p2']);
+  });
+
   it('does not ghost empty-fixture opponents when one player has a battlefield permanent', () => {
     const ctx = {
       state: {

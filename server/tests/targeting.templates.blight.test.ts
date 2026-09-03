@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGameState } from '../src/state/gameState';
 import type { PlayerID, TargetRef } from '../../shared/src';
-import { categorizeSpell, evaluateTargeting, resolveSpell } from '../src/rules-engine/targeting';
+import { categorizeSpellWithoutPrimaryRetirement as categorizeSpell, evaluateTargeting, resolveSpell } from '../src/rules-engine/targeting';
 
 describe('Oracle templates: Blight (Lorwyn Eclipsed)', () => {
   it('categorizeSpell: "Each opponent blights 1." -> BLIGHT_EACH_OPPONENT (supports numerals + reminder text)', () => {

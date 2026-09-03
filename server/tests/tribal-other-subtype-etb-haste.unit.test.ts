@@ -281,7 +281,7 @@ describe('tribal other-subtype ETB draw, haste lord, and flying-typed watcher', 
         permanentId: 'opp_bear',
         originalController: p2,
         newController: p1,
-        duration: 'until_end_of_turn',
+        duration: 'eot',
       }),
     ]);
     const pteranodonAfter = ((game.state as any).battlefield || []).find((perm: any) => perm?.id === 'ptera_1');
