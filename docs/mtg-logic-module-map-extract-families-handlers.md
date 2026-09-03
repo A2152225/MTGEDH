@@ -317,9 +317,9 @@ Public path stays `mana-check.ts`. Leaves must not import `mana-check.ts` or the
 | `manaCheckParseManaCost.ts` | `parseManaCost`, `normalizeParsedManaCost`, `stringifyParsedManaCost`. |
 | `manaCheckScalingExactOptions.ts` | `buildScalingManaExactOptions`. |
 | `manaCheckAbilityCostParsers.ts` | Hand / life / return-to-hand mana-ability cost parsers. |
-| `manaCheckExactSources.ts` | Non-tap, battery color-fix, spend, produced-mana, `buildExactManaSources`. **34.6 KB** — do not append. |
+| `manaCheckExactSources.ts` | Non-tap, battery color-fix, spend, produced-mana, `buildExactManaSources`. **35.4 KB** — do not append. `removeSacrificeCandidates` collapses interchangeable non-mana-source fodder to one branch (Ashnod's Altar × N tokens). |
 | `manaCheckCanPayManaCost.ts` | `getTotalManaFromPool`, `canPayManaCost`, `getMaxXValue`. |
-| `manaCheckCanPayWithSources.ts` | `canPayManaCostWithAvailableSources`, `getPlayerLifeTotal`. Floating `pool.restricted` is folded in when `restrictedSpendPurpose` allows it (tapped Secluded Courtyard / Cavern), so Smart Pass does not skip a main phase that still has a legal spend. Command-zone `canPayCost` passes that purpose so matching commanders can spend the same floating mana. |
+| `manaCheckCanPayWithSources.ts` | `canPayManaCostWithAvailableSources`, `getPlayerLifeTotal`. Floating `pool.restricted` is folded in when `restrictedSpendPurpose` allows it (tapped Secluded Courtyard / Cavern), so Smart Pass does not skip a main phase that still has a legal spend. Command-zone `canPayCost` passes that purpose so matching commanders can spend the same floating mana. Exact search ranks free taps, then activation-cost rocks, then sacrifice, and skip/uses `remainingSources[0]` so a repeatable Altar cannot permute with unused duals. |
 
 Later handler folders (AutomationService through replacementEffectSpec) live in
 [`docs/mtg-logic-module-map-extract-families-handlers-late.md`](mtg-logic-module-map-extract-families-handlers-late.md).

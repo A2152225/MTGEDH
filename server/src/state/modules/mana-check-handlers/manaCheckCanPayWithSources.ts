@@ -127,6 +127,30 @@ export function canPayManaCostWithAvailableSources(
   }
 
   const sources = buildExactManaSources(state, playerId);
+  const optionHasNonManaExtraCost = (option: ExactManaSource['options'][number]): boolean => Boolean(
+    option.activationCost
+    || Number(option.lifeCost || 0) > 0
+    || option.handCost
+    || option.sacrificeCost
+    || option.returnToHandCost
+    || option.removeCounterCost
+  );
+  // Free taps first, then activation-cost rocks, then repeatable sacrifice.
+  // Any-order DFS with a repeatable Altar still in the bag is n! × tokens.
+  const rankExactManaSource = (source: ExactManaSource): number => {
+    if (source.options.length > 0 && source.options.every((option) => !optionHasNonManaExtraCost(option))) {
+      return 0;
+    }
+    if (source.options.some((option) => option.sacrificeCost || option.handCost || option.returnToHandCost)) {
+      return 2;
+    }
+    return 1;
+  };
+  sources.sort((a, b) => {
+    const delta = rankExactManaSource(a) - rankExactManaSource(b);
+    if (delta !== 0) return delta;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
   const battlefieldCandidates = buildExactSacrificeCandidates(state, playerId);
   const excludedHandCardIds = new Set(
     (Array.isArray(options?.excludedHandCardIds) ? options?.excludedHandCardIds : [])
@@ -226,16 +250,23 @@ export function canPayManaCostWithAvailableSources(
 
     visiting.add(key);
 
-    for (let index = 0; index < remainingSources.length; index += 1) {
-      if (budgetExceeded) {
-        break;
-      }
-      const source = remainingSources[index];
-      const nextRemainingSources = remainingSources
-        .slice(0, index)
-        .concat(remainingSources.slice(index + 1));
+    const source = remainingSources[0];
+    const rest = remainingSources.slice(1);
+    const isFreeTapSource = source.options.length > 0
+      && source.options.every((option) => !optionHasNonManaExtraCost(option));
 
-      for (const option of source.options) {
+    // Skip optional extra-cost sources (Altar, Signet) so a later free tap can
+    // pay an activation cost. Free taps are never skipped: extra unrestricted
+    // mana cannot make canPayManaCost false.
+    if (!isFreeTapSource) {
+      if (search(pool, life, rest, remainingBattlefieldCandidates, remainingHandCandidates)) {
+        memo.set(key, true);
+        visiting.delete(key);
+        return true;
+      }
+    }
+
+    for (const option of source.options) {
         if (budgetExceeded) {
           break;
         }
@@ -292,10 +323,8 @@ export function canPayManaCostWithAvailableSources(
           : true;
         const keepSource = canRepeat && (!option.removeCounterCost || stillHasRemoveCounters);
         const baseRemainingSources = keepSource
-          ? remainingSources.map((entry, entryIndex) => (
-            entryIndex === index ? sourceAfterUse : entry
-          ))
-          : nextRemainingSources;
+          ? [sourceAfterUse, ...rest]
+          : rest;
         let branchStates: ExactSearchBranchState[] = [{
           remainingSources: baseRemainingSources,
           remainingBattlefieldCandidates,
@@ -393,21 +422,12 @@ export function canPayManaCostWithAvailableSources(
           }
         }
       }
-    }
 
     memo.set(key, false);
     visiting.delete(key);
     return false;
   };
 
-  const optionHasNonManaExtraCost = (option: ExactManaSource['options'][number]): boolean => Boolean(
-    option.activationCost
-    || Number(option.lifeCost || 0) > 0
-    || option.handCost
-    || option.sacrificeCost
-    || option.returnToHandCost
-    || option.removeCounterCost
-  );
   const cheapSources = sources
     .map((source) => ({
       ...source,

@@ -25,7 +25,8 @@ async function resetGame(gameId: string) {
 }
 
 describe('Loop Shortcut batch execute', () => {
-  const gameId = 'test_loop_shortcut_batch';
+  let testSeq = 0;
+  let gameId = '';
   const playerId = 'p1';
 
   beforeAll(async () => {
@@ -34,12 +35,14 @@ describe('Loop Shortcut batch execute', () => {
   });
 
   beforeEach(async () => {
+    testSeq += 1;
+    gameId = `test_loop_shortcut_batch_${testSeq}`;
     await resetGame(gameId);
     createGameIfNotExists(gameId, 'commander', 40);
   });
 
   afterEach(async () => {
-    await resetGame(gameId);
+    if (gameId) await resetGame(gameId);
   });
 
   it('runs Ashnod\'s Altar ×3 via server batch (sacrifice + mana, no mid-batch broadcast)', async () => {

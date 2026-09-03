@@ -477,6 +477,17 @@ export function removeSacrificeCandidates(
     const bIsSource = manaSourcePermanentIds?.has(b.id) ? 1 : 0;
     return aIsSource - bIsSource;
   });
+  // Interchangeable tokens are payability-equivalent. Branching on distinct ids
+  // with a repeatable outlet (Ashnod's Altar) is C(N,k) per activation.
+  const nonSourceMatches = ranked.filter((candidate) => !manaSourcePermanentIds?.has(candidate.id));
+  if (nonSourceMatches.length >= requiredCount) {
+    const removedIds = nonSourceMatches.slice(0, requiredCount).map((candidate) => candidate.id);
+    const chosen = new Set(removedIds);
+    return [{
+      remainingCandidates: candidates.filter((candidate) => !chosen.has(candidate.id)),
+      removedIds,
+    }];
+  }
   const branchCandidateLimit = Math.max(requiredCount, MAX_EXACT_SACRIFICE_BRANCHES);
   const branchCandidates = ranked.slice(0, branchCandidateLimit);
 
