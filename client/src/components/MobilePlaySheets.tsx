@@ -19,6 +19,8 @@ import { HandGallery } from './HandGallery';
 import { CentralStack } from './CentralStack';
 import { FloatingManaPool } from './FloatingManaPool';
 import { PhaseNavigator } from './PhaseNavigator';
+import { MobileMulliganActions } from './MobileMulliganActions';
+import type { MobilePrimaryActionMode } from '../utils/mobilePlayActions';
 import { colors, fontSize, radii, spacing } from '../theme';
 
 export type MobilePlaySheet = 'hand' | 'stack' | 'mana' | 'more' | null;
@@ -64,6 +66,16 @@ export interface MobilePlaySheetsProps {
   onSkipToPhase?: (targetPhase: string, targetStep?: string) => void;
   onConcede?: () => void;
   onLeaveGame?: () => void;
+  primaryMode?: MobilePrimaryActionMode;
+  canKeepHand?: boolean;
+  canMulligan?: boolean;
+  canUnkeepHand?: boolean;
+  mulligansTaken?: number;
+  onKeepHand?: () => void;
+  onMulligan?: () => void;
+  onUnkeepHand?: () => void;
+  onRandomizeStart?: () => void;
+  isPreGame?: boolean;
 }
 
 export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
@@ -104,7 +116,33 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
     onSkipToPhase,
     onConcede,
     onLeaveGame,
+    primaryMode = 'play',
+    canKeepHand,
+    canMulligan,
+    canUnkeepHand,
+    mulligansTaken,
+    onKeepHand,
+    onMulligan,
+    onUnkeepHand,
+    onRandomizeStart,
+    isPreGame = false,
   } = props;
+
+  const showMulliganActions = primaryMode === 'mulligan' || primaryMode === 'unkeep';
+  const mulliganControls = showMulliganActions ? (
+    <MobileMulliganActions
+      mode={primaryMode === 'unkeep' ? 'unkeep' : 'mulligan'}
+      canKeepHand={canKeepHand}
+      canMulligan={canMulligan}
+      canUnkeepHand={canUnkeepHand}
+      mulligansTaken={mulligansTaken}
+      onKeepHand={onKeepHand}
+      onMulligan={onMulligan}
+      onUnkeepHand={onUnkeepHand}
+      onRandomizeStart={onRandomizeStart}
+      showRandomStart={isPreGame}
+    />
+  ) : null;
 
   return (
     <>
@@ -113,6 +151,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
         onClose={onClose}
         title="Your Hand"
         desktopWidth={720}
+        footer={mulliganControls}
       >
         <HandGallery
           cards={handCards}
@@ -180,6 +219,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
         desktopWidth={480}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
+          {mulliganControls}
           {onAdvanceOneStep && onPassPriority && (
             <PhaseNavigator
               docked

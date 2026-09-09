@@ -12,6 +12,7 @@ import { toast } from "../components/ToastHost";
 import { isLandTypeLine, prettyPhase, prettyStep } from "../utils/gameDisplayHelpers";
 import { buildAvailableManaSourcesForPlayer } from "../utils/manaSourceBuilder";
 import { notifyUnfocusedYourTurn } from "../utils/turnAttentionNotify";
+import { shouldAutoOpenMobileMulliganHand } from "../utils/mobilePlayActions";
 
 export function useAppPlayDerivedEffects(p: Record<string, any>) {
   const {
@@ -440,6 +441,20 @@ export function useAppPlayDerivedEffects(p: Record<string, any>) {
     onUseSavedDeck: requestUseSavedDeck,
   });
   const showTableMulliganUI = showMulliganUI && !isPreGame;
+
+  const autoOpenedMulliganHandKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const decision = shouldAutoOpenMobileMulliganHand({
+      showMobileChrome,
+      needsToKeepHand,
+      handCount: yourHandCount,
+      gameId: safeView?.id,
+      mulligansTaken,
+      lastOpenedKey: autoOpenedMulliganHandKeyRef.current,
+    });
+    if (decision.key) autoOpenedMulliganHandKeyRef.current = decision.key;
+    if (decision.open) setMobilePlaySheet('hand');
+  }, [showMobileChrome, needsToKeepHand, yourHandCount, safeView?.id, mulligansTaken, setMobilePlaySheet]);
 
   const damageReplacementEffectActiveCount = useMemo(() => {
     const n = Number((safeView as any)?.replacementEffectHints?.damageActiveCount ?? 0);

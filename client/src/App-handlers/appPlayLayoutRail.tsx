@@ -14,6 +14,7 @@ import { AutoPassSettingsPanel } from "../components/AutoPassSettingsPanel";
 import { IgnoredCardsPanel } from "../components/IgnoredCardsPanel";
 import { LoopShortcutPanel } from "../components/LoopShortcutPanel";
 import { clampLoopShortcutIterations } from "../utils/loopShortcuts";
+import { getMobilePrimaryActionMode } from "../utils/mobilePlayActions";
 
 export function renderAppPlayLayoutRail(p: Record<string, any>) {
   const {
@@ -24,7 +25,10 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
     autoPassForTurn,
     autoPassSteps,
     autoYesOptional,
+    canKeepHand,
+    canMulligan,
     canPass,
+    canUnkeepHand,
     damageReplacementEffectActiveCount,
     damageReplacementMode,
     handleClearAllAutoPass,
@@ -43,6 +47,7 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
     handleToggleAutoPassEmptyStackOnOpponentsTurn,
     handleToggleAutoPassForTurn,
     handleToggleAutoYesOptional,
+    hasKeptHand,
     ignoredCards,
     ignoredTriggerSources,
     imagePref,
@@ -50,6 +55,7 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
     isLoopShortcutRunning,
     isPreGame,
     isSpectator,
+    isYouPlayer,
     layout,
     leaveGame,
     loopShortcutItems,
@@ -59,7 +65,9 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
     manaPool,
     mobilePlayLayout,
     mobilePlaySheet,
+    mulligansTaken,
     needsDeckImport,
+    needsToKeepHand,
     openSplitCardChoice,
     phaseAdvanceBlockReason,
     playLandWithPromptSync,
@@ -90,6 +98,32 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
     yourHandCount,
     yourTurnBannerVisible,
   } = p;
+
+  const mobilePrimaryMode = getMobilePrimaryActionMode({
+    isSeatedPlayer: !!isYouPlayer && !isSpectator,
+    needsToKeepHand: !!needsToKeepHand,
+    canUnkeepHand: !!canUnkeepHand,
+  });
+  const emitKeepHand = () => {
+    if (!safeView?.id) return;
+    if (hasKeptHand && canUnkeepHand) {
+      socket.emit("unkeepHand", { gameId: safeView.id });
+      return;
+    }
+    socket.emit("keepHand", { gameId: safeView.id });
+  };
+  const emitMulligan = () => {
+    if (!safeView?.id) return;
+    socket.emit("mulligan", { gameId: safeView.id });
+  };
+  const emitUnkeepHand = () => {
+    if (!safeView?.id) return;
+    socket.emit("unkeepHand", { gameId: safeView.id });
+  };
+  const emitRandomizeStart = () => {
+    if (!safeView?.id) return;
+    socket.emit("randomizeStartingPlayer", { gameId: safeView.id });
+  };
 
   const handleUnignoreCard = (cardId: string) => {
     if (!safeView) return;
@@ -336,6 +370,14 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
             onOpenDeck={() => handleDeckMgrOpenChange(true)}
             highlightDeck={needsDeckImport}
             deckLabel={needsDeckImport ? "Import" : "Deck"}
+            primaryMode={mobilePrimaryMode}
+            canKeepHand={canKeepHand}
+            canMulligan={canMulligan}
+            canUnkeepHand={canUnkeepHand}
+            mulligansTaken={mulligansTaken}
+            onKeepHand={emitKeepHand}
+            onMulligan={emitMulligan}
+            onUnkeepHand={emitUnkeepHand}
           />
           <MobilePlaySheets
             activeSheet={mobilePlaySheet}
@@ -399,6 +441,16 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
             }
             onConcede={() => socket.emit("concede", { gameId: safeView.id })}
             onLeaveGame={() => leaveGame(() => setJoinCollapsed(false))}
+            primaryMode={mobilePrimaryMode}
+            canKeepHand={canKeepHand}
+            canMulligan={canMulligan}
+            canUnkeepHand={canUnkeepHand}
+            mulligansTaken={mulligansTaken}
+            onKeepHand={emitKeepHand}
+            onMulligan={emitMulligan}
+            onUnkeepHand={emitUnkeepHand}
+            onRandomizeStart={emitRandomizeStart}
+            isPreGame={isPreGame}
           />
         </>
       )}
