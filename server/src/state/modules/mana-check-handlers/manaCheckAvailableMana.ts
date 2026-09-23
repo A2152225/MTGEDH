@@ -149,8 +149,12 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
       addOptimisticLandTypeChoice(pool, effectiveLandTypes, landToColor[baseName]);
       continue;
     }
-    if (!typeLine.includes('land') && effectiveLandTypes.length > 0
-        && !/\{t\}[^:]*:\s*add\s+/i.test(oracleText)) {
+    // Intrinsic basic-land mana when nothing printed says ": Add".
+    // Covers nonlands that became lands (Ashaya) and nonbasic lands whose
+    // only mana is a granted basic type — including the source of
+    // "Each land is a Swamp/Forest in addition…" (Urborg, Yavimaya).
+    // Printed "{T}: Add" lands fall through so their own text is not skipped.
+    if (effectiveLandTypes.length > 0 && !/:\s*add\s+/i.test(oracleText)) {
       addOptimisticLandTypeChoice(pool, effectiveLandTypes);
       continue;
     }

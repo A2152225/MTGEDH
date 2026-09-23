@@ -48,6 +48,9 @@ export { getOpponentPermanentColors, getControlledPermanentColors } from "./mana
 // Optimistic floating + untapped-source available mana.
 export { getAvailableMana } from "./manaCheckAvailableMana.js";
 
+// Intrinsic basic-land mana (Urborg / Yavimaya include themselves).
+export { buildIntrinsicBasicLandExactOptions } from "./manaCheckIntrinsicBasicLandMana.js";
+
 // Parse / normalize / stringify mana-cost strings.
 export { parseManaCost, normalizeParsedManaCost, stringifyParsedManaCost } from "./manaCheckParseManaCost.js";
 

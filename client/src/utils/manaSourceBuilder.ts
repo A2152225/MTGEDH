@@ -27,6 +27,7 @@ import {
   inlineManaAbilityGrantsUncounterableChosenTypeCast,
   resolveInlineManaAbilitySpendRestriction,
 } from './manaSourceChosenTypeRestriction';
+import { withBattlefieldGrantedLandManaSources } from './manaSourceBattlefieldLandTypeGrants';
 
 type InlineSelectedPaymentAbility = {
   id: string;
@@ -786,7 +787,7 @@ function buildInlineManaSourcesForPermanent(
     }
   }
 
-  return sources;
+  return withBattlefieldGrantedLandManaSources(perm, globalBattlefield, sources);
 }
 
 export function buildAvailableManaSourcesForPlayer(
