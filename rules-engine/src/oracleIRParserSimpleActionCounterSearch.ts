@@ -162,6 +162,21 @@ export function tryParseSimpleActionCounterSearchClauses(args: SimpleActionClaus
   }
 
   {
+    const lifeGainedCounters = clause.match(
+      /^put\s+(?:a|an|one)\s+\+1\/\+1\s+counters?\s+on\s+(target\s+creature(?:\s+you\s+control)?)\s+for\s+each\s+(?:1\s+)?life\s+you\s+gained$/i,
+    );
+    if (lifeGainedCounters) {
+      return withMeta({
+        kind: 'add_counter',
+        amount: { kind: 'reference_amount', raw: '1 for each 1 life you gained' },
+        counter: '+1/+1',
+        target: parseObjectSelector(String(lifeGainedCounters[1] || 'target creature')),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const addCounters = clause.match(new RegExp(`^(?:otherwise,?\\s*)?${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?put\\s+(${REFERENCEABLE_COUNTER_AMOUNT_PATTERN})\\s+(.+?)\\s+counters?\\s+on\\s+(.+?)(?:,\\s*where\\s+x\\s+is\\s+(.+))?\\s*$`, 'i'));
     if (addCounters && !/\bonto\s+the\s+battlefield\b/i.test(clause)) {
       const whereRaw = String(addCounters[5] || '').trim();

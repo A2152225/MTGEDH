@@ -244,6 +244,10 @@ function normalizeEffectProgramSelections(
       }
     }
 
+    if (record.xValue !== undefined && record.xValue !== null && record.xValue !== '') {
+      return [String(record.xValue)];
+    }
+
     for (const key of ['selection', 'selectedId', 'selectedCardId', 'selectedTargetId', 'target']) {
       if (record[key] !== undefined && record[key] !== null) {
         return [String(record[key])];

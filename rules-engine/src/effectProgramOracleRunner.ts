@@ -541,6 +541,20 @@ function createOracleIRChoiceEvent(
     });
   }
 
+  if (request.type === ChoiceEventType.X_VALUE_SELECTION && (payload as any).maxFromReferenceAmount === true) {
+    const maxX = Math.max(0, Math.floor(Number(ctx.referenceAmount ?? 0)));
+    return createChoiceEventFromEffectProgramChoiceRequest({
+      request: {
+        ...request,
+        payload: {
+          ...payload,
+          minX: 0,
+          maxX,
+        },
+      },
+    });
+  }
+
   if (request.type === ChoiceEventType.FATESEAL) {
     const oracleStep = (payload as any).oracleStep as OracleEffectStep | undefined;
     const targetBindingKey = String((payload as any).targetBindingKey || '');

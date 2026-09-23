@@ -18,6 +18,8 @@ import type { PlayerID } from "../../../../shared/src/types.js";
 import type { GameContext } from "../../state/context.js";
 import { counterStackItem } from "../../state/modules/stack-mechanics.js";
 import { resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution } from "../../state/modules/oracleIrServerZoneSync.js";
+import { resumeEffectProgramResolution } from "../../state/effects/effectProgramResolutionService.js";
+import { restoreEffectProgramRuntimeForPendingStep } from "../../state/effects/effectProgramReplayRestore.js";
 import {
   ResolutionQueueManager,
   ResolutionStepStatus,
@@ -202,6 +204,23 @@ export function applyCancelledResolutionStepSideEffects(
   playerId: string,
 ): string[] {
   const additionallyCancelledStepIds: string[] = [];
+
+  if ((cancelledStep as any)?.effectProgramPrompt === true) {
+    restoreEffectProgramRuntimeForPendingStep(game, gameId, cancelledStep);
+    resumeEffectProgramResolution({
+      game,
+      gameId,
+      step: cancelledStep,
+      response: {
+        stepId: String(cancelledStep.id || ''),
+        playerId: playerId as PlayerID,
+        selections: [],
+        cancelled: true,
+        timestamp: Date.now(),
+      },
+      persistPrompt: true,
+    });
+  }
 
   const cancelledGroupId = String((cancelledStep as any)?.rulesChoiceGroupId || '').trim();
   if (cancelledGroupId) {

@@ -69,6 +69,21 @@ describe('resolutionChoicePrimitives', () => {
     });
   });
 
+  it('reads X bounds from minX and maxX when minValue and maxValue are absent', () => {
+    expect(
+      buildPendingSpellXSelectionFromStep({
+        id: 'step-x',
+        sourceName: 'Well of Lost Dreams',
+        description: 'Pay X',
+        minX: 0,
+        maxX: 3,
+      }),
+    ).toEqual(expect.objectContaining({
+      minValue: 0,
+      maxValue: 3,
+    }));
+  });
+
   it('builds generic option choice request from step payload', () => {
     expect(
       buildGenericOptionChoiceRequestFromStep(

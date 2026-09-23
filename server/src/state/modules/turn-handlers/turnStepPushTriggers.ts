@@ -9,6 +9,7 @@
 import type { GameContext } from "../../context.js";
 import type { PlayerID } from "../../../../../shared/src/types.js";
 import { isInterveningIfSatisfied } from "../triggers/intervening-if.js";
+import { inferGenericTriggeredAbilityTargetMetadata } from "../triggers/target-metadata.js";
 import { pushTriggerDoublerCopies } from "../triggers/combat.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { persistTurnStepTriggeredAbility, persistTurnStepTriggerOrderStep } from "./turnStepTriggerPersist.js";
@@ -184,6 +185,7 @@ export function pushTurnStepTriggersToStack(
                 for (const item of triggerItems) {
                   const extra = item.stackItem && typeof item.stackItem === 'object' ? item.stackItem : {};
                   const stackItem = withThatPlayerTurnBinding({
+                    ...inferGenericTriggeredAbilityTargetMetadata(String(item.effect || '')),
                     ...extra,
                     id: item.id,
                     type: 'triggered_ability',
@@ -230,6 +232,7 @@ export function pushTurnStepTriggersToStack(
               const extra = trigger.stackItem && typeof trigger.stackItem === 'object' ? trigger.stackItem : {};
               const effectText = String(trigger.description || trigger.effect || '');
               const stackItem = withThatPlayerTurnBinding({
+                ...inferGenericTriggeredAbilityTargetMetadata(effectText),
                 ...extra,
                 id: triggerId,
                 type: 'triggered_ability',

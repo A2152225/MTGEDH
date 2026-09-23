@@ -50,8 +50,15 @@ export function createOracleIRContextWithEffectProgramBindings(
     };
   }
 
+  const cappedX = typeof derived.xValue === 'number'
+    ? (derived.capXToReferenceAmount === true && Number.isFinite(Number(ctx.referenceAmount))
+      ? Math.min(derived.xValue, Math.max(0, Math.floor(Number(ctx.referenceAmount))))
+      : derived.xValue)
+    : undefined;
+
   return {
     ...ctx,
+    ...(typeof cappedX === 'number' ? { xValue: cappedX } : {}),
     targetCreatureId: derived.targetCreatureId || ctx.targetCreatureId,
     targetPermanentId: derived.targetPermanentId || ctx.targetPermanentId,
     targetSpellId: derived.targetSpellId || ctx.targetSpellId,
@@ -194,13 +201,26 @@ export function deriveOracleIRContextFromEffectProgramBindings(
       continue;
     }
 
+    const choiceType = String(step.choiceEvent?.type || step.choiceRequest?.type || '');
+    if (choiceType === ChoiceEventType.X_VALUE_SELECTION) {
+      const chosenX = readChosenXValue(response);
+      if (chosenX !== null) {
+        const payload = step.choiceRequest?.payload as { maxFromReferenceAmount?: boolean; maxX?: number } | undefined;
+        const maxX = Number((step.choiceEvent as { maxX?: number } | undefined)?.maxX ?? payload?.maxX);
+        derived.xValue = Number.isFinite(maxX)
+          ? Math.min(chosenX, Math.max(0, Math.floor(maxX)))
+          : chosenX;
+        derived.capXToReferenceAmount = payload?.maxFromReferenceAmount === true;
+      }
+      continue;
+    }
+
     const selections = normalizeChoiceResponseSelections(response);
     const firstSelection = selections[0];
     if (!firstSelection) {
       continue;
     }
 
-    const choiceType = String(step.choiceEvent?.type || step.choiceRequest?.type || '');
     if (choiceType === ChoiceEventType.TARGET_SELECTION) {
       selectorContext.chosenObjectIds = selections;
       const targetKind = classifyChoiceTarget(runtime.state, firstSelection, runtime.program.controllerId);
@@ -277,6 +297,7 @@ export function deriveOracleIRContextFromEffectProgramBindings(
       derived.targetCreatureId = firstSelection;
       derived.targetPermanentId = firstSelection;
     }
+
   }
 
   for (const binding of Object.values(runtime.bindings)) {
@@ -289,6 +310,7 @@ export function deriveOracleIRContextFromEffectProgramBindings(
     !derived.targetCreatureId &&
     !derived.targetPermanentId &&
     !derived.targetSpellId &&
+    typeof derived.xValue !== 'number' &&
     typeof derived.lastClashWon !== 'boolean' &&
     Object.keys(selectorContext).length === 0
   ) {
@@ -299,4 +321,23 @@ export function deriveOracleIRContextFromEffectProgramBindings(
     ...derived,
     selectorContext,
   };
+}
+
+function readChosenXValue(response: ChoiceResponse): number | null {
+  const raw = response.selections as unknown;
+  let value: number | null = null;
+  if (typeof raw === 'number') value = raw;
+  else if (typeof raw === 'string') value = Number(raw);
+  else if (Array.isArray(raw) && raw.length > 0) {
+    const first = raw[0] as unknown;
+    if (typeof first === 'number') value = first;
+    else if (typeof first === 'string') value = Number(first);
+    else if (first && typeof first === 'object' && (first as { xValue?: unknown }).xValue != null) {
+      value = Number((first as { xValue?: unknown }).xValue);
+    }
+  } else if (raw && typeof raw === 'object' && (raw as { xValue?: unknown }).xValue != null) {
+    value = Number((raw as { xValue?: unknown }).xValue);
+  }
+  if (value === null || !Number.isFinite(value)) return null;
+  return Math.max(0, Math.floor(value));
 }
