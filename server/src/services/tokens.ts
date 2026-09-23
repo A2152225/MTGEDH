@@ -181,7 +181,7 @@ export function findTokenByDescription(description: string): TokenCard | undefin
     'saproling', 'wolf', 'elemental', 'dragon', 'angel', 'demon',
     'vampire', 'cat', 'bird', 'snake', 'insect', 'thopter', 'servo',
     'construct', 'golem', 'warrior', 'knight', 'cleric', 'wizard',
-    'treasure', 'food', 'clue', 'blood', 'map', 'powerstone', 'vibranium',
+    'treasure', 'food', 'clue', 'blood', 'map', 'powerstone', 'vibranium', 'heartwood',
     'faerie', 'rogue', 'bat', 'devil', 'eldrazi', 'spawn', 'scion'
   ];
   
@@ -328,6 +328,14 @@ export function getCommonToken(tokenType: string): {
         'Indestructible',
         '{T}: Add {C}. This mana can\'t be spent to cast a nonartifact spell.',
       ],
+    },
+    'heartwood': {
+      name: 'Heartwood',
+      type_line: 'Token Artifact — Heartwood',
+      power: 0,
+      toughness: 0,
+      colors: ['R', 'G'],
+      abilities: ['{T}: Add {R} or {G}.'],
     },
     'map': {
       name: 'Map',

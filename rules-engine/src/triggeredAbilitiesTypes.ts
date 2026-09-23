@@ -27,6 +27,7 @@ export enum TriggerEvent {
   MILLED = 'milled',
   ATTACKS = 'attacks',
   ATTACKS_ALONE = 'attacks_alone',
+  ATTACKS_A_PLAYER_ALONE = 'attacks_a_player_alone',
   BLOCKS = 'blocks',
   BLOCKED = 'blocked',
   BECOMES_BLOCKED = 'becomes_blocked',

@@ -75,13 +75,16 @@ export const MobileHandStrip: React.FC<MobileHandStripProps> = ({
             type="button"
             onClick={onExpandHand}
             style={{
-              fontSize: fontSize.xs,
-              padding: '2px 8px',
+              fontSize: fontSize.sm,
+              minHeight: 44,
+              minWidth: 72,
+              padding: '8px 12px',
               borderRadius: radii.sm,
               border: `1px solid ${colors.border}`,
               background: colors.surfaceTransparent,
               color: colors.textPrimary,
               cursor: 'pointer',
+              fontWeight: 600,
             }}
           >
             Expand

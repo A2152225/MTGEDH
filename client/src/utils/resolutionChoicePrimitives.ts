@@ -132,8 +132,8 @@ export function buildPendingSpellXSelectionFromStep(
     stepId: String(step.id || ''),
     cardName: String(step.sourceName || step.cardName || 'Spell'),
     description: String(step.description || ''),
-    minValue: Math.max(0, Number(step.minValue ?? 0)),
-    maxValue: Math.max(0, Number(step.maxValue ?? 20)),
+    minValue: Math.max(0, Number(step.minValue ?? step.minX ?? 0)),
+    maxValue: Math.max(0, Number(step.maxValue ?? step.maxX ?? 20)),
     xCount: Number.isFinite(step.xCount) ? Math.max(1, Number(step.xCount)) : undefined,
     affordableXHint: Number.isFinite(step.affordableXHint)
       ? Math.max(0, Number(step.affordableXHint))

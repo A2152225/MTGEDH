@@ -496,6 +496,22 @@ function attachGraveyardExileReplacementModifier(steps: readonly OracleEffectSte
   return nextSteps;
 }
 
+function parseLifeGainedBoundedPayManaStep(step: OracleEffectStep): OracleEffectStep | null {
+  if (step.kind !== 'unknown' && step.kind !== 'grant_static_ability') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).trim();
+  if (!/^you may pay \{x\}, where x is less than or equal to the amount of life you gained$/i.test(raw)) {
+    return null;
+  }
+  return {
+    kind: 'pay_mana',
+    who: { kind: 'you' },
+    mana: '{X}',
+    optional: true,
+    ...(step.sequence ? { sequence: step.sequence } : {}),
+    raw,
+  };
+}
+
 function parsePayManaUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalizedParse = normalizeClauseForParse(String(step.raw || ''));
   const normalized = normalizeOracleText(String(normalizedParse.clause || ''))
@@ -543,6 +559,17 @@ function parsePayManaUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknow
     }
   }
 
+  if (!manaRaw) {
+    const lifeBounded = normalized.match(
+      /^pay\s+(\{x\}),\s*where\s+x\s+is\s+less\s+than\s+or\s+equal\s+to\s+the\s+amount\s+of\s+life\s+you\s+gained$/i,
+    );
+    if (lifeBounded) {
+      manaRaw = '{X}';
+      optional = true;
+      whoRaw = 'you';
+    }
+  }
+
   if (!manaRaw) return null;
 
   const normalizedMana = manaRaw.replace(/\s+/g, '');
@@ -564,6 +591,11 @@ export function expandPayManaUnknownAbilities(
   return abilities.map((ability) => {
     let changed = false;
     const expandedSteps = ability.steps.map((step) => {
+      const lifeBounded = parseLifeGainedBoundedPayManaStep(step);
+      if (lifeBounded) {
+        changed = true;
+        return lifeBounded;
+      }
       if (step.kind !== 'unknown') return step;
       const expanded = parsePayManaUnknownStep(step);
       if (!expanded) return step;

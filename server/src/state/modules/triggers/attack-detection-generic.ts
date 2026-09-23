@@ -531,6 +531,27 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
     }
   }
 
+  // CR 506.6 (20260925): attacks a player alone = sole attacker of that player
+  // (other creatures may still attack different players). Distinct from exalted-style "attacks alone".
+  const creatureAttacksAPlayerAloneMatch = oracleText.match(
+    /whenever a creature you control attacks a player alone,?\s*([^.]+)/i,
+  );
+  if (
+    creatureAttacksAPlayerAloneMatch &&
+    !triggers.some((t) => t.triggerType === 'creature_attacks_a_player_alone')
+  ) {
+    const effectText = timingTriggerEffect(oracleText, creatureAttacksAPlayerAloneMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'creature_attacks_a_player_alone',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   const creatureAttacksAloneMatch = oracleText.match(
     /whenever a creature you control attacks alone,?\s*([^.]+)/i,
   );

@@ -26,6 +26,7 @@ export type CommonArtifactTokenKind =
   | 'map'
   | 'powerstone'
   | 'vibranium'
+  | 'heartwood'
   | 'blood';
 
 export const PREDEFINED_TRIGGER_ARTIFACT_TOKEN_KINDS = [
@@ -37,6 +38,7 @@ export const PREDEFINED_TRIGGER_ARTIFACT_TOKEN_KINDS = [
   'gold',
   'powerstone',
   'vibranium',
+  'heartwood',
 ] as const;
 
 export type PredefinedTriggerArtifactTokenKind = (typeof PREDEFINED_TRIGGER_ARTIFACT_TOKEN_KINDS)[number];
@@ -45,6 +47,7 @@ interface CommonArtifactTokenDefinition {
   name: string;
   typeLine: string;
   abilities: string[];
+  colors?: string[];
   basePower?: number;
   baseToughness?: number;
 }
@@ -147,6 +150,12 @@ const COMMON_ARTIFACT_TOKEN_DEFINITIONS: Record<CommonArtifactTokenKind, CommonA
       "{T}: Add {C}. This mana can't be spent to cast a nonartifact spell.",
     ],
   },
+  heartwood: {
+    name: 'Heartwood',
+    typeLine: 'Token Artifact — Heartwood',
+    colors: ['R', 'G'],
+    abilities: ['{T}: Add {R} or {G}.'],
+  },
   blood: {
     name: 'Blood',
     typeLine: 'Token Artifact — Blood',
@@ -171,6 +180,7 @@ const COMMON_ARTIFACT_TOKEN_MATCHERS: Array<{ kind: CommonArtifactTokenKind; tes
   { kind: 'map', test: (lower) => lower.includes('map') },
   { kind: 'powerstone', test: (lower) => lower.includes('powerstone') },
   { kind: 'vibranium', test: (lower) => lower.includes('vibranium') },
+  { kind: 'heartwood', test: (lower) => lower.includes('heartwood') },
   { kind: 'blood', test: (lower) => lower.includes('blood') },
 ];
 
@@ -198,7 +208,7 @@ export function buildCommonArtifactTokenSpec(kind: CommonArtifactTokenKind): Com
     basePower: definition.basePower,
     baseToughness: definition.baseToughness,
     options: {
-      colors: [],
+      colors: Array.isArray(definition.colors) ? [...definition.colors] : [],
       typeLine: definition.typeLine,
       abilities: definition.abilities,
       isArtifact: true,

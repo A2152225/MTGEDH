@@ -133,6 +133,24 @@ export function evaluateConditionalWrapperCondition(
     if (youHaveGraveyard !== undefined) return youHaveGraveyard;
   }
 
+  // Route remaining if/as_long_as clauses through the shared extended evaluator
+  // (typed control checks, Amass/Empower-style "you don't control ...", etc.).
+  {
+    const extended = evaluateExtendedConditionalClause({
+      normalizedRaw,
+      raw: condition.raw,
+      nextState,
+      controllerId,
+      ctx,
+      lastActionOutcome,
+      lastMovedCards,
+      lastDiscardedCards,
+      lastExcessDamageDealtThisWay,
+      step: params.step,
+    });
+    if (extended !== null) return extended;
+  }
+
   return null;
 }
 

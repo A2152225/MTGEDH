@@ -26,8 +26,8 @@ describe('getMobilePlayLayoutProfile', () => {
     expect(profile.battlefieldViewportRows).toBe(2);
     expect(profile.battlefieldGridCols).toBe(4);
     expect(profile.showMobileChrome).toBe(true);
-    expect(profile.playAreaBottomInset).toBeGreaterThan(0);
-    expect(profile.handStripThumbWidth).toBeGreaterThan(0);
+    expect(profile.playAreaBottomInset).toBeGreaterThanOrEqual(168);
+    expect(profile.handStripThumbWidth).toBeGreaterThanOrEqual(76);
   });
 
   it('uses wider landscape sizing on touch phones', () => {

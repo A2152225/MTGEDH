@@ -13,6 +13,8 @@ import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
 import { appendCopyTriggeredAbilityResolveEvent } from './triggerAbilityCopyUtils.js';
 import { queueCopySpellStackPushFromOracleIRResult } from './oracleIrServerCopySpellSync.js';
+import { queueLifegainTriggers } from './triggers/lifegain.js';
+import { queueLifeLossTriggers } from './triggers/life-loss.js';
 import { persistEffectProgramReplayMutationsFromRun } from '../effects/effectProgramReplayMutationPersistence.js';
 
 export interface EffectProgramOracleIrBridgeConfig {
@@ -113,6 +115,26 @@ export function bridgeOracleIrEffectProgramRunEvents(
       irCtx: bridge.irCtx,
       sourceItem: bridge.triggerItem,
     });
+    emitLifeChangeTriggersFromEffectProgramExecution(ctx, typed.execution.replayMutations);
+  }
+}
+
+function emitLifeChangeTriggersFromEffectProgramExecution(
+  ctx: GameContext,
+  mutations: readonly { readonly kind: string; readonly playerId?: string; readonly delta?: number }[] | undefined,
+): void {
+  if (!mutations || mutations.length === 0) return;
+  const totals = new Map<string, number>();
+  for (const mutation of mutations) {
+    if (mutation.kind !== 'adjustLife') continue;
+    const playerId = String(mutation.playerId || '').trim();
+    const delta = Number(mutation.delta);
+    if (!playerId || !Number.isFinite(delta) || delta === 0) continue;
+    totals.set(playerId, (totals.get(playerId) || 0) + delta);
+  }
+  for (const [playerId, delta] of totals) {
+    if (delta > 0) queueLifegainTriggers(ctx, playerId, delta);
+    else queueLifeLossTriggers(ctx, playerId, -delta);
   }
 }
 

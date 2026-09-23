@@ -15,6 +15,8 @@ import { AddAIToGameControl } from "../components/AddAIToGameControl";
 import GameList from "../components/GameList";
 import { AuthSessionPanel } from "../components/AuthSessionPanel";
 import { SettingsMenu } from "../components/SettingsMenu";
+import { MobilePregameActionBanner } from "../components/MobilePregameActionBanner";
+import { getMobilePrimaryActionMode } from "../utils/mobilePlayActions";
 
 export function renderAppPlayLayoutMain(p: Record<string, any>) {
   const {
@@ -70,6 +72,7 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
     mulligansTaken,
     myPendingResolutionCount,
     nameInput,
+    needsToKeepHand,
     authSession,
     needsDeckImport,
     openSplitCardChoice,
@@ -127,6 +130,14 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
     }));
   const showAddAIControl = Boolean(
     isYouPlayer && isPreGame && !allPlayersKeptHands && safeView?.id,
+  );
+  const mobilePrimaryMode = getMobilePrimaryActionMode({
+    isSeatedPlayer: !!isYouPlayer && !isSpectator,
+    needsToKeepHand: !!needsToKeepHand,
+    canUnkeepHand: !!canUnkeepHand,
+  });
+  const showMobileKeepBanner = Boolean(
+    showMobileChrome && (mobilePrimaryMode === 'mulligan' || mobilePrimaryMode === 'unkeep'),
   );
   return (
     <>
@@ -614,6 +625,26 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
               compact
             />
           </div>
+        )}
+
+        {showMobileKeepBanner && (
+          <MobilePregameActionBanner
+            mode={mobilePrimaryMode === 'unkeep' ? 'unkeep' : 'mulligan'}
+            canKeepHand={canKeepHand}
+            canMulligan={canMulligan}
+            canUnkeepHand={canUnkeepHand}
+            mulligansTaken={mulligansTaken}
+            onKeepHand={() => {
+              if (hasKeptHand && canUnkeepHand) {
+                socket.emit("unkeepHand", { gameId: safeView?.id });
+                return;
+              }
+              socket.emit("keepHand", { gameId: safeView?.id });
+            }}
+            onMulligan={() => socket.emit("mulligan", { gameId: safeView?.id })}
+            onUnkeepHand={() => socket.emit("unkeepHand", { gameId: safeView?.id })}
+            onRandomizeStart={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
+          />
         )}
 
         {safeView && myPendingResolutionCount > 0 && priority === null && !minimizedResolutionStep && (

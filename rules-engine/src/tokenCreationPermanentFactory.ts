@@ -56,6 +56,14 @@ export function createTokenPermanent(
     typeLineParts.push(...characteristics.subtypes);
   }
   const abilities = characteristics.abilities.map(canonicalizeTokenAbility);
+  const startingLoyalty =
+    typeof characteristics.loyalty === 'number' && Number.isFinite(characteristics.loyalty)
+      ? Math.max(0, Math.floor(characteristics.loyalty))
+      : undefined;
+  const counters: Record<string, number> = { ...(withCounters || {}) };
+  if (startingLoyalty !== undefined && counters.loyalty === undefined) {
+    counters.loyalty = startingLoyalty;
+  }
 
   return {
     id: tokenId,
@@ -63,7 +71,7 @@ export function createTokenPermanent(
     owner: controllerId,
     tapped: characteristics.entersTapped || false,
     summoningSickness: characteristics.types.includes('Creature'),
-    counters: withCounters || {},
+    counters,
     attachedTo: undefined,
     attachments: [],
     modifiers: [],
@@ -82,6 +90,7 @@ export function createTokenPermanent(
     } as KnownCardRef,
     basePower: characteristics.power,
     baseToughness: characteristics.toughness,
+    ...(startingLoyalty !== undefined ? { loyalty: startingLoyalty } : {}),
     isToken: true,
     createdBySourceId: sourceId ? String(sourceId).trim() || undefined : undefined,
     createdBySourceName: sourceName ? String(sourceName).trim() || undefined : undefined,

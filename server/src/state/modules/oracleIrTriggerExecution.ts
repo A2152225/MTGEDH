@@ -285,6 +285,9 @@ function resolveTriggerTargetBinding(
   const damageReference = Number(
     triggerItem?.damageAmount ?? triggerItem?.effectData?.damageAmount ?? 0,
   );
+  const lifeGainedReference = String(triggerItem?.triggerType || '') === 'lifegain'
+    ? Number(triggerItem?.effectData?.lifeGained ?? 0)
+    : 0;
   const losingPlayerId = String(
     triggerItem?.effectData?.losingPlayerId
       || triggerItem?.triggeringPlayer
@@ -460,7 +463,9 @@ function resolveTriggerTargetBinding(
               ? snapshottedReference
               : Number.isFinite(damageReference) && damageReference > 0
                 ? damageReference
-                : undefined,
+                : Number.isFinite(lifeGainedReference) && lifeGainedReference > 0
+                  ? lifeGainedReference
+                  : undefined,
     xValue,
     spellManaValue,
   };

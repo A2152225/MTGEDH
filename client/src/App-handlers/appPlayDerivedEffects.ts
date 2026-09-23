@@ -12,6 +12,10 @@ import { toast } from "../components/ToastHost";
 import { isLandTypeLine, prettyPhase, prettyStep } from "../utils/gameDisplayHelpers";
 import { buildAvailableManaSourcesForPlayer } from "../utils/manaSourceBuilder";
 import { notifyUnfocusedYourTurn } from "../utils/turnAttentionNotify";
+import {
+  shouldAutoOpenMobileMulliganHand,
+  shouldAutoOpenMobileStackSheet,
+} from "../utils/mobilePlayActions";
 
 export function useAppPlayDerivedEffects(p: Record<string, any>) {
   const {
@@ -440,6 +444,38 @@ export function useAppPlayDerivedEffects(p: Record<string, any>) {
     onUseSavedDeck: requestUseSavedDeck,
   });
   const showTableMulliganUI = showMulliganUI && !isPreGame;
+
+  const autoOpenedMulliganHandKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const decision = shouldAutoOpenMobileMulliganHand({
+      showMobileChrome,
+      needsToKeepHand,
+      handCount: yourHandCount,
+      gameId: safeView?.id,
+      mulligansTaken,
+      lastOpenedKey: autoOpenedMulliganHandKeyRef.current,
+    });
+    if (decision.key) autoOpenedMulliganHandKeyRef.current = decision.key;
+    if (decision.open) setMobilePlaySheet('hand');
+  }, [showMobileChrome, needsToKeepHand, yourHandCount, safeView?.id, mulligansTaken, setMobilePlaySheet]);
+
+  const autoOpenedStackKeyRef = useRef<string | null>(null);
+  const stackLen = Array.isArray((safeView as any)?.stack) ? (safeView as any).stack.length : 0;
+  const topStackId = stackLen > 0 ? String((safeView as any).stack[stackLen - 1]?.id ?? (safeView as any).stack[0]?.id ?? '') : null;
+  useEffect(() => {
+    const decision = shouldAutoOpenMobileStackSheet({
+      showMobileChrome,
+      isSeatedPlayer: !!isYouPlayer && !isSpectator,
+      hasPriority: !!you && safeView?.priority === you,
+      stackLength: stackLen,
+      gameId: safeView?.id,
+      priority: safeView?.priority ?? null,
+      topStackId,
+      lastOpenedKey: autoOpenedStackKeyRef.current,
+    });
+    if (decision.key) autoOpenedStackKeyRef.current = decision.key;
+    if (decision.open) setMobilePlaySheet('stack');
+  }, [showMobileChrome, isYouPlayer, isSpectator, you, safeView?.priority, safeView?.id, stackLen, topStackId, setMobilePlaySheet]);
 
   const damageReplacementEffectActiveCount = useMemo(() => {
     const n = Number((safeView as any)?.replacementEffectHints?.damageActiveCount ?? 0);

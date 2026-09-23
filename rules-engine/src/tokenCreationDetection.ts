@@ -124,7 +124,7 @@ export function parseTokenCreationFromText(
     'saproling', 'servo', 'thopter', 'clue', 'treasure', 'food', 'blood', 'warrior',
     'knight', 'wizard', 'rogue', 'cleric', 'horror', 'insect', 'spider', 'snake', 'merfolk',
     'phyrexian', 'germ', 'wurm', 'gnome', 'fish', 'pegasus', 'pest', 'dryad', 'forest',
-    'mite', 'dinosaur', 'assassin', 'otter', 'pilot', 'lander', 'vibranium', 'rabbit', 'myr', 'slug',
+    'mite', 'dinosaur', 'assassin', 'otter', 'pilot', 'lander', 'vibranium', 'heartwood', 'rabbit', 'myr', 'slug',
     'kobold', 'samurai', 'monk', 'citizen', 'construct', 'plant', 'serpent', 'golem', 'goat',
   ];
   const subtypeSource = lowerText
@@ -162,7 +162,7 @@ export function parseTokenCreationFromText(
 
   const artifactOnlySubtypes = new Set([
     'treasure', 'food', 'clue', 'blood', 'powerstone', 'map', 'junk', 'gold', 'incubator', 'mutagen',
-    'lander', 'vibranium',
+    'lander', 'vibranium', 'heartwood',
   ]);
   if (
     subtypes.some((subtype) => artifactOnlySubtypes.has(subtype.toLowerCase())) &&
@@ -193,6 +193,7 @@ export function parseTokenCreationFromText(
   if (descriptors.includes('powerstone')) name = 'Powerstone';
   if (descriptors.includes('lander')) name = 'Lander';
   if (descriptors.includes('vibranium')) name = 'Vibranium';
+  if (descriptors.includes('heartwood')) name = 'Heartwood';
   const catalogHit = getTokenCharacteristics(name);
   if (catalogHit) {
     return {

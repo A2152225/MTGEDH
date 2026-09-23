@@ -173,6 +173,11 @@ export function tryResolveForEachReferenceAmount(
     if (multiplier === null) return null;
 
     const eachPart = String(forEachMatch[2] || '').trim();
+    if (/^(?:(?:\d+|a|an|one)\s+)?life you gained$/i.test(eachPart)) {
+      const eventAmount = Number(options?.runtime?.lastReferenceAmount ?? ctx.referenceAmount);
+      if (!Number.isFinite(eventAmount)) return null;
+      return Math.max(0, multiplier * Math.floor(eventAmount));
+    }
     if (/^auras? you controlled that (?:was|were) attached to it$/i.test(eachPart)) {
       if (Number.isFinite(Number(ctx.referenceAmount))) {
         return Math.max(0, multiplier * Math.max(0, Math.floor(Number(ctx.referenceAmount))));

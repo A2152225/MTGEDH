@@ -14,6 +14,7 @@ import { repairIntraAbilityInsteadConditionalSteps } from './oracleIRParserPostp
 import { extractQuotedAbilityRiderSteps } from './oracleIRParserPostprocessQuotedAbilityRiders';
 import { pruneMalformedExploreReminderMoveZoneSteps, pruneRedundantExploreReminderAbilities, pruneRedundantInfectKeywordUnknownAbilities, pruneRedundantLandwalkKeywordUnknownAbilities, pruneRedundantScryReminderUnknownAbilities } from './oracleIRParserPostprocessClashScryExploreReminderPrunes';
 import { lowerRecruitKeywordAbilities, pruneRedundantAmassSubtypeReminderUnknownAbilities } from './oracleIRParserPostprocessAmassDiscoverConniveRecruitKeywords';
+import { lowerEmpowerJaceKeywordAbilities, pruneRedundantEmpowerJaceReminderUnknownAbilities } from './oracleIRParserPostprocessEmpowerJaceKeyword';
 import { pruneCascadeReminderAbilities, pruneCipherReminderAbilities, pruneConvokeReminderAbilities, pruneRedundantCascadeReminderUnknownAbilities, pruneReinforceReminderAddCounterSteps } from './oracleIRParserPostprocessKeywordReminderPrunes';
 import { pruneLateKeywordReminderOnlyAbilities } from './oracleIRParserPostprocessCrewChampionLateKeywordPrunes';
 import { pruneRedundantEldraziTokenManaReminderUnknownAbilities, pruneRedundantEnchantAttachmentReminderUnknownAbilities } from './oracleIRParserPostprocessFutureSpellAndTokenReminderPrunes';
@@ -252,6 +253,8 @@ export function applyParseOracleTextToIRLatePasses(params: {
   abilities = extractQuotedAbilityRiderSteps(abilities);
   abilities = repairCurrentBatchSurfaceSteps(abilities, parsingOracleText);
   abilities = lowerRecruitKeywordAbilities(abilities);
+  abilities = lowerEmpowerJaceKeywordAbilities(abilities);
+  abilities = pruneRedundantEmpowerJaceReminderUnknownAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);
 
   abilities = abilities.reduce<OracleIRAbility[]>((merged, ability) => {

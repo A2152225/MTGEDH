@@ -598,7 +598,7 @@ export function detectCombatTriggers(
   const combinedText = getCombinedPermanentText(perm);
   const relevantEvents =
     triggerType === 'attack'
-      ? new Set<TriggerEvent>([TriggerEvent.ATTACKS, TriggerEvent.ATTACKS_ALONE])
+      ? new Set<TriggerEvent>([TriggerEvent.ATTACKS, TriggerEvent.ATTACKS_ALONE, TriggerEvent.ATTACKS_A_PLAYER_ALONE])
       : triggerType === 'block'
         ? new Set<TriggerEvent>([TriggerEvent.BLOCKS])
         : triggerType === 'damage_dealt'

@@ -19,11 +19,14 @@ import { HandGallery } from './HandGallery';
 import { CentralStack } from './CentralStack';
 import { FloatingManaPool } from './FloatingManaPool';
 import { PhaseNavigator } from './PhaseNavigator';
+import { MobileMulliganActions } from './MobileMulliganActions';
+import { MobileToolsHub, type MobileToolsHubProps } from './MobileToolsHub';
+import type { MobilePrimaryActionMode } from '../utils/mobilePlayActions';
 import { colors, fontSize, radii, spacing } from '../theme';
 
 export type MobilePlaySheet = 'hand' | 'stack' | 'mana' | 'more' | null;
 
-export interface MobilePlaySheetsProps {
+export type MobilePlaySheetsProps = MobileToolsHubProps & {
   activeSheet: MobilePlaySheet;
   onClose: () => void;
   // Hand
@@ -64,7 +67,17 @@ export interface MobilePlaySheetsProps {
   onSkipToPhase?: (targetPhase: string, targetStep?: string) => void;
   onConcede?: () => void;
   onLeaveGame?: () => void;
-}
+  primaryMode?: MobilePrimaryActionMode;
+  canKeepHand?: boolean;
+  canMulligan?: boolean;
+  canUnkeepHand?: boolean;
+  mulligansTaken?: number;
+  onKeepHand?: () => void;
+  onMulligan?: () => void;
+  onUnkeepHand?: () => void;
+  onRandomizeStart?: () => void;
+  isPreGame?: boolean;
+};
 
 export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
   const {
@@ -104,7 +117,59 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
     onSkipToPhase,
     onConcede,
     onLeaveGame,
+    primaryMode = 'play',
+    canKeepHand,
+    canMulligan,
+    canUnkeepHand,
+    mulligansTaken,
+    onKeepHand,
+    onMulligan,
+    onUnkeepHand,
+    onRandomizeStart,
+    isPreGame = false,
   } = props;
+
+  const showMulliganActions = primaryMode === 'mulligan' || primaryMode === 'unkeep';
+  const mulliganControls = showMulliganActions ? (
+    <MobileMulliganActions
+      mode={primaryMode === 'unkeep' ? 'unkeep' : 'mulligan'}
+      canKeepHand={canKeepHand}
+      canMulligan={canMulligan}
+      canUnkeepHand={canUnkeepHand}
+      mulligansTaken={mulligansTaken}
+      onKeepHand={onKeepHand}
+      onMulligan={onMulligan}
+      onUnkeepHand={onUnkeepHand}
+      onRandomizeStart={onRandomizeStart}
+      showRandomStart={isPreGame}
+    />
+  ) : null;
+
+  const stackPassFooter =
+    activeSheet === 'stack' && hasPriority && onPassPriority ? (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ fontSize: fontSize.sm, color: colors.accentStrong, fontWeight: 700 }}>
+          You have priority
+        </div>
+        <button
+          type="button"
+          onClick={onPassPriority}
+          style={{
+            width: '100%',
+            minHeight: 52,
+            borderRadius: radii.md,
+            border: `1px solid ${colors.accentStrong}`,
+            background: `linear-gradient(180deg, ${colors.accentStrong}, ${colors.accent})`,
+            color: '#0b0b10',
+            fontWeight: 700,
+            fontSize: fontSize.lg,
+            cursor: 'pointer',
+          }}
+        >
+          Pass *
+        </button>
+      </div>
+    ) : null;
 
   return (
     <>
@@ -113,6 +178,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
         onClose={onClose}
         title="Your Hand"
         desktopWidth={720}
+        footer={mulliganControls}
       >
         <HandGallery
           cards={handCards}
@@ -138,6 +204,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
         title={`Stack (${stack.length})`}
         desktopWidth={520}
         hideHeader={stack.length === 0}
+        footer={stackPassFooter}
       >
         {stack.length > 0 ? (
           <div style={{ position: 'relative', minHeight: 120 }}>
@@ -176,10 +243,40 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
       <Sheet
         open={activeSheet === 'more'}
         onClose={onClose}
-        title="More"
+        title="Tools"
         desktopWidth={480}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
+          {mulliganControls}
+          <MobileToolsHub
+            autoPassSteps={props.autoPassSteps}
+            onToggleAutoPass={props.onToggleAutoPass}
+            onClearAllAutoPass={props.onClearAllAutoPass}
+            onSelectAllAutoPass={props.onSelectAllAutoPass}
+            isSinglePlayer={props.isSinglePlayer}
+            onToggleAutoPassForTurn={props.onToggleAutoPassForTurn}
+            autoPassForTurnEnabled={props.autoPassForTurnEnabled}
+            autoPassEmptyStackOnOpponentsTurnEnabled={props.autoPassEmptyStackOnOpponentsTurnEnabled}
+            onToggleAutoPassEmptyStackOnOpponentsTurn={props.onToggleAutoPassEmptyStackOnOpponentsTurn}
+            autoYesOptionalEnabled={props.autoYesOptionalEnabled}
+            onToggleAutoYesOptional={props.onToggleAutoYesOptional}
+            ignoredCards={props.ignoredCards}
+            you={you}
+            onUnignoreCard={props.onUnignoreCard}
+            onClearIgnoredCards={props.onClearIgnoredCards}
+            onOpenTriggerShortcuts={props.onOpenTriggerShortcuts}
+            onOpenLoopShortcuts={props.onOpenLoopShortcuts}
+            availableUndoCount={props.availableUndoCount}
+            undoTurnPhaseTargets={props.undoTurnPhaseTargets}
+            onOpenUndoMenu={props.onOpenUndoMenu}
+            onRequestUndoTurnPhaseTargets={props.onRequestUndoTurnPhaseTargets}
+            onUndoToTurnPhase={props.onUndoToTurnPhase}
+            aiControlEnabled={props.aiControlEnabled}
+            onToggleAIControl={props.onToggleAIControl}
+            onRollDie={props.onRollDie}
+            onFlipCoin={props.onFlipCoin}
+            isSpectator={props.isSpectator}
+          />
           {onAdvanceOneStep && onPassPriority && (
             <PhaseNavigator
               docked
@@ -204,6 +301,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
                 onClick={onConcede}
                 style={{
                   flex: '1 1 120px',
+                  minHeight: 48,
                   padding: '10px 12px',
                   borderRadius: radii.md,
                   border: `1px solid ${colors.danger}`,
@@ -211,6 +309,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
                   color: '#fca5a5',
                   cursor: 'pointer',
                   fontSize: fontSize.sm,
+                  fontWeight: 600,
                 }}
               >
                 Concede
@@ -222,6 +321,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
                 onClick={onLeaveGame}
                 style={{
                   flex: '1 1 120px',
+                  minHeight: 48,
                   padding: '10px 12px',
                   borderRadius: radii.md,
                   border: `1px solid ${colors.border}`,
@@ -229,6 +329,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
                   color: colors.textPrimary,
                   cursor: 'pointer',
                   fontSize: fontSize.sm,
+                  fontWeight: 600,
                 }}
               >
                 Leave Game

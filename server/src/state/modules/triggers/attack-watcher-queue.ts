@@ -23,6 +23,7 @@ const ATTACK_WATCHER_TRIGGER_TYPES = new Set([
   'any_creature_attacks',
   'any_creature_attacks_or_blocks',
   'creature_attacks_alone',
+  'creature_attacks_a_player_alone',
   'typed_attacks_alone',
   'modified_creature_attacks',
   'goaded_creature_attacks',
@@ -507,6 +508,21 @@ export function planAttackWatcherQueue(
     case 'creature_attacks_alone':
       if (attackingCreatures.length !== 1 || !youControl(attackingCreatures[0])) return { kind: 'skip' };
       return { kind: 'once' };
+    case 'creature_attacks_a_player_alone': {
+      // CR 506.6: sole attacker of the specific defending player (multiplayer-aware).
+      const aloneAttackers = attackingCreatures.filter((attacker) => {
+        if (!youControl(attacker)) return false;
+        const attackerId = String(attacker?.id || '');
+        const defended = resolveAttackedPlayerId(attacker);
+        if (!attackerId || !defended) return false;
+        const others = attackingCreatures.filter((other) => {
+          const otherId = String(other?.id || '');
+          return Boolean(otherId) && otherId !== attackerId && resolveAttackedPlayerId(other) === defended;
+        });
+        return others.length === 0;
+      });
+      return aloneAttackers.length > 0 ? { kind: 'per_attacker', attackers: aloneAttackers } : { kind: 'skip' };
+    }
     case 'typed_attacks_alone':
       if (attackingCreatures.length !== 1 || !youControl(attackingCreatures[0])) return { kind: 'skip' };
       if (!attackerMatchesTypePhrase(attackingCreatures[0], typePhrase)) return { kind: 'skip' };

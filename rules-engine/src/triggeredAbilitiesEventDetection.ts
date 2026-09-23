@@ -126,6 +126,11 @@ export function detectTriggeredAbilityEvent<T extends string>(
   }
 
   if (/\battacks?\b/.test(text)) {
+    // CR 506.6: "attacks a player alone" is per defending player (multiplayer-aware),
+    // distinct from exalted-style global "attacks alone".
+    if (/\battacks?\s+a\s+player\s+alone\b/.test(text)) {
+      return { event: triggerEventValues.ATTACKS_A_PLAYER_ALONE, filter: text };
+    }
     if (/\battacks?\s+alone\b/.test(text)) {
       return { event: triggerEventValues.ATTACKS_ALONE, filter: text };
     }

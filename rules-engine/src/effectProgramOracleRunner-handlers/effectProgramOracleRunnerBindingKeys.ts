@@ -9,6 +9,8 @@ export interface DerivedOracleIRContextBindings {
   targetCreatureId?: string;
   targetPermanentId?: string;
   targetSpellId?: string;
+  xValue?: number;
+  capXToReferenceAmount?: boolean;
   lastClashWon?: boolean;
   selectorContext?: Record<string, unknown>;
 }

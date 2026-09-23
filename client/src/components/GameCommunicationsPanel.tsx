@@ -89,12 +89,15 @@ export function GameCommunicationsPanel({
 
   const dimensions = SIZE_CONFIG[size];
   const bottom = 12 + Math.max(0, bottomInset);
+  // On mobile chrome the hand strip owns the bottom-left edge; park log/chat on the right.
+  const mobileChrome = bottomInset > 0;
 
   return createPortal(
     <div
       style={{
         position: 'fixed',
-        left: 12,
+        left: mobileChrome ? 'auto' : 12,
+        right: mobileChrome ? 12 : 'auto',
         bottom,
         zIndex: 9200,
         width: collapsed ? 'auto' : dimensions.width,

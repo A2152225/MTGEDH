@@ -46,8 +46,8 @@ export function optimizeBattlefieldTokensForEmit(
   tokenGroupingApplied?: boolean;
   originalBattlefieldCount?: number;
 } {
-  const tokenGroups = new Map<string, { prototype: any; ids: string[] }>();
-  const nonTokenPermanents: any[] = [];
+  const stackGroups = new Map<string, { prototype: any; ids: string[] }>();
+  const ungroupedPermanents: any[] = [];
 
   for (const perm of battlefield) {
     if (!perm) continue;
@@ -71,8 +71,14 @@ export function optimizeBattlefieldTokensForEmit(
     const hasTemporaryProtection = perm.temporaryProtection?.length > 0;
     const hasTempMods = hasModifiers || hasTemporaryEffects || hasTempPTMod || hasTemporaryProtection;
 
+    const typeLine = String(perm.card?.type_line || '').toLowerCase();
+    const isLand = typeLine.includes('land');
+    const isToken = perm.isToken === true;
+
+    // Same stack key pattern for identical tokens AND same-named lands (Forest piles, etc.).
+    // Unusual state (equipment/auras/combat/damage/temp mods) refuses stacking — mirrors tokens.
     const isGroupableToken =
-      perm.isToken === true &&
+      isToken &&
       !hasEquipment &&
       !hasAuras &&
       !isAttachedToSomething &&
@@ -80,7 +86,17 @@ export function optimizeBattlefieldTokensForEmit(
       !isInCombat &&
       !hasTempMods;
 
-    if (isGroupableToken) {
+    const isGroupableLand =
+      !isToken &&
+      isLand &&
+      !hasEquipment &&
+      !hasAuras &&
+      !isAttachedToSomething &&
+      !hasDamage &&
+      !isInCombat &&
+      !hasTempMods;
+
+    if (isGroupableToken || isGroupableLand) {
       const card = perm.card || {};
       const countersStr = Object.entries(perm.counters || {})
         .filter(([, v]) => (v as number) > 0)
@@ -114,7 +130,10 @@ export function optimizeBattlefieldTokensForEmit(
       const staticAbilitiesStr = staticAbilities.sort().join('|');
       const colorsStr = (card.colors || []).slice().sort().join('');
 
+      // name + tapped (+ sick/counters/etc.) splits piles; different names never stack.
+      // kind: keeps token Forests separate from card Forests.
       const key = [
+        `kind:${isToken ? 'token' : 'land'}`,
         `ctrl:${perm.controller}`,
         `name:${card.name || ''}`,
         `p:${perm.effectivePower ?? perm.basePower ?? card.power ?? 0}`,
@@ -127,25 +146,25 @@ export function optimizeBattlefieldTokensForEmit(
         `col:${colorsStr}`,
       ].join('|');
 
-      const existing = tokenGroups.get(key);
+      const existing = stackGroups.get(key);
       if (existing) {
         existing.ids.push(perm.id);
       } else {
-        tokenGroups.set(key, { prototype: perm, ids: [perm.id] });
+        stackGroups.set(key, { prototype: perm, ids: [perm.id] });
       }
     } else {
-      nonTokenPermanents.push(perm);
+      ungroupedPermanents.push(perm);
     }
   }
 
-  const optimizedBattlefield = [...nonTokenPermanents];
+  const optimizedBattlefield = [...ungroupedPermanents];
   let hasGroupedTokens = false;
 
-  for (const [, group] of tokenGroups) {
+  for (const [, group] of stackGroups) {
     if (group.ids.length === 1) {
       optimizedBattlefield.push({
         ...group.prototype,
-        isToken: true,
+        isToken: group.prototype.isToken === true,
       });
     } else {
       hasGroupedTokens = true;
@@ -157,7 +176,8 @@ export function optimizeBattlefieldTokensForEmit(
         ...group.prototype,
         tokenCount: group.ids.length,
         isGroupedTokens: true,
-        isToken: true,
+        // Preserve token vs land identity — do not stamp lands as isToken.
+        isToken: group.prototype.isToken === true,
         id: groupId,
         originalId: group.ids[0],
         // Client can use real ids when present; server still resolves virtual refs after restart.

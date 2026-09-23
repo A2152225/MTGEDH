@@ -293,6 +293,11 @@ export {
   lowerConniveKeywordAbilities,
   lowerRecruitKeywordAbilities,
 } from './oracleIRParserPostprocessAmassDiscoverConniveRecruitKeywords';
+
+export {
+  lowerEmpowerJaceKeywordAbilities,
+  pruneRedundantEmpowerJaceReminderUnknownAbilities,
+} from './oracleIRParserPostprocessEmpowerJaceKeyword';
 export {
   expandKeywordActionUnknownAbilities,
   expandTurnScopedStaticKeywordAbilities,

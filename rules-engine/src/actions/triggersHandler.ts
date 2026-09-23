@@ -870,6 +870,55 @@ export function checkAttacksAloneTriggers(
 }
 
 /**
+ * Check triggers that fire when a creature attacks a player alone (CR 506.6).
+ */
+export function checkAttacksAPlayerAloneTriggers(
+  state: GameState,
+  attackerId: string,
+  options: Omit<TriggerProcessingOptions, 'resolutionEventData'> & { resolutionEventData?: TriggerEventData } = {}
+): TriggerResult {
+  const abilities = findTriggeredAbilities(state);
+  const aloneAbilities = abilities.filter(a => a.event === TriggerEvent.ATTACKS_A_PLAYER_ALONE);
+  if (aloneAbilities.length === 0) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
+
+  const attacker = ((state.battlefield || []) as any[]).find(
+    permanent => String((permanent as any)?.id || '').trim() === String(attackerId || '').trim()
+  ) as any;
+  const controllerId = String((attacker as any)?.controller || '').trim();
+  if (!controllerId) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
+
+  const controllerAbilities = aloneAbilities.filter(
+    ability => String(ability.controllerId || '').trim() === controllerId
+  );
+  if (controllerAbilities.length === 0) {
+    return { state, triggersAdded: 0, logs: [] };
+  }
+
+  const defendingPlayerId =
+    String((attacker as any)?.defendingPlayerId || (attacker as any)?.attacking || '').trim() || undefined;
+  const eventData = buildResolutionEventDataFromGameState(
+    state,
+    controllerId,
+    buildTriggerEventDataFromPayloads(controllerId, {
+      sourceId: attackerId,
+      targetPermanentId: attackerId,
+      targetId: attackerId,
+      sourceControllerId: controllerId,
+      sourceOwnerId: String((attacker as any)?.owner || (attacker as any)?.ownerId || controllerId).trim() || undefined,
+      targetOpponentId: defendingPlayerId,
+      targetPlayerId: defendingPlayerId,
+      affectedOpponentIds: defendingPlayerId ? [defendingPlayerId] : undefined,
+    })
+  );
+
+  return processTriggersAutoOracle(state, TriggerEvent.ATTACKS_A_PLAYER_ALONE, controllerAbilities, eventData, options);
+}
+
+/**
  * Check triggers that care about combat damage to players and provide
  * relational opponent context for Oracle IR automation.
  */

@@ -35,7 +35,16 @@ function getGroupPrototype(game: any, groupId: string): any | null {
 function matchesGroupPrototype(perm: any, prototype: any, options?: { ignoreTapState?: boolean }): boolean {
   if (!perm || !prototype) return false;
   if (perm.controller !== prototype.controller) return false;
-  if (perm.isToken !== true) return false;
+
+  const prototypeIsToken = prototype.isToken === true;
+  const permIsToken = perm.isToken === true;
+  // Token piles and land piles both use group_* refs; do not mix kinds.
+  if (prototypeIsToken !== permIsToken) return false;
+  if (!prototypeIsToken) {
+    const prototypeType = String(prototype.card?.type_line || '').toLowerCase();
+    const permType = String(perm.card?.type_line || '').toLowerCase();
+    if (!prototypeType.includes('land') || !permType.includes('land')) return false;
+  }
 
   const prototypeName = String(prototype.card?.name || '');
   const permName = String(perm.card?.name || '');

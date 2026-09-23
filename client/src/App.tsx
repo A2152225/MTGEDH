@@ -1097,6 +1097,7 @@ export function App() {
         nameInUsePayload,
         nameInput,
         needsDeckImport,
+        needsToKeepHand,
         openSplitCardChoice,
         openingHandActionsModalOpen,
         openingHandActionsStepId,

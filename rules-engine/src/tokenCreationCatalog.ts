@@ -105,6 +105,15 @@ export const COMMON_TOKENS: Record<string, TokenCharacteristics> = {
     isArtifact: true,
   },
 
+  'Heartwood': {
+    name: 'Heartwood',
+    colors: ['R', 'G'],
+    types: ['Artifact'],
+    subtypes: ['Heartwood'],
+    abilities: ['{T}: Add {R} or {G}.'],
+    isArtifact: true,
+  },
+
   'Vehicle': {
     name: 'Vehicle',
     colors: [],
@@ -433,6 +442,19 @@ export const COMMON_TOKENS: Record<string, TokenCharacteristics> = {
     power: 1,
     toughness: 1,
     abilities: ['Hexproof'],
+  },
+  // Comp Rules 20260925 / 701.71 - Empower Jace predefined planeswalker token
+  'Jace': {
+    name: 'Jace',
+    colors: ['U'],
+    types: ['Planeswalker'],
+    subtypes: ['Jace'],
+    loyalty: 0,
+    abilities: [
+      '[-1]: Surveil 1.',
+      '[-3]: Draw a card.',
+    ],
+    isArtifact: false,
   },
 };
 

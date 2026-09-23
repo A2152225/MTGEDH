@@ -25,6 +25,7 @@ import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
 import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
+import { permanentMatchesNamedControlDescriptor } from './oracleIRExecutorBattlefieldArmySelection';
 
 const RESERVED_TYPED_NOUNS = new Set([
   'player',
@@ -131,9 +132,37 @@ export function tryEvaluateTypedCreatureClause(params: ExtendedConditionalParams
   }
 
   {
+    // Single-word subtype/type: "you don't control a Faerie" / "you don't control an Army"
     const dontControl = normalizedRaw.match(/^you don'?t control an? ([a-z][a-z'-]*)$/);
     const typeName = dontControl ? parseTypedNoun(String(dontControl[1] || '')) : null;
     if (typeName) return countControlledMatchingDescriptor(nextState, controllerId, typeName) === 0;
+  }
+
+  {
+    // Multi-word Amass/Empower-style descriptors:
+    // "you don't control an Army creature"
+    // "you don't control a Jace planeswalker token"
+    const dontControlMulti = normalizedRaw.match(/^you don'?t control (?:an? )?(.+)$/);
+    if (dontControlMulti) {
+      const descriptor = String(dontControlMulti[1] || '').trim();
+      const lowered = descriptor.toLowerCase();
+      // Keep unrelated "you don't control the monarch/initiative/..." clauses out of this matcher.
+      const looksLikeBattlefieldDescriptor =
+        /\btoken\b/i.test(lowered)
+        || /\b(?:creature|planeswalker|artifact|enchantment|land|battle|vehicle|permanent)\b/i.test(lowered)
+        || /^[a-z][a-z'-]*$/i.test(descriptor);
+      const isStatusClause =
+        /^(?:the\s+)?(?:monarch|initiative|city'?s blessing|ring-bearer)\b/i.test(descriptor)
+        || /^(?:more|fewer|as many)\b/i.test(descriptor);
+      if (descriptor && looksLikeBattlefieldDescriptor && !isStatusClause) {
+        const battlefield = getProcessedBattlefield(nextState) as any[];
+        const count = battlefield.filter((perm: any) => {
+          if (String(perm?.controller || '').trim() !== String(controllerId || '').trim()) return false;
+          return permanentMatchesNamedControlDescriptor(perm, descriptor);
+        }).length;
+        return count === 0;
+      }
+    }
   }
 
   {

@@ -62,8 +62,8 @@ const PORTRAIT_PROFILE: Omit<MobilePlayLayoutProfile, 'orientation' | 'isMobileP
   centerHandViewportFraction: 0.78,
   seatGapX: 56,
   seatGapY: 56,
-  handStripThumbWidth: 62,
-  playAreaBottomInset: 148,
+  handStripThumbWidth: 76,
+  playAreaBottomInset: 168,
 };
 
 const LANDSCAPE_PROFILE: Omit<MobilePlayLayoutProfile, 'orientation' | 'isMobilePlay' | 'mode' | 'showMobileChrome'> = {

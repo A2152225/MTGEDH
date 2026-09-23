@@ -91,6 +91,16 @@ const ARTIFACT_TOKENS: readonly TokenDefinition[] = [
     sets: ['BRO', 'DMU']
   },
   {
+    name: 'Heartwood',
+    colors: ['R', 'G'],
+    types: ['Heartwood'],
+    cardTypes: ['Artifact'],
+    abilities: ['{T}: Add {R} or {G}.'],
+    shortDescription: 'Tap for {R} or {G}',
+    fullDescription: 'Heartwood is a red and green artifact token with "{T}: Add {R} or {G}." See Comp Rules 111.10x (20260925).',
+    rulesReference: 'Rule 111.10x',
+  },
+  {
     name: 'Map',
     colors: [],
     types: ['Map'],

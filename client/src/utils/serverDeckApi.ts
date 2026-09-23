@@ -10,14 +10,32 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
 }
 
 async function readJson<T>(res: Response): Promise<T> {
-  const data = await res.json().catch(() => ({}));
+  const rawText = await res.text();
+  let data: unknown = {};
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      data = {};
+    }
+  }
   if (!res.ok) {
     if (res.status === 401) {
       throw new Error('Log in to see your server decks.');
     }
+    const lower = rawText.toLowerCase();
+    if (
+      res.status === 405 ||
+      lower.includes('http verb used to access this page is not allowed') ||
+      lower.includes('verb used to access this page is not allowed')
+    ) {
+      throw new Error('Delete was blocked by the reverse proxy (HTTP verb not allowed).');
+    }
     const message = typeof (data as { error?: string }).error === 'string'
       ? (data as { error: string }).error
-      : `Request failed (${res.status})`;
+      : (rawText.trim().startsWith('<') || rawText.length > 280)
+        ? `Request failed (${res.status})`
+        : (rawText.trim() || `Request failed (${res.status})`);
     throw new Error(message);
   }
   return data as T;
@@ -101,10 +119,23 @@ export async function renameServerDeckViaApi(
 }
 
 export async function deleteServerDeckViaApi(deckId: string, playerId?: string): Promise<void> {
+  // Prefer POST /delete so IIS/ARR proxies that block DELETE still work.
+  // Keep DELETE as fallback for older servers / local direct access.
+  const body = JSON.stringify({ playerId });
+  const headers = { 'Content-Type': 'application/json' };
+  const postRes = await apiFetch(`/api/decks/${encodeURIComponent(deckId)}/delete`, {
+    method: 'POST',
+    headers,
+    body,
+  });
+  if (postRes.ok || (postRes.status !== 404 && postRes.status !== 405)) {
+    await readJson(postRes);
+    return;
+  }
   await readJson(await apiFetch(`/api/decks/${encodeURIComponent(deckId)}`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ playerId }),
+    headers,
+    body,
   }));
 }
 

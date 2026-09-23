@@ -257,7 +257,7 @@ export function registerDeckHttpRoutes(app: Express): void {
     }
   });
 
-  app.delete('/api/decks/:id', (req, res) => {
+  const handleDeleteDeck = (req: Request, res: Response, logLabel: string) => {
     try {
       const user = requireAuth(req, res);
       if (!user) return;
@@ -280,8 +280,18 @@ export function registerDeckHttpRoutes(app: Express): void {
       }
       res.json({ success: true, deckId });
     } catch (err) {
-      debugError(1, 'DELETE /api/decks/:id failed:', err);
+      debugError(1, `${logLabel} failed:`, err);
       res.status(500).json({ error: 'Failed to delete deck' });
     }
+  };
+
+  // Kept for local/direct access. Some reverse proxies block DELETE.
+  app.delete('/api/decks/:id', (req, res) => {
+    handleDeleteDeck(req, res, 'DELETE /api/decks/:id');
+  });
+
+  // Proxy-friendly delete (GET/POST-only reverse proxies).
+  app.post('/api/decks/:id/delete', (req, res) => {
+    handleDeleteDeck(req, res, 'POST /api/decks/:id/delete');
   });
 }

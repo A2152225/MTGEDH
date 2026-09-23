@@ -93,6 +93,7 @@ import {
   lowerConniveKeywordAbilities,
   lowerCurrentResidualUnknownAbilities,
   lowerDiscoverKeywordAbilities,
+  lowerEmpowerJaceKeywordAbilities,
   lowerRecruitKeywordAbilities,
   lowerSelfEntryCounterReplacementAbilities,
   mergeAddManaRestrictionFollowupAbilities,
@@ -159,6 +160,7 @@ import {
   pruneRedundantCrewReminderAbilities,
   pruneRedundantDecayedReminderUnknownAbilities,
   pruneRedundantDiscoverReminderUnknownAbilities,
+  pruneRedundantEmpowerJaceReminderUnknownAbilities,
   pruneRedundantEarthbendReminderUnknownAbilities,
   pruneRedundantEldraziTokenManaReminderUnknownAbilities,
   pruneRedundantEnchantAttachmentReminderUnknownAbilities,
@@ -381,6 +383,8 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = pruneRedundantAmassSubtypeReminderUnknownAbilities(abilities);
   abilities = lowerConniveKeywordAbilities(abilities);
   abilities = lowerRecruitKeywordAbilities(abilities);
+  abilities = lowerEmpowerJaceKeywordAbilities(abilities);
+  abilities = pruneRedundantEmpowerJaceReminderUnknownAbilities(abilities);
   abilities = lowerDiscoverKeywordAbilities(abilities);
   abilities = pruneRedundantDiscoverReminderUnknownAbilities(abilities);
   abilities = expandKeywordActionUnknownAbilities(abilities);

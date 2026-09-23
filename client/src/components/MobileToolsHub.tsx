@@ -1,0 +1,280 @@
+/**
+ * Mobile More-sheet Tools hub — surfaces rail tools (Auto-Pass, Ignored,
+ * Triggers/Loops, Undo, AI, Dice/Flip) when the utility rail is hidden.
+ * Desktop rail is unchanged; this mounts only under showMobileChrome sheets.
+ */
+
+import React, { useEffect, useState } from 'react';
+import type { PlayerID } from '../../../shared/src';
+import { AutoPassSettingsPanel } from './AutoPassSettingsPanel';
+import { IgnoredCardsPanel } from './IgnoredCardsPanel';
+import { colors, fontSize, radii, spacing } from '../theme';
+
+export type MobileUndoTurnPhaseTarget = {
+  turnNumber?: number;
+  phase: string;
+  step?: string;
+  label: string;
+  eventsToUndo: number;
+};
+
+export interface MobileToolsHubProps {
+  // Auto-pass
+  autoPassSteps?: Set<string>;
+  onToggleAutoPass?: (step: string, enabled: boolean) => void;
+  onClearAllAutoPass?: () => void;
+  onSelectAllAutoPass?: () => void;
+  isSinglePlayer?: boolean;
+  onToggleAutoPassForTurn?: () => void;
+  autoPassForTurnEnabled?: boolean;
+  autoPassEmptyStackOnOpponentsTurnEnabled?: boolean;
+  onToggleAutoPassEmptyStackOnOpponentsTurn?: (enabled: boolean) => void;
+  autoYesOptionalEnabled?: boolean;
+  onToggleAutoYesOptional?: (enabled: boolean) => void;
+  // Ignored cards
+  ignoredCards?: any[];
+  you?: PlayerID | null;
+  onUnignoreCard?: (cardId: string) => void;
+  onClearIgnoredCards?: () => void;
+  // Shortcuts
+  onOpenTriggerShortcuts?: () => void;
+  onOpenLoopShortcuts?: () => void;
+  // Undo
+  availableUndoCount?: number;
+  undoTurnPhaseTargets?: MobileUndoTurnPhaseTarget[];
+  onOpenUndoMenu?: () => void;
+  onRequestUndoTurnPhaseTargets?: () => void;
+  onUndoToTurnPhase?: (target: { turnNumber?: number; phase: string; step?: string }) => void;
+  // AI / randomness
+  aiControlEnabled?: boolean;
+  onToggleAIControl?: (enable: boolean, difficulty?: number) => void;
+  onRollDie?: (sides: number) => void;
+  onFlipCoin?: () => void;
+  isSpectator?: boolean;
+}
+
+const toolBtnStyle: React.CSSProperties = {
+  width: '100%',
+  minHeight: 48,
+  padding: '12px 14px',
+  borderRadius: radii.md,
+  border: `1px solid ${colors.border}`,
+  background: colors.surfaceTransparent,
+  color: colors.textPrimary,
+  cursor: 'pointer',
+  fontSize: fontSize.md,
+  fontWeight: 600,
+  textAlign: 'left',
+};
+
+export const MobileToolsHub: React.FC<MobileToolsHubProps> = (props) => {
+  const {
+    autoPassSteps,
+    onToggleAutoPass,
+    onClearAllAutoPass,
+    onSelectAllAutoPass,
+    isSinglePlayer,
+    onToggleAutoPassForTurn,
+    autoPassForTurnEnabled,
+    autoPassEmptyStackOnOpponentsTurnEnabled,
+    onToggleAutoPassEmptyStackOnOpponentsTurn,
+    autoYesOptionalEnabled,
+    onToggleAutoYesOptional,
+    ignoredCards = [],
+    you,
+    onUnignoreCard,
+    onClearIgnoredCards,
+    onOpenTriggerShortcuts,
+    onOpenLoopShortcuts,
+    availableUndoCount = 0,
+    undoTurnPhaseTargets = [],
+    onOpenUndoMenu,
+    onRequestUndoTurnPhaseTargets,
+    onUndoToTurnPhase,
+    aiControlEnabled,
+    onToggleAIControl,
+    onRollDie,
+    onFlipCoin,
+    isSpectator = false,
+  } = props;
+
+  const [showUndoList, setShowUndoList] = useState(false);
+  const [diceOpen, setDiceOpen] = useState(false);
+
+  useEffect(() => {
+    if (!showUndoList) return;
+    onOpenUndoMenu?.();
+    onRequestUndoTurnPhaseTargets?.();
+  }, [showUndoList, onOpenUndoMenu, onRequestUndoTurnPhaseTargets]);
+
+  const canUndo = !isSpectator && availableUndoCount > 0 && !!onUndoToTurnPhase;
+  const showAi = !isSpectator && !!onToggleAIControl;
+  const showRandom = !isSpectator && (!!onRollDie || !!onFlipCoin);
+  const showAutoPass = !isSpectator && !!autoPassSteps && !!onToggleAutoPass && !!onClearAllAutoPass && !!onSelectAllAutoPass;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
+      <div style={{ fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+        Tools
+      </div>
+
+      {canUndo && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
+          <button
+            type="button"
+            onClick={() => setShowUndoList((v) => !v)}
+            style={{
+              ...toolBtnStyle,
+              background: showUndoList ? 'rgba(99,102,241,0.25)' : toolBtnStyle.background,
+              border: showUndoList ? '1px solid rgba(99,102,241,0.55)' : toolBtnStyle.border,
+            }}
+          >
+            Undo ({availableUndoCount}) {showUndoList ? '▾' : '▸'}
+          </button>
+          {showUndoList && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {undoTurnPhaseTargets.length === 0 ? (
+                <div style={{ padding: '10px 12px', color: colors.textSecondary, fontSize: fontSize.sm, background: 'rgba(75,85,99,0.18)', borderRadius: radii.sm }}>
+                  No earlier turn/phase targets
+                </div>
+              ) : (
+                undoTurnPhaseTargets.map((target) => (
+                  <button
+                    key={`${target.turnNumber ?? 'x'}|${target.phase}|${target.step ?? ''}`}
+                    type="button"
+                    onClick={() => {
+                      onUndoToTurnPhase?.({
+                        turnNumber: target.turnNumber,
+                        phase: target.phase,
+                        step: target.step,
+                      });
+                      setShowUndoList(false);
+                    }}
+                    style={{
+                      minHeight: 52,
+                      padding: '12px 14px',
+                      borderRadius: radii.md,
+                      border: '1px solid rgba(16,185,129,0.35)',
+                      background: 'rgba(16,185,129,0.14)',
+                      color: colors.textPrimary,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      fontSize: fontSize.sm,
+                    }}
+                  >
+                    <span>{target.label}</span>
+                    <span style={{ color: '#6ee7b7', whiteSpace: 'nowrap' }}>
+                      {target.eventsToUndo} event{target.eventsToUndo === 1 ? '' : 's'}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {showAutoPass && (
+        <AutoPassSettingsPanel
+          docked
+          defaultCollapsed
+          autoPassSteps={autoPassSteps!}
+          onToggleAutoPass={onToggleAutoPass!}
+          onClearAll={onClearAllAutoPass!}
+          onSelectAll={onSelectAllAutoPass!}
+          isSinglePlayer={isSinglePlayer}
+          onToggleAutoPassForTurn={onToggleAutoPassForTurn}
+          autoPassForTurnEnabled={autoPassForTurnEnabled}
+          autoPassEmptyStackOnOpponentsTurnEnabled={autoPassEmptyStackOnOpponentsTurnEnabled}
+          onToggleAutoPassEmptyStackOnOpponentsTurn={onToggleAutoPassEmptyStackOnOpponentsTurn}
+          autoYesOptionalEnabled={autoYesOptionalEnabled}
+          onToggleAutoYesOptional={onToggleAutoYesOptional}
+        />
+      )}
+
+      {!isSpectator && ignoredCards.length > 0 && onUnignoreCard && onClearIgnoredCards && you && (
+        <IgnoredCardsPanel
+          variant="rail"
+          ignoredCards={ignoredCards as any}
+          you={you as any}
+          onUnignore={onUnignoreCard}
+          onClearAll={onClearIgnoredCards}
+        />
+      )}
+
+      {onOpenTriggerShortcuts && (
+        <button type="button" onClick={onOpenTriggerShortcuts} style={toolBtnStyle} title="Configure auto-responses for Smothering Tithe, Rhystic Study, etc.">
+          Trigger Shortcuts
+        </button>
+      )}
+
+      {onOpenLoopShortcuts && (
+        <button type="button" onClick={onOpenLoopShortcuts} style={toolBtnStyle} title="Record and replay a manual action line">
+          Loop Shortcuts
+        </button>
+      )}
+
+      {showAi && (
+        <button
+          type="button"
+          onClick={() => onToggleAIControl?.(!aiControlEnabled, 0.5)}
+          style={{
+            ...toolBtnStyle,
+            background: aiControlEnabled ? 'rgba(59,130,246,0.22)' : toolBtnStyle.background,
+            border: aiControlEnabled ? '1px solid rgba(59,130,246,0.5)' : toolBtnStyle.border,
+          }}
+        >
+          AI Control: {aiControlEnabled ? 'On' : 'Off'}
+        </button>
+      )}
+
+      {showRandom && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.sm }}>
+          {onRollDie && (
+            <>
+              <button type="button" onClick={() => setDiceOpen((v) => !v)} style={toolBtnStyle}>
+                Roll Dice {diceOpen ? '▾' : '▸'}
+              </button>
+              {diceOpen && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {[2, 6, 20].map((sides) => (
+                    <button
+                      key={sides}
+                      type="button"
+                      onClick={() => {
+                        onRollDie(sides);
+                        setDiceOpen(false);
+                      }}
+                      style={{
+                        flex: '1 1 80px',
+                        minHeight: 48,
+                        borderRadius: radii.md,
+                        border: `1px solid ${colors.border}`,
+                        background: colors.surfaceTransparent,
+                        color: colors.textPrimary,
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                      }}
+                    >
+                      d{sides}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {onFlipCoin && (
+            <button type="button" onClick={onFlipCoin} style={toolBtnStyle}>
+              Flip Coin
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default MobileToolsHub;

@@ -4,7 +4,7 @@
  * Modular implementation of Magic: The Gathering keyword actions.
  * Each keyword action is defined in its own module file.
  * 
- * Reference: MagicCompRules 20251114.txt, Rule 701
+ * Reference: MagicCompRules_20260925.txt, Rule 701
  */
 
 // Part 1: Rules 701.2-701.9
@@ -89,6 +89,9 @@ export * from './airbend';
 export * from './earthbend';
 export * from './waterbend';
 
+// Part 9: Rules 701.68+
+export * from './empowerJace';
+
 // Union type for all keyword actions
 import type { ActivateAction } from './activate';
 import type { AttachAction } from './attach';
@@ -156,6 +159,7 @@ import type { HarnessAction } from './harness';
 import type { AirbendAction } from './airbend';
 import type { EarthbendAction } from './earthbend';
 import type { WaterbendAction } from './waterbend';
+import type { EmpowerJaceAction } from './empowerJace';
 
 export type KeywordAction =
   // Part 1
@@ -231,4 +235,6 @@ export type KeywordAction =
   | HarnessAction
   | AirbendAction
   | EarthbendAction
-  | WaterbendAction;
+  | WaterbendAction
+  // Part 9
+  | EmpowerJaceAction;

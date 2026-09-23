@@ -3,18 +3,35 @@
  *
  * Compact, always-visible action bar shown only on mobile (narrow + touch
  * device) during an active table. Surfaces the most common in-game actions
- * — Pass Priority, Untap, Hand, Stack, Mana — so the player doesn't have to
+ * — Pass Priority, Hand, Stack, Mana — so the player doesn't have to
  * hunt through the desktop utility rail on a small screen.
  *
+ * During opening-hand / mulligan, Keep Hand and Mulligan replace Pass so
+ * those actions stay on the safe-area dock instead of the hidden compact
+ * status-bar extraActions row.
+ *
  * Pure-additive: rendered alongside the existing UI. Desktop is unaffected
- * because the host App must gate the render with `useBreakpoint('mobile')`.
+ * because the host App must gate the render with mobile chrome.
  *
  * The dock takes only callbacks and a counts/state object — it does not
  * reach into the App's state or sockets directly.
  */
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { colors, spacing, fontSize, radii, shadows, z, safeArea } from '../theme';
+import { MobileMulliganActions } from './MobileMulliganActions';
+import type { MobilePrimaryActionMode } from '../utils/mobilePlayActions';
+
+const PASS_ATTENTION_STYLE_ID = 'mtgedh-mobile-pass-attention';
+function ensurePassAttentionStyle() {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById(PASS_ATTENTION_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = PASS_ATTENTION_STYLE_ID;
+  style.textContent = `@keyframes mtgedhPassPulse { 0% { box-shadow: 0 0 0 0 rgba(251,191,36,0.55); } 70% { box-shadow: 0 0 0 10px rgba(251,191,36,0); } 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); } }
+@media (prefers-reduced-motion: reduce) { .mtgedh-pass-attention { animation: none !important; } }`;
+  document.head.appendChild(style);
+}
 
 export interface MobileActionDockProps {
   onPassPriority?: () => void;
@@ -29,6 +46,14 @@ export interface MobileActionDockProps {
   highlightPass?: boolean;
   highlightDeck?: boolean;
   deckLabel?: string;
+  primaryMode?: MobilePrimaryActionMode;
+  canKeepHand?: boolean;
+  canMulligan?: boolean;
+  canUnkeepHand?: boolean;
+  mulligansTaken?: number;
+  onKeepHand?: () => void;
+  onMulligan?: () => void;
+  onUnkeepHand?: () => void;
 }
 
 interface DockButtonProps {
@@ -37,12 +62,15 @@ interface DockButtonProps {
   highlight?: boolean;
   disabled?: boolean;
   onClick?: () => void;
+  className?: string;
+  attention?: boolean;
 }
 
-const DockButton: React.FC<DockButtonProps> = ({ label, badge, highlight, disabled, onClick }) => (
+const DockButton: React.FC<DockButtonProps> = ({ label, badge, highlight, disabled, onClick, className, attention }) => (
   <button
     onClick={onClick}
     disabled={disabled}
+    className={className}
     style={{
       flex: 1,
       minHeight: 52,
@@ -64,6 +92,7 @@ const DockButton: React.FC<DockButtonProps> = ({ label, badge, highlight, disabl
       opacity: disabled ? 0.5 : 1,
       position: 'relative',
       padding: `${spacing.xs}px ${spacing.sm}px`,
+      animation: attention ? 'mtgedhPassPulse 1.1s ease-out 1' : undefined,
     }}
   >
     <span>{label}</span>
@@ -105,11 +134,33 @@ export const MobileActionDock: React.FC<MobileActionDockProps> = ({
   highlightPass,
   highlightDeck,
   deckLabel = 'Deck',
+  primaryMode = 'play',
+  canKeepHand,
+  canMulligan,
+  canUnkeepHand,
+  mulligansTaken,
+  onKeepHand,
+  onMulligan,
+  onUnkeepHand,
 }) => {
+  const mulliganMode = primaryMode === 'mulligan' || primaryMode === 'unkeep';
+  const [passAttention, setPassAttention] = useState(false);
+
+  useEffect(() => {
+    if (!highlightPass || mulliganMode) {
+      setPassAttention(false);
+      return;
+    }
+    ensurePassAttentionStyle();
+    setPassAttention(true);
+    const t = window.setTimeout(() => setPassAttention(false), 1200);
+    return () => window.clearTimeout(t);
+  }, [highlightPass, mulliganMode]);
+
   return (
     <div
       role="toolbar"
-      aria-label="Game actions"
+      aria-label={mulliganMode ? 'Opening hand actions' : 'Game actions'}
       style={{
         position: 'fixed',
         left: 0,
@@ -128,13 +179,35 @@ export const MobileActionDock: React.FC<MobileActionDockProps> = ({
         paddingRight: `calc(${spacing.sm}px + ${safeArea.right})`,
       }}
     >
-      {onOpenDeck && (
+      {mulliganMode && (
+        <MobileMulliganActions
+          mode={primaryMode === 'unkeep' ? 'unkeep' : 'mulligan'}
+          canKeepHand={canKeepHand}
+          canMulligan={canMulligan}
+          canUnkeepHand={canUnkeepHand}
+          mulligansTaken={mulligansTaken}
+          onKeepHand={onKeepHand}
+          onMulligan={onMulligan}
+          onUnkeepHand={onUnkeepHand}
+          fill
+        />
+      )}
+      {!mulliganMode && onOpenDeck && (
         <DockButton label={deckLabel} highlight={highlightDeck} onClick={onOpenDeck} />
       )}
-      <DockButton label="Pass" highlight={highlightPass} disabled={passDisabled} onClick={onPassPriority} />
+      {!mulliganMode && (
+        <DockButton
+          label={highlightPass ? 'Pass *' : 'Pass'}
+          highlight={highlightPass}
+          disabled={passDisabled}
+          onClick={onPassPriority}
+          className={passAttention ? 'mtgedh-pass-attention' : undefined}
+          attention={passAttention}
+        />
+      )}
       {onOpenHand && <DockButton label="Hand" badge={handCount} onClick={onOpenHand} />}
-      {onOpenStack && <DockButton label="Stack" badge={stackCount} onClick={onOpenStack} />}
-      {onOpenMana && <DockButton label="Mana" onClick={onOpenMana} />}
+      {!mulliganMode && onOpenStack && <DockButton label="Stack" badge={stackCount} onClick={onOpenStack} />}
+      {!mulliganMode && onOpenMana && <DockButton label="Mana" onClick={onOpenMana} />}
       {onOpenMore && <DockButton label="More" onClick={onOpenMore} />}
     </div>
   );

@@ -22,6 +22,10 @@ import {
   BASIC_LAND_TYPE_OPTIONS,
   ORACLE_CHOICE_STEP_KINDS,
 } from './effectProgramTypes.js';
+import {
+  appendLifeGainedBoundedManaXPaymentSteps,
+  isLifeGainedBoundedManaPayment,
+} from './effectProgramLifeBoundedManaPayment.js';
 
 export function buildEffectProgramFromOracleIR(input: BuildEffectProgramFromOracleIRInput): EffectProgram {
   const steps: EffectProgramStep[] = [];
@@ -141,6 +145,16 @@ function appendOracleStepToEffectProgram(args: {
       clauseIndex,
       raw: oracleStep.raw,
     };
+
+    if (appendLifeGainedBoundedManaXPaymentSteps({
+      input,
+      steps,
+      oracleStep,
+      clause,
+      baseId,
+    })) {
+      return;
+    }
 
     let guard: EffectProgramStepGuard | undefined;
     if (oracleStepOptionalRequiresChoice(oracleStep)) {
@@ -298,6 +312,10 @@ function appendOracleStepToEffectProgram(args: {
   ): string {
     if ((oracleStep as any)?.kind === 'conditional') {
       return `${baseId}:condition`;
+    }
+
+    if (isLifeGainedBoundedManaPayment(oracleStep)) {
+      return `${baseId}:x-choice`;
     }
 
     if (oracleStepOptionalRequiresChoice(oracleStep)) {

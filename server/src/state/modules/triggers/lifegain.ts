@@ -6,7 +6,7 @@
  * - Ratchet, Field Medic (Transformers): Convert and return artifact from graveyard
  * - Ajani's Pridemate: Gain +1/+1 counter
  * - Heliod, Sun-Crowned: Put +1/+1 counter on creature or enchantment
- * - Well of Lost Dreams: Pay X to draw X cards
+ * - Well of Lost Dreams: Pay {X} (X ≤ life gained) to draw X cards
  * - Dawn of Hope: Pay 2 to create 1/1 Soldier token
  * - Archangel of Thune: Put +1/+1 counter on each creature you control
  * - Resplendent Angel: Create 4/4 Angel token if you gained 5+ life this turn
@@ -139,9 +139,9 @@ export const KNOWN_LIFEGAIN_TRIGGERS: Record<string, {
   },
   // Cradle of Vitality
   "cradle of vitality": {
-    effect: 'You may pay {1}{W}. If you do, put +1/+1 counters equal to life gained on target creature',
+    effect: 'You may pay {1}. If you do, put a +1/+1 counter on target creature for each 1 life you gained',
     effectType: 'add_counter',
-    isMayAbility: true,
+    isMayAbility: false,
   },
   // Celestial Unicorn
   "celestial unicorn": {
@@ -201,9 +201,9 @@ export const KNOWN_LIFEGAIN_TRIGGERS: Record<string, {
   
   // Card draw
   "well of lost dreams": {
-    effect: 'Pay X to draw X cards, where X is the life gained',
+    effect: 'You may pay {X}, where X is less than or equal to the amount of life you gained. If you do, draw X cards',
     effectType: 'draw_cards',
-    isMayAbility: true,
+    isMayAbility: false,
   },
   "alhammarret's archive": {
     effect: 'If you would gain life, you gain twice that much life instead (replacement)',
@@ -357,15 +357,21 @@ export function detectLifegainTriggers(
       
       // Detect effect type from oracle text
       let effectType: LifegainEffectType = 'custom';
-      let isMayAbility = oracleText.includes('you may');
       let effect = 'Triggered by lifegain';
       
-      // Extract the effect text
+      // Extract the full effect, including "If you do, …" on the same ability.
       const reflexiveConvertEffectMatch = oracleText.match(/whenever you gain life[^,]*,?\s*(you may convert [^.]+\.\s*when you do,?\s*[^.]+)/i);
-      const effectMatch = reflexiveConvertEffectMatch || oracleText.match(/whenever you gain life[^,]*,?\s*([^.]+)/i);
-      if (effectMatch) {
-        effect = effectMatch[1].replace(/\s+/g, ' ').trim();
+      const timingMatch = oracleText.match(/whenever you gain life[^,]*,?\s*/i);
+      if (reflexiveConvertEffectMatch) {
+        effect = reflexiveConvertEffectMatch[1].replace(/\s+/g, ' ').trim();
+      } else if (timingMatch) {
+        const extracted = timingTriggerEffect(oracleText, timingMatch);
+        const normalized = extracted.replace(/\s+/g, ' ').trim().replace(/\.$/, '');
+        if (normalized) effect = normalized;
       }
+      // "You may pay …" is a mandatory trigger whose cost is optional. A stack-level
+      // may on top of the payment prompt would ask twice.
+      const isMayAbility = oracleText.includes('you may') && !/^you may pay\b/i.test(effect);
       
       // Determine effect type
       if (oracleText.includes('+1/+1 counter')) {
@@ -374,8 +380,8 @@ export function detectLifegainTriggers(
         } else {
           effectType = 'add_counter';
         }
-      } else if (/\bdraw(?:s)?\s+(?:a\s+)?card/i.test(oracleText)) {
-        // Match patterns: "draw a card", "draws a card", "draw card"
+      } else if (/\bdraw(?:s)?\s+(?:a\s+|x\s+|that many\s+)?cards?\b/i.test(oracleText)) {
+        // "draw a card", "draw X cards", "draw that many cards"
         effectType = 'draw_cards';
       } else if (oracleText.includes('create') && oracleText.includes('token')) {
         effectType = 'create_token';

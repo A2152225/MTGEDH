@@ -302,7 +302,9 @@ export enum ArtifactType {
   SPACECRAFT = 'Spacecraft',
   STONE = 'Stone',
   TREASURE = 'Treasure',
-  VEHICLE = 'Vehicle'
+  VEHICLE = 'Vehicle',
+  VIBRANIUM = 'Vibranium',
+  HEARTWOOD = 'Heartwood'
 }
 
 /**

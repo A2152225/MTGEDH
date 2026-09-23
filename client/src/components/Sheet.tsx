@@ -23,6 +23,8 @@ export interface SheetProps {
   dismissOnEscape?: boolean;
   /** When true, hides the default header/title bar (caller renders its own). */
   hideHeader?: boolean;
+  /** Sticky footer below the scroll body (e.g. Keep Hand on the mobile hand sheet). */
+  footer?: React.ReactNode;
   children?: React.ReactNode;
 }
 
@@ -34,6 +36,7 @@ export const Sheet: React.FC<SheetProps> = ({
   dismissOnBackdrop = true,
   dismissOnEscape = true,
   hideHeader,
+  footer,
   children,
 }) => {
   const isTouch = useIsTouch();
@@ -149,6 +152,17 @@ export const Sheet: React.FC<SheetProps> = ({
         <div style={{ flex: 1, overflow: 'auto', padding: spacing.md }}>
           {children}
         </div>
+        {footer && (
+          <div
+            style={{
+              flexShrink: 0,
+              padding: `${spacing.sm}px ${spacing.md}px`,
+              borderTop: `1px solid ${colors.borderSubtle}`,
+            }}
+          >
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

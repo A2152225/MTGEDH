@@ -11,6 +11,8 @@ export interface TokenCharacteristics {
   readonly isLegendary?: boolean;
   readonly isArtifact?: boolean;
   readonly entersTapped?: boolean;
+  /** Planeswalker starting loyalty (CR token PWs). */
+  readonly loyalty?: number;
 }
 
 export interface TokenCreationRequest {
