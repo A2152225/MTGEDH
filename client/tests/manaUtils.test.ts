@@ -258,6 +258,45 @@ describe('restricted mana sources (Vibranium / Powerstone)', () => {
       artifactPurpose,
     );
     expect(artifactSuggestion.get('vib_1')).toEqual({ color: 'C', count: 1 });
+
+    const abilitySuggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 1,
+        hybrids: [],
+      },
+      [vibraniumSource as any],
+      new Set(),
+      undefined,
+      abilityPurpose,
+    );
+    expect(abilitySuggestion.get('vib_1')).toEqual({ color: 'C', count: 1 });
+  });
+
+  it('falls back to unrestricted mana when Vibranium cannot pay a nonartifact spell', () => {
+    const purpose = buildRestrictedManaPurposeForSpell({ type_line: 'Instant' });
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 1,
+        hybrids: [],
+      },
+      [
+        {
+          id: 'vib_1',
+          name: 'Vibranium',
+          options: ['C'] as const,
+          spendRestriction: { restriction: 'no_nonartifact_spells' },
+        } as any,
+        { id: 'wastes_1', name: 'Wastes', options: ['C'] as const },
+      ],
+      new Set(),
+      undefined,
+      purpose,
+    );
+
+    expect(suggestion.has('vib_1')).toBe(false);
+    expect(suggestion.get('wastes_1')).toEqual({ color: 'C', count: 1 });
   });
 
   it('allows Vibranium for Artifact Vehicle / Equipment (not only Artifact Creature)', () => {

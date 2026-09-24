@@ -282,6 +282,7 @@ export async function handleSpellPaymentChoiceResponse(
     }
   }
 
+  delete (game.state as any)._lastCastPaymentFailure;
   const castCompleted = await helpers.resumePlayerSpellCastAfterPayment(io, gameId, String(pid), {
     cardId,
     effectId,
@@ -352,14 +353,19 @@ export async function handleSpellPaymentChoiceResponse(
           pendingCast._aiSpellPaymentRetryCount = retries + 1;
         }
       }
-      debugWarn(1, `[Resolution] Spell payment for ${cardName} did not complete; re-queuing payment step (effectId='${effectId}')`);
+      const paymentFailure = (game.state as any)._lastCastPaymentFailure as { code?: string; message?: string } | undefined;
+      delete (game.state as any)._lastCastPaymentFailure;
+      const paymentFailureMessage = String(paymentFailure?.message || '').trim();
+      debugWarn(1, `[Resolution] Spell payment for ${cardName} did not complete; re-queuing payment step (effectId='${effectId}')${paymentFailureMessage ? `: ${paymentFailureMessage}` : ''}`);
       const requeued = ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.MANA_PAYMENT_CHOICE,
         playerId: pid as any,
         sourceId: cardId,
         sourceName: cardName,
         sourceImage: stepData.imageUrl || step.sourceImage,
-        description: `Pay costs to cast ${cardName}.`,
+        description: paymentFailureMessage
+          ? `Pay costs to cast ${cardName}. ${paymentFailureMessage}`
+          : `Pay costs to cast ${cardName}.`,
         mandatory: true,
         spellPaymentRequired: true,
         cardId,
@@ -383,8 +389,10 @@ export async function handleSpellPaymentChoiceResponse(
       } as any);
       debug(2, `[Resolution] Re-queued spell payment step ${String((requeued as any)?.id || '')} for ${cardName}`);
       emitToPlayer(io, pid as any, 'error', {
-        code: 'CAST_PAYMENT_RETRY',
-        message: `Payment for ${cardName} did not finish casting — please pay again.`,
+        code: paymentFailure?.code || 'CAST_PAYMENT_RETRY',
+        message: paymentFailureMessage
+          ? `${paymentFailureMessage} Choose different mana for ${cardName}.`
+          : `Payment for ${cardName} did not finish casting — please pay again.`,
       });
       helpers.emitNextPendingResolutionStep(io, gameId, String(pid));
     } else {

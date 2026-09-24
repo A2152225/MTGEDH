@@ -144,7 +144,18 @@ export function getResolutionManaSourceCostText(
     return '';
   }
 
-  return String((permanent as any)?.card?.oracle_text || '').split(':')[0].toLowerCase();
+  // Keyword lines (Indestructible) sit above "{T}: Add {C}. This mana can't be spent..."
+  // on Vibranium/Powerstone tokens. Only the mana ability's cost is an activation cost.
+  const oracleText = String((permanent as any)?.card?.oracle_text || '');
+  const manaAbilityCost = oracleText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /\{t\}/i.test(line) && /\badd\b/i.test(line))
+    .map((line) => line.split(':')[0]?.trim().toLowerCase())
+    .find((cost) => Boolean(cost));
+  if (manaAbilityCost) return manaAbilityCost;
+
+  return oracleText.split(':')[0].toLowerCase();
 }
 
 export function escapeResolutionCostRegExp(text: string): string {

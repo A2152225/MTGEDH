@@ -20,9 +20,10 @@ import { type PaymentItem, parseSacrificeCost } from "../../../../shared/src/ind
 import {
   MANA_COLOR_NAMES,
   type RestrictedManaSpendPurpose,
-  buildManaTotalsIncludingEligibleRestricted,
+  canUseRestrictedMana,
   consumeManaFromPool,
   getFloatingPaymentPoolColorKey,
+  getManaEntryColor,
   getOrInitManaPool,
   parseFloatingPaymentPermanentId,
   parseManaCost,
@@ -211,6 +212,27 @@ export function normalizeParsedSpellCostForAnyTypeManaSpending(
   };
 }
 
+function sumEligibleRestrictedMana(
+  pool: any,
+  purpose: RestrictedManaSpendPurpose | undefined,
+): Record<string, number> {
+  const totals = snapshotCastSpellManaPool(undefined);
+  if (!purpose || !Array.isArray(pool?.restricted)) return totals;
+  for (const entry of pool.restricted) {
+    if (!entry || !canUseRestrictedMana(entry, purpose)) continue;
+    const colorKey = getManaEntryColor(entry);
+    if (!Object.prototype.hasOwnProperty.call(totals, colorKey)) continue;
+    totals[colorKey] = Number(totals[colorKey] || 0) + Number(entry.amount || 0);
+  }
+  return totals;
+}
+
+/**
+ * Spend an explicit cast payment.
+ * Selected totals count mana the player chose, including Vibranium/Powerstone mana that
+ * was added only to pool.restricted. Eligible restricted mana already floating but not
+ * copied into those totals is included once. Illegal restricted mana is not spent.
+ */
 export function consumeExplicitSelectedCastSpellMana(
   pool: any,
   selectedAvailable: Record<string, number>,
@@ -218,38 +240,96 @@ export function consumeExplicitSelectedCastSpellMana(
   genericCost: number,
   purpose?: RestrictedManaSpendPurpose,
 ): { consumed: Record<string, number> } | { error: string } {
-  const totalsForValidation = purpose
-    ? buildManaTotalsIncludingEligibleRestricted(
-        { ...snapshotCastSpellManaPool(selectedAvailable), restricted: pool?.restricted } as any,
-        purpose,
-      )
-    : snapshotCastSpellManaPool(selectedAvailable);
-  const validationError = validateManaPayment(totalsForValidation, coloredCost, genericCost);
+  const selectedPool = snapshotCastSpellManaPool(selectedAvailable);
+  const regularPool = snapshotCastSpellManaPool(pool);
+  const eligibleRestricted = sumEligibleRestrictedMana(pool, purpose);
+  const spendable = snapshotCastSpellManaPool(selectedPool);
+
+  for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
+    // Produced or explicitly selected restricted mana is in selected totals but not
+    // in the regular pool. Don't add that amount again from pool.restricted.
+    const alreadyCountedFromRestricted = Math.max(
+      0,
+      Number(selectedPool[key] || 0) - Number(regularPool[key] || 0),
+    );
+    const implicitRestricted = Math.max(
+      0,
+      Number(eligibleRestricted[key] || 0) - alreadyCountedFromRestricted,
+    );
+    if (implicitRestricted > 0) {
+      spendable[key] = Number(spendable[key] || 0) + implicitRestricted;
+    }
+  }
+
+  const validationError = validateManaPayment(spendable, coloredCost, genericCost);
   if (validationError) {
     return { error: validationError };
   }
 
-  const selectedPool = snapshotCastSpellManaPool(selectedAvailable);
   const manaConsumption = consumeManaFromPool(
-    selectedPool,
+    spendable,
     coloredCost,
     genericCost,
     '[castSpellFromHand][selectedPayment]',
   );
 
+  const drainPlan: Array<{ key: string; regularUse: number; restrictedUses: Array<{ index: number; use: number }> }> = [];
   for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
-    const amount = Number((manaConsumption.consumed as any)?.[key] || 0);
-    if (amount <= 0) continue;
-    if (Number(pool?.[key] || 0) < amount) {
+    let remaining = Number((manaConsumption.consumed as any)?.[key] || 0);
+    if (remaining <= 0) continue;
+
+    const regularUse = Math.min(Number(pool?.[key] || 0), remaining);
+    remaining -= regularUse;
+    const restrictedUses: Array<{ index: number; use: number }> = [];
+
+    if (remaining > 0 && purpose && Array.isArray(pool?.restricted)) {
+      for (let index = pool.restricted.length - 1; index >= 0 && remaining > 0; index -= 1) {
+        const entry = pool.restricted[index];
+        if (!entry || !canUseRestrictedMana(entry, purpose)) continue;
+        if (getManaEntryColor(entry) !== key) continue;
+        const use = Math.min(Number(entry.amount || 0), remaining);
+        if (use <= 0) continue;
+        restrictedUses.push({ index, use });
+        remaining -= use;
+      }
+    }
+
+    if (remaining > 0) {
+      const blockedByRestriction = Array.isArray(pool?.restricted) && pool.restricted.some((entry: any) => (
+        entry
+        && getManaEntryColor(entry) === key
+        && Number(entry.amount || 0) > 0
+        && Boolean(purpose)
+        && !canUseRestrictedMana(entry, purpose as RestrictedManaSpendPurpose)
+      ));
+      if (blockedByRestriction) {
+        return { error: `Selected ${key} mana is restricted and cannot be spent on this payment.` };
+      }
       return { error: `Selected payment used more ${key} mana than is available.` };
+    }
+
+    drainPlan.push({ key, regularUse, restrictedUses });
+  }
+
+  for (const step of drainPlan) {
+    if (step.regularUse > 0) {
+      pool[step.key] = Number(pool?.[step.key] || 0) - step.regularUse;
     }
   }
 
-  for (const key of CAST_SPELL_PAYMENT_MANA_KEYS) {
-    const amount = Number((manaConsumption.consumed as any)?.[key] || 0);
-    if (amount > 0) {
-      pool[key] = Number(pool?.[key] || 0) - amount;
+  const restrictedUses = drainPlan
+    .flatMap((step) => step.restrictedUses)
+    .sort((left, right) => right.index - left.index);
+  for (const use of restrictedUses) {
+    const entry = pool.restricted?.[use.index];
+    if (!entry) continue;
+    entry.amount -= use.use;
+    if (entry.amount <= 0) {
+      pool.restricted.splice(use.index, 1);
     }
+  }
+  if (Array.isArray(pool?.restricted) && pool.restricted.length === 0) {
+    delete pool.restricted;
   }
 
   return { consumed: manaConsumption.consumed };
