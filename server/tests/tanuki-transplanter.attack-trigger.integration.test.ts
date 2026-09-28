@@ -32,9 +32,10 @@ describe('Tanuki Transplanter attack trigger', () => {
           id: 'omnath_card_1',
           name: 'Omnath, Locus of Mana',
           type_line: 'Legendary Creature - Elemental',
-          oracle_text: "Green mana doesn't empty from your mana pool as steps and phases end.",
-          power: '12',
-          toughness: '12',
+          oracle_text: "Green mana doesn't empty from your mana pool as steps and phases end.\nOmnath, Locus of Mana gets +1/+1 for each green mana in your mana pool.",
+          // Real printed 1/1; with 11 green floating its current power is 12 (CR 208.3).
+          power: '1',
+          toughness: '1',
         },
       },
       {

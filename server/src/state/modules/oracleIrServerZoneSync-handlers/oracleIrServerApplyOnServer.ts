@@ -34,6 +34,7 @@ import { bridgeCreatedTokenEtbTriggersAfterOracleIR } from '../triggerOracleIrTo
 import { bridgeEnteredPermanentEtbTriggersAfterOracleIR } from '../triggerOracleIrPermanentEtbBridge.js';
 import { prepareChaosResolutionZoneTriggersAfterOracleIR } from '../oracleIrChaosResolutionTriggerHold.js';
 import { collectLegalRetargetCandidatesForStackItem } from '../oracleIrRetargetLegalTargets.js';
+import { getCurrentPowerToughness } from '../currentPowerToughness.js';
 import { queueBattlefieldEntryReplacementPromptsAfterOracleIR } from '../oracleIrBattlefieldEntryPrompts.js';
 import { queueOracleIrReflexiveWhenYouDoFollowups } from '../triggerReflexiveWhenYouDoQueueUtils.js';
 import { syncDerivedContinuousEffects } from '../staticEffectSpec.js';
@@ -246,6 +247,8 @@ export function applyOracleIRStepsOnServer(
     serverBridge,
     collectLegalRetargetCandidates: (gameState, spell, targetingPlayerId) =>
       collectLegalRetargetCandidatesForStackItem(gameState, spell, targetingPlayerId),
+    // Fight / bite / "equal to its power": current P/T exactly as the battlefield shows it.
+    resolveCurrentPowerToughness: (gameState, permanent) => getCurrentPowerToughness(permanent, gameState),
   }, {
     ...options,
     haltOnPlayerChoiceRequired: options.haltOnPlayerChoiceRequired ?? true,

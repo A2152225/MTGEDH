@@ -149,6 +149,21 @@ export function applyParseOracleTextToIRLatePasses(params: {
     );
   };
 
+  // A sentence that an existing ability already parsed into an executable step
+  // (e.g. the "gets +2/+2 until end of turn" half of "... Draw a card.") must not
+  // be recovered again as a second ability; otherwise the pump resolves twice.
+  const stepAlreadyParsed = (text: string): boolean => {
+    const normalized = normalizeAbilityCoverageText(text);
+    if (!normalized) return false;
+    const visit = (steps: readonly any[] | undefined): boolean =>
+      (steps || []).some((step: any) => {
+        if (!step) return false;
+        if (step.kind !== 'unknown' && normalizeAbilityCoverageText(String(step.raw || '')) === normalized) return true;
+        return Array.isArray(step.steps) ? visit(step.steps) : false;
+      });
+    return abilities.some((ability) => visit(ability.steps));
+  };
+
   for (const parsedAbility of recoveryCandidates) {
     const text = String(parsedAbility.effect || parsedAbility.text || '').trim();
     if (!text || abilityTextAlreadyCovered(String(parsedAbility.text || text))) continue;
@@ -217,6 +232,7 @@ export function applyParseOracleTextToIRLatePasses(params: {
       const withoutQuotes = unit.replace(/"[^"]*"/g, ' ');
       if (!/\bgets?\s+[+-](?:\d+|x)\s*\/\s*[+-](?:\d+|x)\b/i.test(withoutQuotes)) continue;
       if (abilityTextAlreadyCovered(unit)) continue;
+      if (stepAlreadyParsed(unit)) continue;
       const step = parseEffectClauseToStep(unit);
       const lineType = isSpellInstructionLine(unit) ? AbilityType.SPELL : AbilityType.STATIC;
       if (step.kind === 'unknown') {

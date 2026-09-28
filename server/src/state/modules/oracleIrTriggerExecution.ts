@@ -32,6 +32,7 @@ import {
 import { copyPermanentTriggerStepNeedsTargetSelectionQueue } from './trigger-copy-permanent.js';
 import { recordDoThisOnlyOnceEachTurnOnAccept } from './triggerDoThisOnlyOnceEachTurn.js';
 import { getActualPowerToughness } from '../utils.js';
+import { getCurrentPowerToughnessForRules, withCurrentPowerToughnessHook } from './currentPowerToughness.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
@@ -425,11 +426,13 @@ function resolveTriggerTargetBinding(
     const statMatch = effect.match(/where\s+x\s+is\s+that\s+creature(?:'|’)?s\s+(power|toughness)/i);
     if (statMatch) {
       const subjectId = interveningSubjectPermanentId || String(targetPermanentId || '').trim();
-      const subject =
-        battlefield.find((permanent: any) => String(permanent?.id || '') === subjectId)
-        || triggerItem?.interveningIfSubjectSnapshot;
+      const onBattlefield = battlefield.find((permanent: any) => String(permanent?.id || '') === subjectId);
+      const subject = onBattlefield || triggerItem?.interveningIfSubjectSnapshot;
       if (subject) {
-        const pt = getActualPowerToughness(subject, state);
+        // Battlefield creature: current P/T. Snapshot (left the battlefield): recorded values.
+        const pt = onBattlefield
+          ? getCurrentPowerToughnessForRules(onBattlefield, state)
+          : getActualPowerToughness(subject, state);
         const bound = String(statMatch[1] || '').toLowerCase() === 'power' ? pt.power : pt.toughness;
         if (Number.isFinite(bound)) {
           xValue = Math.max(0, Math.floor(Number(bound)));
@@ -674,10 +677,10 @@ function probeOracleIrTriggerShadow(
       irCtx,
     );
 
-    return applyOracleIRStepsToGameState(state, adjustedSteps, {
+    return applyOracleIRStepsToGameState(state, adjustedSteps, withCurrentPowerToughnessHook({
       ...irCtx,
       interactivePlayerChoices: true,
-    }, {
+    }), {
       allowOptional: true,
       selectedModeIds: buildTriggerExecutionOptionsFromSteps(steps, params.triggerItem).selectedModeIds,
       haltOnPlayerChoiceRequired: true,

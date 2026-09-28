@@ -11,6 +11,7 @@
 // Leaf must not import mana-abilities.ts or mana-abilities-handlers/index.ts.
 
 import { getActualPowerToughness } from "../../utils.js";
+import { getCurrentPowerToughness } from "../currentPowerToughness.js";
 import { lookupLocalCardByNameSync } from "../../../services/localCardLookup.js";
 import { deriveCardColorIdentity } from "../commander.js";
 import {
@@ -435,6 +436,16 @@ export function getCommanderColorIdentity(gameState: any, playerId: string): Set
  * This is a simplified version for use in mana ability calculations
  */
 export function getEffectivePowerForMana(permanent: any, gameState?: any): number {
+  // "Add mana equal to its power": current power (anthems, equipment, pumps, counters),
+  // the same number the battlefield shows.
+  if (gameState) {
+    try {
+      const current = getCurrentPowerToughness(permanent, gameState);
+      if (current) return Math.max(0, current.power);
+    } catch {
+      // fall back to the legacy estimate below
+    }
+  }
   // Use pre-calculated effectivePower if available
   if (typeof permanent.effectivePower === 'number') {
     return permanent.effectivePower;

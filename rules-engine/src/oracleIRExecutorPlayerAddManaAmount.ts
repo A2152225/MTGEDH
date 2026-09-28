@@ -9,6 +9,7 @@ import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { countManaSymbolsInManaCost } from './oracleIRExecutorManaUtils';
+import { readCurrentPower, readCurrentToughness } from './oracleIRExecutorCurrentPowerToughness';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import {
   getCardManaValue,
@@ -164,15 +165,16 @@ export function resolveAddManaAmount(
       ? hostPermanent
       : sourcePermanent;
     if (!statPermanent) return null;
-    if (step.amount.stat === 'power') return readPermanentPower(statPermanent);
-    if (step.amount.stat === 'toughness') return readPermanentToughness(statPermanent);
+    // "Add mana equal to its power/toughness": current P/T (server hook / static abilities).
+    if (step.amount.stat === 'power') return readCurrentPower(state, statPermanent, ctx) ?? readPermanentPower(statPermanent);
+    if (step.amount.stat === 'toughness') return readCurrentToughness(state, statPermanent, ctx) ?? readPermanentToughness(statPermanent);
     if (step.amount.stat === 'mana_value') return getCardManaValue(statPermanent?.card || statPermanent);
     return null;
   }
   if (step.amount.kind === 'greatest_power_among_creatures_you_control') {
     const powers = getControlledPermanents(state, ctx.controllerId)
       .filter(permanentIsCreature)
-      .map(readPermanentPower)
+      .map((permanent) => readCurrentPower(state, permanent, ctx) ?? readPermanentPower(permanent))
       .filter((value): value is number => value !== null);
     return powers.length > 0 ? Math.max(0, ...powers) : 0;
   }
@@ -191,7 +193,7 @@ export function resolveAddManaAmount(
       case 'the number of different powers among creatures you control': {
         const powers = new Set<number>();
         for (const permanent of getControlledPermanents(state, ctx.controllerId).filter(permanentIsCreature)) {
-          const power = readPermanentPower(permanent);
+          const power = readCurrentPower(state, permanent, ctx) ?? readPermanentPower(permanent);
           if (power !== null) powers.add(power);
         }
         return powers.size;
@@ -207,7 +209,7 @@ export function resolveAddManaAmount(
         const powers = getControlledPermanents(state, ctx.controllerId)
           .filter(permanentIsCreature)
           .filter((permanent) => permanent?.enteredThisTurn === true)
-          .map(readPermanentPower)
+          .map((permanent) => readCurrentPower(state, permanent, ctx) ?? readPermanentPower(permanent))
           .filter((value): value is number => value !== null);
         return powers.length > 0 ? Math.max(0, ...powers) : 0;
       }

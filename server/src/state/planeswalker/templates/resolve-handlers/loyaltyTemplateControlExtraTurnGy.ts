@@ -16,7 +16,7 @@ import { movePermanentToExile, updateCounters } from "../../../modules/counters_
 import { syncPreparedPermanentAfterControlChange } from "../../../modules/prepared.js";
 import { getOpponents, permanentHasKeyword, applyDamageToPlayer, discardHandCardsToGraveyard, findCreatureOnBattlefieldById, recordCreatureDealtDamageToPlayerThisTurn } from "./loyaltyTemplateRuntimeHelpers.js";
 import { addExtraTurn } from "../../../modules/turn.js";
-import { getActualPowerToughness } from "../../../utils.js";
+import { getCurrentPowerToughnessForRules as currentPT } from "../../../modules/currentPowerToughness.js";
 import { drawCards as drawCardsFromZone, movePermanentToHand, movePermanentToLibrary } from "../../../modules/zones.js";
 
 export function tryLoyaltyTemplateControlExtraTurnGy(
@@ -403,7 +403,7 @@ export function tryLoyaltyTemplateControlExtraTurnGy(
       if (!perm || !typeLine.includes('creature')) return false;
 
       const controllerId = String((perm as any).controller || '');
-      const power = Math.max(0, getActualPowerToughness(perm, (ctx as any).state).power | 0);
+      const power = Math.max(0, currentPT(perm, (ctx as any).state).power | 0);
 
       movePermanentToExile(ctx, targetId);
       if (power > 0 && controllerId) {

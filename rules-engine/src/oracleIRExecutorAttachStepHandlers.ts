@@ -418,6 +418,18 @@ function resolveAttachmentPermanentIds(
     const movedIds = lastMovedBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean);
     if (movedIds.length === 1) return [movedIds[0]];
     if (movedIds.length > 1) return 'player_choice_required';
+    // Triggers such as "Whenever an Equipment you control enters, you may attach it to target creature
+    // you control" (Sigarda's Aid): "it" is the entering Aura/Equipment carried in the chosen/trigger
+    // subject ids, not the trigger source. Ignore the chosen attach destination.
+    const anchorIds = new Set(
+      [ctx.targetCreatureId, ctx.targetPermanentId].map(id => String(id || '').trim()).filter(Boolean)
+    );
+    const chosenAttachables = chosenObjectIds.filter(id => {
+      if (anchorIds.has(id)) return false;
+      const perm = battlefield.find(entry => String((entry as any)?.id || '').trim() === id) as any;
+      return Boolean(perm && (hasExecutorClass(perm, 'equipment') || hasExecutorClass(perm, 'aura')));
+    });
+    if (chosenAttachables.length === 1) return chosenAttachables;
     if (sourceId) return [sourceId];
   }
 

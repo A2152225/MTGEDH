@@ -9,7 +9,7 @@
  *   detectChargeCounterAbility, detectSpecialCardEffect, checkGraveyardTrigger
  */
 
-import { getActualPowerToughness } from "../../utils.js";
+import { getCurrentPowerToughnessForRules } from "../currentPowerToughness.js";
 // ============================================================================
 // Utility Land Activated Abilities
 // ============================================================================
@@ -1019,8 +1019,8 @@ export function calculateLandSearchCount(
       const typeLine = (perm.card?.type_line || '').toLowerCase();
       if (!typeLine.includes('creature')) continue;
       
-      // Use the canonical power calculation function
-      const { power } = getActualPowerToughness(perm, gameState);
+      // Current power (anthems, equipment, pumps, counters)
+      const { power } = getCurrentPowerToughnessForRules(perm, gameState);
       if (power > greatestPower) greatestPower = power;
     }
     return greatestPower;

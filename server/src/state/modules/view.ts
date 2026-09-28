@@ -8,10 +8,9 @@ import type {
   BattlefieldPermanent,
 } from "../../../../shared/src/index.js";
 import type { GameContext } from "../context.js";
-import { sumActiveTemporaryPTMods } from "./temporaryPtMods.js";
-import { parsePT, calculateVariablePT, calculateAllPTBonusesWithSources, resolveSetBasePTFromAttachedAuras, type PTBonusSource } from "../utils.js";
+import { computeCurrentPowerToughnessWithSources } from "./currentPowerToughness.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
-import { getContinuousGrantedAbilitiesForPermanent, resolveSetBasePTFromStaticSpecs, syncDerivedContinuousEffects } from "./staticEffectSpec.js";
+import { getContinuousGrantedAbilitiesForPermanent, syncDerivedContinuousEffects } from "./staticEffectSpec.js";
 import { collectBattlefieldAbilityBadgesForView } from "./battlefieldAbilityBadges.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
 import { maskFaceDownExileCardForViewer, applyCurrentExiledWithSourcePlayLook } from "./impulse-exile-utils.js";
@@ -147,83 +146,13 @@ export function viewFor(
     const existingAbilities = collectBattlefieldAbilityBadgesForView(perm, continuousAbilities);
 
     if (isCreature) {
-      let baseP =
-        typeof perm.basePower === "number" ? perm.basePower : parsePT(card?.power);
-      let baseT =
-        typeof perm.baseToughness === "number"
-          ? perm.baseToughness
-          : parsePT(card?.toughness);
-      
-      // Handle variable P/T (*/*) creatures like Morophon
-      if (baseP === undefined || baseT === undefined) {
-        const variablePT = calculateVariablePT({ ...card, controller: perm.controller }, state);
-        if (variablePT) {
-          baseP = baseP ?? variablePT.power;
-          baseT = baseT ?? variablePT.toughness;
-        }
-      }
-
-      const setBasePT = resolveSetBasePTFromAttachedAuras(perm, state.battlefield || []);
-      if (setBasePT) {
-        baseP = setBasePT.power;
-        baseT = setBasePT.toughness;
-      }
-      const staticSetBasePT = resolveSetBasePTFromStaticSpecs(perm, state);
-      if (staticSetBasePT) {
-        baseP = staticSetBasePT.power;
-        baseT = staticSetBasePT.toughness;
-      }
-      
-      if (typeof baseP === "number" && typeof baseT === "number") {
-        // Calculate counter bonuses (+1/+1, -1/-1, and other counter types)
-        const plus = perm.counters?.["+1/+1"] ?? 0;
-        const minus = perm.counters?.["-1/-1"] ?? 0;
-        const counterDelta = plus - minus;
-        
-        // Check for other counter types that affect P/T
-        // +1/+0, +0/+1, +2/+2, etc. counters
-        let otherCounterPower = 0;
-        let otherCounterToughness = 0;
-        if (perm.counters) {
-          for (const [counterType, count] of Object.entries(perm.counters)) {
-            if (counterType === "+1/+1" || counterType === "-1/-1") continue;
-            // Parse counter types like "+1/+0", "+0/+2", "+2/+2", "-2/-2", etc.
-            const counterMatch = counterType.match(/^([+-]?\d+)\/([+-]?\d+)$/);
-            if (counterMatch) {
-              const pMod = parseInt(counterMatch[1], 10);
-              const tMod = parseInt(counterMatch[2], 10);
-              otherCounterPower += pMod * (count as number);
-              otherCounterToughness += tMod * (count as number);
-            }
-          }
-        }
-        
-        // Calculate ALL other bonuses with source tracking (equipment, auras, anthems, lords, emblems, etc.)
-        const allBonusesResult = calculateAllPTBonusesWithSources(perm, state);
-        const temporaryPtBonus = sumActiveTemporaryPTMods(perm);
-        
-        effectivePower = baseP + counterDelta + otherCounterPower + allBonusesResult.power + temporaryPtBonus.power;
-        effectiveToughness = baseT + counterDelta + otherCounterToughness + allBonusesResult.toughness + temporaryPtBonus.toughness;
-        
-        // Build P/T sources array for tooltip display
-        const ptSources: PTBonusSource[] = [];
-        
-        // Add counters as a source if they modify P/T
-        if (counterDelta !== 0) {
-          ptSources.push({ name: '+1/+1 counters', power: counterDelta, toughness: counterDelta, type: 'counter' });
-        }
-        if (otherCounterPower !== 0 || otherCounterToughness !== 0) {
-          ptSources.push({ name: 'Other counters', power: otherCounterPower, toughness: otherCounterToughness, type: 'counter' });
-        }
-        if (temporaryPtBonus.power !== 0 || temporaryPtBonus.toughness !== 0) {
-          ptSources.push({ name: 'Until end of turn', power: temporaryPtBonus.power, toughness: temporaryPtBonus.toughness, type: 'modifier' });
-        }
-        
-        // Add all other sources
-        ptSources.push(...allBonusesResult.sources);
-        
-        // Store ptSources on the permanent for client use
-        (perm as any).ptSources = ptSources;
+      // Shared with rules effects (fight, bite, damage equal to power) via currentPowerToughness.ts.
+      const current = computeCurrentPowerToughnessWithSources(perm, state);
+      if (current) {
+        effectivePower = current.power;
+        effectiveToughness = current.toughness;
+        // Store ptSources on the permanent for client use (tooltip display)
+        (perm as any).ptSources = current.sources;
       }
     }
     const cz = state.commandZone[perm.controller];

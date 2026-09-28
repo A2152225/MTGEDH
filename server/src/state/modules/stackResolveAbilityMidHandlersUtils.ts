@@ -10,6 +10,7 @@ import { canPermanentBeTargetedByPlayer } from '../../rules-engine/targeting.js'
 import { getEffectivePower } from '../../socket/util.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
 import { applyFightDamageBetweenCreatures } from './combat-damage-processing.js';
+import { getCurrentPowerToughness } from './currentPowerToughness.js';
 import { runSBA, updateCounters } from './counters_tokens.js';
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from './triggers/damage-received.js';
 import { attachEquipmentToCreature } from './triggerEquipmentUtils.js';
@@ -173,18 +174,23 @@ function resolveFightAbility(ctx: GameContext, item: any, controller: PlayerID):
     return;
   }
 
-  const sourcePower = getEffectivePower(sourceCreature as any);
-  const targetPower = getEffectivePower(targetCreature as any);
+  // CR 701.14a: current power (counters, anthems, equipment, until-end-of-turn pumps), same as the battlefield P/T.
+  const sourcePower = Math.max(0, getCurrentPowerToughness(sourceCreature, state)?.power ?? getEffectivePower(sourceCreature as any));
+  const targetPower = Math.max(0, getCurrentPowerToughness(targetCreature, state)?.power ?? getEffectivePower(targetCreature as any));
+  // Each creature deals damage equal to its own power to the other (the 'fight' replay event
+  // applies it the same way). This used to pass the powers swapped, so each creature dealt the
+  // OTHER creature's power.
   applyFightDamageBetweenCreatures(
     ctx as any,
     sourceCreature,
-    targetPower,
-    targetCreature,
     sourcePower,
+    targetCreature,
+    targetPower,
     'damageMarked',
   );
-  const sourceDamageResult = { appliedAmount: targetPower, prevented: false };
-  const targetDamageResult = { appliedAmount: sourcePower, prevented: false };
+  // Damage dealt BY each creature (see bookkeeping below).
+  const sourceDamageResult = { appliedAmount: sourcePower, prevented: false };
+  const targetDamageResult = { appliedAmount: targetPower, prevented: false };
 
   try {
     const stateAny = state as any;

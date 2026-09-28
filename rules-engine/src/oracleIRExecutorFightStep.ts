@@ -11,6 +11,7 @@ import type { GameState } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR-handlers/oracleIREffectStep';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
+import { readCurrentPower } from './oracleIRExecutorCurrentPowerToughness';
 import {
   addDamageToPermanentLikeCreatureFromSource,
   getExcessDamageToPermanent,
@@ -19,7 +20,6 @@ import {
 import {
   collectBoundIds,
   normalizeRaw,
-  readPower,
   type SpecialTargetStepResult,
 } from './oracleIRExecutorSpecialTargetOps';
 
@@ -153,7 +153,8 @@ export function tryApplyFightDealDamageStep(
     const damageById = new Map<string, { amount: number; sourceId: string }>();
     for (const attacker of fighters) {
       const attackerId = String(attacker?.id || '').trim();
-      const power = readPower(attacker) ?? 0;
+      // CR 701.14a: each creature deals damage equal to its (current) power.
+      const power = Math.max(0, readCurrentPower(state, attacker, ctx) ?? 0);
       for (const defender of fighters) {
         const defenderId = String(defender?.id || '').trim();
         if (!attackerId || !defenderId || attackerId === defenderId) continue;
@@ -199,10 +200,13 @@ export function tryApplyFightDealDamageStep(
 
   const damageById = new Map<string, { amount: number; sourceId: string }>();
   if (attackerId === defenderId) {
-    addFightDamage(damageById, attackerId, (readPower(attacker) ?? 0) * 2, attackerId);
+    addFightDamage(damageById, attackerId, Math.max(0, readCurrentPower(state, attacker, ctx) ?? 0) * 2, attackerId);
   } else {
-    addFightDamage(damageById, defenderId, readPower(attacker) ?? 0, attackerId);
-    addFightDamage(damageById, attackerId, readPower(defender) ?? 0, defenderId);
+    // CR 701.14a: both powers are read before either damage is dealt (current/effective power).
+    const attackerPower = Math.max(0, readCurrentPower(state, attacker, ctx) ?? 0);
+    const defenderPower = Math.max(0, readCurrentPower(state, defender, ctx) ?? 0);
+    addFightDamage(damageById, defenderId, attackerPower, attackerId);
+    addFightDamage(damageById, attackerId, defenderPower, defenderId);
   }
   const applied = applyDamageMap(state, damageById);
   return {

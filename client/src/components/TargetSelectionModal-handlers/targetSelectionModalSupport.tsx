@@ -9,6 +9,8 @@
 // Leaf must not import TargetSelectionModal.tsx or TargetSelectionModal-handlers/index.ts.
 
 import type { KnownCardRef, BattlefieldPermanent } from '../../../../shared/src';
+import type { TargetOptionPowerToughness } from '../../utils/targetOptionPowerToughness';
+import { getPTColor } from '../FreeField-handlers/freeFieldDisplayUtils';
 
 export type TargetType = 'permanent' | 'player' | 'card' | 'stack';
 
@@ -23,6 +25,8 @@ export interface TargetOption {
   controllerName?: string;
   typeLine?: string;
   tapped?: boolean;
+  /** Current (effective) creature P/T, same as the battlefield badge. */
+  powerToughness?: TargetOptionPowerToughness;
   // For players
   life?: number;
   // For cards
@@ -167,6 +171,25 @@ function PermanentTargetCaption({
           lineHeight: 1.2,
         }}
       >
+        {target.powerToughness && (
+          <span
+            data-testid="target-option-pt"
+            title={
+              typeof target.powerToughness.basePower === 'number' && typeof target.powerToughness.baseToughness === 'number'
+                ? `Current P/T (printed ${target.powerToughness.basePower}/${target.powerToughness.baseToughness})`
+                : 'Current P/T'
+            }
+            style={{ fontWeight: 800 }}
+          >
+            <span style={{ color: getPTColor(target.powerToughness.basePower, target.powerToughness.power) }}>
+              {target.powerToughness.power}
+            </span>
+            <span style={{ color: '#d1d5db' }}>/</span>
+            <span style={{ color: getPTColor(target.powerToughness.baseToughness, target.powerToughness.toughness) }}>
+              {target.powerToughness.toughness}
+            </span>
+          </span>
+        )}
         {typeof target.tapped === 'boolean' && (
           <span
             style={{

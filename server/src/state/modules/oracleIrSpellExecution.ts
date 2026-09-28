@@ -41,6 +41,7 @@ import { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { isSpellEffectOwnedByOracleIrPrimary } from './oracleIrSpellLegacyRouting.js';
 import { getAmountOfManaSpent } from '../../../../rules-engine/src/oracleIRExecutorManaUtils.js';
 import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
+import { withCurrentPowerToughnessHook } from './currentPowerToughness.js';
 
 export { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 
@@ -215,10 +216,10 @@ function probeOracleIrSpellShadow(
       irCtx,
     );
 
-    return applyOracleIRStepsToGameState(state, adjustedSteps, {
+    return applyOracleIRStepsToGameState(state, adjustedSteps, withCurrentPowerToughnessHook({
       ...irCtx,
       interactivePlayerChoices: true,
-    }, {
+    }), {
       allowOptional: true,
       selectedModeIds: normalizedSelectedModeIds,
       haltOnPlayerChoiceRequired: true,

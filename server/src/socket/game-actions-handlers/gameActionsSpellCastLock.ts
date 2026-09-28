@@ -14,6 +14,7 @@ import { applyOracleIRStepsToGameState } from "../../../../rules-engine/src/orac
 import { parseOracleTextToIR } from "../../../../rules-engine/src/oracleIRParser.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { isSpellEffectOwnedByOracleIrPrimary } from "../../state/modules/oracleIrSpellLegacyRouting.js";
+import { withCurrentPowerToughnessHook } from "../../state/modules/currentPowerToughness.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
 import { extractModalModesFromOracleText } from "../../utils/oraclePromptContext.js";
@@ -188,12 +189,14 @@ export async function processOracleIRInteractions(
 
   const sourceImage: string | undefined = resolvedCard?.image_uris?.small || resolvedCard?.image_uris?.normal;
   const stackItemId: string = String(topItem.id || '');
-  const ctx = {
+  // Current-P/T hook: optional "you may ... fight / deal damage equal to its power" steps
+  // must see anthems, pumps and counters, same as the main IR resolution path.
+  const ctx = withCurrentPowerToughnessHook({
     controllerId: resolvedController as PlayerID,
     sourceId: stackItemId,
     sourceName: cardName,
     giftPromised: Boolean((topItem as any)?.giftPromised ?? (topItem as any)?.card?.giftPromised),
-  };
+  });
 
   let ir: any;
   try {

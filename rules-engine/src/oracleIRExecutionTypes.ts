@@ -465,6 +465,16 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
     targetingPlayerId: string,
   ) => ReadonlyArray<{ id: string; type?: string; name?: string }>;
   /**
+   * Server-computed current power/toughness of a battlefield permanent (base/set P/T, P/T
+   * counters, anthems, equipment, until-end-of-turn pumps): the numbers the battlefield shows.
+   * Fight, bite and "damage equal to its power" read it via readCurrentPower; dry-run callers
+   * omit it and fall back to the rules-engine static-ability pass.
+   */
+  readonly resolveCurrentPowerToughness?: (
+    state: GameState,
+    permanent: any,
+  ) => { readonly power: number; readonly toughness: number } | null | undefined;
+  /**
    * Step-indexed memory: traits of objects affected by each prior step in this resolution.
    * Populated by transition commit or interim recordCardsToStepLedger bridge.
    */

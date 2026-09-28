@@ -4,6 +4,7 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { finalizeBattlefieldRemoval, permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
 import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
+import { applySelfDamageEqualToPowerStep } from './oracleIRExecutorPowerBasedDamage';
 
 type Batch389StepResult =
   | {
@@ -663,10 +664,8 @@ export function tryBatch389DealDamageStep(
     /target creature deals damage to itself equal to its power/i.test(raw) ||
     /target creature deals damage equal to its power to itself/i.test(raw)
   ) {
-    const targetId =
-      collectBoundIds(ctx)[0] ||
-      String(ctx.targetCreatureId || ctx.selectorContext?.targetCreatureId || '').trim();
-    return { applied: true, state, log: [`${targetId || 'Target creature'} deals damage to itself equal to its power`] };
+    // Marks the damage using the creature's current power (was log-only, printed power).
+    return applySelfDamageEqualToPowerStep(state, step, ctx);
   }
 
   if (/this permanent deals .* damage to that creature/i.test(raw)) {

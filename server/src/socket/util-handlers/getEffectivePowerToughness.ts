@@ -8,6 +8,30 @@
 import { calculateAllPTBonuses } from "../../state/utils.js";
 import { sumActiveTemporaryPTMods } from "../../state/modules/temporaryPtMods.js";
 import { syncDerivedContinuousEffects } from "../../state/modules/staticEffectSpec.js";
+import {
+  getCurrentPowerToughness,
+  sumUnmirroredOracleIrPtModifiers,
+} from "../../state/modules/currentPowerToughness.js";
+import { resolveOracleIrSetPowerToughness } from "../../state/modules/oracleIrSetPowerToughness.js";
+
+// Oracle IR "gets +X/+Y until end of turn" pumps are stored as `modifiers` entries of type
+// powerToughness AND mirrored into temporaryPTMods. Adding both double-counted the pump
+// (e.g. AI fight scoring saw a +2/+2 pump as +4/+4). Only the not-yet-mirrored ones are
+// added on top of temporaryPTMods (sumUnmirroredOracleIrPtModifiers).
+function sumPtModifiersWithoutMirrorDoubleCount(permanent: any): { power: number; toughness: number } {
+  const pending = sumUnmirroredOracleIrPtModifiers(permanent);
+  let power = pending.power;
+  let toughness = pending.toughness;
+  for (const mod of Array.isArray(permanent?.modifiers) ? permanent.modifiers : []) {
+    const type = String(mod?.type || '');
+    if (type !== 'powerToughness' && type !== 'POWER_TOUGHNESS') continue;
+    // end-of-turn entries are handled above (mirror-aware).
+    if (String(mod?.duration || 'end_of_turn').trim() === 'end_of_turn') continue;
+    power += Number(mod?.power) || 0;
+    toughness += Number(mod?.toughness) || 0;
+  }
+  return { power, toughness };
+}
 
 /**
  * Calculate a creature's effective power including:
@@ -60,7 +84,16 @@ export function getEffectivePower(permanent: any, gameState?: any): number {
     }
   }
 
-  // State-aware path: include continuous lords/anthems/equipment (same as SBA/combat).
+  const irSetPT = resolveOracleIrSetPowerToughness(permanent);
+  if (typeof irSetPT?.power === 'number') basePower = irSetPT.power;
+
+  // State-aware path: the shared current P/T calculation (same numbers as the battlefield badge).
+  if (gameState) {
+    const current = getCurrentPowerToughness(permanent, gameState);
+    if (current) return Math.max(0, current.power);
+  }
+
+  // State-aware fallback: include continuous lords/anthems/equipment (same as SBA/combat).
   // Prefer an already-synced derived cache; otherwise sync once so subsequent
   // getEffectiveToughness/Power calls on the same state stay cheap.
   // calculateAllPTBonuses already folds temporaryPowerBoost / powerBoost / pump modifiers.
@@ -72,14 +105,7 @@ export function getEffectivePower(permanent: any, gameState?: any): number {
         // best-effort; fall through to calculateAllPTBonuses
       }
     }
-    let modifierPower = 0;
-    if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
-      for (const mod of permanent.modifiers) {
-        if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
-          modifierPower += mod.power || 0;
-        }
-      }
-    }
+    const modifierPower = sumPtModifiersWithoutMirrorDoubleCount(permanent).power;
     const allBonuses = calculateAllPTBonuses(permanent, gameState);
     return Math.max(
       0,
@@ -87,15 +113,8 @@ export function getEffectivePower(permanent: any, gameState?: any): number {
     );
   }
   
-  // Add modifiers from equipment, auras, anthems, lords, etc.
-  let modifierPower = 0;
-  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
-    for (const mod of permanent.modifiers) {
-      if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
-        modifierPower += mod.power || 0;
-      }
-    }
-  }
+  // Oracle IR pump modifiers not already mirrored into temporaryPTMods.
+  const modifierPower = sumPtModifiersWithoutMirrorDoubleCount(permanent).power;
 
   const temporaryPower =
     (typeof permanent.temporaryPowerBoost === 'number' ? permanent.temporaryPowerBoost : 0) +
@@ -129,6 +148,14 @@ export function getEffectiveToughness(permanent: any, gameState?: any): number {
     }
   }
   
+  const irSetPT = resolveOracleIrSetPowerToughness(permanent);
+  if (typeof irSetPT?.toughness === 'number') baseToughness = irSetPT.toughness;
+
+  if (gameState) {
+    const current = getCurrentPowerToughness(permanent, gameState);
+    if (current) return Math.max(0, current.toughness);
+  }
+
   // Add counters
   const plusCounters = permanent.counters?.['+1/+1'] || 0;
   const minusCounters = permanent.counters?.['-1/-1'] || 0;
@@ -155,14 +182,7 @@ export function getEffectiveToughness(permanent: any, gameState?: any): number {
         // best-effort
       }
     }
-    let modifierToughness = 0;
-    if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
-      for (const mod of permanent.modifiers) {
-        if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
-          modifierToughness += mod.toughness || 0;
-        }
-      }
-    }
+    const modifierToughness = sumPtModifiersWithoutMirrorDoubleCount(permanent).toughness;
     const allBonuses = calculateAllPTBonuses(permanent, gameState);
     return Math.max(
       0,
@@ -170,15 +190,8 @@ export function getEffectiveToughness(permanent: any, gameState?: any): number {
     );
   }
   
-  // Add modifiers
-  let modifierToughness = 0;
-  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
-    for (const mod of permanent.modifiers) {
-      if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
-        modifierToughness += mod.toughness || 0;
-      }
-    }
-  }
+  // Oracle IR pump modifiers not already mirrored into temporaryPTMods.
+  const modifierToughness = sumPtModifiersWithoutMirrorDoubleCount(permanent).toughness;
 
   const temporaryToughness =
     (typeof permanent.temporaryToughnessBoost === 'number' ? permanent.temporaryToughnessBoost : 0) +

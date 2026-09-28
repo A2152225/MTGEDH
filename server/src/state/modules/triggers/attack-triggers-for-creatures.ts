@@ -122,6 +122,7 @@ export function getAttackTriggersForCreatures(
         battlefield,
         resolveAttackedPlayerId,
         Number.isFinite(turnNumber) ? turnNumber : undefined,
+        ctx.state,
       );
       if (plan.kind === 'skip') continue;
       if (plan.kind === 'per_attacked_player') {
@@ -241,7 +242,7 @@ export function getAttackTriggersForCreatures(
         'attack',
         sourcePerm,
         battlefield,
-        { cause: 'attack' },
+        { cause: 'attack', gameState: ctx.state },
       );
       doubledTriggers.push(...resultTriggers);
     }

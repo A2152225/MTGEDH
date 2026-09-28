@@ -11,7 +11,8 @@ import type { PlaneswalkerTemplateMatch } from "../types.js";
 import { debug } from "../../../../utils/debug.js";
 import { getBattlefield, getTargets, modifyLifeLikeStack, parseCountTokenWord, getGameId } from "../utils.js";
 import { destroyPermanents, applyDamageToPermanent, applyDamageToPlayer, getPlayerById, recordCreatureDamagedByCreatureThisTurn, getControlConstraint, getManaValueConstraint, isCreatureOfSubtype, satisfiesManaValueConstraint, exilePermanents } from "./loyaltyTemplateRuntimeHelpers.js";
-import { getActualPowerToughness, uid } from "../../../utils.js";
+import { uid } from "../../../utils.js";
+import { getCurrentPowerToughnessForRules as currentPT } from "../../../modules/currentPowerToughness.js";
 import { updateCounters, movePermanentToExile } from "../../../modules/counters_tokens.js";
 import { applyFightDamageBetweenCreatures } from "../../../modules/combat-damage-processing.js";
 import { ResolutionQueueManager } from "../../../resolution/index.js";
@@ -178,8 +179,8 @@ export function tryLoyaltyTemplateP1P1FightDamage(
       const bTL = String(b?.card?.type_line || "").toLowerCase();
       if (!aTL.includes("creature") || !bTL.includes("creature")) return true;
 
-      const aPT = getActualPowerToughness(a, (ctx as any).state);
-      const bPT = getActualPowerToughness(b, (ctx as any).state);
+      const aPT = currentPT(a, (ctx as any).state);
+      const bPT = currentPT(b, (ctx as any).state);
 
       // Simultaneous damage (best-effort): each deals damage equal to its power to the other.
       const dmgToB = Math.max(0, aPT.power | 0);
@@ -212,8 +213,8 @@ export function tryLoyaltyTemplateP1P1FightDamage(
       const bTL = String(b?.card?.type_line || "").toLowerCase();
       if (!aTL.includes("creature") || !bTL.includes("creature")) return true;
 
-      const aPT = getActualPowerToughness(a, (ctx as any).state);
-      const bPT = getActualPowerToughness(b, (ctx as any).state);
+      const aPT = currentPT(a, (ctx as any).state);
+      const bPT = currentPT(b, (ctx as any).state);
 
       const dmgToB = Math.max(0, aPT.power | 0);
       const dmgToA = Math.max(0, bPT.power | 0);
@@ -250,7 +251,7 @@ export function tryLoyaltyTemplateP1P1FightDamage(
       const targetTL = String(target?.card?.type_line || "").toLowerCase();
       if (!targetTL.includes("creature")) return true;
 
-      const power = getActualPowerToughness(source, (ctx as any).state).power;
+      const power = currentPT(source, (ctx as any).state).power;
       recordCreatureDamagedByCreatureThisTurn(ctx, String(sourceCreatureId), String(targetCreatureId), power);
       applyDamageToPermanent(ctx, targetCreatureId, Math.max(0, power | 0));
       (ctx as any).bumpSeq?.();
@@ -805,7 +806,7 @@ export function tryLoyaltyTemplateP1P1FightDamage(
         const tl = String(perm.card?.type_line || '').toLowerCase();
         if (!tl.includes('creature')) continue;
         toDestroy.push(perm.id);
-        const pt = getActualPowerToughness(ctx as any, perm);
+        const pt = currentPT(perm, (ctx as any).state);
         totalPower += Math.max(0, pt.power | 0);
       }
 

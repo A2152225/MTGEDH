@@ -11,6 +11,7 @@ import type { TemptingOfferRequest } from "../components/TemptingOfferModal";
 import type { TriggerPromptData } from "../components/TriggeredAbilityModal";
 import { buildLibrarySearchModalStateFromStep, readResolutionPromptCause } from "../utils/resolutionChoicePrimitives";
 import { isResolutionStepMandatory } from "../utils/resolutionStepUtils";
+import { resolveTargetOptionPowerToughness } from "../utils/targetOptionPowerToughness";
 
 export function handleAppResolutionStepPromptLate(
   step: any,
@@ -617,6 +618,8 @@ export function handleAppResolutionStepPromptLate(
             controllerName,
             typeLine: t.typeLine || card?.type_line,
             tapped: typeof t.tapped === 'boolean' ? t.tapped : (typeof perm?.tapped === 'boolean' ? perm.tapped : undefined),
+            // Current P/T (counters, anthems, pumps) as shown on the battlefield, not the printed card.
+            powerToughness: resolveTargetOptionPowerToughness(t, perm),
             life: t.life,
             zone: t.zone || (t.type === 'stack' || t.description === 'stack' || t.kind === 'stack' ? 'stack' : undefined),
             owner: ownerId,

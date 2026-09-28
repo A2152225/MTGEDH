@@ -11,7 +11,7 @@ import {
   parseAttachmentGrantedAbilityTextsFromOracle,
 } from "../../../../../shared/src/attachmentAbilityGrants.js";
 import { debug } from "../../../utils/debug.js";
-import { getActualPowerToughness } from "../../utils.js";
+import { getCurrentPowerToughnessForRules } from "../currentPowerToughness.js";
 import type { CombatTriggeredAbility } from "./combat-triggered-ability.js";
 
 // ============================================================================
@@ -89,6 +89,8 @@ interface TriggerDoubler {
 export interface TriggerDoublerEventContext {
   cause?: TriggerDoublerCause;
   enteringPermanent?: any;
+  /** Full game state, for current-P/T checks (anthems, pumps). Falls back to { battlefield }. */
+  gameState?: any;
 }
 
 function triggerSourceIsColorless(source: any): boolean {
@@ -675,7 +677,8 @@ export function applyTriggerDoublers(
       }
 
       if (typeof doubler.sourceMaxPower === 'number' && source) {
-        const { power } = getActualPowerToughness(source, { battlefield: bf });
+        // Current power (anthems, equipment, pumps, counters).
+        const { power } = getCurrentPowerToughnessForRules(source, eventContext?.gameState ?? { battlefield: bf });
         if (!(Number(power) <= doubler.sourceMaxPower)) continue;
       }
       
@@ -849,6 +852,7 @@ export function pushTriggerDoublerCopies(
     {
       cause,
       enteringPermanent,
+      gameState: state,
     },
   );
   if (doubled.length <= mapped.length) return;

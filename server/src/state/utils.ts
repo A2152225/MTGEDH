@@ -7,6 +7,7 @@ import { canPlayerPayLife } from './modules/game-state-effects-handlers/gameStat
 import { calculateVariablePT } from './utils-handlers/variablePTCalculator.js';
 import { resolveSetBasePTFromAttachedAuras } from './utils-handlers/ptAttachedBonusParseHelpers.js';
 import { resolveSetBasePTFromStaticSpecs } from './modules/staticEffectSpec.js';
+import { resolveOracleIrSetPowerToughness } from './modules/oracleIrSetPowerToughness.js';
 
 export function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -702,6 +703,10 @@ export function getActualPowerToughness(
     basePower = staticSetBasePT.power;
     baseToughness = staticSetBasePT.toughness;
   }
+  // Rules-engine setPowerToughness modifiers (layer 7b, before counters).
+  const irSetPT = resolveOracleIrSetPowerToughness(permanent);
+  if (typeof irSetPT?.power === 'number') basePower = irSetPT.power;
+  if (typeof irSetPT?.toughness === 'number') baseToughness = irSetPT.toughness;
   
   // Apply counters
   const counters = permanent.counters || {};

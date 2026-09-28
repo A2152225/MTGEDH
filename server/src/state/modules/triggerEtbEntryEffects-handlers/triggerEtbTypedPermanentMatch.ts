@@ -12,7 +12,8 @@
  */
 
 import type { GameContext } from '../../context.js';
-import { getActualPowerToughness, uid } from '../../utils.js';
+import { uid } from '../../utils.js';
+import { getCurrentPowerToughnessForRules } from '../currentPowerToughness.js';
 import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import { inferTriggeredAbilityTargetMetadata, isModalChooseModesEffectText } from '../inferTriggeredAbilityTargetMetadata.js';
 import { isInterveningIfSatisfied } from '../triggers/intervening-if.js';
@@ -139,7 +140,8 @@ export function resolveEnteringCreatureDiscoverXValue(
   const effect = String(trigger?.effect || trigger?.description || '');
   const match = effect.match(/where\s+x\s+is\s+that\s+creature(?:'|’)?s\s+(power|toughness)/i);
   if (!match || !enteringPermanent) return undefined;
-  const pt = getActualPowerToughness(enteringPermanent, state);
+  // The entering creature is on the battlefield: use its current P/T.
+  const pt = getCurrentPowerToughnessForRules(enteringPermanent, state);
   const value = String(match[1] || '').toLowerCase() === 'power' ? pt.power : pt.toughness;
   return Number.isFinite(value) ? Math.max(0, Math.floor(Number(value))) : undefined;
 }
@@ -175,7 +177,13 @@ export function shouldQueueNamedOrAnotherTypedEtbTrigger(
   const phrase = String((trigger as any)?.requiredTypePhrase || '').trim();
   if (!phrase) return false;
   const types = phrase.split(/\s+or\s+/i).map((part) => part.trim()).filter(Boolean);
-  if (!types.some((creatureType) => permanentHasCreatureTypeNow(enteringPermanent, creatureType))) {
+  // Creature subtypes go through permanentHasCreatureTypeNow (changelings, type grants); other
+  // types/subtypes such as Equipment, Aura, Vehicle or Artifact are matched on the type line.
+  const enteringTypeLine = String(enteringPermanent?.card?.type_line || enteringPermanent?.type_line || '');
+  if (!types.some((typePhrase) =>
+    permanentHasCreatureTypeNow(enteringPermanent, typePhrase)
+    || typeLineHasAllWords(enteringTypeLine, typePhrase)
+  )) {
     return false;
   }
   const requiredKeyword = String((trigger as any)?.requiredKeyword || '').trim().toLowerCase();

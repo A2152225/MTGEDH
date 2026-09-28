@@ -19,7 +19,7 @@ import {
   buildInterveningIfSubjectSnapshot,
   buildTriggerSourcePermanentSnapshot,
 } from '../triggerSourceUtils.js';
-import { inferTriggeredAbilityTargetMetadata } from '../inferTriggeredAbilityTargetMetadata.js';
+import { inferTriggeredAbilityTargetMetadata, isModalChooseModesEffectText } from '../inferTriggeredAbilityTargetMetadata.js';
 import { handleRoomDoorStateOnEnter } from '../triggers/room.js';
 import { pushTriggerDoublerCopies } from '../triggers/combat.js';
 import {
@@ -139,7 +139,17 @@ export function queueSelfETBTriggersForPermanent(
     // targets for ETB-triggered reanimation effects (Coalstoke Gearhulk,
     // Iridescent Drake, etc.). Mirrors the pattern used by exploit/exert paths
     // and the modal-trigger handler in socket/resolution.ts.
-    const enrichedMetadata = (trigger.requiresTarget || (trigger as any)?.targetZone)
+    // "Whenever NAME or another Equipment you control enters, you may attach that Equipment to
+    // target creature you control" (Hammer of Nazahn): the typed/named-or-another detectors do not
+    // stamp requiresTarget, so infer it from the effect text exactly like the "another TYPE enters"
+    // path (tryBuildTypedPermanentEtbStackItem) does. Otherwise no target is ever chosen and the
+    // IR attach step silently stalls on an ambiguous "target creature you control".
+    const selfEffectText = String(trigger.effect || trigger.description || '');
+    const inferTypedEtbTarget = trigger.requiresTarget !== true
+      && (isNamedOrAnotherTypedEtbTrigger(triggerType) || isTypedPermanentEtbTrigger(triggerType))
+      && !isModalChooseModesEffectText(selfEffectText)
+      && /\btarget\b/i.test(selfEffectText);
+    const enrichedMetadata = (trigger.requiresTarget || (trigger as any)?.targetZone || inferTypedEtbTarget)
       ? inferTriggeredAbilityTargetMetadata(String(trigger.effect || trigger.description || ''), {
           gameState: (ctx as any).state,
           controllerId: String(controller),
@@ -147,6 +157,9 @@ export function queueSelfETBTriggersForPermanent(
           sourcePermanent: permanent,
         } as any)
       : ({} as ReturnType<typeof inferTriggeredAbilityTargetMetadata>);
+
+    const effectiveRequiresTarget = trigger.requiresTarget === true
+      || (inferTypedEtbTarget && Boolean(enrichedMetadata.targetType || enrichedMetadata.targetZone));
 
     const discoverXValue = resolveEnteringCreatureDiscoverXValue(trigger, permanent, state);
 
@@ -162,10 +175,10 @@ export function queueSelfETBTriggersForPermanent(
       permanentId: permanent.id,
       effect: trigger.effect || trigger.description,
       requiresChoice: trigger.requiresChoice,
-      requiresTarget: trigger.requiresTarget,
+      requiresTarget: effectiveRequiresTarget || trigger.requiresTarget,
       targetType: enrichedMetadata.targetType || trigger.targetType,
       targetConstraint: enrichedMetadata.targetConstraint || trigger.targetConstraint,
-      needsTargetSelection: trigger.requiresTarget || false,
+      needsTargetSelection: effectiveRequiresTarget || false,
       isModal: triggerAny.isModal,
       modalOptions: triggerAny.modalOptions,
       targetPlayer: triggerAny.targetPlayer,
@@ -228,10 +241,10 @@ export function queueSelfETBTriggersForPermanent(
           effect: trigger.effect || trigger.description,
           mandatory: trigger.mandatory,
           requiresChoice: trigger.requiresChoice,
-          requiresTarget: trigger.requiresTarget,
+          requiresTarget: effectiveRequiresTarget || trigger.requiresTarget,
           targetType: enrichedMetadata.targetType || trigger.targetType,
           targetConstraint: enrichedMetadata.targetConstraint || trigger.targetConstraint,
-          needsTargetSelection: trigger.requiresTarget || false,
+          needsTargetSelection: effectiveRequiresTarget || false,
           isModal: triggerAny.isModal,
           modalOptions: triggerAny.modalOptions,
           targetPlayer: triggerAny.targetPlayer,
@@ -273,7 +286,7 @@ export function queueSelfETBTriggersForPermanent(
       sourceName: String(trigger.cardName || permanent.card?.name || 'Triggered ability'),
       effectText: String(trigger.effect || trigger.description || ''),
       mandatory: trigger.mandatory !== false,
-      requiresTarget: trigger.requiresTarget === true,
+      requiresTarget: effectiveRequiresTarget,
       enrichedMetadata,
     });
   }

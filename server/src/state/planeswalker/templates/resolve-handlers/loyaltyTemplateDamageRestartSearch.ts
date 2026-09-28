@@ -14,7 +14,7 @@ import { ResolutionStepType } from "../../../resolution/types.js";
 import { getGameId, getBattlefield, getTargets, getPlaneswalkerX, parseCountTokenWord, modifyLifeLikeStack } from "../utils.js";
 import { toAvailableCard, normalizeCardNameForCompare, applyDamageToPermanent, applyDamageToPlayer, exilePermanents, getControlConstraint, getManaValueConstraint, getOpponents, getPlayerById, recordCreatureDealtDamageToPlayerThisTurn, satisfiesManaValueConstraint } from "./loyaltyTemplateRuntimeHelpers.js";
 import { destroyPermanent, movePermanentToExile, updateCounters, createToken } from "../../../modules/counters_tokens.js";
-import { getActualPowerToughness } from "../../../utils.js";
+import { getCurrentPowerToughnessForRules as currentPT } from "../../../modules/currentPowerToughness.js";
 import { restartGameWithKarnExemptions } from "./loyaltyTemplateRestartGame.js";
 import { drawCards as drawCardsFromZone } from "../../../modules/zones.js";
 
@@ -126,7 +126,7 @@ export function tryLoyaltyTemplateDamageRestartSearch(
         if (perm.controller !== controller) continue;
         const tl = String(perm.card?.type_line || '').toLowerCase();
         if (!tl.includes('creature')) continue;
-        const pt = getActualPowerToughness(ctx as any, perm);
+        const pt = currentPT(perm, (ctx as any).state);
         const pwr = Math.max(0, pt.power | 0);
         total += pwr;
         if (pwr > 0) creaturePowers.push({ perm, power: pwr });

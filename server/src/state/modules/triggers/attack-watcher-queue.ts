@@ -7,7 +7,7 @@
 import { isGoaded } from "../../../../../rules-engine/src/actions/combat.js";
 import { oracleTextHasOwnKeyword } from "../../../../../rules-engine/src/oracleOwnKeywordText.js";
 import { isCreatureTypeWord, permanentHasCreatureType } from "../../../../../shared/src/creatureTypes.js";
-import { getActualPowerToughness } from "../../utils.js";
+import { getCurrentPowerToughnessForRules } from "../currentPowerToughness.js";
 import type { CombatTriggeredAbility } from "./combat-triggered-ability.js";
 import { isEnchantedByAuraYouControl } from "./enchanted-by-aura.js";
 
@@ -222,7 +222,11 @@ export function planAttackWatcherQueue(
   battlefield: readonly any[],
   resolveAttackedPlayerId: (attacker: any) => string,
   currentTurn?: number,
+  gameState?: any,
 ): AttackWatcherQueuePlan {
+  // Attacker power/toughness checks use current P/T (anthems, equipment, pumps, counters).
+  const ptState = gameState ?? { battlefield };
+  const attackerPT = (attacker: any) => getCurrentPowerToughnessForRules(attacker, ptState);
   const triggerType = String(trigger.triggerType || '');
   const sourceController = String(trigger.controllerId || sourcePermanent?.controller || '');
   const sourceId = String(sourcePermanent?.id || '');
@@ -344,7 +348,7 @@ export function planAttackWatcherQueue(
         kind: 'per_attacker',
         attackers: attackingCreatures.filter((attacker) => {
           if (!youControl(attacker)) return false;
-          const { power, toughness } = getActualPowerToughness(attacker, { battlefield });
+          const { power, toughness } = attackerPT(attacker);
           return Number(power) === Number(toughness);
         }),
       };
@@ -467,7 +471,7 @@ export function planAttackWatcherQueue(
         kind: 'per_attacker',
         attackers: attackingCreatures.filter((attacker) => {
           if (!youControl(attacker)) return false;
-          const { power } = getActualPowerToughness(attacker, { battlefield });
+          const { power } = attackerPT(attacker);
           return Number(power) <= maxPower;
         }),
       };
@@ -500,7 +504,7 @@ export function planAttackWatcherQueue(
         attackers: attackingCreatures.filter((attacker) => {
           if (!youControl(attacker) || !isTokenPermanent(attacker)) return false;
           if (!attackerMatchesTypePhrase(attacker, typePhrase)) return false;
-          const { power } = getActualPowerToughness(attacker, { battlefield });
+          const { power } = attackerPT(attacker);
           return Number(power) >= minPower;
         }),
       };

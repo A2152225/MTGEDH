@@ -12,7 +12,7 @@ import { debug } from "../../../../utils/debug.js";
 import { getTargets, getBattlefield, parseCountTokenWord, modifyLifeLikeStack, getGameId, getPlaneswalkerX } from "../utils.js";
 import { getOrInitManaPool, getPlayerById, applyDamageToPermanent, applyDamageToPlayer, addUnrestrictedManaSymbols, predefinedArtifactTokens, recordCreatureDamagedByCreatureThisTurn } from "./loyaltyTemplateRuntimeHelpers.js";
 import { destroyPermanent, movePermanentToExile, createToken, updateCounters } from "../../../modules/counters_tokens.js";
-import { getActualPowerToughness } from "../../../utils.js";
+import { getCurrentPowerToughnessForRules as currentPT } from "../../../modules/currentPowerToughness.js";
 import { ResolutionQueueManager } from "../../../resolution/index.js";
 import { ResolutionStepType } from "../../../resolution/types.js";
 import { drawCards as drawCardsFromZone } from "../../../modules/zones.js";
@@ -556,7 +556,7 @@ export function tryLoyaltyTemplateLifeManaDamageDestroy(
       const targetTypeLineLower = String((targetPerm as any)?.card?.type_line || "").toLowerCase();
       if (!targetTypeLineLower.includes("creature") && !targetTypeLineLower.includes("planeswalker")) return false;
 
-      const pt = getActualPowerToughness(sourcePerm, (ctx as any).state);
+      const pt = currentPT(sourcePerm, (ctx as any).state);
       const power = Math.max(0, (pt as any).power | 0);
       if (power <= 0) {
         (ctx as any).bumpSeq?.();
@@ -622,7 +622,7 @@ export function tryLoyaltyTemplateLifeManaDamageDestroy(
       const typeLine = String(perm?.card?.type_line || "").toLowerCase();
       if (!perm || !typeLine.includes("creature")) return false;
 
-      const power = getActualPowerToughness(perm, (ctx as any).state).power | 0;
+      const power = currentPT(perm, (ctx as any).state).power | 0;
       if (power < threshold) return false;
 
       movePermanentToExile(ctx, targetId);
@@ -726,7 +726,7 @@ export function tryLoyaltyTemplateLifeManaDamageDestroy(
       const targetTypeLine = String(targetPerm?.card?.type_line || "").toLowerCase();
       if (!targetPerm || !targetTypeLine.includes("creature")) return false;
 
-      const toughness = Math.max(0, (getActualPowerToughness(targetPerm, (ctx as any).state) as any).toughness | 0);
+      const toughness = Math.max(0, (currentPT(targetPerm, (ctx as any).state) as any).toughness | 0);
 
       const sourceId = triggerItem?.sourceId || triggerItem?.sourcePermanentId || triggerItem?.planeswalker?.id || triggerItem?.source;
       const sourcePerm = sourceId ? battlefield.find((p: any) => p?.id === sourceId) : null;
@@ -778,7 +778,7 @@ export function tryLoyaltyTemplateLifeManaDamageDestroy(
       const typeLine = String(perm?.card?.type_line || "").toLowerCase();
       if (!perm || !typeLine.includes('creature')) return false;
 
-      const toughness = Math.max(0, (getActualPowerToughness(perm, (ctx as any).state) as any).toughness | 0);
+      const toughness = Math.max(0, (currentPT(perm, (ctx as any).state) as any).toughness | 0);
       destroyPermanent(ctx, targetId, true);
       if (toughness > 0) modifyLifeLikeStack(ctx, controller, toughness);
 

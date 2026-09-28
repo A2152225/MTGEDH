@@ -21,6 +21,7 @@ import { protectionPreventsSource } from './combat-mechanics.js';
 import { permanentHasIndestructible } from '../../rules-engine/index.js';
 import { processPlayerDealtDamageTriggers } from './triggers/dealt-damage-watchers.js';
 import { evaluateLifeLossReplacementEvent } from './replacement-effects.js';
+import { getCurrentPowerToughness } from './currentPowerToughness.js';
 
 export function applyPoisonCountersToPlayer(ctx: GameContext, playerId: string, amount: number): void {
   const normalized = Math.max(0, Number(amount || 0));
@@ -392,6 +393,14 @@ export function creatureDiesFromCombatDamage(
 }
 
 function getEffectiveToughnessForDeathCheck(ctx: GameContext, permanent: any): number {
+  // Current toughness (anthems, equipment, pumps, P/T-setting effects, counters): the same
+  // number the battlefield shows. Base + counters is only the fallback for unresolved P/T.
+  try {
+    const current = getCurrentPowerToughness(permanent, (ctx as any)?.state);
+    if (current && Number.isFinite(current.toughness)) return current.toughness;
+  } catch {
+    // fall back to base + counters below
+  }
   const card = permanent?.card || {};
   let baseToughness = Number(permanent?.baseToughness);
   if (!Number.isFinite(baseToughness)) {

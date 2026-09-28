@@ -13,7 +13,8 @@ import { ResolutionStepType } from "../../../resolution/types.js";
 import { ResolutionQueueManager } from "../../../resolution/index.js";
 import { getGameId, parseCountTokenWord, getBattlefield, getTargets, modifyLifeLikeStack } from "../utils.js";
 import { toAvailableCard, discardHandCardsToGraveyard, getPlayerById, upsertPlaneswalkerPlayableFromExileGrant } from "./loyaltyTemplateRuntimeHelpers.js";
-import { getActualPowerToughness, uid } from "../../../utils.js";
+import { uid } from "../../../utils.js";
+import { getCurrentPowerToughnessForRules as currentPT } from "../../../modules/currentPowerToughness.js";
 import { applyTemporaryLandBonus } from "../../../modules/game-state-effects.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../../../modules/graveyardEntryUtils.js";
 import { queueResolveTopOfStackPrompt } from "../../../modules/resolutionPromptEvents.js";
@@ -365,7 +366,7 @@ export function tryLoyaltyTemplateLookDrawLifeDiscard(
         if (perm.controller !== controller) continue;
         const typeLine = String(perm.card?.type_line || '').toLowerCase();
         if (!typeLine.includes('creature')) continue;
-        const power = getActualPowerToughness(perm, (ctx as any).state).power;
+        const power = currentPT(perm, (ctx as any).state).power;
         if (Number.isFinite(power)) maxPower = Math.max(maxPower, power);
       }
 
@@ -406,7 +407,7 @@ export function tryLoyaltyTemplateLookDrawLifeDiscard(
         if (perm.controller !== controller) continue;
         const typeLine = String(perm.card?.type_line || '').toLowerCase();
         if (!typeLine.includes('creature')) continue;
-        const power = getActualPowerToughness(perm, (ctx as any).state).power;
+        const power = currentPT(perm, (ctx as any).state).power;
         if (Number.isFinite(power)) maxPower = Math.max(maxPower, power);
       }
 
@@ -497,7 +498,7 @@ export function tryLoyaltyTemplateLookDrawLifeDiscard(
         if (perm.controller !== controller) continue;
         const typeLine = String(perm.card?.type_line || '').toLowerCase();
         if (!typeLine.includes('creature')) continue;
-        const power = getActualPowerToughness(perm, (ctx as any).state).power;
+        const power = currentPT(perm, (ctx as any).state).power;
         if (Number.isFinite(power)) maxPower = Math.max(maxPower, power);
       }
 

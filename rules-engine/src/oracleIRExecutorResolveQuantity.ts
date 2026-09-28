@@ -34,6 +34,7 @@ import {
   collectSacrificedPermanentsLedgerFirst,
 } from './oracleIRLedgerCardAccess';
 import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
+import { readCurrentPower, readCurrentToughness } from './oracleIRExecutorCurrentPowerToughness';
 
 export function resolveControllerSpellCastCountThisTurn(
   state: GameState,
@@ -216,7 +217,7 @@ export function resolveOracleQuantity(
   if (qty.kind === 'source_power') {
     const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
     if (sourcePermanent) {
-      const power = readPermanentPower(sourcePermanent);
+      const power = readCurrentPower(state, sourcePermanent, ctx);
       if (power !== null) return Math.max(0, power);
     }
 
@@ -356,7 +357,7 @@ export function resolveOracleQuantity(
     if (/^cards equal to its power$/i.test(normalized)) {
       const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
       if (sourcePermanent) {
-        const power = readPermanentPower(sourcePermanent);
+        const power = readCurrentPower(state, sourcePermanent, ctx);
         if (power !== null) return Math.max(0, power);
       }
     }
@@ -391,9 +392,14 @@ export function resolveOracleQuantity(
         // readPermanentPower already includes +1/+1 and -1/-1. Adding them
         // again made "deals damage equal to its power" after a +1/+1 counter
         // deal printed + 2×counters (Archdruid's Charm: 1+1+1 = 3).
-        const power = readPermanentPower(entry);
+        // Battlefield entries use current power (anthems, pumps, counters); snapshots keep theirs.
+        const power = readCurrentPower(state, entry, ctx);
         if (power === null) return null;
         return Math.max(0, power * multiplier);
+      }
+      if (qty.stat === 'toughness' && ((state.battlefield || []) as any[]).some((perm) => String(perm?.id || '').trim() === String(entry?.id || '').trim() && String(entry?.id || '').trim())) {
+        const toughness = readCurrentToughness(state, entry, ctx);
+        return toughness === null ? null : Math.max(0, toughness * multiplier);
       }
       const value = readObjectStat(entry, qty.stat);
       return value === null ? null : Math.max(0, value * multiplier);
@@ -632,7 +638,7 @@ export function resolveOracleQuantity(
     const powers = getControlledPermanents(state, controllerId)
       .filter(permanentIsCreature)
       .filter((permanent) => !permanentHasSubtype(permanent, excludeSubtype))
-      .map(readPermanentPower)
+      .map((permanent) => readCurrentPower(state, permanent, ctx))
       .filter((value): value is number => value !== null);
     return powers.length > 0 ? Math.max(0, ...powers) : 0;
   }

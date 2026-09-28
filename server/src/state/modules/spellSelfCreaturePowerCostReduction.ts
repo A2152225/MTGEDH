@@ -10,7 +10,8 @@
  */
 
 import { lookupLocalCardByNameSync } from '../../services/localCardLookup.js';
-import { getActualPowerToughness, parsePT } from '../utils.js';
+import { parsePT } from '../utils.js';
+import { getCurrentPowerToughnessForRules } from './currentPowerToughness.js';
 import type { SpellSelfCostReductionDelta } from './spellSelfTotalManaValueCostReduction.js';
 
 const TOTAL_POWER_COST_LESS_RE =
@@ -45,8 +46,9 @@ function printedPowerFromLookup(perm: any): number {
   }
 }
 
-function creaturePower(perm: any, gameState?: any): number {
-  const actual = getActualPowerToughness(perm, gameState);
+function creaturePower(perm: any, gameState?: any, battlefield?: any[]): number {
+  // Current power (anthems, equipment, pumps, counters), as the battlefield shows it.
+  const actual = getCurrentPowerToughnessForRules(perm, gameState ?? { battlefield: battlefield || [] });
   if (actual.power > 0 || hasPrintedPowerField(perm)) {
     return Math.max(0, actual.power);
   }
@@ -63,7 +65,7 @@ export function controlledCreaturePowers(
   for (const perm of battlefield) {
     if (!perm || !permanentControlledBy(perm, playerId)) continue;
     if (!isCreaturePermanent(perm)) continue;
-    powers.push(creaturePower(perm, gameState));
+    powers.push(creaturePower(perm, gameState, battlefield));
   }
   return powers;
 }

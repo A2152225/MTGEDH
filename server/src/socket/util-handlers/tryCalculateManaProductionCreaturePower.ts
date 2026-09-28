@@ -5,7 +5,7 @@
 // Undefined falls through to later families.
 
 import type { ManaProductionInfo } from "./manaProductionTypes.js";
-import { getActualPowerToughness } from "../../state/utils.js";
+import { getCurrentPowerToughnessForRules } from "../../state/modules/currentPowerToughness.js";
 import { debug } from "../../utils/debug.js";
 
 export type CalculateManaProductionCreaturePowerArgs = {
@@ -51,8 +51,8 @@ export function tryCalculateManaProductionCreaturePower(
       const permTypeLine = (perm.card?.type_line || '').toLowerCase();
       if (!permTypeLine.includes('creature')) continue;
       
-      // Use canonical power calculation
-      const { power } = getActualPowerToughness(perm, gameState);
+      // Current power (anthems, equipment, pumps, counters) - same as the battlefield badge
+      const { power } = getCurrentPowerToughnessForRules(perm, gameState ?? { battlefield });
       if (power > greatestPower) greatestPower = power;
     }
     result.isDynamic = true;
@@ -67,7 +67,7 @@ export function tryCalculateManaProductionCreaturePower(
     if (manaOracleText.includes("equal to") && manaOracleText.includes("power") && 
       (manaOracleText.includes("{g}") || manaOracleText.includes("green")) &&
       !manaOracleText.includes("greatest") && !manaOracleText.includes("among")) {
-    const { power } = getActualPowerToughness(permanent, gameState);
+    const { power } = getCurrentPowerToughnessForRules(permanent, gameState ?? { battlefield });
     result.isDynamic = true;
     result.baseAmount = Math.max(0, power);
     result.dynamicDescription = `{G} equal to this creature's power (${power})`;
@@ -83,7 +83,7 @@ export function tryCalculateManaProductionCreaturePower(
       const permTypeLine = (perm.card?.type_line || '').toLowerCase();
       if (!permTypeLine.includes('creature')) continue;
       
-      const { power } = getActualPowerToughness(perm, gameState);
+      const { power } = getCurrentPowerToughnessForRules(perm, gameState ?? { battlefield });
       if (power > greatestPower) greatestPower = power;
     }
     debug(2, `[calculateManaProduction] ${cardName}: Greatest power among creatures is ${greatestPower}`);
@@ -143,7 +143,8 @@ export function tryCalculateManaProductionCreaturePower(
     if (attachedTo) {
       const equippedCreature = battlefield.find((p: any) => p.id === attachedTo);
       if (equippedCreature) {
-        const actualPT = getActualPowerToughness(equippedCreature, gameState);
+        // Tanuki grants no P/T itself, so the equipped creature's current power has no double count.
+        const actualPT = getCurrentPowerToughnessForRules(equippedCreature, gameState ?? { battlefield });
         power = actualPT.power;
       }
     }
@@ -155,11 +156,8 @@ export function tryCalculateManaProductionCreaturePower(
   
   // Vhal, Candlekeep Researcher - "Add an amount of {U} equal to Vhal's toughness"
   if (cardName.includes('vhal')) {
-    let toughness = (permanent.baseToughness ?? parseInt(card.toughness, 10)) || 0;
-    if (permanent.counters) {
-      toughness += (permanent.counters['+1/+1'] || 0) + (permanent.counters['p1p1'] || 0);
-      toughness -= (permanent.counters['-1/-1'] || 0) + (permanent.counters['m1m1'] || 0);
-    }
+    // Current toughness (anthems, equipment, pumps, counters).
+    const toughness = Number(getCurrentPowerToughnessForRules(permanent, gameState ?? { battlefield }).toughness) || 0;
     result.isDynamic = true;
     result.baseAmount = Math.max(0, toughness);
     result.dynamicDescription = `{U} equal to toughness (${toughness})`;
