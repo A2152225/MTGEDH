@@ -321,7 +321,9 @@ export function registerGameActions(io: Server, socket: Socket) {
 
   // Play land from hand
   socket.on("playLand", (payload?: PlayLandRequestPayload) => {
-    handlePlayLandRequest(io, socket, payload);
+    // bypassGraveyardPermissionCheck is server-internal (resolution prompts); never trust it from a client.
+    const { bypassGraveyardPermissionCheck: _clientBypass, ...clientPayload } = (payload || {}) as PlayLandRequestPayload;
+    handlePlayLandRequest(io, socket, clientPayload);
   });
 
   // =====================================================================

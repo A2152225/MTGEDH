@@ -34,3 +34,4 @@ MagicCompRules *.txt
 mtg_data.db
 mtg_data.db.bak
 .vitest*.json
+_agent_scratch/

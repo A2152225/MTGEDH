@@ -98,6 +98,12 @@ export function validatePlayLand(this: AdapterActionValidationHost, state: GameS
       if (canBePlayedBy && canBePlayedBy !== action.playerId) {
         return { legal: false, reason: 'Card is not playable by this player' };
       }
+      // The server is authoritative for exile land-play permissions. Static permissions such as
+      // Conduit of Worlds / Crucible of Worlds / Ramunap Excavator (and effect-based ones) are
+      // not mirrored into this engine state, so accept the server's verification.
+      if (action.serverVerifiedZonePermission === true) {
+        return { legal: true };
+      }
       if (typeof until !== 'number') {
         return { legal: false, reason: 'No permission to play this land from exile' };
       }
@@ -121,6 +127,12 @@ export function validatePlayLand(this: AdapterActionValidationHost, state: GameS
 
       if (canBePlayedBy && canBePlayedBy !== action.playerId) {
         return { legal: false, reason: 'Card is not playable by this player' };
+      }
+      // The server is authoritative for graveyard land-play permissions. Static permissions such as
+      // Conduit of Worlds / Crucible of Worlds / Ramunap Excavator (and effect-based ones) are
+      // not mirrored into this engine state, so accept the server's verification.
+      if (action.serverVerifiedZonePermission === true) {
+        return { legal: true };
       }
       if (typeof until !== 'number') {
         return { legal: false, reason: 'No permission to play this land from graveyard' };

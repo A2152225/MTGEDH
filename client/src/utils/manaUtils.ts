@@ -275,6 +275,11 @@ export function parseManaSpendRestrictionFromOracleText(
 }
 
 /** Whether a payment source's stamped spend restriction allows the current payment purpose. */
+/** Prefer any restricted producer (already filtered as legal for purpose) before unrestricted ones. */
+function sourcePrefersRestrictedManaFirst(source: Pick<ManaPaymentSource, 'spendRestriction'>): boolean {
+  return Boolean(String(source?.spendRestriction?.restriction || '').trim());
+}
+
 export function manaSourceAllowsSpendPurpose(
   source: Pick<ManaPaymentSource, 'spendRestriction'>,
   purpose?: RestrictedManaSpendPurpose | null,
@@ -835,6 +840,10 @@ export function calculateSuggestedPayment(
           Number(sourcePrefersUncounterableChosenTypeCast(b, purpose))
           - Number(sourcePrefersUncounterableChosenTypeCast(a, purpose));
         if (uncounterableCmp !== 0) return uncounterableCmp;
+        // Prefer eligible restricted producers first (keep flexible mana).
+        const aRestricted = sourcePrefersRestrictedManaFirst(a);
+        const bRestricted = sourcePrefersRestrictedManaFirst(b);
+        if (aRestricted !== bRestricted) return aRestricted ? -1 : 1;
         const aNative = a.options.includes(c);
         const bNative = b.options.includes(c);
         if (aNative !== bNative) return aNative ? -1 : 1;
@@ -862,6 +871,10 @@ export function calculateSuggestedPayment(
         }
         const activationCmp = getSourceActivationManaPips(a) - getSourceActivationManaPips(b);
         if (activationCmp !== 0) return activationCmp;
+        // Prefer eligible restricted producers first (keep flexible mana).
+        const aRestricted = sourcePrefersRestrictedManaFirst(a);
+        const bRestricted = sourcePrefersRestrictedManaFirst(b);
+        if (aRestricted !== bRestricted) return aRestricted ? -1 : 1;
         const aNative = a.options.includes('C');
         const bNative = b.options.includes('C');
         if (aNative !== bNative) return aNative ? -1 : 1;
@@ -948,6 +961,11 @@ export function calculateSuggestedPayment(
         Number(sourcePrefersUncounterableChosenTypeCast(b, purpose))
         - Number(sourcePrefersUncounterableChosenTypeCast(a, purpose));
       if (uncounterableCmp !== 0) return uncounterableCmp;
+
+      // Prefer eligible restricted producers first (keep flexible mana).
+      const aRestricted = sourcePrefersRestrictedManaFirst(a);
+      const bRestricted = sourcePrefersRestrictedManaFirst(b);
+      if (aRestricted !== bRestricted) return aRestricted ? -1 : 1;
 
       // 1. Colorless-only sources first (best for generic)
       const aColorlessOnly = isColorlessOnly(a);

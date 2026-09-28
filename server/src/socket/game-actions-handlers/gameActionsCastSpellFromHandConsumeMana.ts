@@ -12,6 +12,7 @@ import { debug } from "../../utils/debug.js";
 import {
   applyManaSpendToCreatureSpellHasteManaLowerBound,
   applyManaSpendToManaProducedByPermanentLowerBound,
+  canUseRestrictedMana,
   consumeManaFromPool,
   consumeManaFromPoolForPurpose,
   deriveCreatureSpellHasteFromManaSpent,
@@ -94,6 +95,12 @@ export function tryConsumeCastSpellManaFromHand(
       // Consume mana from pool to pay for the spell
       // This uses both floating mana and newly tapped mana, leaving unspent mana for subsequent spells
       const pool = getOrInitManaPool(game.state, playerId);
+      const restrictedEntries = Array.isArray((pool as any)?.restricted) ? (pool as any).restricted : [];
+      const eligibleRestrictedCanPay = restrictedEntries.some((entry: any) => (
+        entry
+        && Number(entry.amount || 0) > 0
+        && canUseRestrictedMana(entry, restrictedManaPurpose)
+      ));
       const manaConsumption = isForceAltCostPaid
         ? { consumed: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } }
         : explicitPaymentSelected
@@ -115,7 +122,7 @@ export function tryConsumeCastSpellManaFromHand(
 
               return { consumed: { ...selectedConsumption.consumed } };
             })()
-          : (castingCreatureSpell
+          : (castingCreatureSpell || eligibleRestrictedCanPay
             ? consumeManaFromPoolForPurpose(pool, totalColored, totalGeneric, restrictedManaPurpose, '[castSpellFromHand]')
             : consumeManaFromPool(pool, totalColored, totalGeneric, '[castSpellFromHand]'));
 

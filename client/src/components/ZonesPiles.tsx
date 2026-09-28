@@ -4,6 +4,7 @@ import { showCardPreview, hideCardPreview } from "./CardPreviewLayer";
 import type { AppearanceSettings } from "../utils/appearanceSettings";
 import { getPlayableCardHighlight } from "../utils/appearanceSettings";
 import { getPrimaryCardImageUrl } from "../utils/cardImages";
+import { pickGraveyardContextMenuCard } from "./zonesPilesGraveyardContextTarget";
 
 /**
  * ZonesPiles: shows library/graveyard/exile and command zone slots.
@@ -28,13 +29,15 @@ export function ZonesPiles(props: {
   canCastCommander?: boolean;
   onCastCommander?: (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => void;
   onViewGraveyard?: () => void;
+  /** Right-click on the graveyard pile: open the game's zone card menu for the chosen card. */
+  onGraveyardContextMenu?: (card: KnownCardRef, x: number, y: number) => void;
   onViewExile?: () => void;
   onUseTopOfLibrary?: () => void;
   playableCards?: string[];
   playerId?: string;
   appearanceSettings?: AppearanceSettings;
 }) {
-  const { zones: zonesInput = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onViewExile, onUseTopOfLibrary, playableCards = [], playerId, appearanceSettings } = props;
+  const { zones: zonesInput = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onGraveyardContextMenu, onViewExile, onUseTopOfLibrary, playableCards = [], playerId, appearanceSettings } = props;
   // Ensure zones is never null
   const zones = zonesInput ?? SAFE_DEFAULT_ZONES;
 
@@ -50,7 +53,7 @@ export function ZonesPiles(props: {
   // Which commanders are currently in the command zone (not on stack/battlefield)
   const inCommandZone = (isCommanderFormat ? (commander as any)?.inCommandZone : undefined) as string[] | undefined;
 
-  function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean, onClick?: () => void, onDoubleClick?: () => void, isPlayable?: boolean, allowHiddenHoverPreview?: boolean) {
+  function renderPile(label: string, count: number, topCard?: KnownCardRef, hideTopCard?: boolean, onClick?: () => void, onDoubleClick?: () => void, isPlayable?: boolean, allowHiddenHoverPreview?: boolean, onContextMenu?: (e: React.MouseEvent<HTMLDivElement>) => void) {
     const name = topCard?.name || "";
     // prefer art_crop -> normal -> small
     const img = topCard?.image_uris?.art_crop || topCard?.image_uris?.normal || topCard?.image_uris?.small || null;
@@ -85,6 +88,7 @@ export function ZonesPiles(props: {
         }}
         onClick={onClick}
         onDoubleClick={onDoubleClick}
+        onContextMenu={onContextMenu}
       >
         {displayImage && img ? (
           <img
@@ -262,6 +266,14 @@ export function ZonesPiles(props: {
   const graveyardPlayable = playableCards.some(id => grArr.some(card => card.id === id));
   const exilePlayable = playableCards.some(id => exArr.some(card => card.id === id));
   const libraryAction = libraryPlayable && onUseTopOfLibrary ? onUseTopOfLibrary : undefined;
+  const graveyardContextMenu = onGraveyardContextMenu && grArr.length > 0
+    ? (e: React.MouseEvent<HTMLDivElement>) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const target = pickGraveyardContextMenuCard(grArr, playableCards);
+        if (target) onGraveyardContextMenu(target, e.clientX, e.clientY);
+      }
+    : undefined;
 
   return (
     <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -269,7 +281,7 @@ export function ZonesPiles(props: {
       {isCommanderFormat && commander ? <CommandSlots /> : null}
       {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */, libraryAction, undefined, libraryPlayable, true)}
       {/* Graveyard supports both click and double-click - double-click opens the full graveyard modal */}
-      {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop, false, undefined, onViewGraveyard, graveyardPlayable)}
+      {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop, false, undefined, onViewGraveyard, graveyardPlayable, false, graveyardContextMenu)}
       {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop, exileTopHidden, undefined, onViewExile, exilePlayable)}
     </div>
   );

@@ -144,7 +144,18 @@ export function getResolutionManaSourceCostText(
     return '';
   }
 
-  return String((permanent as any)?.card?.oracle_text || '').split(':')[0].toLowerCase();
+  // Keyword lines (Indestructible) sit above "{T}: Add {C}. This mana can't be spent..."
+  // on Vibranium/Powerstone tokens. Only the mana ability's cost is an activation cost.
+  const oracleText = String((permanent as any)?.card?.oracle_text || '');
+  const manaAbilityCost = oracleText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /\{t\}/i.test(line) && /\badd\b/i.test(line))
+    .map((line) => line.split(':')[0]?.trim().toLowerCase())
+    .find((cost) => Boolean(cost));
+  if (manaAbilityCost) return manaAbilityCost;
+
+  return oracleText.split(':')[0].toLowerCase();
 }
 
 export function escapeResolutionCostRegExp(text: string): string {
@@ -335,13 +346,7 @@ export function consumeExplicitSelectedResolutionMana(
     let remaining = Number((manaConsumption.consumed as any)?.[key] || 0);
     if (remaining <= 0) continue;
 
-    const regularAvailable = Number(pool?.[key] || 0);
-    const regularUse = Math.min(regularAvailable, remaining);
-    if (regularUse > 0) {
-      pool[key] = regularAvailable - regularUse;
-      remaining -= regularUse;
-    }
-
+    // Prefer eligible restricted mana before unrestricted (keep flexible mana).
     if (remaining > 0 && purpose && Array.isArray(pool?.restricted)) {
       for (let index = pool.restricted.length - 1; index >= 0 && remaining > 0; index -= 1) {
         const entry = pool.restricted[index];
@@ -358,6 +363,13 @@ export function consumeExplicitSelectedResolutionMana(
       if (Array.isArray(pool.restricted) && pool.restricted.length === 0) {
         delete pool.restricted;
       }
+    }
+
+    const regularAvailable = Number(pool?.[key] || 0);
+    const regularUse = Math.min(regularAvailable, remaining);
+    if (regularUse > 0) {
+      pool[key] = regularAvailable - regularUse;
+      remaining -= regularUse;
     }
 
     if (remaining > 0) {

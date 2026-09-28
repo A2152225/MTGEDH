@@ -217,6 +217,15 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
       return;
     }
 
+    if (abilityId === 'play-land') {
+      playLandWithPromptSync({
+        gameId: safeView.id,
+        cardId,
+        fromZone: 'graveyard',
+      });
+      return;
+    }
+
     socket.emit('activateGraveyardAbility', {
       gameId: safeView.id,
       cardId,

@@ -93,6 +93,24 @@ describe('parseGraveyardAbilities', () => {
       cost: '{U}',
     }));
   });
+  it('adds a Play Land action for playable lands without printed graveyard text', () => {
+    const card: KnownCardRef = {
+      id: 'forest-gy-1',
+      name: 'Forest',
+      type_line: 'Basic Land — Forest',
+      oracle_text: '{T}: Add {G}.',
+    };
+
+    const inactiveAbilities = getGraveyardAbilitiesForCard(card, { isPlayable: false });
+    const activeAbilities = getGraveyardAbilitiesForCard(card, { isPlayable: true });
+
+    expect(inactiveAbilities.some((entry) => entry.id === 'play-land')).toBe(false);
+    expect(activeAbilities).toContainEqual(expect.objectContaining({
+      id: 'play-land',
+      label: 'Play Land',
+    }));
+    expect(activeAbilities.some((entry) => entry.id === 'graveyard-cast')).toBe(false);
+  });
 
   it('adds server-provided dynamic unearth actions without guessing from playable state', () => {
     const card: KnownCardRef = {

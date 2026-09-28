@@ -582,6 +582,10 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
           harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
           removedCounters: castSpellPaymentCheckpoint.removedCounters,
         });
+        (game.state as any)._lastCastPaymentFailure = {
+          code: payload.code,
+          message: payload.message,
+        };
         socket.emit('error', payload);
       };
 

@@ -10,6 +10,7 @@ import { canCreatureUseTapAbilityNow } from './creatureUtils';
 import {
   calculateRemainingCostAfterFloatingMana,
   calculateSuggestedPayment,
+  canUseRestrictedManaClient,
   type RestrictedManaSpendPurpose,
   getTotalManaProduction,
   getManaPerActivation,
@@ -925,6 +926,7 @@ const POOL_KEY_TO_MANA_COLOR: Record<string, ManaColor> = {
 function buildExplicitPoolPaymentItems(
   floatingMana: ManaPool | undefined,
   usedFromPool: Record<string, number>,
+  purpose?: RestrictedManaSpendPurpose | null,
 ): PaymentItem[] {
   if (!floatingMana) return [];
 
@@ -935,35 +937,40 @@ function buildExplicitPoolPaymentItems(
     if (!mana || needed <= 0) continue;
 
     let remaining = needed;
-    const regularAvailable = Number((floatingMana as any)[poolKey] || 0);
-    const fromRegular = Math.min(regularAvailable, remaining);
-    if (fromRegular > 0) {
-      // One payment row with count — never expand thousands of __pool__ items.
-      items.push({
-        permanentId: `__pool__:${poolKey}`,
-        mana,
-        count: fromRegular,
-      });
-      remaining -= fromRegular;
+
+    // Prefer eligible restricted mana before unrestricted (keep flexible mana).
+    if (remaining > 0 && floatingMana.restricted) {
+      for (let restrictedIndex = 0; restrictedIndex < floatingMana.restricted.length; restrictedIndex += 1) {
+        const entry = floatingMana.restricted[restrictedIndex];
+        if (!canUseRestrictedManaClient(entry, purpose)) continue;
+        const entryPoolKey = String(entry?.type || 'colorless');
+        if (entryPoolKey !== poolKey) continue;
+
+        const entryAmount = Number(entry?.amount || 0);
+        const take = Math.min(Math.max(0, entryAmount), remaining);
+        if (take <= 0) continue;
+        items.push({
+          permanentId: `__pool__:restricted:${restrictedIndex}`,
+          mana,
+          count: take,
+        });
+        remaining -= take;
+        if (remaining <= 0) break;
+      }
     }
 
-    if (remaining <= 0 || !floatingMana.restricted) continue;
-
-    for (let restrictedIndex = 0; restrictedIndex < floatingMana.restricted.length; restrictedIndex += 1) {
-      const entry = floatingMana.restricted[restrictedIndex];
-      const entryPoolKey = String(entry?.type || 'colorless');
-      if (entryPoolKey !== poolKey) continue;
-
-      const entryAmount = Number(entry?.amount || 0);
-      const take = Math.min(Math.max(0, entryAmount), remaining);
-      if (take <= 0) continue;
-      items.push({
-        permanentId: `__pool__:restricted:${restrictedIndex}`,
-        mana,
-        count: take,
-      });
-      remaining -= take;
-      if (remaining <= 0) break;
+    if (remaining > 0) {
+      const regularAvailable = Number((floatingMana as any)[poolKey] || 0);
+      const fromRegular = Math.min(regularAvailable, remaining);
+      if (fromRegular > 0) {
+        // One payment row with count — never expand thousands of __pool__ items.
+        items.push({
+          permanentId: `__pool__:${poolKey}`,
+          mana,
+          count: fromRegular,
+        });
+        remaining -= fromRegular;
+      }
     }
   }
 
@@ -1000,7 +1007,7 @@ export function buildSuggestedPaymentItems(
   const items: PaymentItem[] = [];
 
   if (includeExplicitPoolItems) {
-    items.push(...buildExplicitPoolPaymentItems(floatingMana, usedFromPool));
+    items.push(...buildExplicitPoolPaymentItems(floatingMana, usedFromPool, purpose));
   }
 
   for (const [sourceId, selection] of suggested.entries()) {

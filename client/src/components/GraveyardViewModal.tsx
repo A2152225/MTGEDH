@@ -251,30 +251,45 @@ function isInstantOrSorcery(card: KnownCardRef): boolean {
   return /\b(?:instant|sorcery)\b/i.test(String(card.type_line || ''));
 }
 
+function isLandCard(card: KnownCardRef): boolean {
+  return /\bland\b/i.test(String(card.type_line || ''));
+}
+
 export function getGraveyardAbilitiesForCard(card: KnownCardRef, options?: { isPlayable?: boolean; abilityHints?: GraveyardAbility[] }): GraveyardAbility[] {
   const abilities = parseGraveyardAbilities(card);
   const hasPrintedCastKeywordAbility = abilities.some((ability) => ['flashback', 'jump-start', 'retrace', 'escape', 'disturb'].includes(ability.id));
   for (const hint of options?.abilityHints || []) {
     if (hint?.id === 'graveyard-cast' && hasPrintedCastKeywordAbility) continue;
+    if (hint?.id === 'play-land' && abilities.some((ability) => ability.id === 'play-land')) continue;
     if (!hint?.id || abilities.some((ability) => ability.id === hint.id)) continue;
     abilities.push(hint);
   }
   const hasCastFromGraveyardAbility = abilities.some((ability) => ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast'].includes(ability.id));
 
+  if (options?.isPlayable && isLandCard(card) && !abilities.some((ability) => ability.id === 'play-land')) {
+    abilities.push({
+      id: 'play-land',
+      label: 'Play Land',
+      description: 'Play this land from your graveyard',
+    });
+  }
+
   if (options?.isPlayable && !hasCastFromGraveyardAbility && isInstantOrSorcery(card)) {
     const cost = String(card.mana_cost || '').trim() || 'available cost';
-    return [
-      ...abilities,
-      {
-        id: 'graveyard-cast',
-        label: 'Cast',
-        description: `Cast from graveyard for ${cost}`,
-        cost,
-      },
-    ];
+    abilities.push({
+      id: 'graveyard-cast',
+      label: 'Cast',
+      description: `Cast from graveyard for ${cost}`,
+      cost,
+    });
   }
 
   return abilities;
+}
+
+/** Double-clicking a graveyard card plays it when it is a playable land (Conduit/Crucible of Worlds, etc.). */
+export function getGraveyardDoubleClickAbility(abilities: readonly GraveyardAbility[]): GraveyardAbility | undefined {
+  return abilities.find((ability) => ability.id === 'play-land' && ability.activatable !== false);
 }
 
 function getGraveyardAbilityButtonLabel(ability: GraveyardAbility): string {
@@ -533,6 +548,10 @@ export function GraveyardViewModal({
                   boxShadow: isPlayable ? getPlayableCardHighlight(appearanceSettings) : 'none',
                 }}
                 onClick={() => setSelectedCard(selectedCard?.id === card.id ? null : card)}
+                onDoubleClick={() => {
+                  const doubleClickAbility = canActivate ? getGraveyardDoubleClickAbility(abilities) : undefined;
+                  if (doubleClickAbility) handleActivate(card, doubleClickAbility.id);
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   setContextMenu({ card, x: e.clientX, y: e.clientY });
@@ -715,6 +734,25 @@ export function GraveyardViewModal({
               ⚰️ {contextMenu.card.name}
             </div>
             <div style={{ padding: '4px 0' }}>
+              {canActivate && getGraveyardAbilitiesForCard(contextMenu.card, {
+                isPlayable: playableCardIdSet.has(contextMenu.card.id),
+                abilityHints: graveyardAbilityHints[contextMenu.card.id],
+              }).filter((ability) => ability.activatable !== false).map((ability) => (
+                <div
+                  key={`ctx-${ability.id}`}
+                  style={{ padding: '8px 16px', cursor: 'pointer', color: '#93c5fd', fontSize: 13, fontWeight: 600 }}
+                  title={ability.description}
+                  onClick={() => {
+                    const targetCard = contextMenu.card;
+                    setContextMenu(null);
+                    handleActivate(targetCard, ability.id);
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(99, 102, 241, 0.2)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                >
+                  {getGraveyardAbilityButtonLabel(ability)}
+                </div>
+              ))}
               {ignoredCardIds.has(contextMenu.card.id) ? (
                 <div
                   style={{

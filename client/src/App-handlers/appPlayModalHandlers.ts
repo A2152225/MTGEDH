@@ -9,6 +9,7 @@ import type { CombatControlDeclarations } from "../components/CombatControlModal
 import type { AttackerSelection, BlockerSelection } from "../components/CombatSelectionModal";
 import { socket } from "../socket";
 import { debug } from "../utils/debug";
+import { buildPlayLandRequestPayload } from "../utils/playLandRequestPayload";
 
 export function useAppPlayModalHandlers(p: Record<string, any>) {
   const {
@@ -645,7 +646,7 @@ export function useAppPlayModalHandlers(p: Record<string, any>) {
     selectedFace?: number;
     fromZone?: 'exile' | 'hand' | 'graveyard' | 'library';
   }) => {
-    socket.emit('playLand', payload);
+    socket.emit('playLand', buildPlayLandRequestPayload(payload));
 
     window.setTimeout(() => {
       socket.emit('getMyNextResolutionStep', { gameId: payload.gameId });

@@ -81,9 +81,9 @@ describe('buildSuggestedPaymentItems', () => {
       { includeExplicitPoolItems: true },
     );
 
+    // Restricted floating mana is preferred first so flexible pool mana is kept.
     expect(items).toEqual([
-      { permanentId: '__pool__:green', mana: 'G', count: 2 },
-      { permanentId: '__pool__:restricted:0', mana: 'G', count: 2 },
+      { permanentId: '__pool__:restricted:0', mana: 'G', count: 4 },
     ]);
     expect(items.some((item) => item.permanentId === 'forest_1')).toBe(false);
   });

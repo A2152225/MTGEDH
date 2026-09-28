@@ -783,9 +783,13 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
                 safeView &&
                 socket.emit("shuffleHand", { gameId: safeView.id })
               }
-              onPlayLandFromHand={(cardId) =>
+              onPlayLandFromHand={(cardId, fromZone) =>
                 safeView &&
-                playLandWithPromptSync({ gameId: safeView.id, cardId })
+                playLandWithPromptSync({
+                  gameId: safeView.id,
+                  cardId,
+                  ...(fromZone ? { fromZone } : {}),
+                })
               }
               onCastFromHand={(cardId) => {
                 if (!safeView || !you) return;

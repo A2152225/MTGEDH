@@ -113,7 +113,7 @@ export type RenderTableLayoutPlayerSeatArgs = {
   showYourHandBelow: boolean;
   embedYourHand: boolean;
   onShuffleHand?: () => void;
-  onPlayLandFromHand?: (cardId: string) => void;
+  onPlayLandFromHand?: (cardId: string, fromZone?: 'hand' | 'graveyard' | 'exile' | 'library') => void;
   onCastFromHand?: (cardId: string) => void;
   setZoneContextMenu: React.Dispatch<React.SetStateAction<{ card: KnownCardRef; zone: ZoneType; x: number; y: number } | null>>;
   reasonCannotPlayLand?: (card: any) => string | null;
@@ -772,6 +772,7 @@ export function renderTableLayoutPlayerSeat({
                               }
                             }}
                             onViewGraveyard={onViewGraveyard ? () => onViewGraveyard(pb.player.id) : undefined}
+                            onGraveyardContextMenu={isYouThis ? (card, x, y) => setZoneContextMenu({ card, zone: 'graveyard', x, y }) : undefined}
                             onViewExile={onViewExile ? () => onViewExile(pb.player.id) : undefined}
                             onUseTopOfLibrary={isYouThis ? onUseTopOfLibrary : undefined}
                             playableCards={isYouThis ? playableCards : undefined}

@@ -13,6 +13,7 @@ import {
   typeLineIndicatesArtifactSpell,
   paymentToPool,
 } from '../src/utils/manaUtils';
+import { buildSuggestedPaymentItems } from '../src/utils/manaSourceBuilder';;
 
 describe('calculateSuggestedPayment', () => {
   it('counts exact produced color bundles in selected payment pools', () => {
@@ -258,6 +259,106 @@ describe('restricted mana sources (Vibranium / Powerstone)', () => {
       artifactPurpose,
     );
     expect(artifactSuggestion.get('vib_1')).toEqual({ color: 'C', count: 1 });
+
+    const abilitySuggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 1,
+        hybrids: [],
+      },
+      [vibraniumSource as any],
+      new Set(),
+      undefined,
+      abilityPurpose,
+    );
+    expect(abilitySuggestion.get('vib_1')).toEqual({ color: 'C', count: 1 });
+  });
+
+  
+  it('prefers Vibranium over unrestricted colorless for an artifact generic cost', () => {
+    const purpose = buildRestrictedManaPurposeForSpell({
+      type_line: 'Artifact',
+      mana_cost: '{1}',
+    });
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 1,
+        hybrids: [],
+      },
+      [
+        {
+          id: 'wastes_1',
+          name: 'Wastes',
+          options: ['C'] as const,
+        } as any,
+        {
+          id: 'vib_1',
+          name: 'Vibranium',
+          options: ['C'] as const,
+          spendRestriction: { restriction: 'no_nonartifact_spells' },
+        } as any,
+      ],
+      new Set(),
+      undefined,
+      purpose,
+    );
+
+    expect(suggestion.has('vib_1')).toBe(true);
+    expect(suggestion.has('wastes_1')).toBe(false);
+  });
+
+  it('prefers restricted floating mana before regular floating mana for an artifact', () => {
+    const purpose = buildRestrictedManaPurposeForSpell({
+      type_line: 'Artifact',
+      mana_cost: '{1}',
+    });
+    const items = buildSuggestedPaymentItems(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 1,
+        hybrids: [],
+      },
+      [],
+      new Set(),
+      {
+        white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2,
+        restricted: [{
+          type: 'colorless',
+          amount: 1,
+          restriction: 'no_nonartifact_spells',
+        }],
+      },
+      { includeExplicitPoolItems: true, purpose },
+    );
+    expect(items.some((item) => String(item.permanentId).startsWith('__pool__:restricted:'))).toBe(true);
+    expect(items.some((item) => String(item.permanentId) === '__pool__:colorless')).toBe(false);
+  });
+
+it('falls back to unrestricted mana when Vibranium cannot pay a nonartifact spell', () => {
+    const purpose = buildRestrictedManaPurposeForSpell({ type_line: 'Instant' });
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 1,
+        hybrids: [],
+      },
+      [
+        {
+          id: 'vib_1',
+          name: 'Vibranium',
+          options: ['C'] as const,
+          spendRestriction: { restriction: 'no_nonartifact_spells' },
+        } as any,
+        { id: 'wastes_1', name: 'Wastes', options: ['C'] as const },
+      ],
+      new Set(),
+      undefined,
+      purpose,
+    );
+
+    expect(suggestion.has('vib_1')).toBe(false);
+    expect(suggestion.get('wastes_1')).toEqual({ color: 'C', count: 1 });
   });
 
   it('allows Vibranium for Artifact Vehicle / Equipment (not only Artifact Creature)', () => {
@@ -502,7 +603,8 @@ describe('uncounterable chosen-type mana auto-pay', () => {
     expect(suggestion.get('forest_1')).toEqual({ color: 'G', count: 1 });
   });
 
-  it('does not prefer Unclaimed Territory any-color over a Forest', () => {
+  it('prefers Unclaimed Territory any-color over a Forest for a matching creature spell', () => {
+    // Updated: any legally usable restricted source is preferred so flexible mana is kept.
     expect(sourcePrefersUncounterableChosenTypeCast(unclaimedAnyColor, elfPurpose)).toBe(false);
     expect(manaSourceAllowsSpendPurpose(unclaimedAnyColor, elfPurpose)).toBe(true);
     const suggestion = calculateSuggestedPayment(
@@ -516,8 +618,42 @@ describe('uncounterable chosen-type mana auto-pay', () => {
       undefined,
       elfPurpose,
     );
-    expect(suggestion.get('forest_1')).toEqual({ color: 'G', count: 1 });
-    expect(suggestion.has('ut_1::native_any')).toBe(false);
+    expect(suggestion.get('ut_1::native_any')).toEqual({ color: 'G', count: 1 });
+    expect(suggestion.has('forest_1')).toBe(false);
+  });
+
+  it('does not use Unclaimed Territory for a nonmatching creature or a noncreature spell', () => {
+    const goblinSuggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 1, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      [forest as any, unclaimedAnyColor as any],
+      new Set(),
+      undefined,
+      goblinPurpose,
+    );
+    expect(goblinSuggestion.has('ut_1::native_any')).toBe(false);
+    expect(goblinSuggestion.get('forest_1')).toEqual({ color: 'G', count: 1 });
+
+    const instantPurpose = buildRestrictedManaPurposeForSpell({
+      type_line: 'Instant',
+      mana_cost: '{G}',
+    });
+    const instantSuggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 0, U: 0, B: 0, R: 0, G: 1, C: 0 },
+        generic: 0,
+        hybrids: [],
+      },
+      [forest as any, unclaimedAnyColor as any],
+      new Set(),
+      undefined,
+      instantPurpose,
+    );
+    expect(instantSuggestion.has('ut_1::native_any')).toBe(false);
+    expect(instantSuggestion.get('forest_1')).toEqual({ color: 'G', count: 1 });
   });
 
   it('treats changeling as matching the chosen creature type', () => {

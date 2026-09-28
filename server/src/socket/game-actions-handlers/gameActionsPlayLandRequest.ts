@@ -370,10 +370,29 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
   const fromZone = payload?.fromZone;
   const bypassGraveyardPermissionCheck = payload?.bypassGraveyardPermissionCheck === true;
 
-  if (!gameId || typeof gameId !== 'string') return;
-  if (!cardId || typeof cardId !== 'string') return;
-  if (!(selectedFace === undefined || typeof selectedFace === 'number')) return;
-  if (!(fromZone === undefined || fromZone === 'hand' || fromZone === 'graveyard' || fromZone === 'exile' || fromZone === 'library')) return;
+  const ignoreInvalidRequest = (reason: string): void => {
+    debugWarn(1, `[playLand] Ignored request from ${String((socket.data as any)?.playerId || 'unknown')}: ${reason}`, {
+      gameId,
+      cardId,
+      selectedFace,
+      fromZone,
+    });
+  };
+
+  if (!gameId || typeof gameId !== 'string') { ignoreInvalidRequest('missing or invalid gameId'); return; }
+  if (!cardId || typeof cardId !== 'string') { ignoreInvalidRequest('missing or invalid cardId'); return; }
+  if (!(selectedFace === undefined || typeof selectedFace === 'number')) { ignoreInvalidRequest('invalid selectedFace'); return; }
+  if (!(fromZone === undefined || fromZone === 'hand' || fromZone === 'graveyard' || fromZone === 'exile' || fromZone === 'library')) {
+    ignoreInvalidRequest(`unsupported fromZone "${String(fromZone)}"`);
+    return;
+  }
+
+  // Every rejection after this point is logged server-side as well as emitted to the client,
+  // so a failed land play is never silent in the server log.
+  const emitPlayLandError = (errorPayload: { code: string; message: string }): void => {
+    debugWarn(1, `[playLand] Rejected (${errorPayload.code}) for player ${String((socket.data as any)?.playerId || 'unknown')}, card ${cardId}, fromZone ${String(fromZone || 'hand')}: ${errorPayload.message}`);
+    socket.emit("error", errorPayload);
+  };
 
   const ensureInGameRoom = (
     targetGameId: string,
@@ -384,12 +403,12 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
   ): boolean => {
     const socketGameId = (socket.data as any)?.gameId as string | undefined;
     if (socketGameId && socketGameId !== targetGameId) {
-      socket.emit("error", { code, message });
+      emitPlayLandError({ code, message });
       return false;
     }
 
     if (!(socket as any)?.rooms?.has?.(targetGameId)) {
-      socket.emit("error", { code, message });
+      emitPlayLandError({ code, message });
       return false;
     }
 
@@ -401,7 +420,10 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
   try {
     const game = ensureGame(gameId);
     const playerId = socket.data.playerId;
-    if (!game || !playerId) return;
+    if (!game || !playerId) {
+      debugWarn(1, `[playLand] Ignored request: ${!game ? `game ${gameId} not found` : 'socket has no playerId'}`, { cardId, fromZone });
+      return;
+    }
 
     if (!ensureInGameRoom(gameId)) return;
 
@@ -409,7 +431,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     const maxLands = calculateMaxLandsPerTurn(game as any, playerId);
     debug(2, `[playLand] Player ${playerId} has played ${landsPlayed} lands this turn, max is ${maxLands}`);
     if (landsPlayed >= maxLands) {
-      socket.emit("error", {
+      emitPlayLandError({
         code: "LAND_LIMIT_REACHED",
         message: maxLands > 1
           ? `You have already played ${landsPlayed} land(s) this turn (max ${maxLands})`
@@ -425,7 +447,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
       requestedLandCandidate = getRequestedLandPlayCandidate(game, String(playerId), String(cardId), 'graveyard', selectedFaceIndex);
 
       if (!requestedLandCandidate && !bypassGraveyardPermissionCheck) {
-        socket.emit("error", {
+        emitPlayLandError({
           code: "NO_PERMISSION",
           message: "You don't have permission to play lands from your graveyard",
         });
@@ -444,7 +466,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
       const cardAllows = cardAllowsPlayerToPlayFromExile(exiledCard, String(playerId) as any, turnNumber, game.state);
       const durablePermission = getPlayableFromExileDurablePermissionForCard(game.state, String(playerId) as any, exiledCard, 'play');
       if (!pfeAllows && !cardAllows && !durablePermission) {
-        socket.emit("error", {
+        emitPlayLandError({
           code: "NO_PERMISSION",
           message: "You don't have permission to play that land from exile",
         });
@@ -455,7 +477,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     if (sourceZone === 'library') {
       const validation = validateTopOfLibraryLandAccess(game, String(playerId), String(cardId));
       if (validation.ok === false) {
-        socket.emit('error', {
+        emitPlayLandError({
           code: validation.code,
           message: validation.message,
         });
@@ -476,7 +498,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     const cardImageUrl = (cardInZone as any)?.image_uris?.small || (cardInZone as any)?.image_uris?.normal;
     if (!cardInZone) {
       debugWarn(2, `[playLand] Card ${cardId} not found in ${sourceZone} for player ${playerId}`);
-      socket.emit("error", {
+      emitPlayLandError({
         code: sourceZone === 'graveyard'
           ? "CARD_NOT_IN_GRAVEYARD"
           : sourceZone === 'exile'
@@ -563,10 +585,10 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
           } as any);
         }
 
-        debug(2, `[playLand] Queued MDFC face selection for ${cardName}`);
+        debug(1, `[playLand] Queued MDFC face selection for ${cardName} (fromZone ${sourceZone}); waiting for the player's choice`);
         return;
       } else {
-        socket.emit("error", {
+        emitPlayLandError({
           code: "NOT_A_LAND",
           message: `Neither side of ${cardName} is a land.`,
         });
@@ -597,7 +619,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
 
     if (/\(transforms from [^)]+\)/i.test(cardOracleText)) {
       debugWarn(2, `[playLand] Card ${cardName} is a transform back face and cannot be played from hand`);
-      socket.emit("error", {
+      emitPlayLandError({
         code: "TRANSFORM_BACK_FACE",
         message: `${cardName || "This card"} is a transform back face and cannot be played from your hand. Only the front face of a transform card can be played.`,
       });
@@ -613,7 +635,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
 
       if (!isLand) {
         debugWarn(2, `[playLand] Transform card ${cardName} front face is not a land. Front face type: ${frontTypeLine}`);
-        socket.emit("error", {
+        emitPlayLandError({
           code: "NOT_A_LAND",
           message: `${cardName || "This card"} must be cast as a spell, not played as a land. Its back face transforms into a land.`,
         });
@@ -625,7 +647,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
 
     if (!isLand) {
       debugWarn(2, `[playLand] Card ${cardName} (${cardId}) is not a land. Type line: ${typeLine}`);
-      socket.emit("error", {
+      emitPlayLandError({
         code: "NOT_A_LAND",
         message: `${cardName || "This card"} is not a land and cannot be played with playLand.`,
       });
@@ -635,16 +657,24 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     const bridge = (GameManager as any).syncRulesBridge?.(gameId, game.state)
       || (GameManager as any).getRulesBridge(gameId);
 
+    // The rules-engine mirror does not know about static/effect-based zone permissions
+    // (Conduit/Crucible of Worlds, Ramunap, impulse exile windows, ...). Those were already
+    // verified above, so tell the engine not to re-derive them.
+    const serverVerifiedZonePermission = sourceZone === 'graveyard'
+      ? Boolean(requestedLandCandidate) || bypassGraveyardPermissionCheck
+      : sourceZone === 'exile';
+
     if (bridge) {
       const validation = bridge.validateAction({
         type: 'playLand',
         playerId,
         cardId,
         fromZone: sourceZone,
+        serverVerifiedZonePermission,
       });
 
       if (!validation.legal) {
-        socket.emit("error", {
+        emitPlayLandError({
           code: "INVALID_ACTION",
           message: validation.reason || "Cannot play land",
         });
@@ -656,10 +686,11 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
         playerId,
         cardId,
         fromZone: sourceZone,
+        serverVerifiedZonePermission,
       });
 
       if (!result.success) {
-        socket.emit("error", {
+        emitPlayLandError({
           code: "EXECUTION_ERROR",
           message: result.error || "Failed to play land",
         });
@@ -673,6 +704,9 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
       if (typeof game.playLand === 'function') {
         const landCardForEntry = resolveLandCardFaceForBattlefieldEntry(cardInZone);
         game.playLand(playerId, landCardForEntry);
+        if (zone.some((c: any) => c?.id === cardId) && sourceZone !== 'exile' && sourceZone !== 'library') {
+          debugWarn(1, `[playLand] ${cardName || cardId} is still in ${sourceZone} after playLand for player ${playerId}`);
+        }
       }
     } catch (e) {
       debugWarn(1, 'Legacy playLand failed:', e);
@@ -708,7 +742,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     }
   } catch (err: any) {
     debugError(1, `playLand error for game ${gameId}:`, err);
-    socket.emit("error", {
+    emitPlayLandError({
       code: "PLAY_LAND_ERROR",
       message: err?.message ?? String(err),
     });

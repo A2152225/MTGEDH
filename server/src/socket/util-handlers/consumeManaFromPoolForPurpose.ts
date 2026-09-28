@@ -1,7 +1,7 @@
 // server/src/socket/util-handlers/consumeManaFromPoolForPurpose.ts
 // Origin parent: server/src/socket/util.ts
-// Cluster moved: consumeManaFromPoolForPurpose - restricted-entry spend then
-//   floating-pool drain for a RestrictedManaSpendPurpose.
+// Cluster moved: consumeManaFromPoolForPurpose - eligible restricted mana first,
+//   then floating-pool drain for a RestrictedManaSpendPurpose.
 // Public entry symbols: consumeManaFromPoolForPurpose.
 // Re-exported from util.ts so the "./util.js" import path keeps working.
 
@@ -72,20 +72,20 @@ export function consumeManaFromPoolForPurpose(
   }
 
   let genericLeft = genericCost;
-  if (genericLeft > 0 && Number(mutablePool.colorless || 0) > 0) {
-    const useColorless = Math.min(Number(mutablePool.colorless || 0), genericLeft);
-    mutablePool.colorless = Number(mutablePool.colorless || 0) - useColorless;
-    consumed.colorless = (consumed.colorless || 0) + useColorless;
-    genericLeft -= useColorless;
-  }
-
-  for (const color of MANA_COLORS) {
+  // Prefer eligible restricted mana before unrestricted so flexible mana is kept
+  // (e.g. Vibranium {C} before regular colorless/colored when paying an artifact).
+  // Among restricted, and then among regular, prefer colorless first.
+  const genericColorOrder = ['C', 'W', 'U', 'B', 'R', 'G'] as const;
+  for (const color of genericColorOrder) {
     if (genericLeft <= 0) break;
     const colorKey = MANA_COLOR_NAMES[color];
     if (!colorKey) continue;
-    const fromRestricted = takeFromRestricted(colorKey, genericLeft);
-    genericLeft -= fromRestricted;
+    genericLeft -= takeFromRestricted(colorKey, genericLeft);
+  }
+  for (const color of genericColorOrder) {
     if (genericLeft <= 0) break;
+    const colorKey = MANA_COLOR_NAMES[color];
+    if (!colorKey) continue;
     const available = Number(mutablePool[colorKey] || 0);
     if (available <= 0) continue;
     const useColor = Math.min(available, genericLeft);

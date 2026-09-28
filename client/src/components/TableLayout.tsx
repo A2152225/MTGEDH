@@ -17,7 +17,6 @@ import type {
   ManaPool,
 } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
-import { ZoneCardContextMenu } from './ZoneCardContextMenu';
 import { DeckManagerModal } from './DeckManagerModal';
 import { CentralStack } from './CentralStack';
 import { XValueSelectionModal } from './XValueSelectionModal';
@@ -37,6 +36,7 @@ import {
 } from './TableLayout-handlers/tableLayoutGeometry';
 import { useTableLayoutViewport } from './TableLayout-handlers/useTableLayoutViewport';
 import { renderTableLayoutPlayerSeat } from './TableLayout-handlers/tableLayoutPlayerSeat';
+import { TableLayoutZoneCardContextMenu } from './TableLayout-handlers/tableLayoutZoneCardContextMenu';
 
 
 export function TableLayout(props: {
@@ -66,7 +66,7 @@ export function TableLayout(props: {
   highlightPlayerTargets?: Set<string> | undefined;
   selectedPlayerTargets?: Set<string> | undefined;
   onPlayerClick?: ((pid: string) => void) | undefined;
-  onPlayLandFromHand?: (cardId: string) => void;
+  onPlayLandFromHand?: (cardId: string, fromZone?: 'hand' | 'graveyard' | 'exile' | 'library') => void;
   onCastFromHand?: (cardId: string) => void;
   onUseTopOfLibrary?: () => void;
   onCastCommander?: (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => void;
@@ -954,72 +954,21 @@ export function TableLayout(props: {
         />
       )}
       
-      {/* Zone Card Context Menu (for hand, graveyard, exile, commander, library cards) */}
-      {zoneContextMenu && (
-        <ZoneCardContextMenu
-          card={zoneContextMenu.card}
-          zone={zoneContextMenu.zone}
-          x={zoneContextMenu.x}
-          y={zoneContextMenu.y}
-          onClose={() => setZoneContextMenu(null)}
-          onCast={(cardId) => {
-            if (zoneContextMenu.zone === 'hand') {
-              onCastFromHand?.(cardId);
-            } else if (zoneContextMenu.zone === 'commander') {
-              const cmd = zoneContextMenu.card;
-              onCastCommander?.(cardId, cmd.name, cmd.mana_cost);
-            }
-          }}
-          onPlayLand={(cardId) => {
-            if (zoneContextMenu.zone === 'hand') {
-              onPlayLandFromHand?.(cardId);
-            }
-          }}
-          onDiscard={(cardId) => {
-            if (gameId && zoneContextMenu.zone === 'hand') {
-              socket.emit('discard', { gameId, cardId });
-            }
-          }}
-          onActivateAbility={(cardId, abilityId) => {
-            if (gameId && zoneContextMenu.zone === 'hand') {
-              if (abilityId === 'cycling' || /-cycling-\d+$/i.test(String(abilityId || ''))) {
-                socket.emit('activateCycling', { gameId, cardId, abilityId });
-              } else if (abilityId === 'foretell') {
-                socket.emit('foretellCard', { gameId, cardId });
-              }
-            }
-          }}
-          onIgnoreForPlayability={(cardId, cardName, zone, imageUrl) => {
-            if (gameId && you) {
-              socket.emit('ignoreCardForAutoPass', { 
-                gameId, 
-                cardId,
-                cardName, 
-                zone,
-                imageUrl,
-              });
-              setIgnoredCardsSet(prev => new Set([...prev, cardId]));
-            }
-          }}
-          onUnignoreForPlayability={(cardId) => {
-            if (gameId) {
-              socket.emit('unignoreCardForAutoPass', { 
-                gameId, 
-                cardId,
-              });
-              setIgnoredCardsSet(prev => {
-                const next = new Set(prev);
-                next.delete(cardId);
-                return next;
-              });
-            }
-          }}
-          isIgnoredForPlayability={ignoredCardsSet.has(zoneContextMenu.card.id)}
-          canCast={zoneContextMenu.zone === 'hand' ? !reasonCannotCast?.(zoneContextMenu.card) : true}
-          canPlayLand={zoneContextMenu.zone === 'hand' ? !reasonCannotPlayLand?.(zoneContextMenu.card) : true}
-          reasonCannotCast={zoneContextMenu.zone === 'hand' ? reasonCannotCast?.(zoneContextMenu.card) : null}
-          reasonCannotPlayLand={zoneContextMenu.zone === 'hand' ? reasonCannotPlayLand?.(zoneContextMenu.card) : null}
-          costAdjustment={costAdjustments?.[zoneContextMenu.card.id]}
+            {zoneContextMenu && (
+        <TableLayoutZoneCardContextMenu
+          zoneContextMenu={zoneContextMenu}
+          gameId={gameId}
+          you={you}
+          playableCards={playableCards}
+          costAdjustments={costAdjustments}
+          ignoredCardsSet={ignoredCardsSet}
+          setIgnoredCardsSet={setIgnoredCardsSet}
+          setZoneContextMenu={setZoneContextMenu}
+          onPlayLandFromHand={onPlayLandFromHand}
+          onCastFromHand={onCastFromHand}
+          onCastCommander={onCastCommander}
+          reasonCannotPlayLand={reasonCannotPlayLand}
+          reasonCannotCast={reasonCannotCast}
         />
       )}
     </div>
