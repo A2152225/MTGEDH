@@ -6,6 +6,7 @@
 
 import type { GameContext } from "../../context.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
+import { expireEndOfCombatPtEffects } from "../longDurationPtModifiers.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -23,6 +24,8 @@ export function clearCombatState(ctx: GameContext) {
     if (!Array.isArray(battlefield)) return;
     
     let clearedCount = 0;
+    // "Until end of combat" pumps end with the combat phase.
+    clearedCount += expireEndOfCombatPtEffects(battlefield);
     for (const permanent of battlefield) {
       if (!permanent) continue;
       

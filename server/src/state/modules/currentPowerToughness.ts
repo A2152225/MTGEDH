@@ -14,12 +14,12 @@ import {
   parsePT,
   calculateVariablePT,
   calculateAllPTBonusesWithSources,
-  resolveSetBasePTFromAttachedAuras,
   getActualPowerToughness,
   type PTBonusSource,
 } from "../utils.js";
-import { resolveSetBasePTFromStaticSpecs, syncDerivedContinuousEffects } from "./staticEffectSpec.js";
-import { resolveOracleIrSetPowerToughness } from "./oracleIrSetPowerToughness.js";
+import { syncDerivedContinuousEffects } from "./staticEffectSpec.js";
+import { applyLayer7bSetBasePowerToughness } from "./setBasePtTimestampResolution.js";
+import { sumLongDurationPtModifiers } from "./longDurationPtModifiers.js";
 
 export interface CurrentPowerToughness {
   power: number;
@@ -47,22 +47,12 @@ export function computeCurrentPowerToughnessWithSources(perm: any, state: any): 
     }
   }
 
-  const setBasePT = resolveSetBasePTFromAttachedAuras(perm, state?.battlefield || []);
-  if (setBasePT) {
-    baseP = setBasePT.power;
-    baseT = setBasePT.toughness;
-  }
-  const staticSetBasePT = resolveSetBasePTFromStaticSpecs(perm, state);
-  if (staticSetBasePT) {
-    baseP = staticSetBasePT.power;
-    baseT = staticSetBasePT.toughness;
-  }
-  // Rules-engine "becomes an X/Y" / "has base P/T X/Y" modifiers (type setPowerToughness).
-  // Layer 7b: applied after base / set-base values and before counters and modifications
-  // (anthems, equipment, pumps), which are all added below. Treated as the most recent setter.
-  const irSetPT = resolveOracleIrSetPowerToughness(perm);
-  if (typeof irSetPT?.power === "number") baseP = irSetPT.power;
-  if (typeof irSetPT?.toughness === "number") baseT = irSetPT.toughness;
+  // Layer 7b set-base effects: Auras, static specs (lords) and rules-engine "becomes an X/Y" /
+  // "has base P/T X/Y" modifiers (type setPowerToughness) ordered by timestamp, last one wins.
+  // Applied before counters and modifications (anthems, equipment, pumps), added below.
+  const layer7b = applyLayer7bSetBasePowerToughness(perm, state, { power: baseP, toughness: baseT });
+  baseP = layer7b.power;
+  baseT = layer7b.toughness;
 
   if (typeof baseP !== "number" || typeof baseT !== "number") return undefined;
 
@@ -89,6 +79,8 @@ export function computeCurrentPowerToughnessWithSources(perm: any, state: any): 
   // Equipment, auras, anthems, lords, emblems, pump fields (with source tracking)
   const allBonusesResult = calculateAllPTBonusesWithSources(perm, state);
   const temporaryPtBonus = sumActiveTemporaryPTMods(perm);
+  // Pumps lasting longer than end of turn (until your next turn, until end of combat, permanent).
+  const longPtBonus = sumLongDurationPtModifiers(perm, state);
 
   const sources: PTBonusSource[] = [];
   if (counterDelta !== 0) {
@@ -100,11 +92,14 @@ export function computeCurrentPowerToughnessWithSources(perm: any, state: any): 
   if (temporaryPtBonus.power !== 0 || temporaryPtBonus.toughness !== 0) {
     sources.push({ name: 'Until end of turn', power: temporaryPtBonus.power, toughness: temporaryPtBonus.toughness, type: 'modifier' });
   }
+  if (longPtBonus.power !== 0 || longPtBonus.toughness !== 0) {
+    sources.push({ name: 'Lasting effects', power: longPtBonus.power, toughness: longPtBonus.toughness, type: 'modifier' });
+  }
   sources.push(...allBonusesResult.sources);
 
   return {
-    power: baseP + counterDelta + otherCounterPower + allBonusesResult.power + temporaryPtBonus.power,
-    toughness: baseT + counterDelta + otherCounterToughness + allBonusesResult.toughness + temporaryPtBonus.toughness,
+    power: baseP + counterDelta + otherCounterPower + allBonusesResult.power + temporaryPtBonus.power + longPtBonus.power,
+    toughness: baseT + counterDelta + otherCounterToughness + allBonusesResult.toughness + temporaryPtBonus.toughness + longPtBonus.toughness,
     sources,
   };
 }

@@ -7,6 +7,7 @@ import { getCounterCountOnObject } from './oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower, hasExecutorClass, isExecutorCreature } from './oracleIRExecutorPermanentUtils';
 import { getCombinedPermanentText } from './permanentText';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
+import { describeSetterOrdering } from './oracleIRExecutorEffectTimestamps';
 import {
   getProcessedBattlefield,
   permanentHasSubtype,
@@ -65,7 +66,7 @@ export function applyTemporaryPowerToughnessModifier(
   powerBonus: number,
   toughnessBonus: number,
   markTrepanation: boolean,
-  duration: 'end_of_turn' | 'until_next_turn' = 'end_of_turn',
+  duration: 'end_of_turn' | 'until_next_turn' | 'end_of_combat' = 'end_of_turn',
 ): GameState | null {
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
   const index = battlefield.findIndex(permanent => permanent.id === creatureId);
@@ -79,6 +80,8 @@ export function applyTemporaryPowerToughnessModifier(
     toughness: toughnessBonus,
     sourceId: ctx.sourceId,
     duration,
+    // Turn the pump was applied: long-lived pumps ("until your next turn") expire by turn number.
+    turnApplied: Number((state as any)?.turnNumber ?? 0) || 0,
     ...(duration === 'until_next_turn' && ctx.controllerId
       ? { expiresOnControllerTurn: ctx.controllerId }
       : {}),
@@ -126,7 +129,8 @@ export function applyTemporarySetBasePowerToughness(
   creatureId: string,
   ctx: OracleIRExecutionContext,
   power: number,
-  toughness: number
+  toughness: number,
+  duration: 'end_of_turn' | 'until_next_turn' | 'static' = 'end_of_turn',
 ): GameState | null {
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
   const index = battlefield.findIndex(permanent => permanent.id === creatureId);
@@ -139,7 +143,13 @@ export function applyTemporarySetBasePowerToughness(
     setPower: power,
     setToughness: toughness,
     sourceId: ctx.sourceId,
-    duration: 'end_of_turn',
+    duration,
+    // Layer 7b ordering (CR 613.7): last timestamp wins; see oracleIRExecutorEffectTimestamps.
+    ...describeSetterOrdering(state),
+    turnApplied: Number((state as any)?.turnNumber ?? 0) || 0,
+    ...(duration === 'until_next_turn' && ctx.controllerId
+      ? { expiresOnControllerTurn: ctx.controllerId }
+      : {}),
   } as any);
 
   battlefield[index] = {

@@ -5,9 +5,7 @@ import { evaluateLifeGainReplacementEvent } from './modules/replacement-effects.
 import { summarizeLifeGainAmountReplacements } from './modules/replacementEffectSpec.js';
 import { canPlayerPayLife } from './modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js';
 import { calculateVariablePT } from './utils-handlers/variablePTCalculator.js';
-import { resolveSetBasePTFromAttachedAuras } from './utils-handlers/ptAttachedBonusParseHelpers.js';
-import { resolveSetBasePTFromStaticSpecs } from './modules/staticEffectSpec.js';
-import { resolveOracleIrSetPowerToughness } from './modules/oracleIrSetPowerToughness.js';
+import { applyLayer7bSetBasePowerToughness } from './modules/setBasePtTimestampResolution.js';
 
 export function uid(prefix = "id"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -693,20 +691,10 @@ export function getActualPowerToughness(
     baseToughness = variablePT.toughness;
   }
 
-  const setBasePT = resolveSetBasePTFromAttachedAuras(permanent, gameState?.battlefield || []);
-  if (setBasePT) {
-    basePower = setBasePT.power;
-    baseToughness = setBasePT.toughness;
-  }
-  const staticSetBasePT = resolveSetBasePTFromStaticSpecs(permanent, gameState);
-  if (staticSetBasePT) {
-    basePower = staticSetBasePT.power;
-    baseToughness = staticSetBasePT.toughness;
-  }
-  // Rules-engine setPowerToughness modifiers (layer 7b, before counters).
-  const irSetPT = resolveOracleIrSetPowerToughness(permanent);
-  if (typeof irSetPT?.power === 'number') basePower = irSetPT.power;
-  if (typeof irSetPT?.toughness === 'number') baseToughness = irSetPT.toughness;
+  // Layer 7b set-base (Auras, static specs, rules-engine setters) by timestamp, before counters.
+  const layer7b = applyLayer7bSetBasePowerToughness(permanent, gameState, { power: basePower, toughness: baseToughness });
+  basePower = layer7b.power ?? basePower;
+  baseToughness = layer7b.toughness ?? baseToughness;
   
   // Apply counters
   const counters = permanent.counters || {};

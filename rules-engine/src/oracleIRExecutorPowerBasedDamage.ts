@@ -63,18 +63,22 @@ function resolveSelfDamageCreatureId(state: GameState, step: DealDamageStep, ctx
   }) || '';
 }
 
-/** "Target creature deals damage to itself equal to its power." */
+/**
+ * "Target creature deals damage to itself equal to its power." With a multiplier of 2 this is the
+ * "if it has flying, it deals twice that much damage to itself instead" replacement (Cut Propulsion).
+ */
 export function applySelfDamageEqualToPowerStep(
   state: GameState,
   step: DealDamageStep,
   ctx: OracleIRExecutionContext,
+  multiplier = 1,
 ): PowerBasedDamageResult {
   const creatureId = resolveSelfDamageCreatureId(state, step, ctx);
   const creature = creatureId ? findBattlefieldPermanent(state, creatureId) : undefined;
   if (!creature) {
     return { applied: true, state, log: [`No creature to deal damage to itself: ${step.raw}`], count: 0 };
   }
-  const power = Math.max(0, Number(readCurrentPower(state, creature, ctx) ?? 0));
+  const power = Math.max(0, Number(readCurrentPower(state, creature, ctx) ?? 0)) * Math.max(1, multiplier);
   if (power <= 0) {
     return { applied: true, state, log: [`${creatureId} has no power; no damage dealt: ${step.raw}`], count: 0 };
   }
@@ -94,7 +98,11 @@ export function applySelfDamageEqualToPowerStep(
         : perm,
     ),
   } as GameState;
-  log.push(`${creatureId} dealt ${finalAmount} damage to itself (equal to its power)`);
+  log.push(
+    multiplier > 1
+      ? `${creatureId} dealt ${finalAmount} damage to itself (${multiplier}x its power)`
+      : `${creatureId} dealt ${finalAmount} damage to itself (equal to its power)`,
+  );
   return { applied: true, state: nextState, log, count: finalAmount, lastDamagedBattlefieldPermanentIds: [creatureId] };
 }
 

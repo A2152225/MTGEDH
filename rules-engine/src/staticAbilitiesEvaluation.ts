@@ -116,10 +116,18 @@ export function calculateEffectivePT(
   const ptSetters = Array.isArray(permanent.modifiers)
     ? permanent.modifiers.filter(mod => String((mod as any)?.type || '') === 'setPowerToughness')
     : [];
-  const lastPtSetter = ptSetters.length > 0 ? ptSetters[ptSetters.length - 1] as any : null;
-  if (lastPtSetter) {
-    if (typeof lastPtSetter.setPower === 'number') power = lastPtSetter.setPower;
-    if (typeof lastPtSetter.setToughness === 'number') toughness = lastPtSetter.setToughness;
+  // Layer 7b (CR 613.7): the latest timestamp wins per component; setters created before
+  // timestamps existed keep array order (stable sort, unstamped first).
+  const orderedPtSetters = ptSetters
+    .map((setter, index) => ({ setter: setter as any, index }))
+    .sort((left, right) => {
+      const leftTs = Number.isFinite(Number(left.setter?.timestamp)) ? Number(left.setter.timestamp) : Number.NEGATIVE_INFINITY;
+      const rightTs = Number.isFinite(Number(right.setter?.timestamp)) ? Number(right.setter.timestamp) : Number.NEGATIVE_INFINITY;
+      return (leftTs - rightTs) || (left.index - right.index);
+    });
+  for (const { setter } of orderedPtSetters) {
+    if (typeof setter.setPower === 'number') power = setter.setPower;
+    if (typeof setter.setToughness === 'number') toughness = setter.setToughness;
   }
 
   const plusCounters = permanent.counters?.['+1/+1'] || 0;

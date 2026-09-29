@@ -13,6 +13,7 @@ import {
   sumUnmirroredOracleIrPtModifiers,
 } from "../../state/modules/currentPowerToughness.js";
 import { resolveOracleIrSetPowerToughness } from "../../state/modules/oracleIrSetPowerToughness.js";
+import { sumLongDurationPtModifiers } from "../../state/modules/longDurationPtModifiers.js";
 
 // Oracle IR "gets +X/+Y until end of turn" pumps are stored as `modifiers` entries of type
 // powerToughness AND mirrored into temporaryPTMods. Adding both double-counted the pump
@@ -20,17 +21,10 @@ import { resolveOracleIrSetPowerToughness } from "../../state/modules/oracleIrSe
 // added on top of temporaryPTMods (sumUnmirroredOracleIrPtModifiers).
 function sumPtModifiersWithoutMirrorDoubleCount(permanent: any): { power: number; toughness: number } {
   const pending = sumUnmirroredOracleIrPtModifiers(permanent);
-  let power = pending.power;
-  let toughness = pending.toughness;
-  for (const mod of Array.isArray(permanent?.modifiers) ? permanent.modifiers : []) {
-    const type = String(mod?.type || '');
-    if (type !== 'powerToughness' && type !== 'POWER_TOUGHNESS') continue;
-    // end-of-turn entries are handled above (mirror-aware).
-    if (String(mod?.duration || 'end_of_turn').trim() === 'end_of_turn') continue;
-    power += Number(mod?.power) || 0;
-    toughness += Number(mod?.toughness) || 0;
-  }
-  return { power, toughness };
+  // end-of-turn entries are handled above (mirror-aware); longer-lasting ones (until your next
+  // turn, until end of combat, permanent) are counted while still active.
+  const longLasting = sumLongDurationPtModifiers(permanent);
+  return { power: pending.power + longLasting.power, toughness: pending.toughness + longLasting.toughness };
 }
 
 /**

@@ -157,6 +157,8 @@ function endTemporaryEffects(ctx: GameContext) {
         delete permanent.tempBonusExpires;
         endedCount++;
       }
+      delete permanent.tempCombatPowerBonus;
+      delete permanent.tempCombatToughnessBonus;
 
       // Oracle IR P/T changes are canonical in `modifiers` and mirrored into
       // `temporaryPTMods` for server/client stat calculation. Expire both
@@ -169,7 +171,8 @@ function endTemporaryEffects(ctx: GameContext) {
           return duration !== 'end_of_turn'
             && duration !== 'until_end_of_turn'
             && duration !== 'eot'
-            && duration !== 'this_turn';
+            && duration !== 'this_turn'
+            && duration !== 'end_of_combat';
         });
         if ((permanent as any).temporaryPTMods.length === 0) {
           delete (permanent as any).temporaryPTMods;
@@ -184,7 +187,8 @@ function endTemporaryEffects(ctx: GameContext) {
           return duration !== 'end_of_turn'
             && duration !== 'until_end_of_turn'
             && duration !== 'eot'
-            && duration !== 'this_turn';
+            && duration !== 'this_turn'
+            && duration !== 'end_of_combat';
         });
         if ((permanent as any).modifiers.length === 0) {
           delete (permanent as any).modifiers;

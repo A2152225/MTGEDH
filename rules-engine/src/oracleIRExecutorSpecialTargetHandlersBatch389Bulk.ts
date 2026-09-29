@@ -654,10 +654,8 @@ export function tryBatch389DealDamageStep(
   }
 
   if (/it deals twice that much damage to itself(?: instead)?/i.test(raw)) {
-    const targetId =
-      contextualBattlefieldIds(ctx, false)[0] ||
-      String(ctx.targetCreatureId || ctx.sourceId || '').trim();
-    return { applied: true, state, log: [`${targetId || 'Target'} takes twice the redirected damage`] };
+    // Cut Propulsion replacement: twice the creature's current power marked on itself (was log-only).
+    return applySelfDamageEqualToPowerStep(state, step, ctx, 2);
   }
 
   if (

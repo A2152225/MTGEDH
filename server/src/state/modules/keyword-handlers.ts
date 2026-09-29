@@ -19,6 +19,7 @@ import { listLegalHauntCreatureTargets } from "./hauntKeywordUtils.js";
 import type { KeywordTriggerResult, KeywordTriggerContext } from "./keyword-trigger-handlers/keywordTriggerTypes.js";
 import { permanentHasKeyword, getPermanentKeywords } from "./keyword-trigger-handlers/keywordTriggerPermanentLookup.js";
 import { playerCannotReceivePriority } from "./priorityEligibility.js";
+import { recordEndOfCombatKeywordPtBonus } from "./longDurationPtModifiers.js";
 import {
   handleProwess,
   handleDethrone,
@@ -1236,6 +1237,7 @@ export function applyKeywordPTMod(
     permanent.tempBonusExpires = 'end_of_turn';
   } else if (result.ptModification.duration === 'end_of_combat') {
     permanent.tempBonusExpires = 'end_of_combat';
+    recordEndOfCombatKeywordPtBonus(permanent, result.ptModification.power, result.ptModification.toughness);
   }
 
   delete permanent.effectivePower;

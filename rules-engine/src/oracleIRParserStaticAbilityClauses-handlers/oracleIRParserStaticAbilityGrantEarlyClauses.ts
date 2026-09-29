@@ -71,21 +71,34 @@ export function tryParseStaticAbilityGrantEarlyClauses(args: {
     } as OracleEffectStep);
   }
 
-  const staticGenericPtMatch = normalized.match(/^(.+?\b(?:you control|opponents control|opponent controls|enchanted creature|equipped creature|this creature|this permanent|it|they))\s+gets?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))(?:\s*,?\s*(.+))?$/i);
+  // "Until your next turn, creatures you control get +1/+1" (prefix form) and
+  // "... get +1/+1 until your next turn / until end of combat" (suffix form) are not
+  // permanent statics: they carry their own duration so the P/T modifier expires.
+  const ptDurationPrefix = normalized.match(/^until\s+(?:the\s+end\s+of\s+)?(your\s+next\s+turn|end\s+of\s+combat),\s*(.+)$/i);
+  const ptClauseText = ptDurationPrefix ? String(ptDurationPrefix[2] || '').trim() : normalized;
+  const staticGenericPtMatch = ptClauseText.match(/^(.+?\b(?:you control|opponents control|opponent controls|enchanted creature|equipped creature|this creature|this permanent|it|they))\s+gets?\s+([+-]?(?:\d+|x))\s*\/\s*([+-]?(?:\d+|x))(?:\s*,?\s*(.+))?$/i);
   if (staticGenericPtMatch) {
     const power = parseSignedInt(staticGenericPtMatch[2]);
     const toughness = parseSignedInt(staticGenericPtMatch[3]);
     const targetText = String(staticGenericPtMatch[1] || '').trim();
-    const tail = String(staticGenericPtMatch[4] || '').replace(/^,\s*/, '').trim();
+    const rawTail = String(staticGenericPtMatch[4] || '').replace(/^,\s*/, '').trim();
+    const untilTail = rawTail.match(/^until\s+(?:the\s+end\s+of\s+)?(your\s+next\s+turn|end\s+of\s+combat)$/i);
+    // A compound tail with its own "until ..." ("and gains trample until end of combat") must not
+    // silently become a permanent +N/+N static.
+    if (!untilTail && /\buntil\s+(?:the\s+end\s+of\s+)?(?:your\s+next\s+turn|end\s+of\s+combat)\b/i.test(rawTail)) return null;
+    const tail = untilTail ? '' : rawTail;
+    const durationText = String((ptDurationPrefix || untilTail)?.[1] || '').toLowerCase();
+    const ptDuration = /next turn/.test(durationText) ? 'until_next_turn' : /combat/.test(durationText) ? 'end_of_combat' : 'static';
     const dynamicTail = /^(?:for\s+each|where\b|as\s+long\s+as\b)/i.test(tail);
     if ((power === undefined || toughness === undefined) && !dynamicTail) return null;
+    if (ptDuration !== 'static' && (dynamicTail || power === undefined || toughness === undefined)) return null;
     return withMeta({
       kind: 'grant_static_ability',
       target: parseObjectSelector(targetText),
       ...(dynamicTail || power === undefined || toughness === undefined
         ? { effectText: [`gets ${String(staticGenericPtMatch[2] || '').trim()}/${String(staticGenericPtMatch[3] || '').trim()} ${tail}`.trim()] }
         : { power, toughness }),
-      duration: 'static',
+      duration: ptDuration,
       raw: rawClause,
     });
   }

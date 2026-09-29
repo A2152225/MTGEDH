@@ -383,7 +383,7 @@ export type OracleEffectStepB =
       readonly powerUsesX?: boolean;
       /** When true, `toughness` is a signed X coefficient (e.g. +X => 1, -X => -1). */
       readonly toughnessUsesX?: boolean;
-      readonly duration: 'end_of_turn' | 'until_next_turn' | 'this_turn' | 'static';
+      readonly duration: 'end_of_turn' | 'until_next_turn' | 'end_of_combat' | 'this_turn' | 'static';
       readonly scaler?: OracleScaler;
       readonly condition?: OracleClauseCondition;
       readonly optional?: boolean;
@@ -430,7 +430,7 @@ export type OracleEffectStepB =
       readonly keyword?: string;
       readonly power?: number;
       readonly toughness?: number;
-      readonly duration?: 'static' | 'while_attached' | 'this_turn' | 'end_of_turn' | 'until_next_turn';
+      readonly duration?: 'static' | 'while_attached' | 'this_turn' | 'end_of_turn' | 'until_next_turn' | 'end_of_combat';
       /** Parsed metadata for granted effect text; not executed as part of the host effect. */
       readonly steps?: readonly OracleEffectStep[];
       readonly optional?: boolean;

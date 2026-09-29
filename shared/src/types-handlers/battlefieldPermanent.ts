@@ -19,7 +19,19 @@ export interface PermanentModifier {
   readonly setToughness?: number;
   readonly ability?: string;
   readonly sourceId?: string;
-  readonly duration?: 'permanent' | 'end_of_turn' | 'end_of_combat';
+  readonly duration?: 'permanent' | 'static' | 'end_of_turn' | 'end_of_combat' | 'until_next_turn' | 'this_turn';
+  /** Turn number the modifier was created on (long-lived durations expire by turn). */
+  readonly turnApplied?: number;
+  /** "Until your next turn": expires when this player's next turn begins. */
+  readonly expiresOnControllerTurn?: string;
+  /**
+   * Layer 7b ordering for setPowerToughness ("becomes an X/Y"): higher timestamp wins.
+   * `battlefieldPosition` is the battlefield length when the effect was created, used to
+   * interleave with Aura / static set-base effects (whose timestamp is their battlefield index).
+   */
+  readonly timestamp?: number;
+  readonly battlefieldPosition?: number;
+  readonly battlefieldAnchorId?: string;
 }
 
 /**

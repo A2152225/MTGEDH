@@ -133,6 +133,9 @@ function buildSpellIrContext(
       ...((params.sourceItem as any)?.wasKicked === true || (params.card as any)?.wasKicked === true || (params.effectiveCard as any)?.wasKicked === true
         ? { wasKicked: true }
         : {}),
+      ...(typeof (params.sourceItem as any)?.wasBargained === 'boolean'
+        ? { wasBargained: (params.sourceItem as any).wasBargained as boolean }
+        : {}),
       ...(params.castFromGraveyard ? { castFromZone: 'graveyard' } : {}),
       ...oracleIrTargetBindingToBaseContext(targetBinding),
       selectorContext: {

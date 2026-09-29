@@ -557,7 +557,11 @@ export function applyModifyPtStep(
       powerBonus,
       toughnessBonus,
       step.scaler?.kind === 'per_revealed_this_way',
-      step.duration === 'until_next_turn' ? 'until_next_turn' : 'end_of_turn',
+      step.duration === 'until_next_turn'
+        ? 'until_next_turn'
+        : step.duration === 'end_of_combat'
+          ? 'end_of_combat'
+          : 'end_of_turn',
     );
 
     if (!nextState) {

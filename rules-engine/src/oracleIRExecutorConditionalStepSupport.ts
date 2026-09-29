@@ -14,6 +14,7 @@ import {
 import { tryEvaluateConditionalUnlessPayYouDoOtherwise } from './oracleIRExecutorConditionalStepUnlessPay.js';
 import { tryEvaluateConditionalCreaturesDiedThisTurn } from './oracleIRExecutorConditionalStepCreaturesDied.js';
 import { tryEvaluateConditionalKicked } from './oracleIRExecutorConditionalStepKicked.js';
+import { tryEvaluateConditionalSpellCastFlagOrKeyword } from './oracleIRExecutorConditionalStepSpellCastFlagOrKeyword.js';
 import { tryEvaluateConditionalYouHaveGraveyard } from './oracleIRExecutorConditionalStepYouHaveGraveyard.js';
 import { tryEvaluateWinIfCastSameNameThisGame } from './oracleIRExecutorWinIfCastSameNameThisGame.js';
 import { tryEvaluateWinIfControlDifferentNames } from './oracleIRExecutorWinIfControlDifferentNames.js';
@@ -89,6 +90,15 @@ export function evaluateConditionalWrapperCondition(
   }
   if (normalizedRaw.startsWith('if ')) {
     normalizedRaw = normalizedRaw.replace(/^if\s+/i, '').trim();
+  }
+
+  {
+    const castFlagOrKeyword = tryEvaluateConditionalSpellCastFlagOrKeyword({
+      nextState,
+      ctx,
+      normalizedRaw,
+    });
+    if (castFlagOrKeyword !== undefined) return castFlagOrKeyword;
   }
 
   {

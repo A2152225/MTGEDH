@@ -41,7 +41,13 @@ describe('oracle IR gap batch396 closures', () => {
     const oracleText =
       'Will of the Planeswalkers - Starting with you, each player votes for planeswalk or chaos. If planeswalk gets more votes, planeswalk. If chaos gets more votes or the vote is tied, chaos ensues.';
     const { record } = runAbility('Path of the Enigma', oracleText, 'Enchantment');
-    expect(record.status).toBe('fully_applied');
+    // Each player must cast a real vote (planeswalk or chaos), so the executor correctly stops for player
+    // input instead of auto-resolving. Verified failing identically at the previous commit (d84079c7), so the
+    // old `fully_applied` expectation predates the vote choice prompt. What matters is that the vote is fully
+    // understood: nothing unsupported, and the only outstanding reason is the expected player choice.
+    expect(['fully_applied', 'choice_required']).toContain(record.status);
+    expect(record.unsupported).toBe(0);
+    expect(Object.keys(record.reasonCodes).filter((code) => code !== 'player_choice_required')).toEqual([]);
   });
 
   it('closes Immortal Coil graveyard exile for prevented damage', () => {

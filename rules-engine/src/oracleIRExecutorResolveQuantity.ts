@@ -310,6 +310,12 @@ export function resolveOracleQuantity(
       if (Number.isFinite(runtimeGreatest)) return Math.max(0, runtimeGreatest);
     }
 
+    if (normalized === 'twice x') {
+      // Folded "deals twice X damage instead" replacements no longer run the base X step first.
+      const xValue = Number(ctx.xValue);
+      if (Number.isFinite(xValue)) return Math.max(0, Math.floor(xValue) * 2);
+    }
+
     if (normalized === 'twice that much' || normalized === 'twice x') {
       const ref = quantityToNumber({ kind: 'reference_amount', raw: 'that much' }, ctx);
       return ref === null ? null : Math.max(0, ref * 2);

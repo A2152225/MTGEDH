@@ -787,6 +787,31 @@ export function resolveSetBasePTFromStaticSpecs(
   return result;
 }
 
+/** Per-spec layer 7b set-base entries (timestamp = source battlefield index) for timestamp interleaving. */
+export function collectSetBasePTEntriesFromStaticSpecs(
+  permanent: BattlefieldPermanent,
+  state: { battlefield?: readonly BattlefieldPermanent[] } | null | undefined,
+): Array<{ power?: number; toughness?: number; timestamp: number }> {
+  if (!state || !Array.isArray(state.battlefield)) return [];
+  const specs = sortStaticEffectSpecsForApplication(
+    readDerivedStaticEffectSpecs(state) ?? collectStaticEffectSpecsFromState(state),
+    state,
+  );
+  const entries: Array<{ power?: number; toughness?: number; timestamp: number }> = [];
+  const keywordResolver = bindKeywordResolver(specs, state as StaticConditionState);
+  for (const spec of specs) {
+    if (spec.grant.setPower === undefined && spec.grant.setToughness === undefined) continue;
+    if (!permanentMatchesScope(permanent, spec)) continue;
+    if (!specMatchesStaticCondition(permanent, spec, state as StaticConditionState, keywordResolver)) continue;
+    entries.push({
+      ...(spec.grant.setPower !== undefined ? { power: Number(spec.grant.setPower) } : {}),
+      ...(spec.grant.setToughness !== undefined ? { toughness: Number(spec.grant.setToughness) } : {}),
+      timestamp: getStaticEffectSourceTimestamp(state, String(spec.sourcePermanentId || '')),
+    });
+  }
+  return entries;
+}
+
 /** Merged static ability grants from derived continuous effects (regex + overlay). */
 export function getContinuousGrantedAbilitiesForPermanent(
   permanent: BattlefieldPermanent,

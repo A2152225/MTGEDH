@@ -223,7 +223,8 @@ export function tryParseTemporaryModifyPtClause(params: {
   // Modal "+X/+X or -X/-X" must fall through to choiceMatch — this pattern
   // otherwise consumes the first pair and returns null on the `or` tail.
   const broadTemporaryPtTail = String(broadTemporaryPtMatch?.[4] || '').trim();
-  if (broadTemporaryPtMatch && !/^or\s+[+-]/i.test(broadTemporaryPtTail)) {
+  // "... until end of combat" is handled by the general pattern further down.
+  if (broadTemporaryPtMatch && !/^or\s+[+-]/i.test(broadTemporaryPtTail) && !/\buntil\s+end\s+of\s+combat\b/i.test(broadTemporaryPtTail)) {
     const targetRaw = String(broadTemporaryPtMatch[1] || '')
       .trim()
       .toLowerCase()
@@ -472,11 +473,13 @@ export function tryParseTemporaryModifyPtClause(params: {
 
   const untilNextTurn = /\buntil\s+(?:the\s+end\s+of\s+)?your\s+next\s+turn\b/i.test(tail);
   const untilEot = /\buntil\s+end\s+of\s+turn\b/i.test(tail);
-  if (!untilNextTurn && !untilEot) return null;
+  const untilEndOfCombat = !untilNextTurn && !untilEot && /\buntil\s+end\s+of\s+combat\b/i.test(tail);
+  if (!untilNextTurn && !untilEot && !untilEndOfCombat) return null;
 
   tail = tail
     .replace(/\buntil\s+(?:the\s+end\s+of\s+)?your\s+next\s+turn\b/i, '')
     .replace(/\buntil\s+end\s+of\s+turn\b/i, '')
+    .replace(/\buntil\s+end\s+of\s+combat\b/i, '')
     .replace(/^,\s*/i, '')
     .trim();
 
@@ -526,7 +529,7 @@ export function tryParseTemporaryModifyPtClause(params: {
     toughness: toughnessComponent.value,
     ...(powerComponent.usesX ? { powerUsesX: true } : {}),
     ...(toughnessComponent.usesX ? { toughnessUsesX: true } : {}),
-    duration: untilNextTurn ? 'until_next_turn' : 'end_of_turn',
+    duration: untilNextTurn ? 'until_next_turn' : untilEndOfCombat ? 'end_of_combat' : 'end_of_turn',
     raw: rawClause,
   };
   if (scaler) step.scaler = scaler;

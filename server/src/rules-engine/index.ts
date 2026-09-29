@@ -6,8 +6,10 @@ import {
   permanentHasCounterGrantedAbility,
   permanentHasDeathtouchDamageMarked,
 } from '../state/modules/counter-common-effects.js';
-import { calculateAllPTBonuses, calculateVariablePT, resolveSetBasePTFromAttachedAuras } from '../state/utils.js';
+import { calculateAllPTBonuses, calculateVariablePT } from '../state/utils.js';
 import { sumActiveTemporaryPTMods } from '../state/modules/temporaryPtMods.js';
+import { sumLongDurationPtModifiers } from '../state/modules/longDurationPtModifiers.js';
+import { applyLayer7bSetBasePowerToughness } from '../state/modules/setBasePtTimestampResolution.js';
 import { stripCreateTokenGrantedAbilities } from '../../../rules-engine/src/oracleReminderText.js';
 
 /**
@@ -70,12 +72,15 @@ function isNumber(x: unknown): x is number {
   return typeof x === 'number' && Number.isFinite(x);
 }
 
-function getTemporaryPowerToughnessForSBA(perm: BattlefieldPermanent): { power: number; toughness: number } {
+function getTemporaryPowerToughnessForSBA(perm: BattlefieldPermanent, state?: unknown): { power: number; toughness: number } {
   const mirroredMods = Array.isArray((perm as any).temporaryPTMods)
     ? (perm as any).temporaryPTMods
     : [];
+  // Pumps lasting longer than end of turn are never mirrored: always count the active ones.
+  const longLasting = sumLongDurationPtModifiers(perm, state);
   if (mirroredMods.length > 0) {
-    return sumActiveTemporaryPTMods(perm);
+    const mirrored = sumActiveTemporaryPTMods(perm);
+    return { power: mirrored.power + longLasting.power, toughness: mirrored.toughness + longLasting.toughness };
   }
 
   // Oracle IR stores P/T changes canonically in `modifiers`. The server bridge
@@ -86,10 +91,12 @@ function getTemporaryPowerToughnessForSBA(perm: BattlefieldPermanent): { power: 
   for (const modifier of Array.isArray((perm as any).modifiers) ? (perm as any).modifiers : []) {
     const type = String(modifier?.type || '').trim().toLowerCase();
     if (type !== 'powertoughness' && type !== 'power_toughness') continue;
+    // Long-lasting entries were already summed above.
+    if (String(modifier?.duration || 'end_of_turn').trim().toLowerCase() !== 'end_of_turn') continue;
     power += Number(modifier?.power ?? 0) || 0;
     toughness += Number(modifier?.toughness ?? 0) || 0;
   }
-  return { power, toughness };
+  return { power: power + longLasting.power, toughness: toughness + longLasting.toughness };
 }
 
 function getEffectiveStatsForSBA(
@@ -128,11 +135,10 @@ function getEffectiveStatsForSBA(
     return {};
   }
 
-  const setBasePT = resolveSetBasePTFromAttachedAuras(perm, state.battlefield || []);
-  if (setBasePT) {
-    basePower = setBasePT.power;
-    baseToughness = setBasePT.toughness;
-  }
+  // Layer 7b set-base (Auras, static specs, Oracle IR setters) ordered by timestamp.
+  const layer7b = applyLayer7bSetBasePowerToughness(perm, state, { power: basePower, toughness: baseToughness });
+  basePower = layer7b.power ?? basePower;
+  baseToughness = layer7b.toughness ?? baseToughness;
 
   const plus = perm.counters?.['+1/+1'] ?? 0;
   const minus = perm.counters?.['-1/-1'] ?? 0;
@@ -151,7 +157,7 @@ function getEffectiveStatsForSBA(
   }
 
   const allBonuses = calculateAllPTBonuses(perm, state);
-  const temporaryPT = getTemporaryPowerToughnessForSBA(perm);
+  const temporaryPT = getTemporaryPowerToughnessForSBA(perm, state);
   return {
     power: Math.max(0, basePower + counterDelta + otherCounterPower + allBonuses.power + temporaryPT.power),
     toughness: baseToughness + counterDelta + otherCounterToughness + allBonuses.toughness + temporaryPT.toughness,

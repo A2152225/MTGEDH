@@ -11,6 +11,7 @@ import type { GameContext } from "../../context.js";
 import { queueCombatDamageChat } from "../combatDamageChat.js";
 import { hasExtraCombat, consumeExtraCombat } from "./turnScheduledStepsAndExtras.js";
 import { clearCombatState } from "./turnClearCombatState.js";
+import { expireEndOfCombatPtEffects } from "../longDurationPtModifiers.js";
 import { playerIdCanReceivePriority } from "../priorityEligibility.js";
 import { debug, debugError, debugWarn } from "../../../utils/debug.js";
 
@@ -185,6 +186,8 @@ export function computeNextStepPhaseAdvance(
           
           // Clear attacking/blocking state for new combat
           const battlefield = (ctx as any).state?.battlefield || [];
+          // The previous combat ended: its "until end of combat" pumps end too.
+          expireEndOfCombatPtEffects(battlefield);
           for (const perm of battlefield) {
             if (perm) {
               perm.attacking = null;

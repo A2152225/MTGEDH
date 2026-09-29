@@ -267,6 +267,8 @@ export interface OracleIRExecutionEventHint {
   readonly teamworkWasPaid?: boolean;
   /** Whether the resolving source was kicked (cast with kicker). */
   readonly wasKicked?: boolean;
+  /** Whether the resolving spell was bargained (its bargain additional cost was paid). */
+  readonly wasBargained?: boolean;
   /** Whether a library search step applied during this resolution. */
   readonly searchedLibraryThisWay?: boolean;
   readonly lastMilledCards?: readonly any[];
@@ -391,6 +393,8 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly teamworkWasPaid?: boolean;
   /** Whether the resolving source was kicked (cast with kicker). */
   readonly wasKicked?: boolean;
+  /** Whether the resolving spell was bargained (its bargain additional cost was paid). */
+  readonly wasBargained?: boolean;
   /** Whether an optional spell additional cost (e.g. waterbend) was paid when casting. */
   readonly optionalAdditionalCostWasPaid?: boolean;
   /** Whether the activated ability being copied/triggered is a mana ability. */

@@ -128,6 +128,10 @@ export function applyGrantStaticAbilityStep(
           sourceId: sourceId || undefined,
           sourceName: sourceName || undefined,
           duration,
+          turnApplied: Number((state as any)?.turnNumber ?? 0) || 0,
+          ...(duration === 'until_next_turn' && ctx.controllerId
+            ? { expiresOnControllerTurn: ctx.controllerId }
+            : {}),
         } as any);
       }
     }

@@ -13,10 +13,18 @@ export interface OracleIrSetPowerToughness {
   toughness?: number;
 }
 
-/** Last rules-engine setPowerToughness modifier on the permanent, or undefined. */
-export function resolveOracleIrSetPowerToughness(perm: any): OracleIrSetPowerToughness | undefined {
+/** One rules-engine setter with its ordering data (layer 7b, CR 613.7). */
+export interface OracleIrSetPowerToughnessSetter extends OracleIrSetPowerToughness {
+  /** Strictly increasing creation timestamp; undefined for legacy modifiers without one. */
+  timestamp?: number;
+  battlefieldPosition?: number;
+  battlefieldAnchorId?: string;
+}
+
+/** All setPowerToughness modifiers on the permanent in array (creation) order. */
+export function listOracleIrSetPowerToughnessSetters(perm: any): OracleIrSetPowerToughnessSetter[] {
   const modifiers = Array.isArray(perm?.modifiers) ? perm.modifiers : [];
-  let result: OracleIrSetPowerToughness | undefined;
+  const setters: OracleIrSetPowerToughnessSetter[] = [];
   for (const modifier of modifiers) {
     if (String(modifier?.type || '').trim() !== 'setPowerToughness') continue;
     const setPower = Number(modifier?.setPower);
@@ -24,9 +32,40 @@ export function resolveOracleIrSetPowerToughness(perm: any): OracleIrSetPowerTou
     const hasPower = modifier?.setPower !== undefined && modifier?.setPower !== null && Number.isFinite(setPower);
     const hasToughness = modifier?.setToughness !== undefined && modifier?.setToughness !== null && Number.isFinite(setToughness);
     if (!hasPower && !hasToughness) continue;
+    const timestamp = Number(modifier?.timestamp);
+    const position = Number(modifier?.battlefieldPosition);
+    const anchorId = String(modifier?.battlefieldAnchorId || '').trim();
+    setters.push({
+      ...(hasPower ? { power: setPower } : {}),
+      ...(hasToughness ? { toughness: setToughness } : {}),
+      ...(Number.isFinite(timestamp) ? { timestamp } : {}),
+      ...(Number.isFinite(position) ? { battlefieldPosition: position } : {}),
+      ...(anchorId ? { battlefieldAnchorId: anchorId } : {}),
+    });
+  }
+  return setters;
+}
+
+/**
+ * Winning rules-engine setPowerToughness values on the permanent (latest timestamp per component;
+ * legacy modifiers without a timestamp fall back to array order), or undefined.
+ */
+export function resolveOracleIrSetPowerToughness(perm: any): OracleIrSetPowerToughness | undefined {
+  const setters = listOracleIrSetPowerToughnessSetters(perm);
+  if (setters.length === 0) return undefined;
+  const ordered = setters
+    .map((setter, index) => ({ setter, index }))
+    .sort((left, right) => {
+      const leftTs = Number.isFinite(left.setter.timestamp) ? (left.setter.timestamp as number) : Number.NEGATIVE_INFINITY;
+      const rightTs = Number.isFinite(right.setter.timestamp) ? (right.setter.timestamp as number) : Number.NEGATIVE_INFINITY;
+      // Legacy (untimestamped) setters keep array order and come before stamped ones.
+      return (leftTs - rightTs) || (left.index - right.index);
+    });
+  let result: OracleIrSetPowerToughness | undefined;
+  for (const { setter } of ordered) {
     result = {
-      ...(hasPower ? { power: setPower } : { power: result?.power }),
-      ...(hasToughness ? { toughness: setToughness } : { toughness: result?.toughness }),
+      power: setter.power ?? result?.power,
+      toughness: setter.toughness ?? result?.toughness,
     };
   }
   return result;

@@ -7,6 +7,7 @@
 
 import type { GameContext } from "../../context.js";
 import type { PlayerID } from "../../../../../shared/src/types.js";
+import { expireUntilNextTurnPtModifiers } from "../longDurationPtModifiers.js";
 
 function isUntilNextTurnGrantEntry(entry: any): boolean {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
@@ -43,6 +44,9 @@ export function removeExpiredUntilNextTurnEffects(ctx: GameContext, currentPlaye
     const turnApplied = Number(entry?.turnApplied ?? 0) || 0;
     return controllerId === String(currentPlayerId) && turnApplied < currentTurn;
   };
+
+  // "Gets -3/-0 until your next turn" P/T modifiers (permanent.modifiers).
+  expireUntilNextTurnPtModifiers(battlefield, String(currentPlayerId), currentTurn);
 
   for (const permanent of battlefield) {
     if (!permanent) continue;

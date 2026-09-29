@@ -5,7 +5,6 @@ import {
   buildOracleIRExecutionContext,
   type OracleIRExecutionResult,
 } from '../../../../rules-engine/src/oracleIRExecutor.js';
-import { getCardManaValue } from '../../../../rules-engine/src/oracleIRExecutorPlayerExileUntilAmount.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import {
@@ -14,10 +13,12 @@ import {
   buildShadowProbeContext,
   hydrateOracleIRPlayerZonesFromContext,
 } from './oracleIrServerZoneSync.js';
+import { logOracleIrAllOrNothingFailure } from './oracleIrStepWiring.js';
 import {
-  describeOracleIrExecutionHandledIncomplete,
-  logOracleIrAllOrNothingFailure,
-} from './oracleIrStepWiring.js';
+  describeOracleIrTriggerPrimaryIncomplete,
+  readTriggeringSpellManaValue,
+  triggerCopyStepsNeedServerTargetQueue,
+} from './oracleIrTriggerPrimaryIncompleteReasons.js';
 import { isOracleIrExecutionHandled } from './oracleIrSpellExecution.js';
 import { isOracleIrContinuationBridged } from './oracleIrContinuationBridge.js';
 import {
@@ -44,122 +45,6 @@ import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime
 import { findTriggeringSpellOnStack, stackObjectIdsMatch } from './triggerCastSpellStackBinding.js';
 
 export { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
-
-function readTriggeringSpellManaValue(
-  state: any,
-  triggerItem: any,
-  targetSpellId?: string,
-): number | undefined {
-  const preferredId = String(targetSpellId || '').trim();
-  const stackSpell = findTriggeringSpellOnStack(state, triggerItem)
-    || (preferredId
-      ? (Array.isArray(state?.stack) ? state.stack : []).find((entry: any) => (
-        stackObjectIdsMatch(String(entry?.id || ''), preferredId)
-        || stackObjectIdsMatch(String(entry?.card?.id || ''), preferredId)
-      ))
-      : null);
-  const card = stackSpell?.card
-    || stackSpell
-    || triggerItem?.effectData?.triggeringSpell
-    || triggerItem?.triggeringSpell;
-  const manaValue = getCardManaValue(card);
-  if (manaValue == null || !Number.isFinite(manaValue)) return undefined;
-  return Math.max(0, Math.floor(manaValue));
-}
-
-function triggerCopyStepsNeedServerTargetQueue(steps: readonly OracleEffectStep[]): boolean {
-  return steps.some(
-    (step) => step.kind === 'copy_permanent'
-      && copyPermanentTriggerStepNeedsTargetSelectionQueue(
-        step as Extract<OracleEffectStep, { kind: 'copy_permanent' }>,
-      ),
-  );
-}
-
-function describeOracleIrTriggerPrimaryIncomplete(
-  effectText: string,
-  sourceName: string,
-  steps: readonly OracleEffectStep[],
-  result: OracleIRExecutionResult,
-  queueBefore: number,
-  queueAfter: number,
-  options: {
-    triggerType?: string;
-    canApplyPreselectedChooseMode: boolean;
-    state?: any;
-    gameId?: string;
-  },
-): readonly string[] {
-  const reasons = [
-    ...describeOracleIrExecutionHandledIncomplete(
-      result,
-      queueBefore,
-      queueAfter,
-      steps,
-      options.state,
-      options.gameId,
-    ),
-  ];
-  const applied = result.appliedSteps.length;
-  const pendingOptional = (result.pendingOptionalSteps || []).length;
-  const pendingContinuation = (result.pendingContinuationSteps || []).length;
-  const queueGrew = queueAfter > queueBefore;
-  const continuationBridged = isOracleIrContinuationBridged({
-    state: options.state,
-    gameId: options.gameId,
-    resolutionQueueStepsBefore: queueBefore,
-    resolutionQueueStepsAfter: queueAfter,
-  });
-
-  if (
-    !queueGrew
-    && applied === 0
-    && triggerCopyStepsNeedServerTargetQueue(steps)
-  ) {
-    reasons.push('copy_permanent_needs_server_target_queue');
-  }
-
-  if (
-    !queueGrew
-    && applied > 0
-    && String(options.triggerType || '').toLowerCase() === 'annihilator'
-    && steps.some((step) => step.kind === 'sacrifice')
-  ) {
-    reasons.push('annihilator_sacrifice_requires_resolution_queue_bridge');
-  }
-
-  if (
-    !continuationBridged
-    && pendingOptional > 0
-    && applied > 0
-  ) {
-    reasons.push(
-      `pending_optional_without_queue_bridge: ${pendingOptional} optional step(s) remain`,
-    );
-  }
-
-  if (
-    !continuationBridged
-    && pendingContinuation > 0
-    && !reasons.some((reason) => reason.startsWith('pending_continuation_without_queue_bridge'))
-  ) {
-    const kinds = (result.pendingContinuationSteps || [])
-      .map((step) => String(step.kind || 'unknown'))
-      .join(', ');
-    reasons.push(
-      `pending_continuation_without_queue_bridge: ${pendingContinuation} step(s) [${kinds}]`,
-    );
-  }
-
-  if (
-    !isTriggerEffectOwnedByOracleIrPrimary(effectText, sourceName)
-    && !options.canApplyPreselectedChooseMode
-  ) {
-    reasons.push('effect_not_primary_owned_by_oracle_ir');
-  }
-
-  return reasons;
-}
 
 export interface TryResolveTriggerViaOracleIRParams {
   readonly controller: PlayerID;
@@ -188,6 +73,7 @@ function resolveTriggerTargetBinding(
   sourceId?: string;
   referenceAmount?: number;
   xValue?: number;
+  spellManaValue?: number;
 } {
   const state = (ctx as any).state;
   const targets = Array.isArray(triggerItem?.targets) ? triggerItem.targets : [];
