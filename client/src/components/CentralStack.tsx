@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import type { StackItem, KnownCardRef, PlayerID, BattlefieldPermanent, PlayerRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { openReportIssueMenu } from '../utils/reportIssueStore';
 
 interface Props {
   stack: StackItem[];
@@ -357,6 +358,10 @@ export function CentralStack({
           return (
             <div
               key={it.id}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                openReportIssueMenu({ cardId: String(kc?.id || it.id), cardName: String(name), zone: 'stack' }, e.clientX, e.clientY);
+              }}
               onMouseEnter={(e)=> kc && showCardPreview(e.currentTarget as HTMLElement, kc, { prefer:'right', anchorPadding:8 })}
               onMouseLeave={(e)=> kc && hideCardPreview(e.currentTarget as HTMLElement)}
               title={description}

@@ -21,6 +21,7 @@ import {
 } from '../utils/activatedAbilityParser';
 import { getBattlefieldTapActionDecision } from '../utils/battlefieldTapAction';
 import { canCreatureUseTapAbilityNow, hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
+import { ReportIssueMenuItem } from './ReportIssueMenuItem';
 
 export interface ActivatedAbilityOption {
   id: string;
@@ -578,6 +579,11 @@ export function CardContextMenu({
           )}
         </>
       )}
+      <ReportIssueMenuItem
+        separator
+        target={{ cardId: String(card?.id || permanent.id), permanentId: permanent.id, cardName: name, zone: 'battlefield' }}
+        onClose={onClose}
+      />
     </div>
   );
 

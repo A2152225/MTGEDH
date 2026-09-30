@@ -14,6 +14,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { CardCostAdjustment, KnownCardRef } from '../../../shared/src';
 import { parseActivatedAbilities } from '../utils/activatedAbilityParser';
+import { ReportIssueMenuItem } from './ReportIssueMenuItem';
 
 export type ZoneType = 'hand' | 'graveyard' | 'exile' | 'commander' | 'library' | 'battlefield';
 
@@ -533,6 +534,12 @@ export function ZoneCardContextMenu({
             <span>Ignore for Auto-Pass</span>
           </div>
         )}
+
+        <ReportIssueMenuItem
+          separator
+          target={{ cardId: card.id, cardName: name, zone }}
+          onClose={onClose}
+        />
       </div>
     </div>
   );

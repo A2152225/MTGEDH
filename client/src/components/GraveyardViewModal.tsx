@@ -8,6 +8,7 @@
 import React, { useState, useMemo } from 'react';
 import type { KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { ReportIssueMenuItem } from './ReportIssueMenuItem';
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 
@@ -792,6 +793,11 @@ export function GraveyardViewModal({
                   🔇 Ignore for Auto-Pass
                 </div>
               )}
+              <ReportIssueMenuItem
+                separator
+                target={{ cardId: contextMenu.card.id, cardName: contextMenu.card.name, zone: 'graveyard' }}
+                onClose={() => setContextMenu(null)}
+              />
             </div>
           </div>
         )}

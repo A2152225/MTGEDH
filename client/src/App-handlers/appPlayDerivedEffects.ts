@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import type { BattlefieldPermanent, ChatMsg, KnownCardRef } from "../../../shared/src";
 import { useGameStateLog } from "../hooks/useGameStateLog";
+import { useReportIssueContext } from "../hooks/useReportIssueContext";
 import { useRandomDeckPicker } from "../hooks/useRandomDeckPicker";
 import { socket } from "../socket";
 import { toast } from "../components/ToastHost";
@@ -624,6 +625,8 @@ export function useAppPlayDerivedEffects(p: Record<string, any>) {
   }, [safeView?.players]);
 
   const gameLogEntries = useGameStateLog(safeView, resolvePlayerName);
+  // Lets the right-click "Report Issue" modal know the current game and its recent log lines.
+  useReportIssueContext(safeView?.id, gameLogEntries);
 
   // Hand interaction helpers: used to gate client UI; server still validates rules.
   const getHandPlayableTypeLine = (card: {

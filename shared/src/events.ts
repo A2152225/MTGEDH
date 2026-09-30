@@ -2,6 +2,8 @@
 // Socket.IO event contract used by both client and server.
 // Keep synchronized between runtime code.
 
+import type { IssueReportRequest, IssueReportResult } from "./issueReport.js";
+
 export type GameID = string;
 export type PlayerID = string;
 export type PermanentID = string;
@@ -116,6 +118,9 @@ export interface ClientToServerEvents {
   
   // Clear all ignored cards
   clearIgnoredCards: (payload: { gameId: GameID }) => void;
+
+  // Player-submitted card issue report (right-click "Report Issue"); stored in the separate issue-reports DB.
+  reportIssue: (payload: IssueReportRequest, ack?: (result: IssueReportResult) => void) => void;
   
   // Combat declarations
   declareAttackers: (payload: { gameId: GameID; attackers: Array<{ attackerId?: string; creatureId?: string; defendingPlayer?: PlayerID; targetPlayerId?: string; targetPermanentId?: string }> }) => void;

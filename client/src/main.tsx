@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { ToastHost } from './components/ToastHost';
 import { KeyboardShortcutsOverlay } from './components/KeyboardShortcutsOverlay';
+import { ReportIssueHost } from './components/ReportIssueHost';
 import { useIsTouch, useTouchBodyClass } from './hooks/useIsTouch';
 import { useOrientationBodyClass } from './hooks/useMobilePlayLayout';
 
@@ -17,6 +18,7 @@ const Root: React.FC = () => {
       <App />
       <ToastHost position={isTouch ? 'top-right' : 'bottom-right'} />
       <KeyboardShortcutsOverlay />
+      <ReportIssueHost />
     </>
   );
 };

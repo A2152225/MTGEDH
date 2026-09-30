@@ -19,6 +19,7 @@ export * from "./leaveBattlefieldReplacement.js";
 export * from "./gameLogFormat.js";
 export * from "./modeSelectionPBudget.js";
 export * from "./anyPlayerActivatedAbility.js";
+export * from "./issueReport.js";
 export type { 
   ClientToServerEvents, 
   ServerToClientEvents, 

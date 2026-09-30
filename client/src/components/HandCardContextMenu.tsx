@@ -12,6 +12,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import type { CardCostAdjustment, KnownCardRef } from '../../../shared/src';
+import { ReportIssueMenuItem } from './ReportIssueMenuItem';
 
 export interface HandCardContextMenuProps {
   card: KnownCardRef;
@@ -384,6 +385,12 @@ export function HandCardContextMenu({
             <span>Discard</span>
           </div>
         )}
+
+        <ReportIssueMenuItem
+          separator
+          target={{ cardId: card.id, cardName: name, zone: 'hand' }}
+          onClose={onClose}
+        />
       </div>
     </div>
   );
