@@ -107,7 +107,9 @@ export function computeContinuousEffects(
     // Global patterns
     // All creatures get +X/+Y
     const allMatch = oracle.match(/all creatures get (\+\d+\s*\/\s*\+\d+)/);
-    if (allMatch) {
+    // A one-shot activated effect ("{2}, {T}: All creatures get +2/+2 for as long as ...", Thran Weaponry) is not a static anthem.
+    const allMatchLinePrefix = allMatch ? oracle.slice(0, allMatch.index ?? 0).split('\n').pop() || '' : '';
+    if (allMatch && !allMatchLinePrefix.includes(':')) {
       const buff = parseBuffSegment(allMatch[1]);
       if (buff) {
         for (const perm of state.battlefield) {

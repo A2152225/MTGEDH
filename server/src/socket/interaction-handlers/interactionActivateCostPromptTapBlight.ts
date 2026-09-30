@@ -303,12 +303,12 @@ export async function tryHandleActivateCostPromptTapBlight(
           }
 
           if (minPower !== undefined || maxPower !== undefined) {
-            const pwr = getEffectivePower(p);
+            const pwr = getEffectivePower(p, game.state);
             if (minPower !== undefined && pwr < minPower) return false;
             if (maxPower !== undefined && pwr > maxPower) return false;
           }
           if (minToughness !== undefined || maxToughness !== undefined) {
-            const tgh = getEffectiveToughness(p);
+            const tgh = getEffectiveToughness(p, game.state);
             if (minToughness !== undefined && tgh < minToughness) return false;
             if (maxToughness !== undefined && tgh > maxToughness) return false;
           }

@@ -98,7 +98,7 @@ export async function tryHandleCrewAbilityTargetSelection(
     usedCrewerIds.add(String(resolvedId));
     resolvedCrewerIds.push(String(resolvedId));
     chosenCrewers.push(crewer);
-    totalPower += getEffectivePower(crewer);
+    totalPower += getEffectivePower(crewer, game.state);
   }
   const crewerIds = resolvedCrewerIds;
 

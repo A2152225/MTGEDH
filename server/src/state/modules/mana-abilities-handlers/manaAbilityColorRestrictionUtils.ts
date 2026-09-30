@@ -11,7 +11,8 @@
 // Leaf must not import mana-abilities.ts or mana-abilities-handlers/index.ts.
 
 import { getActualPowerToughness } from "../../utils.js";
-import { getCurrentPowerToughness } from "../currentPowerToughness.js";
+import { getCurrentPowerToughness, sumUnmirroredOracleIrPtModifiers } from "../currentPowerToughness.js";
+import { sumLongDurationPtModifiers } from "../longDurationPtModifiers.js";
 import { lookupLocalCardByNameSync } from "../../../services/localCardLookup.js";
 import { deriveCardColorIdentity } from "../commander.js";
 import {
@@ -475,15 +476,10 @@ export function getEffectivePowerForMana(permanent: any, gameState?: any): numbe
     }
   }
   
-  // Add modifiers from equipment, auras, anthems, lords, etc.
-  let modifierPower = 0;
-  if (permanent.modifiers && Array.isArray(permanent.modifiers)) {
-    for (const mod of permanent.modifiers) {
-      if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
-        modifierPower += mod.power || 0;
-      }
-    }
-  }
+  // Fallback estimate without a usable state: only pumps that are still active count
+  // (expired until-your-next-turn / end-of-combat entries and mirrored end-of-turn ones do not).
+  const modifierPower = sumLongDurationPtModifiers(permanent, gameState).power
+    + sumUnmirroredOracleIrPtModifiers(permanent).power;
   
   return Math.max(0, basePower + otherCounterPower + modifierPower);
 }

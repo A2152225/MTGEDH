@@ -9,6 +9,8 @@ import type { PlayerID } from "../../../../../shared/src/index.js";
 import type { GameContext } from "../../context.js";
 import { uid, parsePT } from "../../utils.js";
 import { appendEvent } from "../../../db/index.js";
+import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
+
 import { debug, debugWarn } from "../../../utils/debug.js";
 import {
   applyTokenPrintingToCard,
@@ -365,6 +367,7 @@ export function createToken(
       });
     }
     state.battlefield.push(tokenPerm);
+    stampPermanentEntryTimestamp(state, tokenPerm);
     applyGraveyardTypeEntryCounterGrants(state, tokenPerm, String(controller));
 
     if (!tokenPerm.card.image_uris?.normal && !tokenPerm.card.image_uris?.small) {
@@ -514,6 +517,7 @@ export function createCopyTokensOfCard(
     if (overrides.toughness != null) tokenPerm.baseToughness = overrides.toughness;
 
     state.battlefield.push(tokenPerm);
+    stampPermanentEntryTimestamp(state, tokenPerm);
     applyGraveyardTypeEntryCounterGrants(state, tokenPerm, String(controller));
 
     // Fire ETB triggers for the copy token.

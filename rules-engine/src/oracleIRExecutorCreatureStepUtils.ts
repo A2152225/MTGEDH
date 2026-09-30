@@ -8,6 +8,7 @@ import { getExecutorTypeLineLower, hasExecutorClass, isExecutorCreature } from '
 import { getCombinedPermanentText } from './permanentText';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { describeSetterOrdering } from './oracleIRExecutorEffectTimestamps';
+import { stampMissingTimestampsOnBattlefieldCopy } from './permanentTimestamps';
 import {
   getProcessedBattlefield,
   permanentHasSubtype,
@@ -132,9 +133,13 @@ export function applyTemporarySetBasePowerToughness(
   toughness: number,
   duration: 'end_of_turn' | 'until_next_turn' | 'static' = 'end_of_turn',
 ): GameState | null {
-  const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  // Exact layer 7b ordering: every permanent already on the battlefield gets its real timestamp first, so this
+  // setter (drawn from the same counter) is strictly newer than all of them and older than anything that comes later.
+  const stamped = stampMissingTimestampsOnBattlefieldCopy(state);
+  const battlefield = [...(stamped.battlefield as BattlefieldPermanent[])];
   const index = battlefield.findIndex(permanent => permanent.id === creatureId);
   if (index < 0) return null;
+  const setterTimestamp = stamped.timestampCounter + 1;
 
   const permanent: any = battlefield[index] as any;
   const modifiers = Array.isArray(permanent.modifiers) ? [...permanent.modifiers] : [];
@@ -146,6 +151,8 @@ export function applyTemporarySetBasePowerToughness(
     duration,
     // Layer 7b ordering (CR 613.7): last timestamp wins; see oracleIRExecutorEffectTimestamps.
     ...describeSetterOrdering(state),
+    timestamp: setterTimestamp,
+    globalTimestamp: true,
     turnApplied: Number((state as any)?.turnNumber ?? 0) || 0,
     ...(duration === 'until_next_turn' && ctx.controllerId
       ? { expiresOnControllerTurn: ctx.controllerId }
@@ -179,7 +186,7 @@ export function applyTemporarySetBasePowerToughness(
     } as any;
   }
 
-  return { ...(state as any), battlefield } as any;
+  return { ...(state as any), battlefield, timestampCounter: setterTimestamp } as any;
 }
 
 export function applyTemporarySwitchPowerToughness(

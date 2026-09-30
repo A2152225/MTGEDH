@@ -12,6 +12,7 @@ import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { queueTributeChoiceOnEntry } from "../state/modules/triggerTributeChoiceUtils.js";
 import { queueSelfETBTriggersForPermanent } from "../state/modules/triggerEtbEntryEffects.js";
+import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
 import { applyGraveyardTypeEntryCounterGrants } from "../state/modules/graveyardTypeEntryCounterBonus.js";
 
 /**
@@ -82,6 +83,7 @@ export async function putCardOntoBattlefield(
   } as any;
   
   battlefield.push(newPermanent);
+  stampPermanentEntryTimestamp(state, newPermanent);
   applyGraveyardTypeEntryCounterGrants(state, newPermanent, String(controller));
   
   // ====================================================================================

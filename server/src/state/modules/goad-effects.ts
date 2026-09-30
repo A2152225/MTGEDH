@@ -11,6 +11,7 @@
 
 import type { BattlefieldPermanent, PlayerID } from '../../../../shared/src/types';
 import { getGoadedBy } from '../../../../rules-engine/src/actions/combat.js';
+import { readCurrentPowerFromHook } from '../../../../rules-engine/src/currentPowerToughnessHook.js';
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 /**
@@ -212,7 +213,11 @@ function isCreature(permanent: BattlefieldPermanent): boolean {
 /**
  * Get effective power of a creature for conditional goad checks
  */
-export function getEffectivePower(creature: BattlefieldPermanent): number {
+export function getEffectivePower(creature: BattlefieldPermanent, gameState?: unknown): number {
+  // With a game state, read the shared current P/T (anthems, pumps, set-base effects) for battlefield creatures.
+  const current = gameState ? readCurrentPowerFromHook(gameState, creature) : null;
+  if (current !== null) return Math.max(0, current);
+
   // Use pre-calculated effective power if available
   if (typeof creature.effectivePower === 'number') {
     return creature.effectivePower;
@@ -232,7 +237,8 @@ export function getEffectivePower(creature: BattlefieldPermanent): number {
  */
 export function baelothGoadCondition(
   baelothPower: number,
-  baelothController: PlayerID
+  baelothController: PlayerID,
+  gameState?: unknown,
 ): (creature: BattlefieldPermanent) => boolean {
   return (creature: BattlefieldPermanent) => {
     // Must be an opponent's creature
@@ -241,7 +247,7 @@ export function baelothGoadCondition(
     }
     
     // Must have lower power
-    const creaturePower = getEffectivePower(creature);
+    const creaturePower = getEffectivePower(creature, gameState);
     return creaturePower < baelothPower;
   };
 }

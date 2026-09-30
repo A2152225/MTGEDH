@@ -394,12 +394,24 @@ function hasDamageStepInTree(steps: readonly OracleEffectStep[] | undefined): bo
   return false;
 }
 
+/** Step keys inside folded "... instead" conditionals count as already present (Surtland Flinger, Charbelcher). */
+function collectStepKeysIncludingConditionalBranches(steps: readonly OracleEffectStep[], into: Set<string>): void {
+  for (const step of steps) {
+    into.add(`${step.kind}:${normalizeOracleText(String(step.raw || ''))}`);
+    if (step.kind === 'conditional') {
+      collectStepKeysIncludingConditionalBranches(step.steps || [], into);
+      collectStepKeysIncludingConditionalBranches(((step as any).elseSteps || []) as OracleEffectStep[], into);
+    }
+  }
+}
+
 function appendUniqueDamageMetadataSteps(
   existingSteps: readonly OracleEffectStep[],
   metadataSteps: readonly OracleEffectStep[]
 ): OracleEffectStep[] {
   const nextSteps = [...existingSteps];
-  const seen = new Set(nextSteps.map((step) => `${step.kind}:${normalizeOracleText(String(step.raw || ''))}`));
+  const seen = new Set<string>();
+  collectStepKeysIncludingConditionalBranches(nextSteps, seen);
   for (const parsed of metadataSteps) {
     const key = `${parsed.kind}:${normalizeOracleText(String(parsed.raw || ''))}`;
     if (seen.has(key)) continue;

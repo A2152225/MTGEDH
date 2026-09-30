@@ -166,7 +166,7 @@ export function validateCostPaymentStepsBeforeComplete(
                 socket.emit('error', { code: 'INVALID_SELECTION', message: 'Teamwork can only tap creatures' });
                 return false;
               }
-              totalPower += getEffectivePower(permanent);
+              totalPower += getEffectivePower(permanent, game.state);
             }
             if (totalPower < minPower) {
               socket.emit('error', {

@@ -126,10 +126,10 @@ export async function tryHandleActivateGrantFightCounterTap(
       } else if (!pTypeLine.includes("creature")) {
         return false;
       }
-      if (typeof minPower === 'number' && Number.isFinite(minPower) && getEffectivePower(p) < minPower) {
+      if (typeof minPower === 'number' && Number.isFinite(minPower) && getEffectivePower(p, game.state) < minPower) {
         return false;
       }
-      if (typeof maxPower === 'number' && Number.isFinite(maxPower) && getEffectivePower(p) > maxPower) {
+      if (typeof maxPower === 'number' && Number.isFinite(maxPower) && getEffectivePower(p, game.state) > maxPower) {
         return false;
       }
       
@@ -212,7 +212,7 @@ export async function tryHandleActivateGrantFightCounterTap(
         mandatory: false,
         validTargets: validTargets.map((c: any) => ({
           id: c.id,
-          label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+          label: `${c.card?.name || 'Creature'} (${getEffectivePower(c, game.state)}/${getEffectiveToughness(c, game.state)})`,
           description: c.card?.type_line || 'Creature',
           imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
         })),

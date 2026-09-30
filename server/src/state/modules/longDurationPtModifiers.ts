@@ -2,7 +2,9 @@
 // Oracle IR `powerToughness` modifiers that last longer than "until end of turn":
 //   - until_next_turn : "gets -3/-0 until your next turn" (expires when the caster's next turn begins)
 //   - end_of_combat   : "gets +2/+0 until end of combat"   (expires when the combat phase ends)
-//   - static/permanent: "perpetually gets +1/+1", "for as long as ..." grants (never auto-expire here)
+//   - static/permanent: "perpetually gets +1/+1" grants (never auto-expire here)
+//   - source-linked "for as long as ..." grants: counted only while their linkCondition holds
+//     (sourceLinkedPtModifiers.ts), removed by expireSourceLinkedPtModifiers
 //   - this_turn / until_end_of_turn / eot: end-of-turn aliases (removed at cleanup)
 // Plain `end_of_turn` entries are NOT handled here: they are mirrored into temporaryPTMods and
 // counted by temporaryPtMods.ts / sumUnmirroredOracleIrPtModifiers (avoids double counting).
@@ -11,6 +13,8 @@
 // sumLongDurationPtModifiers; the turn code expires them through the expire* helpers below.
 // Public entry symbols: sumLongDurationPtModifiers, isLongDurationPtModifier,
 //   expireUntilNextTurnPtModifiers, expireEndOfCombatPtEffects, recordEndOfCombatKeywordPtBonus.
+
+import { isSourceLinkedModifierActive } from './sourceLinkedPtModifiers.js';
 
 const PT_MODIFIER_TYPES = new Set(['powertoughness', 'power_toughness']);
 
@@ -54,6 +58,7 @@ export function sumLongDurationPtModifiers(perm: any, state?: any): { power: num
   for (const modifier of modifiers) {
     if (!isLongDurationPtModifier(modifier)) continue;
     if (!isLongDurationPtModifierActive(modifier, state)) continue;
+    if (!isSourceLinkedModifierActive(modifier, perm, state)) continue;
     power += Number(modifier?.power ?? 0) || 0;
     toughness += Number(modifier?.toughness ?? 0) || 0;
   }

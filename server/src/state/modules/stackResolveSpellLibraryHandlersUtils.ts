@@ -3,6 +3,8 @@ import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
 import { debug } from '../../utils/debug.js';
 import { getTokenDoublerMultiplier } from './counters_tokens.js';
+import { getCurrentPowerToughness } from './currentPowerToughness.js';
+import { sumLongDurationPtModifiers } from './longDurationPtModifiers.js';
 import { getTokenImageUrls } from '../../services/tokens.js';
 import { isCelestialReunionOracle } from './chosen-creature-type.js';
 import { triggerETBEffectsForToken } from './triggerEtbEntryEffects.js';
@@ -48,6 +50,17 @@ function computeGreatestControlledCreaturePower(state: any, controller: PlayerID
     const typeLine = (perm.card?.type_line || '').toLowerCase();
     if (!typeLine.includes('creature')) continue;
 
+    // Shared current power (anthems, pumps, set-base effects, counters), same as the battlefield badge.
+    try {
+      const current = getCurrentPowerToughness(perm, state);
+      if (current) {
+        greatestPower = Math.max(greatestPower, Math.max(0, current.power));
+        continue;
+      }
+    } catch {
+      // fall back to the legacy estimate below
+    }
+
     let basePower = perm.basePower ?? (parseInt(String(perm.card?.power ?? '0'), 10) || 0);
 
     if (typeof perm.card?.power === 'string' && perm.card.power.includes('*')) {
@@ -72,14 +85,8 @@ function computeGreatestControlledCreaturePower(state: any, controller: PlayerID
       }
     }
 
-    let modifierPower = 0;
-    if (perm.modifiers && Array.isArray(perm.modifiers)) {
-      for (const mod of perm.modifiers) {
-        if (mod.type === 'powerToughness' || mod.type === 'POWER_TOUGHNESS') {
-          modifierPower += mod.power || 0;
-        }
-      }
-    }
+    // Only pumps that are still active count (expired/end-of-turn entries are handled elsewhere).
+    const modifierPower = sumLongDurationPtModifiers(perm, state).power;
 
     const effectivePower = Math.max(0, basePower + counterDelta + otherCounterPower + modifierPower);
     if (effectivePower > greatestPower) {

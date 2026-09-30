@@ -19,11 +19,11 @@ import { sumLongDurationPtModifiers } from "../../state/modules/longDurationPtMo
 // powerToughness AND mirrored into temporaryPTMods. Adding both double-counted the pump
 // (e.g. AI fight scoring saw a +2/+2 pump as +4/+4). Only the not-yet-mirrored ones are
 // added on top of temporaryPTMods (sumUnmirroredOracleIrPtModifiers).
-function sumPtModifiersWithoutMirrorDoubleCount(permanent: any): { power: number; toughness: number } {
+function sumPtModifiersWithoutMirrorDoubleCount(permanent: any, gameState?: any): { power: number; toughness: number } {
   const pending = sumUnmirroredOracleIrPtModifiers(permanent);
   // end-of-turn entries are handled above (mirror-aware); longer-lasting ones (until your next
   // turn, until end of combat, permanent) are counted while still active.
-  const longLasting = sumLongDurationPtModifiers(permanent);
+  const longLasting = sumLongDurationPtModifiers(permanent, gameState);
   return { power: pending.power + longLasting.power, toughness: pending.toughness + longLasting.toughness };
 }
 
@@ -99,7 +99,7 @@ export function getEffectivePower(permanent: any, gameState?: any): number {
         // best-effort; fall through to calculateAllPTBonuses
       }
     }
-    const modifierPower = sumPtModifiersWithoutMirrorDoubleCount(permanent).power;
+    const modifierPower = sumPtModifiersWithoutMirrorDoubleCount(permanent, gameState).power;
     const allBonuses = calculateAllPTBonuses(permanent, gameState);
     return Math.max(
       0,
@@ -176,7 +176,7 @@ export function getEffectiveToughness(permanent: any, gameState?: any): number {
         // best-effort
       }
     }
-    const modifierToughness = sumPtModifiersWithoutMirrorDoubleCount(permanent).toughness;
+    const modifierToughness = sumPtModifiersWithoutMirrorDoubleCount(permanent, gameState).toughness;
     const allBonuses = calculateAllPTBonuses(permanent, gameState);
     return Math.max(
       0,

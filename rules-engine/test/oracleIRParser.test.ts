@@ -84,7 +84,8 @@ const CANONICALLY_PRUNED_RESIDUAL_CASES = new Set([
   'Old Way Phyrexian',
   'Humble the Brute',
   'Dark Dabbling',
-  'Spirit Shield',
+  // Spirit Shield: "for as long as this artifact remains tapped" now lowers into a source-linked
+  // grant_static_ability (oracleIRParserForAsLongAsPtClauses.ts), so it is no longer a pruned residual.
   'Deep Freeze',
   'Field-Tested Frying Pan',
   // "he gets +1/+1 until end of turn" is a real pronoun-resolved pump, not residual reminder.

@@ -556,7 +556,12 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   }
 
   const allCreaturesMatch = oracle.match(/all creatures get (\+\d+\s*\/\s*\+\d+)/i);
-  if (allCreaturesMatch) {
+  // Inside an activated ability ("{2}, {T}: All creatures get +2/+2 for as long as ...", Thran Weaponry) it is a
+  // one-shot effect handled by the Oracle IR executor (source-linked modifier), not a permanent anthem.
+  const allCreaturesLinePrefix = allCreaturesMatch
+    ? oracle.slice(0, allCreaturesMatch.index ?? 0).split('\n').pop() || ''
+    : '';
+  if (allCreaturesMatch && !allCreaturesLinePrefix.includes(':')) {
     const buff = parseBuffSegment(allCreaturesMatch[1]);
     if (buff) {
       specs.push(buildSpec(

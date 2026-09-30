@@ -296,7 +296,7 @@ export function makeBasicAttackDecision(
     const deckModifiers = deps.getCombatDeckModifiers(perm, config);
     let attackManaEngineBonus = 0;
     if (findAttackManaRetentionEquipmentAttachedTo(globalBattlefield, id)) {
-      const power = readPermanentPower(perm);
+      const power = readPermanentPower(perm, context.gameState);
       attackManaEngineBonus = 12 + Math.min(32, power * 2);
       if (battlefieldHasManaRetention(globalBattlefield, context.playerId)) {
         attackManaEngineBonus += 6 + Math.min(12, getPlayerGreenManaInPool(context.gameState, context.playerId));

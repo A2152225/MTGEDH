@@ -190,7 +190,7 @@ export function executeInstantSorceryLegacyCategorizedSpell(
       const targetCreature = battlefield.find((permanent: any) => String(permanent?.id || '') === String(targetId || ''));
       if (!targetCreature) continue;
 
-      const currentPower = Math.max(0, Number(getEffectivePower(targetCreature as any) || 0));
+      const currentPower = Math.max(0, Number(getEffectivePower(targetCreature as any, state) || 0));
       const targetCreatureRuntime = targetCreature as any;
       targetCreatureRuntime.temporaryPTMods = Array.isArray(targetCreatureRuntime.temporaryPTMods) ? targetCreatureRuntime.temporaryPTMods : [];
       targetCreatureRuntime.temporaryPTMods.push({

@@ -345,14 +345,14 @@ export function validateStepResponseClusterStepsBeforeComplete(
         }
 
         if (minPower !== undefined || maxPower !== undefined) {
-          const pwr = getEffectivePower(perm);
+          const pwr = getEffectivePower(perm, game.state);
           if ((minPower !== undefined && pwr < minPower) || (maxPower !== undefined && pwr > maxPower)) {
             socket.emit('error', { code: 'INVALID_TARGET', message: 'Target does not match required power' });
             return false;
           }
         }
         if (minToughness !== undefined || maxToughness !== undefined) {
-          const tgh = getEffectiveToughness(perm);
+          const tgh = getEffectiveToughness(perm, game.state);
           if ((minToughness !== undefined && tgh < minToughness) || (maxToughness !== undefined && tgh > maxToughness)) {
             socket.emit('error', { code: 'INVALID_TARGET', message: 'Target does not match required toughness' });
             return false;

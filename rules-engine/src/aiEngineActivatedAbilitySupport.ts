@@ -437,7 +437,7 @@ export function evaluateActivatedAbilityValue(
   }
 
   if (isPowerScaledGreenManaAbilityText(lowerText) && isTapAbility) {
-    const greatestPower = getGreatestControlledCreaturePower(battlefield, playerId);
+    const greatestPower = getGreatestControlledCreaturePower(battlefield, playerId, gameState);
     value += Math.min(50, greatestPower * 2);
     if (hasRetention) {
       value += 18;

@@ -2,6 +2,8 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid, parsePT } from '../utils.js';
 import { debug, debugWarn, debugEnv } from '../../utils/debug.js';
+import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+
 import { recalculatePlayerEffects } from './game-state-effects.js';
 import { getLandfallTriggers } from './triggered-abilities.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
@@ -343,6 +345,7 @@ export function finishPlayLandBattlefieldEntry(
     summoningSickness: hasSummoningSickness,
     card: { ...card, zone: 'battlefield' },
   } as any);
+  stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
   if (!opts.skipLandPlayCountIncrement) {
     state.landsPlayedThisTurn = state.landsPlayedThisTurn || {};
     state.landsPlayedThisTurn[playerId] = (state.landsPlayedThisTurn[playerId] ?? 0) + 1;

@@ -15,6 +15,8 @@ import {
   getMutatedPermanentCharacteristics,
 } from "../../../../../rules-engine/src/keywordAbilities/mutate.js";
 import { debugWarn } from "../../../utils/debug.js";
+import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
+
 
 export function applyAttachmentEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -44,6 +46,7 @@ export function applyAttachmentEvents(ctx: GameContext, e: GameEvent): boolean {
             
             // Attach to new creature
             equipment.attachedTo = targetCreatureId;
+            stampAttachmentTimestamp(ctx.state, equipment);
             (targetCreature as any).attachedEquipment = (targetCreature as any).attachedEquipment || [];
             if (!(targetCreature as any).attachedEquipment.includes(equipmentId)) {
               (targetCreature as any).attachedEquipment.push(equipmentId);
@@ -80,6 +83,7 @@ export function applyAttachmentEvents(ctx: GameContext, e: GameEvent): boolean {
             }
 
             enchantment.attachedTo = targetPermanentId;
+            stampAttachmentTimestamp(ctx.state, enchantment);
             (targetPermanent as any).attachments = (targetPermanent as any).attachments || [];
             if (!(targetPermanent as any).attachments.includes(enchantmentId)) {
               (targetPermanent as any).attachments.push(enchantmentId);
@@ -237,6 +241,7 @@ export function applyAttachmentEvents(ctx: GameContext, e: GameEvent): boolean {
             }
 
             equipment.attachedTo = targetCreatureId;
+            stampAttachmentTimestamp(ctx.state, equipment);
             (targetCreature as any).attachedEquipment = (targetCreature as any).attachedEquipment || [];
             if (!(targetCreature as any).attachedEquipment.includes(reconfigureId)) {
               (targetCreature as any).attachedEquipment.push(reconfigureId);

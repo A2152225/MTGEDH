@@ -477,7 +477,7 @@ export async function handleAdditionalCostPaymentResponse(
       const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === String(permId));
       if (!permanent) continue;
       (permanent as any).tapped = true;
-      totalPower += getEffectivePower(permanent);
+      totalPower += getEffectivePower(permanent, game.state);
       tappedNames.push(String(permanent?.card?.name || 'Creature'));
     }
     const paid = selectedIds.length > 0 && totalPower >= minPower;

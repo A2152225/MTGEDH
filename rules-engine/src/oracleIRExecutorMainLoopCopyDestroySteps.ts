@@ -37,6 +37,28 @@ import {
   pickMainLoopFamilyCore,
 } from './oracleIRExecutorMainLoopStepTypes';
 
+function stepDamagesBySacrificedCreature(step: any): boolean {
+  if (!step) return false;
+  if (step.kind === 'deal_damage') {
+    return step.amount?.kind === 'object_stat' && step.amount?.subject === 'the_sacrificed_creature';
+  }
+  if (step.kind === 'conditional') {
+    return [...(step.steps || []), ...(step.elseSteps || [])].some(stepDamagesBySacrificedCreature);
+  }
+  return false;
+}
+
+function shouldRunReflexiveSacrificeDamageInline(
+  step: OracleEffectStep,
+  lastSacrificedPermanents: readonly unknown[] | undefined
+): boolean {
+  const delayed = step as any;
+  if (delayed.timing !== 'on_event' || !Array.isArray(delayed.steps) || delayed.steps.length === 0) return false;
+  if (!/\bwhen you do\b/i.test(`${delayed.raw || ''} ${delayed.effect || ''}`)) return false;
+  if (!Array.isArray(lastSacrificedPermanents) || lastSacrificedPermanents.length === 0) return false;
+  return delayed.steps.every(stepDamagesBySacrificedCreature);
+}
+
 export function tryApplyMainLoopCopyDestroySteps(
   ctx: MainLoopStepFamilyCtx,
   step: OracleEffectStep,
@@ -555,6 +577,24 @@ export function tryApplyMainLoopCopyDestroySteps(
           lastMovedBattlefieldPermanentIds,
         });
         applyHandledStepResult(step, result);
+        if (result.applied && shouldRunReflexiveSacrificeDamageInline(step, lastSacrificedPermanents)) {
+          // Surtland Flinger shape: "you may sacrifice a creature. When you do, this creature deals damage
+          // equal to the sacrificed creature's power ..." - the damage reads the sacrifice snapshot, which
+          // only exists in this execution, so it runs right here (CR 603.12) instead of being queued.
+          const reflexiveResult = recurse(
+            nextState,
+            (step as any).steps as OracleEffectStep[],
+            { ...currentCtx, lastSacrificedPermanents },
+            { ...options, allowOptional: true }
+          );
+          nextState = reflexiveResult.state;
+          log.push(...reflexiveResult.log);
+          appliedSteps.push(...reflexiveResult.appliedSteps);
+          skippedSteps.push(...reflexiveResult.skippedSteps);
+          automationGaps.push(...reflexiveResult.automationGaps);
+          pendingOptionalSteps.push(...reflexiveResult.pendingOptionalSteps);
+          absorbExecutionReplayMutations(reflexiveResult);
+        }
         break;
       }
       case 'destroy': {

@@ -3,6 +3,8 @@ import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
 import { debug, debugWarn } from '../../utils/debug.js';
+import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+
 import { processEquippedTriggers } from './triggerEmissionFamilyUtils.js';
 
 export function attachEquipmentToCreature(
@@ -53,6 +55,7 @@ export function attachEquipmentToCreature(
   }
 
   equipment.attachedTo = targetCreatureId;
+  stampAttachmentTimestamp(state, equipment);
 
   if (!targetCreature.attachedEquipment) {
     targetCreature.attachedEquipment = [];

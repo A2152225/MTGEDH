@@ -87,6 +87,7 @@ export function enqueueSupportedEnlistChoiceSteps(
   battlefield: any[],
   decisionPlayerId: string,
   attackerIds: string[],
+  gameState?: unknown,
 ): void {
   for (const attackerId of attackerIds) {
     const attacker = battlefield.find((p: any) => p && String(p.id) === String(attackerId));
@@ -111,7 +112,7 @@ export function enqueueSupportedEnlistChoiceSteps(
       })
       .map((p: any) => ({
         id: String(p.id),
-        label: `${p.card?.name || 'Creature'} (${getEffectivePower(p)}/${getEffectiveToughness(p)})`,
+        label: `${p.card?.name || 'Creature'} (${getEffectivePower(p, gameState)}/${getEffectiveToughness(p, gameState)})`,
         description: String(p.card?.type_line || 'Creature'),
         imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
       }));

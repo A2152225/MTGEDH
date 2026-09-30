@@ -92,7 +92,7 @@ export function handleStationCreatureSelectionResponse(
     return;
   }
 
-  const creaturePower = getEffectivePower(creature);
+  const creaturePower = getEffectivePower(creature, game.state);
   const countersToAdd = Math.max(0, Number(creaturePower || 0));
   const creatureName = String((creature as any).card?.name || 'creature');
   const counterType = String(stepData?.tapForCountersSource?.counterType || 'charge');

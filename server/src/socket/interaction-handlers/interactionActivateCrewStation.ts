@@ -66,7 +66,7 @@ export async function tryHandleActivateCrewStation(
 
     // Calculate total available power (including counters and modifiers)
     const totalAvailablePower = validCrewers.reduce((sum: number, c: any) => {
-      return sum + getEffectivePower(c);
+      return sum + getEffectivePower(c, game.state);
     }, 0);
 
     if (totalAvailablePower < crewPower) {
@@ -93,7 +93,7 @@ export async function tryHandleActivateCrewStation(
         mandatory: false,
         validTargets: validCrewers.map((c: any) => ({
           id: c.id,
-          label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+          label: `${c.card?.name || 'Creature'} (${getEffectivePower(c, game.state)}/${getEffectiveToughness(c, game.state)})`,
           description: c.card?.type_line || 'Creature',
           imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
         })),
@@ -131,7 +131,7 @@ export async function tryHandleActivateCrewStation(
           mandatory: false,
           validTargets: validCrewers.map((c: any) => ({
             id: c.id,
-            label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+            label: `${c.card?.name || 'Creature'} (${getEffectivePower(c, game.state)}/${getEffectiveToughness(c, game.state)})`,
             description: c.card?.type_line || 'Creature',
             imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
           })),
@@ -214,12 +214,12 @@ export async function tryHandleActivateCrewStation(
 
     // Queue creature selection via Resolution Queue
     const creatureOptions = untappedCreatures.map((c: any) => {
-      const creaturePower = getEffectivePower(c);
+      const creaturePower = getEffectivePower(c, game.state);
       return {
         id: c.id,
         name: c.card?.name || 'Unknown',
         power: creaturePower,
-        toughness: getEffectiveToughness(c),
+        toughness: getEffectiveToughness(c, game.state),
         imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
       };
     });

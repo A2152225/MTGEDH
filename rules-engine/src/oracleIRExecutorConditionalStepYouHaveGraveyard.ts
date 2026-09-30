@@ -354,7 +354,7 @@ export function tryEvaluateConditionalYouHaveGraveyard(
         return snapshots.some((entry: any) =>
           matchesCardTypeDescriptor(entry, descriptor) ||
           new RegExp(`\\b${descriptor.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\b`, 'i').test(
-            String(entry?.type_line || entry?.card?.type_line || entry?.subtype || entry?.cardType || '')
+            String(entry?.type_line || entry?.typeLine || entry?.card?.type_line || entry?.subtype || entry?.cardType || '')
           )
         );
       }

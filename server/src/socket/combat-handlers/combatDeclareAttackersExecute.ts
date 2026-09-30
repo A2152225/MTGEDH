@@ -429,7 +429,7 @@ export async function executeDeclareAttackers(
   // enlist action as its own event so replay is deterministic.
   try {
     enqueueSupportedExertChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
-    enqueueSupportedEnlistChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
+    enqueueSupportedEnlistChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)), game.state);
   } catch (e) {
     debugWarn(1, '[combat] Failed to enqueue enlist choice steps:', e);
   }

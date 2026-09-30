@@ -521,7 +521,7 @@ export async function handleDeclareAttackers(
     // optional enlist choice here as well to match executeDeclareAttackers used by AI and paid attacks.
     try {
       enqueueSupportedExertChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
-      enqueueSupportedEnlistChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
+      enqueueSupportedEnlistChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)), game.state);
     } catch (e) {
       debugWarn(1, '[combat] Failed to enqueue enlist choice steps:', e);
     }

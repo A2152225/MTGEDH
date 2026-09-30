@@ -1,7 +1,30 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
 import { getLegalAttackers } from './actions/combat';
+import { readCurrentPowerFromHook } from './currentPowerToughnessHook';
+import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 
-export function readPermanentPower(perm: BattlefieldPermanent): number {
+/**
+ * Power of a permanent for AI evaluation. With a game state, a battlefield permanent reads its current
+ * power (anthems, pumps, set-base effects, counters): the server's shared calculation when registered,
+ * otherwise the rules-engine static-ability pass. Without a state, or for objects that are not on the
+ * battlefield, it keeps reading the recorded/printed values as before.
+ */
+export function readPermanentPower(perm: BattlefieldPermanent, gameState?: GameState): number {
+  if (gameState && Array.isArray(gameState.battlefield)) {
+    const permanentId = String((perm as any)?.id || '').trim();
+    if (permanentId && gameState.battlefield.some((entry) => String((entry as any)?.id || '').trim() === permanentId)) {
+      const hooked = readCurrentPowerFromHook(gameState, perm);
+      if (hooked !== null) return Math.max(0, hooked);
+      try {
+        const processed = applyStaticAbilitiesToBattlefield(gameState.battlefield as BattlefieldPermanent[], gameState)
+          .find((entry) => String((entry as any)?.id || '').trim() === permanentId);
+        const effective = Number((processed as any)?.effectivePower);
+        if (Number.isFinite(effective)) return Math.max(0, effective);
+      } catch {
+        // fall through to the recorded values
+      }
+    }
+  }
   const raw =
     (perm as any).effectivePower
     ?? (perm as any).power
@@ -87,7 +110,7 @@ export function getGreatestAttackableCreaturePower(
 
   for (const perm of battlefield) {
     if (!legalAttackerIds.has(String(perm.id || ''))) continue;
-    best = Math.max(best, readPermanentPower(perm));
+    best = Math.max(best, readPermanentPower(perm, gameState));
   }
 
   return best;
@@ -97,7 +120,7 @@ export function scoreAttackManaEngineReconfigureTarget(
   gameState: GameState,
   playerId: PlayerID,
   permanent: BattlefieldPermanent,
-  readPower: (perm: BattlefieldPermanent) => number = readPermanentPower,
+  readPower: (perm: BattlefieldPermanent) => number = (perm) => readPermanentPower(perm, gameState),
 ): number {
   const legalAttackerIds = new Set(getLegalAttackers(gameState, playerId));
   const permanentId = String(permanent.id || '');
@@ -135,7 +158,7 @@ export function scoreAttackManaEngineReconfigureTarget(
 export function findBestAttackManaEngineReconfigureTarget(
   gameState: GameState,
   playerId: PlayerID,
-  readPower: (perm: BattlefieldPermanent) => number = readPermanentPower,
+  readPower: (perm: BattlefieldPermanent) => number = (perm) => readPermanentPower(perm, gameState),
 ): BattlefieldPermanent | null {
   const battlefield = Array.isArray(gameState.battlefield) ? gameState.battlefield : [];
   let bestTarget: BattlefieldPermanent | null = null;
@@ -157,7 +180,7 @@ export function evaluateAttackManaEngineReconfigureAttachValue(
   gameState: GameState,
   playerId: PlayerID,
   equipment: BattlefieldPermanent,
-  readPower: (perm: BattlefieldPermanent) => number = readPermanentPower,
+  readPower: (perm: BattlefieldPermanent) => number = (perm) => readPermanentPower(perm, gameState),
 ): number {
   const equipOracle = String((equipment.card as { oracle_text?: string })?.oracle_text || '');
   if (!isAttackManaRetentionEquipmentText(equipOracle)) {
@@ -203,13 +226,14 @@ export function evaluateAttackManaEngineReconfigureAttachValue(
 export function getGreatestControlledCreaturePower(
   battlefield: readonly BattlefieldPermanent[],
   playerId: PlayerID,
+  gameState?: GameState,
 ): number {
   let best = 0;
   for (const perm of battlefield) {
     if (perm.controller !== playerId) continue;
     const typeLine = String((perm.card as { type_line?: string })?.type_line || '').toLowerCase();
     if (!typeLine.includes('creature')) continue;
-    best = Math.max(best, readPermanentPower(perm));
+    best = Math.max(best, readPermanentPower(perm, gameState));
   }
   return best;
 }

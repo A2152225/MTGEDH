@@ -5,6 +5,10 @@ import { finalizeBattlefieldRemoval, permanentMatchesType } from './oracleIRExec
 import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { applySelfDamageEqualToPowerStep } from './oracleIRExecutorPowerBasedDamage';
+import {
+  applySourceDamageToPlayerOrPlaneswalkerStep,
+  applySourceDamageToThatCreatureStep,
+} from './oracleIRExecutorSourceBoundDamage';
 
 type Batch389StepResult =
   | {
@@ -667,25 +671,13 @@ export function tryBatch389DealDamageStep(
   }
 
   if (/this permanent deals .* damage to that creature/i.test(raw)) {
-    const targetId =
-      collectBoundIds(ctx)[0] ||
-      String(ctx.targetCreatureId || ctx.selectorContext?.targetCreatureId || '').trim();
-    const damageMatch = raw.match(/deals (\d+) damage to that creature/i);
-    const damage = damageMatch ? Number(damageMatch[1]) : Math.max(0, Number(amount ?? 0));
-    return {
-      applied: true,
-      state,
-      log: [`${String(ctx.sourceId || 'Source')} dealt ${damage} damage to ${targetId || 'that creature'}`],
-    };
+    // Marks real damage on the bound creature (was log-only).
+    return applySourceDamageToThatCreatureStep(state, step, ctx, raw, amount);
   }
 
   if (/this permanent deals that much damage to target player or planeswalker/i.test(raw)) {
-    const damage = Math.max(0, Number(ctx.referenceAmount ?? amount ?? 0));
-    return {
-      applied: true,
-      state,
-      log: [`Dealt ${damage} damage to target player or planeswalker`],
-    };
+    // Real life loss / loyalty loss (was log-only).
+    return applySourceDamageToPlayerOrPlaneswalkerStep(state, step, ctx, raw, amount);
   }
 
   return null;

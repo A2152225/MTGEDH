@@ -266,12 +266,12 @@ export async function handleAIResolutionPaymentAndTargetSteps(
             }
 
             if (minPower !== undefined || maxPower !== undefined) {
-              const power = getEffectivePower(perm);
+              const power = getEffectivePower(perm, game.state);
               if (minPower !== undefined && power < minPower) return false;
               if (maxPower !== undefined && power > maxPower) return false;
             }
             if (minToughness !== undefined || maxToughness !== undefined) {
-              const toughness = getEffectiveToughness(perm);
+              const toughness = getEffectiveToughness(perm, game.state);
               if (minToughness !== undefined && toughness < minToughness) return false;
               if (maxToughness !== undefined && toughness > maxToughness) return false;
             }

@@ -489,7 +489,7 @@ export function tryQueueRequestCastSpellNoTargetPayment(
         return typeLine.includes('creature');
       });
       const totalUntappedPower = teamworkCreatures.reduce(
-        (sum: number, permanent: any) => sum + getEffectivePower(permanent),
+        (sum: number, permanent: any) => sum + getEffectivePower(permanent, game.state),
         0,
       );
 
@@ -514,7 +514,7 @@ export function tryQueueRequestCastSpellNoTargetPayment(
             name: p.card?.name || 'Creature',
             imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
             typeLine: p.card?.type_line,
-            power: getEffectivePower(p),
+            power: getEffectivePower(p, game.state),
           })),
           castSpellFromHandArgs: {
             cardId,

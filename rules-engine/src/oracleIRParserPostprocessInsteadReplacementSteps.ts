@@ -158,11 +158,80 @@ function foldResidualTwiceDamageInstead(steps: readonly OracleEffectStep[]): Ora
   return out;
 }
 
+/**
+ * "If the sacrificed creature was a Giant, this creature deals twice that much damage instead."
+ * (Surtland Flinger) and "If the revealed land card was a Mountain, this artifact deals double that
+ * damage instead." (Goblin Charbelcher). The residual right after the base damage becomes a conditional
+ * whose alternative doubles the base amount and whose else branch keeps the base damage, so exactly one of
+ * the two runs. Surtland's base damage lives inside the reflexive "when you do" step, so the fold reaches
+ * into that step's nested steps.
+ */
+const RESIDUAL_OBJECT_TYPE_DAMAGE_INSTEAD =
+  /^if\s+(the sacrificed creature was an? [a-z]+|the revealed land card was an? [a-z]+),\s*(?:this (?:creature|artifact|permanent)|it|~)\s+deals\s+(?:twice that much|double that)(?:\s+damage)?\s+instead\.?$/i;
+
+function doubleDamageAmount(amount: any): any | null {
+  if (!amount) return null;
+  if (amount.kind === 'number') return { kind: 'number', value: Number(amount.value) * 2 };
+  if (amount.kind === 'object_stat') {
+    const multiplier = Number.isFinite(Number(amount.multiplier)) ? Number(amount.multiplier) : 1;
+    return { ...amount, multiplier: multiplier * 2 };
+  }
+  if (amount.kind === 'reference_amount' && /^the number of [a-z ]+ this way$/i.test(String(amount.raw || '').trim())) {
+    return { ...amount, raw: `twice ${String(amount.raw).trim()}` };
+  }
+  return null;
+}
+
+function buildDoubledDamageConditional(base: any, conditionRaw: string, raw: string): OracleEffectStep | null {
+  const doubled = doubleDamageAmount(base?.amount);
+  if (!doubled) return null;
+  return {
+    kind: 'conditional',
+    condition: { kind: 'if', raw: conditionRaw.toLowerCase() },
+    steps: [{ ...base, amount: doubled, raw: `${base.raw} (doubled)` }],
+    elseSteps: [base],
+    raw,
+  } as unknown as OracleEffectStep;
+}
+
+function foldResidualObjectTypeDamageInstead(steps: readonly OracleEffectStep[]): OracleEffectStep[] {
+  const out: OracleEffectStep[] = [];
+  for (const step of steps) {
+    const match = String((step as any)?.raw || '').trim().match(RESIDUAL_OBJECT_TYPE_DAMAGE_INSTEAD);
+    const prev: any = out[out.length - 1];
+    if (match && String(step.kind) === 'grant_static_ability' && prev) {
+      const raw = String((step as any).raw).trim();
+      if (prev.kind === 'deal_damage') {
+        const folded = buildDoubledDamageConditional(prev, match[1]!, raw);
+        if (folded) {
+          out[out.length - 1] = folded;
+          continue;
+        }
+      } else if (
+        prev.kind === 'schedule_delayed_trigger'
+        && Array.isArray(prev.steps)
+        && prev.steps.length === 1
+        && prev.steps[0]?.kind === 'deal_damage'
+      ) {
+        const folded = buildDoubledDamageConditional(prev.steps[0], match[1]!, raw);
+        if (folded) {
+          out[out.length - 1] = { ...prev, steps: [folded] } as OracleEffectStep;
+          continue;
+        }
+      }
+    }
+    out.push(step);
+  }
+  return out;
+}
+
 export function repairIntraAbilityInsteadConditionalSteps(
   abilities: readonly OracleIRAbility[]
 ): OracleIRAbility[] {
   return abilities.map((original) => {
-    const residualFolded = original.steps?.length ? foldResidualTwiceDamageInstead(original.steps) : original.steps;
+    const residualFolded = original.steps?.length
+      ? foldResidualObjectTypeDamageInstead(foldResidualTwiceDamageInstead(original.steps))
+      : original.steps;
     const ability = residualFolded === original.steps || residualFolded.length === original.steps.length
       ? original
       : { ...original, steps: residualFolded };

@@ -237,7 +237,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
           return;
         }
 
-        harmonizeGenericReduction = Math.max(0, Number(getEffectivePower(selectedHarmonizeCreature) || 0));
+        harmonizeGenericReduction = Math.max(0, Number(getEffectivePower(selectedHarmonizeCreature, game.state) || 0));
         (cardInHand as any).harmonizeTappedCreatureId = String(harmonizeTappedCreatureId);
         (cardInHand as any).harmonizeTappedCreatureName = String(selectedHarmonizeCreature?.card?.name || 'Creature');
         (cardInHand as any).harmonizeGenericReduction = harmonizeGenericReduction;

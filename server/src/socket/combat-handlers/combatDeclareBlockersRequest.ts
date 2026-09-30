@@ -545,7 +545,7 @@ export async function handleDeclareBlockers(
       }
 
       // Use the comprehensive evasion check that considers granted abilities and "as though" effects
-      const blockCheck = canBlockAttacker(blockerCreature, attackerCreature, battlefield, playerId);
+      const blockCheck = canBlockAttacker(blockerCreature, attackerCreature, battlefield, playerId, game.state);
       if (!blockCheck.canBlock) {
         socket.emit("error", {
           code: "CANT_BLOCK",
@@ -599,8 +599,8 @@ export async function handleDeclareBlockers(
       const attackerHasSkulk = attackerText.includes("skulk") ||
         attackerKeywords.some((k: string) => k.toLowerCase() === 'skulk');
       if (attackerHasSkulk) {
-        const blockerPower = getEffectivePower(blockerCreature);
-        const attackerPower = getEffectivePower(attackerCreature);
+        const blockerPower = getEffectivePower(blockerCreature, game.state);
+        const attackerPower = getEffectivePower(attackerCreature, game.state);
         if (blockerPower > attackerPower) {
           socket.emit("error", {
             code: "CANT_BLOCK_SKULK",

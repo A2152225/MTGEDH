@@ -19,6 +19,8 @@ import {
   type StaticKeywordResolver,
 } from './staticEffectSpecConditionEval.js';
 import { controllerHasLeftTheGame } from '../../../../rules-engine/src/playerInGameStatus.js';
+import { expireSourceLinkedPtModifiers } from './sourceLinkedPtModifiers.js';
+import { readPermanentTimestamp, stampMissingPermanentTimestamps } from '../../../../rules-engine/src/permanentTimestamps.js';
 import { collectActivatedAbilitiesExiledWithSource } from './staticEffectSpecCopyExiledActivated.js';
 
 export type {
@@ -157,14 +159,20 @@ function inferStaticEffectSublayer(spec: StaticEffectSpec): StaticEffectSublayer
   return specHasPowerToughnessGrant(spec) ? '7b' : '7a';
 }
 
-/** Battlefield index proxy for continuous-effect timestamp (Phase 5.4). */
+/**
+ * Continuous-effect timestamp of a static effect's source: its real entry timestamp when the permanent has
+ * one (permanentTimestamps.ts), otherwise the battlefield index proxy (Phase 5.4, legacy/un-stamped states).
+ */
 export function getStaticEffectSourceTimestamp(
   state: { battlefield?: readonly BattlefieldPermanent[] },
   sourcePermanentId: string,
+  options?: { forceIndexProxy?: boolean },
 ): number {
   const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
   const index = battlefield.findIndex((perm) => String(perm?.id || '') === String(sourcePermanentId || ''));
-  return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+  if (index < 0) return Number.MAX_SAFE_INTEGER;
+  if (options?.forceIndexProxy) return index;
+  return readPermanentTimestamp(battlefield[index]) ?? index;
 }
 
 export function compareStaticEffectSpecsForApplication(
@@ -791,6 +799,7 @@ export function resolveSetBasePTFromStaticSpecs(
 export function collectSetBasePTEntriesFromStaticSpecs(
   permanent: BattlefieldPermanent,
   state: { battlefield?: readonly BattlefieldPermanent[] } | null | undefined,
+  options?: { forceIndexProxy?: boolean },
 ): Array<{ power?: number; toughness?: number; timestamp: number }> {
   if (!state || !Array.isArray(state.battlefield)) return [];
   const specs = sortStaticEffectSpecsForApplication(
@@ -806,7 +815,7 @@ export function collectSetBasePTEntriesFromStaticSpecs(
     entries.push({
       ...(spec.grant.setPower !== undefined ? { power: Number(spec.grant.setPower) } : {}),
       ...(spec.grant.setToughness !== undefined ? { toughness: Number(spec.grant.setToughness) } : {}),
-      timestamp: getStaticEffectSourceTimestamp(state, String(spec.sourcePermanentId || '')),
+      timestamp: getStaticEffectSourceTimestamp(state, String(spec.sourcePermanentId || ''), options),
     });
   }
   return entries;
@@ -852,6 +861,18 @@ export function syncDerivedContinuousEffects(state: unknown): ContinuousEffectRe
   if (!Array.isArray((state as { battlefield?: unknown }).battlefield)) return null;
   try {
     hydrateBattlefieldOracleText((state as { battlefield?: unknown }).battlefield);
+  } catch {
+    // best-effort only
+  }
+  try {
+    // "For as long as this artifact remains tapped" style pumps end as soon as their condition stops.
+    expireSourceLinkedPtModifiers(state);
+  } catch {
+    // best-effort only
+  }
+  try {
+    // Real timestamps (CR 613.7) for anything that entered/attached through a path without explicit stamping.
+    stampMissingPermanentTimestamps(state);
   } catch {
     // best-effort only
   }

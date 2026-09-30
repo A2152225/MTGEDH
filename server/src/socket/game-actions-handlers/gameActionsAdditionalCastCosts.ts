@@ -52,7 +52,7 @@ export function calculateHarmonizeOptions(
       options.availableCreatures.push({
         id: String(permanent.id || ''),
         name: String(permanent?.card?.name || 'Creature'),
-        power: Math.max(0, Number(getEffectivePower(permanent) || 0)),
+        power: Math.max(0, Number(getEffectivePower(permanent, game.state) || 0)),
         imageUrl: permanent?.card?.image_uris?.small || permanent?.card?.image_uris?.normal,
       });
     }

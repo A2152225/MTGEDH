@@ -20,6 +20,7 @@ import {
 import { syncDerivedContinuousEffects } from "./staticEffectSpec.js";
 import { applyLayer7bSetBasePowerToughness } from "./setBasePtTimestampResolution.js";
 import { sumLongDurationPtModifiers } from "./longDurationPtModifiers.js";
+import { registerCurrentPowerToughnessResolver } from "../../../../rules-engine/src/currentPowerToughnessHook.js";
 
 export interface CurrentPowerToughness {
   power: number;
@@ -169,6 +170,10 @@ export function getCurrentPowerToughness(perm: any, state: any): { power: number
     toughness: current.toughness + pending.toughness,
   };
 }
+// Rules-engine readers with a game state but no server access (AI evaluation, combat scoring) read the
+// same calculation through this hook instead of the recorded/printed values.
+registerCurrentPowerToughnessResolver((state, permanent) => getCurrentPowerToughness(permanent, state));
+
 /**
  * Rules-facing variant that always returns numbers: current P/T when computable, otherwise the
  * legacy base + counters reader (getActualPowerToughness).

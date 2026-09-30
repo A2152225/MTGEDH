@@ -431,6 +431,15 @@ export type OracleEffectStepB =
       readonly power?: number;
       readonly toughness?: number;
       readonly duration?: 'static' | 'while_attached' | 'this_turn' | 'end_of_turn' | 'until_next_turn' | 'end_of_combat';
+      /**
+       * "for as long as <condition>" P/T pumps: the modifier only counts while the condition holds and is
+       * removed once it stops (source tapped, source attached to the host, controller keeps controlling the
+       * source or a matching permanent). Evaluated by the server (sourceLinkedPtModifiers.ts).
+       */
+      readonly linkCondition?: {
+        readonly kind: 'source_tapped' | 'source_attached' | 'controller_controls_source' | 'controller_controls_matching';
+        readonly matching?: string;
+      };
       /** Parsed metadata for granted effect text; not executed as part of the host effect. */
       readonly steps?: readonly OracleEffectStep[];
       readonly optional?: boolean;

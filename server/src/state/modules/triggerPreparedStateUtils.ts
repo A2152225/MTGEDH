@@ -104,7 +104,7 @@ function isPreparedStateChangeConditionSatisfied(
   }
 
   if (normalizedDescription.includes('if that creature has power 7 or greater')) {
-    return Boolean(referencedPermanent) && getEffectivePower(referencedPermanent) >= 7;
+    return Boolean(referencedPermanent) && getEffectivePower(referencedPermanent, state) >= 7;
   }
 
   const lifeGainThresholdMatch = normalizedDescription.match(/if you(?:'ve| have)? gained ([a-z0-9]+) or more life this turn/);

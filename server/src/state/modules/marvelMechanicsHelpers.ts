@@ -33,12 +33,13 @@ export function spellOracleUsesTeamworkChooseBoth(oracleText: string): boolean {
 export function sumSelectedCreaturesPower(
   battlefield: readonly any[],
   creatureIds: readonly string[],
+  gameState?: any,
 ): number {
   let total = 0;
   for (const id of creatureIds) {
     const permanent = battlefield.find((entry) => entry && String(entry.id || '') === String(id));
     if (!permanent) continue;
-    total += getEffectivePower(permanent);
+    total += getEffectivePower(permanent, gameState);
   }
   return total;
 }

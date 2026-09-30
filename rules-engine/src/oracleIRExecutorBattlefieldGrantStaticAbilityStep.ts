@@ -68,6 +68,7 @@ export function applyGrantStaticAbilityStep(
     power: step.power,
     toughness: step.toughness,
     duration: step.duration || 'static',
+    ...((step as any).linkCondition ? { linkCondition: (step as any).linkCondition } : {}),
     raw: step.raw,
   };
   const duplicateStaticGrant = existingStaticGrantEffects.some((entry: any) =>
@@ -113,8 +114,10 @@ export function applyGrantStaticAbilityStep(
       const power = step.power || 0;
       const toughness = step.toughness || 0;
       const duration = step.duration || 'static';
+      const linkCondition = (step as any).linkCondition;
       const duplicateModifier = existingModifiers.some((modifier: any) =>
         String(modifier?.type || '').trim() === 'powerToughness' &&
+        JSON.stringify(modifier?.linkCondition ?? null) === JSON.stringify(linkCondition ?? null) &&
         Number(modifier?.power || 0) === power &&
         Number(modifier?.toughness || 0) === toughness &&
         String(modifier?.sourceId || '').trim() === sourceId &&
@@ -129,6 +132,9 @@ export function applyGrantStaticAbilityStep(
           sourceName: sourceName || undefined,
           duration,
           turnApplied: Number((state as any)?.turnNumber ?? 0) || 0,
+          ...(linkCondition
+            ? { linkCondition, ...(ctx.controllerId ? { linkControllerId: String(ctx.controllerId) } : {}) }
+            : {}),
           ...(duration === 'until_next_turn' && ctx.controllerId
             ? { expiresOnControllerTurn: ctx.controllerId }
             : {}),

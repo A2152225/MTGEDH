@@ -11,6 +11,7 @@ import type { GameState } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 import { getPermanentTextFragments } from './permanentText';
+import { tryEvaluateRevealedLandCardWasSubtype } from './oracleIRExecutorRevealedCardsThisWay';
 
 const KEYWORD_CLAUSE =
   /^(?:that|target|the) (?:creature|permanent)(?: you control| an opponent controls)? has (flying|reach|trample|first strike|double strike|deathtouch|lifelink|vigilance|haste|menace|hexproof|indestructible|defender|toxic|infect|wither)$/;
@@ -78,6 +79,9 @@ export function tryEvaluateConditionalSpellCastFlagOrKeyword(params: {
     const threshold = Number(xThreshold[1]);
     return xThreshold[2] === 'more' ? xValue >= threshold : xValue <= threshold;
   }
+
+  const revealedLand = tryEvaluateRevealedLandCardWasSubtype(normalizedRaw, ctx);
+  if (revealedLand !== undefined) return revealedLand;
 
   const keywordClause = normalizedRaw.match(KEYWORD_CLAUSE);
   if (keywordClause) {

@@ -194,7 +194,7 @@ export async function handleDeclareControlledAttackers(
 
     try {
       enqueueSupportedExertChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
-      enqueueSupportedEnlistChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)));
+      enqueueSupportedEnlistChoiceSteps(gameId, battlefield as any[], String(playerId), attackerIds.map((id) => String(id)), game.state);
     } catch (e) {
       debugWarn(1, '[combat] Failed to enqueue controlled attack-time choice steps:', e);
     }

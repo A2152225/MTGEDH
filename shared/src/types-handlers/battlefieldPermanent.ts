@@ -32,6 +32,17 @@ export interface PermanentModifier {
   readonly timestamp?: number;
   readonly battlefieldPosition?: number;
   readonly battlefieldAnchorId?: string;
+  /**
+   * "For as long as <condition>" pumps: counted only while the condition holds (evaluated against `sourceId`),
+   * removed once it stops. `linkControllerId` is the controller of the source when the effect resolved.
+   */
+  readonly linkCondition?: {
+    readonly kind: 'source_tapped' | 'source_attached' | 'controller_controls_source' | 'controller_controls_matching';
+    readonly matching?: string;
+  };
+  readonly linkControllerId?: string;
+  /** True when `timestamp` was drawn from the game-wide permanent timestamp counter (exact layer 7b ordering). */
+  readonly globalTimestamp?: boolean;
 }
 
 /**
@@ -58,6 +69,11 @@ export interface BattlefieldPermanent {
   basePower?: number;
   baseToughness?: number;
   attachedTo?: string;
+  /** Game-wide entry timestamp (CR 613.7); also the timestamp of this permanent's static abilities. */
+  timestamp?: number;
+  /** Timestamp of when this Aura/Equipment became attached to `attachedTimestampFor` (CR 613.7e). */
+  attachedTimestamp?: number;
+  attachedTimestampFor?: string;
   attachments?: string[];           // IDs of permanents attached to this one (auras, equipment)
   modifiers?: readonly PermanentModifier[]; // Power/toughness and other modifiers from effects
   effectivePower?: number;

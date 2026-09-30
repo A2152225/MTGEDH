@@ -131,7 +131,7 @@ export async function tryHandleActivateEquipFortifyReconfigure(
         mandatory: false,
         validTargets: validTargets.map((c: any) => ({
           id: c.id,
-          label: `${c.card?.name || 'Permanent'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+          label: `${c.card?.name || 'Permanent'} (${getEffectivePower(c, game.state)}/${getEffectiveToughness(c, game.state)})`,
           description: c.card?.type_line || 'Permanent',
           imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
         })),
@@ -182,7 +182,7 @@ export async function tryHandleActivateEquipFortifyReconfigure(
           mandatory: false,
           validTargets: validTargets.map((c: any) => ({
             id: c.id,
-            label: `${c.card?.name || 'Permanent'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+            label: `${c.card?.name || 'Permanent'} (${getEffectivePower(c, game.state)}/${getEffectiveToughness(c, game.state)})`,
             description: c.card?.type_line || 'Permanent',
             imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
           })),
@@ -362,7 +362,7 @@ export async function tryHandleActivateEquipFortifyReconfigure(
         mandatory: false,
         validTargets: validTargets.map((c: any) => ({
           id: c.id,
-          label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+          label: `${c.card?.name || 'Creature'} (${getEffectivePower(c, game.state)}/${getEffectiveToughness(c, game.state)})`,
           description: c.card?.type_line || 'Creature',
           imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
         })),
@@ -407,7 +407,7 @@ export async function tryHandleActivateEquipFortifyReconfigure(
           mandatory: false,
           validTargets: validTargets.map((c: any) => ({
             id: c.id,
-            label: `${c.card?.name || 'Creature'} (${getEffectivePower(c)}/${getEffectiveToughness(c)})`,
+            label: `${c.card?.name || 'Creature'} (${getEffectivePower(c, game.state)}/${getEffectiveToughness(c, game.state)})`,
             description: c.card?.type_line || 'Creature',
             imageUrl: c.card?.image_uris?.small || c.card?.image_uris?.normal,
           })),

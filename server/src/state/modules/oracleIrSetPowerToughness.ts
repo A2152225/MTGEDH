@@ -19,6 +19,8 @@ export interface OracleIrSetPowerToughnessSetter extends OracleIrSetPowerToughne
   timestamp?: number;
   battlefieldPosition?: number;
   battlefieldAnchorId?: string;
+  /** True when `timestamp` came from the game-wide permanent timestamp counter (exact ordering). */
+  globalTimestamp?: boolean;
 }
 
 /** All setPowerToughness modifiers on the permanent in array (creation) order. */
@@ -41,6 +43,7 @@ export function listOracleIrSetPowerToughnessSetters(perm: any): OracleIrSetPowe
       ...(Number.isFinite(timestamp) ? { timestamp } : {}),
       ...(Number.isFinite(position) ? { battlefieldPosition: position } : {}),
       ...(anchorId ? { battlefieldAnchorId: anchorId } : {}),
+      ...(modifier?.globalTimestamp === true && Number.isFinite(timestamp) ? { globalTimestamp: true } : {}),
     });
   }
   return setters;

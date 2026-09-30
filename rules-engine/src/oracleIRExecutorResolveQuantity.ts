@@ -35,6 +35,7 @@ import {
 } from './oracleIRLedgerCardAccess';
 import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 import { readCurrentPower, readCurrentToughness } from './oracleIRExecutorCurrentPowerToughness';
+import { resolveRevealedThisWayCount } from './oracleIRExecutorRevealedCardsThisWay';
 
 export function resolveControllerSpellCastCountThisTurn(
   state: GameState,
@@ -263,6 +264,9 @@ export function resolveOracleQuantity(
 
     const combatDamageAmount = tryEvaluateCombatDamageReferenceCount(state, controllerId, normalized, ctx);
     if (combatDamageAmount !== null) return combatDamageAmount;
+
+    const revealedThisWay = resolveRevealedThisWayCount(normalized, ctx, runtime as any);
+    if (revealedThisWay !== null) return revealedThisWay;
 
     // Generic "the number of <counter> counters on this <noun>" / "... on it" (e.g. Tangle Wire's
     // fade counters), not tied to any specific counter type.

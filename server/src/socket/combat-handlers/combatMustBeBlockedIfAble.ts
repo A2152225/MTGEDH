@@ -121,12 +121,13 @@ function creatureCanAssignAsBlocker(
   attacker: any,
   battlefield: any[],
   defendingPlayerId: string,
+  state?: unknown,
 ): boolean {
   if (!blocker || !attacker) return false;
   if (readControllerId(blocker) !== String(defendingPlayerId || '').trim()) return false;
   if (!isCurrentlyCreature(blocker, battlefield, defendingPlayerId)) return false;
   if (blocker.tapped) return false;
-  return canBlockAttacker(blocker, attacker, battlefield, defendingPlayerId).canBlock;
+  return canBlockAttacker(blocker, attacker, battlefield, defendingPlayerId, state).canBlock;
 }
 
 function permanentHasRequiredBlockKeyword(
@@ -154,7 +155,7 @@ function creatureCanAssignAsTypedBlocker(
   defendingPlayerId: string,
   state: unknown,
 ): boolean {
-  if (!creatureCanAssignAsBlocker(blocker, attacker, battlefield, defendingPlayerId)) {
+  if (!creatureCanAssignAsBlocker(blocker, attacker, battlefield, defendingPlayerId, state)) {
     return false;
   }
   return permanentHasRequiredBlockKeyword(
@@ -187,7 +188,7 @@ function assignedToOtherAllAbleTheyCanBlock(
 ): boolean {
   const assignedAttacker = battlefield.find((perm: any) => readPermanentId(perm) === assignedTo);
   if (!attackerHasAllAbleCreaturesMustBlock(assignedAttacker, state)) return false;
-  return creatureCanAssignAsBlocker(candidate, assignedAttacker, battlefield, defendingPlayerId);
+  return creatureCanAssignAsBlocker(candidate, assignedAttacker, battlefield, defendingPlayerId, state);
 }
 
 /**
@@ -207,7 +208,7 @@ function blockerIsIdleVersusAllAbleAttacker(
 ): boolean {
   const candidateId = readPermanentId(candidate);
   if (!candidateId) return false;
-  if (!creatureCanAssignAsBlocker(candidate, attacker, battlefield, defendingPlayerId)) {
+  if (!creatureCanAssignAsBlocker(candidate, attacker, battlefield, defendingPlayerId, state)) {
     return false;
   }
   const assignedTo = assignmentByBlockerId.get(candidateId);
@@ -233,7 +234,7 @@ function blockerIsAvailableForAtLeastOneAttacker(
 ): boolean {
   const candidateId = readPermanentId(candidate);
   if (!candidateId) return false;
-  if (!creatureCanAssignAsBlocker(candidate, attacker, battlefield, defendingPlayerId)) {
+  if (!creatureCanAssignAsBlocker(candidate, attacker, battlefield, defendingPlayerId, state)) {
     return false;
   }
   const assignedTo = assignmentByBlockerId.get(candidateId);

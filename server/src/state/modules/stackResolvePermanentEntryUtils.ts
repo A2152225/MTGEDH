@@ -32,6 +32,7 @@ import { applyGraveyardTypeEntryCounterGrants } from './graveyardTypeEntryCounte
 import { cardEntersPrepared, setPermanentPrepared } from './prepared.js';
 import { hydratePermanentCardOracleInPlace, hydrateCardOracleInPlace } from './cardOracleHydration.js';
 import { inferLeaveBattlefieldExileReplacement, applyLeaveBattlefieldExileReplacementStamp } from './leaveBattlefieldReplacementStamp.js';
+import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 import { lookupLocalCardByNameSync } from '../../services/localCardLookup.js';
 import { queueMutateTriggeredAbilities as queueMutateTriggeredAbilitiesImpl } from './stackResolvePermanentEntryUtils-handlers/queueMutateTriggeredAbilities.js';
 import type {
@@ -697,6 +698,7 @@ export function resolvePermanentSpellBattlefieldEntry(
   }
   
   state.battlefield.push(newPermanent);
+  stampPermanentEntryTimestamp(state, newPermanent);
   syncArcaneAdaptationForNewCreature(state, newPermanent);
   applyMetallicMimicEntryBonus(ctx, newPermanent, controller as PlayerID);
   applyGraveyardTypeEntryCounterGrants(state, newPermanent, String(controller));
@@ -719,6 +721,7 @@ export function resolvePermanentSpellBattlefieldEntry(
     if (targetPerm) {
       // Set attachedTo on the aura/equipment
       newPermanent.attachedTo = targetId;
+      stampAttachmentTimestamp(state, newPermanent);
       
       // Track attachment on the target permanent
       // Use attachedEquipment for equipment (existing pattern) and attachments for auras

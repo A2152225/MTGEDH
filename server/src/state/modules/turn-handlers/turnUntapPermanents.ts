@@ -11,6 +11,7 @@ import type { GameContext } from "../../context.js";
 import { isPermanentPreventedFromUntapping } from "../triggered-abilities.js";
 import { queueBecomesUntappedTriggers } from "../triggers/tap-untap.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
+import { expireSourceLinkedPtModifiers } from "../sourceLinkedPtModifiers.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -72,6 +73,9 @@ export function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
         delete permanent.doesntUntapNextTurn;
       }
     }
+
+    // "For as long as this artifact remains tapped" pumps end when their source untaps.
+    if (untappedCount > 0) expireSourceLinkedPtModifiers((ctx as any).state);
 
     if (untappedCount > 0 || stunCountersRemoved > 0 || skippedDueToEffects > 0) {
       debug(2, 

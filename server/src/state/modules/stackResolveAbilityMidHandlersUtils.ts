@@ -5,6 +5,8 @@ import type { StackActivatedAbilityHandlerContext } from './stackResolveSharedTy
 export type { StackActivatedAbilityHandlerContext } from './stackResolveSharedTypes.js';
 
 import { debug, debugWarn } from '../../utils/debug.js';
+import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+
 import { appendEvent } from '../../db/index.js';
 import { canPermanentBeTargetedByPlayer } from '../../rules-engine/targeting.js';
 import { getEffectivePower } from '../../socket/util.js';
@@ -412,6 +414,7 @@ function resolveReconfigureAttachAbility(ctx: GameContext, item: any, controller
   }
 
   equipment.attachedTo = targetCreatureId;
+  stampAttachmentTimestamp(state, equipment);
   if (!targetCreature.attachedEquipment) {
     targetCreature.attachedEquipment = [];
   }

@@ -19,6 +19,8 @@ import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolution/index.js";
 import { debugWarn } from "../../utils/debug.js";
+import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+
 import { queueTapTriggersForTappedPermanents } from "../../state/modules/tap-trigger-queue.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
 
@@ -68,6 +70,7 @@ async function attachEquipmentToPermanentById(
   }
 
   equipment.attachedTo = targetPermanent.id;
+  stampAttachmentTimestamp(gameRef.state, equipment);
   targetPermanent.attachedEquipment = Array.isArray(targetPermanent.attachedEquipment) ? targetPermanent.attachedEquipment : [];
   if (!targetPermanent.attachedEquipment.some((id: any) => String(id) === equipmentId)) {
     targetPermanent.attachedEquipment.push(equipmentId);

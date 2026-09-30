@@ -17,6 +17,7 @@ import {
   tryParseTemporaryModifyPtClause,
   tryParseTemporarySetBasePtClause,
 } from './oracleIRParserModifyPtClauses';
+import { tryParseForAsLongAsPtStep } from './oracleIRParserForAsLongAsPtClauses';
 import { tryParseSimpleActionClause } from './oracleIRParserSimpleActionClauses';
 import {
   tryParseRulesTextClause,
@@ -64,6 +65,12 @@ export function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
 
   if (!clause) {
     return withMeta({ kind: 'unknown', raw: '' });
+  }
+
+  {
+    // "Target creature gets +X/+Y for as long as this artifact remains tapped" (source-linked expiry).
+    const forAsLongAsPt = tryParseForAsLongAsPtStep(clause, rawClause);
+    if (forAsLongAsPt) return withMeta(forAsLongAsPt);
   }
 
   {

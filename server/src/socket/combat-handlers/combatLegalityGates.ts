@@ -628,7 +628,7 @@ export function canBlockAttacker(
     };
   }
 
-  const blockerPower = getEffectivePower(blocker);
+  const blockerPower = getEffectivePower(blocker, gameState);
   if (attackerRestrictionTexts.some((entry) => entry.includes("can't be blocked by creatures with power 2 or less")) && blockerPower <= 2) {
     return {
       canBlock: false,
@@ -636,7 +636,7 @@ export function canBlockAttacker(
     };
   }
 
-  const attackerPower = getEffectivePower(attacker);
+  const attackerPower = getEffectivePower(attacker, gameState);
   if (attackerRestrictionTexts.some((entry) => entry.includes("can't be blocked by creatures with greater power")) && blockerPower > attackerPower) {
     return {
       canBlock: false,

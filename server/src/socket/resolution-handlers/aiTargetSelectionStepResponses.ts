@@ -124,12 +124,12 @@ export function buildAiTargetSelectionStepResponse(
         }
 
         if (minPower !== undefined || maxPower !== undefined) {
-          const pwr = getEffectivePower(perm);
+          const pwr = getEffectivePower(perm, game.state);
           if (minPower !== undefined && pwr < minPower) return false;
           if (maxPower !== undefined && pwr > maxPower) return false;
         }
         if (minToughness !== undefined || maxToughness !== undefined) {
-          const tgh = getEffectiveToughness(perm);
+          const tgh = getEffectiveToughness(perm, game.state);
           if (minToughness !== undefined && tgh < minToughness) return false;
           if (maxToughness !== undefined && tgh > maxToughness) return false;
         }
