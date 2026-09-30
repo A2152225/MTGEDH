@@ -28,6 +28,7 @@ import {
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { broadcastGame } from "../util.js";
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 /** "You may tap or untap target permanent." */
 export async function handleTapOrUntapDecision(
@@ -140,6 +141,7 @@ export async function handleMoxDiamondStackChoice(
         controller,
         tapped: false,
       });
+      stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
       debug(2, `[Resolution] Mox Diamond: discarded ${landCard.name}, put onto battlefield`);
     } else {
       // If land missing, fall back to graveyard

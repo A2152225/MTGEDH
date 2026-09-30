@@ -19,6 +19,7 @@ import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolut
 import { parsePT, uid } from "../../state/utils.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { broadcastGame, getPlayerName } from "../util.js";
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 /** Immediate graveyard-card actions for a TARGET_SELECTION step; true when the action was handled. */
 export function tryHandleTargetSelectionGraveyardCardAction(
@@ -126,6 +127,7 @@ export function tryHandleTargetSelectionGraveyardCardAction(
     }
 
     battlefield.push(newPermanent);
+    stampPermanentEntryTimestamp(game.state, battlefield[battlefield.length - 1]);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,

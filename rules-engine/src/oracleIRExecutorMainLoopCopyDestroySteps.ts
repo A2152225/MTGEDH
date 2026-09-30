@@ -48,14 +48,27 @@ function stepDamagesBySacrificedCreature(step: any): boolean {
   return false;
 }
 
+function hasPreboundDamageTarget(ctx: any): boolean {
+  const sel = ctx?.selectorContext || {};
+  return Boolean(
+    String(sel.targetPlayerId || '').trim()
+    || String(sel.targetOpponentId || '').trim()
+    || String(ctx?.targetPermanentId || '').trim()
+    || String(ctx?.targetCreatureId || '').trim()
+  );
+}
+
 function shouldRunReflexiveSacrificeDamageInline(
   step: OracleEffectStep,
-  lastSacrificedPermanents: readonly unknown[] | undefined
+  lastSacrificedPermanents: readonly unknown[] | undefined,
+  ctx: any
 ): boolean {
   const delayed = step as any;
   if (delayed.timing !== 'on_event' || !Array.isArray(delayed.steps) || delayed.steps.length === 0) return false;
   if (!/\bwhen you do\b/i.test(`${delayed.raw || ''} ${delayed.effect || ''}`)) return false;
   if (!Array.isArray(lastSacrificedPermanents) || lastSacrificedPermanents.length === 0) return false;
+  // Live play has no pre-bound target: the server queues the reflexive trigger so the player picks "any target".
+  if (!hasPreboundDamageTarget(ctx)) return false;
   return delayed.steps.every(stepDamagesBySacrificedCreature);
 }
 
@@ -577,7 +590,7 @@ export function tryApplyMainLoopCopyDestroySteps(
           lastMovedBattlefieldPermanentIds,
         });
         applyHandledStepResult(step, result);
-        if (result.applied && shouldRunReflexiveSacrificeDamageInline(step, lastSacrificedPermanents)) {
+        if (result.applied && shouldRunReflexiveSacrificeDamageInline(step, lastSacrificedPermanents, currentCtx)) {
           // Surtland Flinger shape: "you may sacrifice a creature. When you do, this creature deals damage
           // equal to the sacrificed creature's power ..." - the damage reads the sacrifice snapshot, which
           // only exists in this execution, so it runs right here (CR 603.12) instead of being queued.

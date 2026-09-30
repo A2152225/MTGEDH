@@ -14,6 +14,7 @@ import type { OracleIRExecutionContext, OracleIRExecutionOptions } from '../orac
 import {
   LAST_MOVED_CARDS_BINDING,
   LAST_REVEALED_CARD_COUNT_BINDING,
+  LAST_SACRIFICED_PERMANENTS_BINDING,
   type DerivedOracleIRContextBindings,
 } from './effectProgramOracleRunnerBindingKeys';
 import {
@@ -27,6 +28,10 @@ export function createOracleIRContextWithEffectProgramBindings(
   runtime: EffectProgramRuntime<GameState>
 ): OracleIRExecutionContext {
   const derived = deriveOracleIRContextFromEffectProgramBindings(runtime);
+  const boundLastSacrificed = runtime.bindings[LAST_SACRIFICED_PERMANENTS_BINDING];
+  if (Array.isArray(boundLastSacrificed) && boundLastSacrificed.length > 0) {
+    ctx = { ...ctx, lastSacrificedPermanents: boundLastSacrificed } as OracleIRExecutionContext;
+  }
   const boundLastMovedCards = runtime.bindings[LAST_MOVED_CARDS_BINDING];
   const boundLastRevealedCardCount = runtime.bindings[LAST_REVEALED_CARD_COUNT_BINDING];
   const lastMovedCards = Array.isArray(boundLastMovedCards)

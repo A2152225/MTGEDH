@@ -29,6 +29,7 @@ import {
   getAIManaProductionOptions,
 } from "./aiManaCostHelpers.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 export async function executeAILegacyActivateAbility(
   io: Server,
@@ -232,6 +233,7 @@ export async function executeAILegacyActivateAbility(
               isToken: true,
             };
             game.state.battlefield.push(spiritToken);
+            stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
             
             debug(2, `[AI] Forbidden Orchard: created Spirit token for ${targetOpponentId}`);
             

@@ -28,6 +28,7 @@ import {
 import { debugWarn } from "../../utils/debug.js";
 import { checkAndPromptOpeningHandActions, getOpeningHandBattlefieldCounters, isOpeningHandBattlefieldCard } from "../opening-hand.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 /** Whether the parent should `return` out of handleStepResponse or just `break` the switch. */
 export type StepResponseExit = 'return' | 'break';
@@ -91,6 +92,7 @@ export function handleOpeningHandActionsResponse(
       tapped: false,
       counters: getOpeningHandBattlefieldCounters(card, pid, game.state),
     } as any);
+    stampPermanentEntryTimestamp(game.state, battlefield[battlefield.length - 1]);
     playedCards.push(String(card?.name || 'Unknown'));
   }
 

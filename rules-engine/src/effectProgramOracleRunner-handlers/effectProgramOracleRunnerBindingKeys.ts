@@ -20,3 +20,5 @@ export const LAST_GRANTED_GRAVEYARD_PERMISSION_IDS_BINDING = '__oracleLastGrante
 export const LAST_ACTION_OUTCOME_BINDING = '__oracleLastActionOutcome';
 export const LAST_MOVED_CARDS_BINDING = '__oracleLastMovedCards';
 export const LAST_REVEALED_CARD_COUNT_BINDING = '__oracleLastRevealedCardCount';
+/** Last-known snapshots of permanents sacrificed by an earlier command step ("the sacrificed creature's power"). */
+export const LAST_SACRIFICED_PERMANENTS_BINDING = '__oracleLastSacrificedPermanents';

@@ -59,6 +59,7 @@ import {
   getPlayerName,
   validateAndConsumeManaCostFromPool,
 } from "./util.js";
+import { stampPermanentEntryTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
 
 function extractId(sel: any): string | null {
   if (typeof sel === 'string') return sel;
@@ -142,6 +143,7 @@ export async function tryHandleOptionChoiceEarlySpecialsConfirmCastPayment(
       isToken: true,
     };
     game.state.battlefield.push(spiritToken);
+    stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
 
     const ctx = {
       state: game.state,

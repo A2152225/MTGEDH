@@ -16,6 +16,7 @@ import { cleanupCardLeavingExile } from '../playable-from-exile.js';
 import { triggerETBEffectsForPermanent } from '../triggerEtbPermanentEffects.js';
 import { detectEntersWithCounters } from '../detectEntersWithCounters.js';
 import { debug } from '../../../utils/debug.js';
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 type FlickerReturnAt = 'immediate' | 'next_end_step' | 'owners_next_end_step' | 'end_of_combat';
 
@@ -102,6 +103,7 @@ export function returnExiledCardToBattlefield(
 
   stateAny.battlefield = Array.isArray(stateAny.battlefield) ? stateAny.battlefield : [];
   stateAny.battlefield.push(newPermanent);
+  stampPermanentEntryTimestamp(stateAny, stateAny.battlefield[stateAny.battlefield.length - 1]);
 
   debug(2, `[returnExiledCardToBattlefield] ${sourceName}: returned ${card?.name || normalizedCardId} to battlefield as ${newPermanent.id}`);
   triggerETBEffectsForPermanent(ctx, newPermanent, normalizedOwnerId);

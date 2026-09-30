@@ -15,7 +15,7 @@ export function isLifeGainedBoundedManaPayment(step: OracleEffectStep): boolean 
   if (step.kind !== 'pay_mana') return false;
   const mana = String((step as { mana?: string }).mana || '').replace(/\s+/g, '').toUpperCase();
   if (mana !== '{X}') return false;
-  return /less than or equal to the amount of life you gained/i.test(String(step.raw || ''));
+  return /(?:less than or equal to|no more than|at most|up to) (?:the amount of |the )?life you(?:'ve| have)? gained/i.test(String(step.raw || ''));
 }
 
 export function appendLifeGainedBoundedManaXPaymentSteps(args: {

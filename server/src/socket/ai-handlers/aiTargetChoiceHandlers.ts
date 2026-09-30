@@ -35,6 +35,7 @@ import {
 } from "./aiDeckProfileHandlers.js";
 import { aiEngine } from "./aiScheduler.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { getPermanentCombatStats } from "./aiPermanentCombatStats.js";
 
 function getPermanentForTarget(game: any, target: TargetRef): any | null {
   if (target.kind !== 'permanent') return null;
@@ -125,8 +126,7 @@ function scorePermanentTargetForSpell(
   const isOwnPermanent = permanent.controller === playerId;
   const typeLine = String(permanent.card?.type_line || '').toLowerCase();
   const oracleText = String(permanent.card?.oracle_text || '').toLowerCase();
-  const power = Number(permanent.card?.power || permanent.basePower || 0) || 0;
-  const toughness = Number(permanent.card?.toughness || permanent.baseToughness || 0) || 0;
+  const { power, toughness } = getPermanentCombatStats(permanent, game?.state);
   const amount = Number(spellSpec.amount || 0) || 0;
   let score = 0;
 
@@ -467,7 +467,7 @@ function scoreChoiceTargetFallback(
 
     const isOwnPermanent = permanent.controller === playerId;
     const analysis = cardAnalyzer.analyzeCard(permanent);
-    const power = Number(permanent.card?.power || permanent.basePower || 0) || 0;
+    const power = getPermanentCombatStats(permanent, game?.state).power;
     let score = 0;
 
     if (helpful) {

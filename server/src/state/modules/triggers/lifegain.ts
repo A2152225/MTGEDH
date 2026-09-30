@@ -23,6 +23,7 @@ import { recordCardLeftGraveyardThisTurn } from "../turn-tracking.js";
 import { uid } from "../../utils.js";
 import { orderTriggersByAPNAP } from "./ordering.js";
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 /**
  * Helper to extract card ID from various card formats in zones
@@ -728,6 +729,7 @@ export function executeRatchetTrigger(
   };
   
   battlefield.push(newPermanent as any);
+  stampPermanentEntryTimestamp(state, battlefield[battlefield.length - 1]);
   
   return { 
     success: true, 

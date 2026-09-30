@@ -11,6 +11,7 @@
 import type { GameContext } from "../../context.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 import { cleanupCardLeavingExile } from "../playable-from-exile.js";
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 /**
  * Represents a linked exile - a permanent that has exiled another permanent
@@ -220,6 +221,7 @@ export function processLinkedExileReturns(
     // Add to battlefield
     state.battlefield = state.battlefield || [];
     state.battlefield.push(newPermanent);
+    stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
     
     // Remove from exile zone if present
     const ownerZones = ctx.state?.zones?.[linked.originalOwner] as any;

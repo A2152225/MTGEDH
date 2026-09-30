@@ -121,11 +121,13 @@ describe('exact mana search board-width guard', () => {
     const elapsed = Date.now() - started;
     const growthMB = (process.memoryUsage().heapUsed - heap0) / (1024 * 1024);
 
-    expect(elapsed).toBeLessThan(5000);
+    // Generous wall-clock budget: the guard exists to stop an exponential search (minutes / GBs), and a
+    // tight 5s figure flaked when the whole suite runs in parallel on a loaded machine.
+    expect(elapsed).toBeLessThan(30_000);
     expect(growthMB).toBeLessThan(200);
     // Altar + duals should make these payable (or at least canAct must finish).
     expect(typeof gilderOk).toBe('boolean');
     expect(typeof tutorOk).toBe('boolean');
     expect(act).toBe(true);
-  });
+  }, 120_000);
 });

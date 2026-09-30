@@ -5,6 +5,7 @@ import { debug, debugWarn } from '../../utils/debug.js';
 import { getETBTriggersForPermanent } from './triggered-abilities.js';
 import { triggerETBEffectsForToken } from './triggerEtbEntryEffects.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 export function matchesColorRestriction(restriction: string, cardColors: string[]): boolean {
   const lowerRestriction = restriction.toLowerCase();
@@ -86,6 +87,7 @@ export function queuePermanentEntersBattlefieldTriggerStackItems(
       } as any;
 
       state.battlefield.push(tokenPermanent);
+      stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
 
       const equipment = state.battlefield.find((p: any) => p.id === newPermId);
       const isEquipment = equipment && (equipment.card?.type_line || '').toLowerCase().includes('equipment');

@@ -30,6 +30,7 @@ import {
 import { parsePT, uid } from "../../state/utils.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { broadcastGame, getPlayerName } from "../util.js";
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 /** Immediate battlefield actions for a TARGET_SELECTION step; true when the action was handled. */
 export async function tryHandleTargetSelectionImmediateBattlefieldAction(
@@ -158,6 +159,7 @@ export async function tryHandleTargetSelectionImmediateBattlefieldAction(
         card: { ...found, zone: 'battlefield' },
       };
       battlefield.push(newPermanent);
+      stampPermanentEntryTimestamp(state, battlefield[battlefield.length - 1]);
     }
 
     const rest = revealed.filter((c: any) => c && c !== found);

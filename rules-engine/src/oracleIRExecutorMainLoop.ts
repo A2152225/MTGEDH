@@ -805,6 +805,7 @@ export function applyOracleIRStepsToGameStateImpl(
     lastStepOutcome,
     ...(lastMovedCards.length > 0 ? { lastMovedCards } : {}),
     ...(lastMilledCards.length > 0 ? { lastMilledCards } : {}),
+    ...(lastSacrificedPermanents.length > 0 ? { lastSacrificedPermanents } : {}),
     ...(lastRevealedCardCount > 0 ? { lastRevealedCardCount } : {}),
     ...(lastMovedCountByPlayer ? { lastMovedCountByPlayer } : {}),
     ...(replayMutations.length > 0 ? { replayMutations } : {}),

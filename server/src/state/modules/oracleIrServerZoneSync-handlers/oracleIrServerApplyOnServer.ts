@@ -37,6 +37,7 @@ import { collectLegalRetargetCandidatesForStackItem } from '../oracleIrRetargetL
 import { getCurrentPowerToughness } from '../currentPowerToughness.js';
 import { queueBattlefieldEntryReplacementPromptsAfterOracleIR } from '../oracleIrBattlefieldEntryPrompts.js';
 import { queueOracleIrReflexiveWhenYouDoFollowups } from '../triggerReflexiveWhenYouDoQueueUtils.js';
+import { queueOracleIrReflexiveSacrificeDamageFollowups } from '../triggerReflexiveSacrificeDamageQueueUtils.js';
 import { syncDerivedContinuousEffects } from '../staticEffectSpec.js';
 import { recalculatePlayerEffects } from '../game-state-effects.js';
 import { mirrorGraveyardCastingPermissionsToDurable } from '../graveyard-permissions.js';
@@ -473,6 +474,12 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     triggerItem: resolutionTriggerItem,
     battlefieldIdsBefore: new Set(triggerEmissionBefore.permanents.keys()),
+  });
+  queueOracleIrReflexiveSacrificeDamageFollowups(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    triggerItem: resolutionTriggerItem,
   });
   queuePlayerChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,

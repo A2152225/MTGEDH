@@ -26,6 +26,7 @@ import {
   getPermanentRulesTextFragments,
 } from "./death-emission-helpers.js";
 import { collectDelayedDiesWatcherTriggers } from "./delayed-dies-watchers.js";
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 export type { DeathTriggerResult } from "./death-emission-helpers.js";
 
@@ -53,6 +54,7 @@ export function processUndyingPersist(
   };
   
   battlefield.push(newPermanent as any);
+  stampPermanentEntryTimestamp(ctx.state, battlefield[battlefield.length - 1]);
   ctx.bumpSeq();
 }
 

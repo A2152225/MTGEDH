@@ -218,6 +218,7 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
         maxValue={pendingSpellXSelection?.maxValue ?? 20}
         xCount={pendingSpellXSelection?.xCount}
         affordableXHint={pendingSpellXSelection?.affordableXHint}
+        costPerX={pendingSpellXSelection?.costPerX}
         onSelect={(xValue) => {
           if (!safeView || !pendingSpellXSelection) return;
           socket.emit('submitResolutionResponse', {

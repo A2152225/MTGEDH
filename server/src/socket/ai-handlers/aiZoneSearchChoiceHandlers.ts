@@ -241,7 +241,7 @@ export function chooseAIUpkeepSacrificeSelection(
         ((candidate as any)?.isCommander ? 1000 : 0) +
         ((candidate as any)?.isToken ? -150 : 0) +
         fallbackPower + fallbackToughness;
-      const combatStats = permanent ? getPermanentCombatStats(permanent) : { power: fallbackPower, toughness: fallbackToughness };
+      const combatStats = permanent ? getPermanentCombatStats(permanent, game?.state) : { power: fallbackPower, toughness: fallbackToughness };
 
       return {
         id: candidateId,

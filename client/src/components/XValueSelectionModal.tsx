@@ -1,5 +1,19 @@
 import React, { useState, useEffect } from 'react';
 
+/**
+ * Total mana cost for paying `costPerX` once per X ("{1}" x 3 -> "{1}{1}{1}" shown as "{3}" for generic).
+ * Exported for tests.
+ */
+export function formatXCostPreview(costPerX: string, xValue: number): string {
+  const count = Math.max(0, Math.floor(Number(xValue) || 0));
+  const symbol = String(costPerX || '').replace(/\s+/g, '');
+  if (!symbol) return '';
+  if (count === 0) return '{0}';
+  const generic = symbol.match(/^\{(\d+)\}$/);
+  if (generic) return `{${Number(generic[1]) * count}}`;
+  return symbol.repeat(count);
+}
+
 interface XValueSelectionModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -12,6 +26,8 @@ interface XValueSelectionModalProps {
   suggestedMax?: number;
   xCount?: number;
   affordableXHint?: number;
+  /** Mana paid per X, e.g. "{1}"; shows the total mana cost for the chosen X. */
+  costPerX?: string;
 }
 
 /**
@@ -30,11 +46,13 @@ export function XValueSelectionModal({
   suggestedMax,
   xCount = 1,
   affordableXHint,
+  costPerX,
 }: XValueSelectionModalProps) {
   const [xValue, setXValue] = useState(0);
   const effectiveMax = suggestedMax !== undefined ? Math.min(maxValue, suggestedMax) : maxValue;
   const effectiveXCount = Math.max(1, xCount);
   const totalManaForX = Math.max(0, xValue * effectiveXCount);
+  const costPreview = costPerX ? formatXCostPreview(costPerX, xValue) : '';
   const sliderPercent = effectiveMax > minValue
     ? ((xValue - minValue) / (effectiveMax - minValue)) * 100
     : 100;
@@ -129,6 +147,15 @@ export function XValueSelectionModal({
           >
             X Value: {xValue}
           </label>
+
+          {costPreview && (
+            <div
+              data-testid="x-cost-preview"
+              style={{ marginBottom: 8, fontSize: 13, color: '#cbd5e1' }}
+            >
+              Mana to pay: {costPreview}
+            </div>
+          )}
 
           {effectiveXCount > 1 && (
             <div

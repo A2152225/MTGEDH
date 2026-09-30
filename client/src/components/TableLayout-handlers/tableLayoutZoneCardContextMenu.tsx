@@ -3,6 +3,7 @@ import React from 'react';
 import type { KnownCardRef } from '../../../../shared/src';
 import { ZoneCardContextMenu } from '../ZoneCardContextMenu';
 import { socket } from '../../socket';
+import { dispatchZoneCardAbility } from './tableLayoutZoneAbilityDispatch';
 import {
   canPlayLandFromZoneContext,
   reasonCannotPlayLandFromZoneContext,
@@ -27,6 +28,9 @@ export function TableLayoutZoneCardContextMenu(props: {
   onPlayLandFromHand?: (cardId: string, fromZone?: 'hand' | 'graveyard' | 'exile' | 'library') => void;
   onCastFromHand?: (cardId: string) => void;
   onCastCommander?: (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => void;
+  /** Same App handlers the Graveyard / Exile view modals use for their ability buttons. */
+  onGraveyardAbility?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
+  onExileAbility?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
   reasonCannotPlayLand?: (card: any) => string | null;
   reasonCannotCast?: (card: any) => string | null;
 }): React.ReactElement {
@@ -42,6 +46,8 @@ export function TableLayoutZoneCardContextMenu(props: {
     onPlayLandFromHand,
     onCastFromHand,
     onCastCommander,
+    onGraveyardAbility,
+    onExileAbility,
     reasonCannotPlayLand,
     reasonCannotCast,
   } = props;
@@ -73,13 +79,17 @@ export function TableLayoutZoneCardContextMenu(props: {
         }
       }}
       onActivateAbility={(cardId, abilityId) => {
-        if (gameId && zoneContextMenu.zone === 'hand') {
-          if (abilityId === 'cycling' || /-cycling-\d+$/i.test(String(abilityId || ''))) {
-            socket.emit('activateCycling', { gameId, cardId, abilityId });
-          } else if (abilityId === 'foretell') {
-            socket.emit('foretellCard', { gameId, cardId });
-          }
-        }
+        dispatchZoneCardAbility({
+          zone: zoneContextMenu.zone,
+          gameId,
+          cardId,
+          abilityId,
+          card: zoneContextMenu.card,
+          emit: (event, payload) => socket.emit(event as any, payload as any),
+          onCastFromHand,
+          onGraveyardAbility,
+          onExileAbility,
+        });
       }}
       onIgnoreForPlayability={(cardId, cardName, zone, imageUrl) => {
         if (gameId && you) {

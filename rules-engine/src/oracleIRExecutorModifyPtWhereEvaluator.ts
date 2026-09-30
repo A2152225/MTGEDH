@@ -255,6 +255,7 @@ export function evaluateModifyPtWhereX(
 
   {
     const referenceStats = tryEvaluateModifyPtWhereReferenceStats({
+      state,
       raw,
       battlefield,
       controllerId,

@@ -360,6 +360,13 @@ function resolveTriggerTargetBinding(
   };
 }
 
+/** Last-known snapshots of permanents sacrificed to put this reflexive trigger on the stack (Surtland Flinger). */
+function sacrificedSnapshotsFromTriggerItem(triggerItem: any): any[] {
+  const snapshots = triggerItem?.lastSacrificedPermanents;
+  if (!Array.isArray(snapshots)) return [];
+  return snapshots.filter((entry: any) => entry && typeof entry === 'object').map((entry: any) => ({ ...entry }));
+}
+
 function buildTriggerIrContext(
   params: TryResolveTriggerViaOracleIRParams,
   binding: ReturnType<typeof resolveTriggerTargetBinding>,
@@ -495,6 +502,9 @@ function buildTriggerIrContext(
         ? { lastAntecedentBattlefieldPermanentIds }
         : {}),
       ...(typeof noManaSpentToCast === 'boolean' ? { noManaSpentToCast } : {}),
+      ...(sacrificedSnapshotsFromTriggerItem(params.triggerItem).length > 0
+        ? { lastSacrificedPermanents: sacrificedSnapshotsFromTriggerItem(params.triggerItem) }
+        : {}),
       selectorContext: {
         ...(binding.chosenObjectIds ? { chosenObjectIds: binding.chosenObjectIds } : {}),
         ...(binding.targetPlayerId ? { targetPlayerId: binding.targetPlayerId } : {}),

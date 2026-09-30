@@ -32,6 +32,7 @@ import {
   resolveRepeatedZoneDraftAuraAttachId,
 } from "../../../rules-engine/src/oracleIRExecutorRepeatedZoneDraft.js";
 import { recordDeferredChaosEtbPermanentId } from "../state/modules/oracleIrChaosResolutionTriggerHold.js";
+import { stampPermanentEntryTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
 
 /**
  * Handle Return Controlled Permanent Choice response.
@@ -401,6 +402,7 @@ export function handleRepeatedZoneDraftResponse(
       ? { attachedTo: attachId, enchanting: attachId, enchantedPlayerId: attachId }
       : {}),
   });
+  stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
   if (attachId && !isPlayerAttach) {
     const host = game.state.battlefield.find((perm: any) => String(perm?.id || '') === attachId);
     if (host) {

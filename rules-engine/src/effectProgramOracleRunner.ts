@@ -66,6 +66,7 @@ import {
   LAST_GRANTED_GRAVEYARD_PERMISSION_IDS_BINDING,
   LAST_MOVED_CARDS_BINDING,
   LAST_REVEALED_CARD_COUNT_BINDING,
+  LAST_SACRIFICED_PERMANENTS_BINDING,
 } from './effectProgramOracleRunner-handlers/effectProgramOracleRunnerBindingKeys';
 import {
   createOracleIRContextWithEffectProgramBindings,
@@ -163,6 +164,9 @@ export function createOracleIRCommandHandler(
     }
     if (typeof execution.lastRevealedCardCount === 'number' && execution.lastRevealedCardCount > 0) {
       bindings[LAST_REVEALED_CARD_COUNT_BINDING] = execution.lastRevealedCardCount;
+    }
+    if (Array.isArray((execution as any).lastSacrificedPermanents) && (execution as any).lastSacrificedPermanents.length > 0) {
+      bindings[LAST_SACRIFICED_PERMANENTS_BINDING] = (execution as any).lastSacrificedPermanents;
     }
     return {
       state: execution.state,

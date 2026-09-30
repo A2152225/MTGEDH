@@ -24,6 +24,7 @@ import { debug, debugWarn } from "../utils/debug.js";
 import { creatureHasHaste } from "./game-actions.js";
 import { createLibrarySearchStep } from "./resolutionLibrarySearchStepUtils.js";
 import { getPlayerName } from "./util.js";
+import { stampPermanentEntryTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
 
 export function handleJoinForcesResponse(
   io: Server,
@@ -326,6 +327,7 @@ export function applyJoinForcesEffect(
             colors: ['W'],
           },
         });
+        stampPermanentEntryTimestamp(game.state, battlefield[battlefield.length - 1]);
         createdPermanentIdsByPlayer[String(p.id)].push(tokenId);
       }
     }
@@ -596,6 +598,7 @@ export function applyTemptingOfferEffect(
         },
       };
       battlefield.push(token);
+      stampPermanentEntryTimestamp(game.state, battlefield[battlefield.length - 1]);
       createdTokens.push({ token, controller: initiator });
       createdPermanentIdsByPlayer[String(initiator)].push(tokenId);
     }
@@ -625,6 +628,7 @@ export function applyTemptingOfferEffect(
           },
         };
         battlefield.push(token);
+        stampPermanentEntryTimestamp(game.state, battlefield[battlefield.length - 1]);
         createdTokens.push({ token, controller: opponentId });
         createdPermanentIdsByPlayer[String(opponentId)].push(tokenId);
       }
@@ -676,6 +680,7 @@ export function applyTemptingOfferEffect(
         },
       };
       battlefield.push(token);
+      stampPermanentEntryTimestamp(game.state, battlefield[battlefield.length - 1]);
       createdTokens.push({ token, controller: initiator });
       createdPermanentIdsByPlayer[String(initiator)].push(tokenId);
     }
@@ -703,6 +708,7 @@ export function applyTemptingOfferEffect(
         },
       };
       battlefield.push(token);
+      stampPermanentEntryTimestamp(game.state, battlefield[battlefield.length - 1]);
       createdTokens.push({ token, controller: opponentId });
       createdPermanentIdsByPlayer[String(opponentId)].push(tokenId);
     }

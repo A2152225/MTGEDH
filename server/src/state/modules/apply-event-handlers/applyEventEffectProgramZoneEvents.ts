@@ -17,6 +17,7 @@ import {
 import { parsePT } from "../../utils";
 import { debugWarn } from "../../../utils/debug.js";
 import { pickMutablePlayerLibrary, writePlayerLibrary } from "../applyEventReplayCardMoveLibraryHelpers.js";
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -210,6 +211,7 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
                 summoningSickness: isCreature,
                 card: { ...card, zone: 'battlefield' },
               } as any);
+              stampPermanentEntryTimestamp(ctx.state, battlefield[battlefield.length - 1]);
             }
           } else if (toZone === 'library' && card) {
             const lib = pickMutablePlayerLibrary(ctx, playerId);
@@ -326,6 +328,7 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
                 isAttacking: tappedAndAttacking,
                 card: { ...card, zone: 'battlefield' },
               } as any);
+              stampPermanentEntryTimestamp(ctx.state, battlefield[battlefield.length - 1]);
             }
           }
 

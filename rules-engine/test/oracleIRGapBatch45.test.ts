@@ -58,7 +58,8 @@ describe('oracle IR gap batch 45', () => {
     const chooseMode = steps.find((s) => s.kind === 'choose_mode') as any;
     expect(chooseMode?.modes?.length).toBe(3);
     expect(steps.some((s) => s.kind === 'unknown')).toBe(false);
-  }, 30000);
+    // The first dynamic import of the coverage-audit script takes ~20s alone and >30s when the suite runs in parallel.
+  }, 120000);
 
   it('executes brain pry they cant branch when named discard is impossible', async () => {
     const { collectStepsFromIrText, dryRunOracleSteps } = await import('../../server/scripts/executor-coverage-audit.ts');

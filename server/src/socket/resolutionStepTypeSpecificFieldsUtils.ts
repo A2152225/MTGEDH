@@ -201,6 +201,14 @@ export function getTypeSpecificFields(step: ResolutionStep): Record<string, any>
     case ResolutionStepType.NUMBER_CHOICE:
       if ('minValue' in step) fields.minValue = (step as any).minValue;
       if ('maxValue' in step) fields.maxValue = (step as any).maxValue;
+      // Effect Program X prompts ("you may pay {X}, where X is ...") carry minX/maxX/costPerX from the
+      // rules-engine ChoiceEvent. Forward them, and use them as the bounds when no explicit min/max exist,
+      // so the client slider is capped at the real maximum and can preview the mana cost.
+      if ('minX' in step) fields.minX = (step as any).minX;
+      if ('maxX' in step) fields.maxX = (step as any).maxX;
+      if ('costPerX' in step) fields.costPerX = (step as any).costPerX;
+      if (fields.minValue === undefined && Number.isFinite(Number((step as any).minX))) fields.minValue = Number((step as any).minX);
+      if (fields.maxValue === undefined && Number.isFinite(Number((step as any).maxX))) fields.maxValue = Number((step as any).maxX);
       if ('xCount' in step) fields.xCount = (step as any).xCount;
       if ('affordableXHint' in step) fields.affordableXHint = (step as any).affordableXHint;
       if ((step as any).delayedDrawUpTo === true) fields.delayedDrawUpTo = true;

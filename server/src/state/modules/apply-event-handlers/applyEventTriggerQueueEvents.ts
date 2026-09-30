@@ -115,6 +115,9 @@ export function applyTriggerQueueEvents(ctx: GameContext, e: GameEvent): boolean
         const sourcePermanentSnapshot = (e as any).sourcePermanentSnapshot;
         const dyingCreature = (e as any).dyingCreature;
         const sacrificedPermanent = (e as any).sacrificedPermanent;
+        const lastSacrificedPermanents = Array.isArray((e as any).lastSacrificedPermanents)
+          ? (e as any).lastSacrificedPermanents.map((entry: any) => ({ ...entry }))
+          : undefined;
         const discardedCard = (e as any).discardedCard;
         const milledCard = (e as any).milledCard;
         
@@ -207,6 +210,7 @@ export function applyTriggerQueueEvents(ctx: GameContext, e: GameEvent): boolean
             ...(sourcePermanentSnapshot && typeof sourcePermanentSnapshot === 'object' ? { sourcePermanentSnapshot } : null),
             ...(dyingCreature && typeof dyingCreature === 'object' ? { dyingCreature } : null),
             ...(sacrificedPermanent && typeof sacrificedPermanent === 'object' ? { sacrificedPermanent } : null),
+            ...(lastSacrificedPermanents && lastSacrificedPermanents.length > 0 ? { lastSacrificedPermanents } : null),
             ...(discardedCard && typeof discardedCard === 'object' ? { discardedCard } : null),
             ...(milledCard && typeof milledCard === 'object' ? { milledCard } : null),
           } as any);

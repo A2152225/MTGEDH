@@ -499,7 +499,8 @@ function attachGraveyardExileReplacementModifier(steps: readonly OracleEffectSte
 function parseLifeGainedBoundedPayManaStep(step: OracleEffectStep): OracleEffectStep | null {
   if (step.kind !== 'unknown' && step.kind !== 'grant_static_ability') return null;
   const raw = normalizeOracleText(String(step.raw || '')).trim();
-  if (!/^you may pay \{x\}, where x is less than or equal to the amount of life you gained$/i.test(raw)) {
+  // Wordings: "less than or equal to / no more than / at most / up to the amount of life you gained (this turn)".
+  if (!/^you may pay \{x\}, where x is (?:less than or equal to|no more than|at most|up to) (?:the amount of |the )?life you(?:'ve| have)? gained(?: this turn)?$/i.test(raw)) {
     return null;
   }
   return {

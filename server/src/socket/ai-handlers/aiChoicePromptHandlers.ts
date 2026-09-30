@@ -20,6 +20,7 @@ import { getOptionalPaymentValidationFailure } from "../optional-payment-prompts
 import { getMaxGenericManaAvailable } from "../util.js";
 import { ensureAIDeckProfile, getAIHand, scoreCardForAIAcquisition } from "./aiDeckProfileHandlers.js";
 import { getAILibraryCards } from "./aiPregameHandlers.js";
+import { getPermanentCombatStats } from "./aiPermanentCombatStats.js";
 
 export function getAIParsedManaCostAmount(parsed: ParsedManaCost): number {
   const colors = parsed?.colors || ({} as ParsedManaCost['colors']);
@@ -358,8 +359,9 @@ function scoreAIPlayerBoardDevelopment(game: any, candidateId: string): number {
   const permanentScore = permanents.reduce((total: number, permanent: any) => {
     const card = permanent?.card || permanent;
     const typeLine = String(card?.type_line || '').toLowerCase();
-    const power = Math.max(0, Number(card?.power ?? permanent?.basePower ?? 0) || 0);
-    const toughness = Math.max(0, Number(card?.toughness ?? permanent?.baseToughness ?? 0) || 0);
+    const combatStats = getPermanentCombatStats(permanent, game?.state);
+    const power = Math.max(0, combatStats.power);
+    const toughness = Math.max(0, combatStats.toughness);
     let score = 1;
     if (typeLine.includes('creature')) score += 8 + power * 2 + toughness;
     if (typeLine.includes('artifact') || typeLine.includes('enchantment') || typeLine.includes('planeswalker')) score += 3;

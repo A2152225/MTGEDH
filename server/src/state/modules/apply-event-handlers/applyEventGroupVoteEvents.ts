@@ -14,6 +14,7 @@ import { debugWarn } from "../../../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { applyJoinForcesPaidManaPowerPump } from "../joinForcesResolutionQueue.js";
 import { moveKynaiosLandFromHandToBattlefield } from "../../resolution/handlers/kynaiosChoice.js";
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 export function applyGroupVoteEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -307,6 +308,7 @@ export function applyGroupVoteEvents(ctx: GameContext, e: GameEvent): boolean {
                       colors: ['W'],
                     },
                   });
+                  stampPermanentEntryTimestamp(ctx.state, battlefield[battlefield.length - 1]);
                 }
               }
             } else if (cardNameLower.includes('shared trauma')) {
@@ -530,6 +532,7 @@ export function applyGroupVoteEvents(ctx: GameContext, e: GameEvent): boolean {
                     },
                   } as any;
                   battlefield.push(token);
+                  stampPermanentEntryTimestamp(ctx.state, battlefield[battlefield.length - 1]);
                   triggerETBEffectsForToken(ctx as any, token, playerId as PlayerID);
                 }
               }

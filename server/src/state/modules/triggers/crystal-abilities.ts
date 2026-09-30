@@ -25,6 +25,7 @@
 import type { GameContext } from "../../context.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
 import { cleanupCardLeavingExile } from "../playable-from-exile.js";
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 /**
  * Crystal ability definition
@@ -239,6 +240,7 @@ export function executeFireCrystalAbility(
   };
   
   battlefield.push(tokenCopy as any);
+  stampPermanentEntryTimestamp(ctx.state, battlefield[battlefield.length - 1]);
   
   return { success: true, tokenId };
 }
@@ -426,6 +428,7 @@ export function executeDarknessCrystalAbility(
   };
   
   battlefield.push(newPermanent as any);
+  stampPermanentEntryTimestamp(state, battlefield[battlefield.length - 1]);
   
   return { 
     success: true, 

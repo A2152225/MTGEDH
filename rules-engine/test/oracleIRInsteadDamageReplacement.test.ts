@@ -11,13 +11,13 @@ const STONESPLITTER_BOLT =
 const TORCH_THE_TOWER =
   'Torch the Tower deals 2 damage to target creature or planeswalker. If this spell was bargained, instead it deals 3 damage to that permanent and you scry 1.';
 
-function creature(id: string, controller: string, power: string, toughness: string, extra: Record<string, unknown> = {}) {
+function creature(id: string, controller: string, power: string, toughness: string, extra: Record<string, unknown> = {}, oracleText = '') {
   return {
     id,
     controller,
     owner: controller,
     counters: {},
-    card: { name: id, type_line: 'Creature - Test', power, toughness, oracle_text: '' },
+    card: { name: id, type_line: 'Creature - Test', power, toughness, oracle_text: oracleText },
     ...extra,
   };
 }
@@ -64,6 +64,16 @@ describe('"deals twice that much / twice X ... instead" replacement damage', () 
     });
     const { damage } = run(CUT_PROPULSION, 'Cut Propulsion', [flier], target('flier'));
     expect(damage('flier')).toBe(10);
+  });
+
+  it('Cut Propulsion variant "flying or reach": doubles for either keyword, 1x otherwise (never skipped)', () => {
+    const text = 'Target creature deals damage to itself equal to its power. If that creature has flying or reach, it deals twice that much damage to itself instead.';
+    const flier = creature('c', 'p2', '3', '9', {}, 'Flying');
+    const reacher = creature('c', 'p2', '3', '9', {}, 'Reach');
+    const plain = creature('c', 'p2', '3', '9');
+    expect(run(text, 'Variant', [flier], target('c')).damage('c')).toBe(6);
+    expect(run(text, 'Variant', [reacher], target('c')).damage('c')).toBe(6);
+    expect(run(text, 'Variant', [plain], target('c')).damage('c')).toBe(3);
   });
 
   it('Cut Propulsion deals only 1x to a creature without flying', () => {

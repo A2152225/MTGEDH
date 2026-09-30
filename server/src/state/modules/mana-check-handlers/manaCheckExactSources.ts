@@ -37,6 +37,7 @@ import {
   getPermanentCounterAmountForManaCheck,
   normalizeManaCheckCounterType,
 } from "./manaCheckRemoveCounterCost.js";
+import { buildIntrinsicBasicLandExactOptions } from "./manaCheckIntrinsicBasicLandMana.js";
 import { buildScalingManaExactOptions } from "./manaCheckScalingExactOptions.js";
 import {
   SIMPLE_MANA_KEYS,
@@ -783,23 +784,13 @@ export function buildExactManaSources(state: any, playerId: PlayerID): ExactMana
       continue;
     }
 
-    const isBasicLandName = /^(plains|island|swamp|mountain|forest)$/i.test(cardName);
-    const isSnowCoveredBasic = /^snow-covered\s+(plains|island|swamp|mountain|forest)$/i.test(cardName);
-    if (isBasicLandName || isSnowCoveredBasic) {
-      const baseName = cardName.replace(/^snow-covered\s+/i, '');
-      const landToColor: Record<string, SimpleManaKey> = {
-        plains: 'white',
-        island: 'blue',
-        swamp: 'black',
-        mountain: 'red',
-        forest: 'green',
-      };
-      const colorKey = landToColor[baseName];
-      if (colorKey) {
+    const intrinsicLandOptions = buildIntrinsicBasicLandExactOptions(state, permanent, oracleText);
+    if (intrinsicLandOptions) {
+      if (intrinsicLandOptions.length > 0) {
         sources.push({
           id: String(permanent.id || `${cardName}_${sources.length}`),
           permanentId: String(permanent.id || `${cardName}_${sources.length}`),
-          options: [{ produced: createSingleColorProduction(colorKey) }],
+          options: intrinsicLandOptions,
         });
       }
       continue;

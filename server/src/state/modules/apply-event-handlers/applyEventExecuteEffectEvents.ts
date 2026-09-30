@@ -25,6 +25,7 @@ import { ResolutionStepType } from "../../resolution/index.js";
 import { consumeReplayedTriggeredAbilityStackItems } from "../replay-prompt-cleanup.js";
 import { getOrInitManaPool } from "../../../socket/util.js";
 import { addTemporaryEtbTrigger } from "../triggerEtbEntryEffects-handlers/triggerEtbTemporaryEntryTriggers.js";
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 export function applyExecuteEffectEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -104,6 +105,7 @@ export function applyExecuteEffectEvents(ctx: GameContext, e: GameEvent): boolea
                     ...(tokenData.chosenPlayer ? { chosenPlayer: String(tokenData.chosenPlayer) } : {}),
                   },
                 } as any);
+                stampPermanentEntryTimestamp(ctx.state, ctx.state.battlefield[ctx.state.battlefield.length - 1]);
                 const createdToken = ctx.state.battlefield[ctx.state.battlefield.length - 1];
                 try {
                   hydratePermanentCardOracleInPlace(createdToken);

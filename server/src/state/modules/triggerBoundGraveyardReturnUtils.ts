@@ -11,6 +11,7 @@ import {
   scheduleDelayedGraveyardReturn,
   turnReturnedPermanentFaceUp,
 } from './triggerDelayedEffectUtils.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 export function applyBoundGraveyardReturnFromTriggerMetadata(
   params: {
@@ -164,6 +165,7 @@ export function applyBoundGraveyardReturnFromTriggerMetadata(
     applyBattlefieldReturnCharacteristicMetadata(permanent, params.triggerItem);
     markPermanentEnteredFromZone(permanent, 'graveyard');
     battlefield.push(permanent as any);
+    stampPermanentEntryTimestamp(params.state, battlefield[battlefield.length - 1]);
     createdPermanentIds.push(permanentId);
     createdBattlefieldEntries.push({ permanent, controllerId: battlefieldControllerId });
   }

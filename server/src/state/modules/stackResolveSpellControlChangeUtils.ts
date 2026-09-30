@@ -14,6 +14,7 @@ import {
 } from './triggerEtbEntryEffects.js';
 import { isExtraTurnSpell } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 function buildPermanentTokenCopy(
   sourcePermanent: any,
@@ -368,6 +369,7 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
 
         state.battlefield = state.battlefield || [];
         state.battlefield.push(tokenPerm as any);
+        stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
 
         if (isTargetedCreatureCopyTokenSpellWithHasteSacrifice) {
           const stateAny = state as any;

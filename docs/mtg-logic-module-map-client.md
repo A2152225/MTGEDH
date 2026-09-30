@@ -163,7 +163,8 @@ Public leftover **32.1 KB**. Re-exports `parseAlternateCosts` / `AlternateCost`.
 
 | Module | Owns |
 | --- | --- |
-| `manaSourceBuilder.ts` | Cast/ability payment rows from battlefield permanents. **38.6 KB** — do not append. Stamps `activationManaCost` on Signet-style `{1}{T}` rows. Chosen-type any-color overlay lives in `manaSourceChosenTypeRestriction.ts` so `{C}` stays unrestricted. |
+| `manaSourceBuilder.ts` | Cast/ability payment rows from battlefield permanents. **38.6 KB** — do not append. Stamps `activationManaCost` on Signet-style `{1}{T}` rows. Chosen-type any-color overlay lives in `manaSourceChosenTypeRestriction.ts` so `{C}` stays unrestricted. Calls `withBattlefieldGrantedLandManaSources` so Urborg / Yavimaya list themselves. |
+| `manaSourceBattlefieldLandTypeGrants.ts` | `withBattlefieldGrantedLandManaSources`. Adds intrinsic mana from battlefield "each/all lands are [type] in addition" grants, including the source land. "Each other land" skips the source. |
 | `manaSourceChosenTypeRestriction.ts` | Overlay `chosen_type_*` spend restriction + `grantsUncounterableOnSpend` on Cavern / Unclaimed any-color inline abilities only. `{T}: Add {C}` is unrestricted. |
 | `manaSuggestedPaymentActivation.ts` | Sequential auto-pay for `{1}, {T}` mana abilities (Signets): mixed-bundle assign, activation pip charge, free-tap-first payment order. `simulateSequentialPaymentPool` nets land-float mana spent to activate a Signet so the picker remaining total is the spell cost, not gross produced. |
 | `manaUtils.ts` | Parse cost, suggest payment, `manaBonuses` native+aura assignment. Re-exports restricted-mana purpose helpers. Auto-pay prefers free taps and charges Signet activation into remaining generic. Matching Cavern any-color beats basics for color then generic. **~38 KB**. |

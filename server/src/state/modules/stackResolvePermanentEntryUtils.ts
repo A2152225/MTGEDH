@@ -266,6 +266,7 @@ export function resolvePermanentSpellBattlefieldEntry(
   ) || {};
   const tempPerm = { id: newPermId, controller, counters: {} };
   state.battlefield.push(tempPerm as any);
+  stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
   const modifiedCounters = applyCounterModifications(state, newPermId, retainedEntryCounters);
   state.battlefield.pop(); // Remove temp permanent
   const copiedPermanentSpellBecomesToken = (item as any).isCopy === true;

@@ -15,6 +15,7 @@ import {
 } from './triggeredAbilityBattlefieldTargetMatch.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { isPermanentCardTypeLine } from './stackResolvePermanentSpellTypeUtils.js';
+import { stampMissingTargetMetadataAfterOptionalAccept } from './stackResolveTriggeredAbilityMissingTargetSafetyNet.js';
 
 function resolveTriggeredTargetCombatRole(item: any): TriggeredBattlefieldTargetFilterMetadata['targetCombatRole'] {
   const explicit = String(item?.targetCombatRole || '').trim();
@@ -118,6 +119,9 @@ export function tryDeferTriggeredAbilityTargetSelection(
     triggerType?: string;
   },
 ): boolean {
+  // Safety net: a "you may ... target ..." trigger that was accepted (Yes) but was queued without
+  // target metadata must still prompt for a target instead of silently skipping (Hammer of Nazahn class).
+  stampMissingTargetMetadataAfterOptionalAccept(ctx, item, state, options);
   const requiresTarget = (item as any).requiresTarget;
   const targetType = (item as any).targetType;
   const triggerType = options.triggerType;

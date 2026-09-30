@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { queueSelfETBTriggersForPermanent, triggerETBEffectsForToken } from './triggerEtbEntryEffects.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 export function applyPermanentSquadTokenCopiesOnEntry(
   ctx: GameContext,
@@ -64,6 +65,7 @@ export function applyPermanentSquadTokenCopiesOnEntry(
         } as any;
         
         state.battlefield.push(tokenPermanent);
+        stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
         
         // Trigger ETB effects for each squad token
         queueSelfETBTriggersForPermanent(ctx, tokenPermanent, controller as any);

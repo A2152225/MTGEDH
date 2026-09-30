@@ -25,7 +25,32 @@ import {
   buildTriggeredAbilitySourceContext,
   getResolutionSourcePermanentSnapshot,
 } from "../resolutionKeywordChoiceHandlers.js";
-import { broadcastGame, getPlayerName } from "../util.js";
+import { broadcastGame, getEffectivePower, getEffectiveToughness, getPlayerName } from "../util.js";
+
+/**
+ * Last-known information for the permanent about to be sacrificed (rule 608.2h): the reflexive
+ * follow-up ("damage equal to the sacrificed creature's power", "if it was a Giant") reads it after the
+ * permanent has left the battlefield. Power/toughness are the current, lord-adjusted values.
+ */
+function snapshotPermanentBeforeSacrifice(game: any, permanent: any): Record<string, unknown> | undefined {
+  if (!permanent || typeof permanent !== 'object') return undefined;
+  const power = getEffectivePower(permanent, game.state);
+  const toughness = getEffectiveToughness(permanent, game.state);
+  const card = permanent.card || {};
+  return {
+    id: String(permanent.id || ''),
+    name: String(card.name || permanent.name || 'permanent'),
+    controller: String(permanent.controller || ''),
+    owner: String(permanent.owner || permanent.ownerId || permanent.controller || ''),
+    typeLine: String(card.type_line || '').toLowerCase(),
+    power: Number.isFinite(power) ? power : null,
+    effectivePower: Number.isFinite(power) ? power : undefined,
+    toughness: Number.isFinite(toughness) ? toughness : null,
+    manaValue: null,
+    colors: Array.isArray(card.colors) ? [...card.colors] : [],
+    card: permanent.card ? { ...permanent.card } : undefined,
+  };
+}
 
 function targetDescriptionFromType(targetType: string | undefined): string {
   const normalized = String(targetType || '').trim().toLowerCase();
@@ -62,6 +87,7 @@ export function handleSacrificeWhenYouDoTargetSelection(
   const permanentIdToSac = selections[0];
   const sacrificedPermanent = (game.state?.battlefield || []).find((p: any) => p?.id === permanentIdToSac);
   const sacrificedName = String(sacrificedPermanent?.card?.name || '').trim() || `a ${subtype}`;
+  const sacrificedSnapshot = snapshotPermanentBeforeSacrifice(game, sacrificedPermanent);
   const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const triggerDescription = explicitFollowupDescription || `${sourceName} deals ${damage} damage to any target and you gain ${lifeGain} life.`;
   const targetMetadata = explicitFollowupDescription
@@ -85,6 +111,7 @@ export function handleSacrificeWhenYouDoTargetSelection(
     description: triggerDescription,
     effect: triggerDescription,
     targetDescription,
+    ...(sacrificedSnapshot ? { lastSacrificedPermanents: [sacrificedSnapshot] } : {}),
     ...sourceContext,
     ...targetMetadata,
   };
@@ -118,6 +145,7 @@ export function handleSacrificeWhenYouDoTargetSelection(
       description: triggerDescription,
       effect: triggerDescription,
       mandatory: true,
+      ...(sacrificedSnapshot ? { lastSacrificedPermanents: [sacrificedSnapshot] } : {}),
       ...sourceContext,
       ...targetMetadata,
     });

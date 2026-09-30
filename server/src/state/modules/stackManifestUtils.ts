@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 export function manifestCard(ctx: GameContext, card: any, controller: string): string | null {
   try {
@@ -37,6 +38,7 @@ export function manifestCard(ctx: GameContext, card: any, controller: string): s
     };
 
     battlefield.push(newPermanent);
+    stampPermanentEntryTimestamp(state, battlefield[battlefield.length - 1]);
 
     debug(
       2,

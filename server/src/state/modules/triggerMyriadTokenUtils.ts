@@ -6,6 +6,7 @@ import {
   queueSelfETBTriggersForPermanent,
   triggerETBEffectsForToken,
 } from './triggerEtbEntryEffects.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 /**
  * Build a tapped-and-attacking Myriad token copy from a source permanent snapshot.
@@ -115,6 +116,7 @@ export function applyMyriadTokenCopies(
 
   if (newTokens.length > 0) {
     battlefield.push(...newTokens);
+    for (const entered of newTokens) stampPermanentEntryTimestamp(stateAny, entered);
   }
 
   for (const tokenId of createdIds) {

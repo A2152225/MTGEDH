@@ -20,6 +20,7 @@ import { ResolutionStepType } from "../../../resolution/types.js";
 import { permanentHasCreatureTypeNow } from "../../../creatureTypeNow.js";
 import { normalizeCreatureTypeWord } from "../../../../../../shared/src/creatureTypes.js";
 import { drawCards as drawCardsFromZone } from "../../../modules/zones.js";
+import { stampPermanentEntryTimestamp } from '../../../../../../rules-engine/src/permanentTimestamps.js';
 
 export function tryLoyaltyTemplateP1P1FightDamage(
   ctx: GameContext,
@@ -452,6 +453,7 @@ export function tryLoyaltyTemplateP1P1FightDamage(
             attachedTo: undefined,
           };
           battlefield.push(newPermanent);
+          stampPermanentEntryTimestamp((ctx as any).state, battlefield[battlefield.length - 1]);
         } else {
           z.hand.unshift({ ...(card as any), zone: 'hand' });
         }

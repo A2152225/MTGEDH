@@ -13,8 +13,12 @@ import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 import { getPermanentTextFragments } from './permanentText';
 import { tryEvaluateRevealedLandCardWasSubtype } from './oracleIRExecutorRevealedCardsThisWay';
 
-const KEYWORD_CLAUSE =
-  /^(?:that|target|the) (?:creature|permanent)(?: you control| an opponent controls)? has (flying|reach|trample|first strike|double strike|deathtouch|lifelink|vigilance|haste|menace|hexproof|indestructible|defender|toxic|infect|wither)$/;
+const KEYWORD_ALTERNATIVE =
+  '(?:flying|reach|trample|first strike|double strike|deathtouch|lifelink|vigilance|haste|menace|hexproof|indestructible|defender|toxic|infect|wither)';
+/** "has flying" or an either/or list ("has flying or reach", "has flying, reach, or trample"). */
+const KEYWORD_CLAUSE = new RegExp(
+  `^(?:that|target|the) (?:creature|permanent)(?: you control| an opponent controls)? has ((?:${KEYWORD_ALTERNATIVE})(?:(?:, (?:or )?| or )(?:${KEYWORD_ALTERNATIVE}))*)$`,
+);
 
 function stripReminderText(text: string): string {
   return text.replace(/\([^)]*\)/g, ' ');
@@ -87,7 +91,8 @@ export function tryEvaluateConditionalSpellCastFlagOrKeyword(params: {
   if (keywordClause) {
     const referenced = resolveReferencedObject(nextState, ctx);
     if (!referenced) return null;
-    return objectCurrentlyHasKeyword(referenced, keywordClause[1]!);
+    const keywords = keywordClause[1]!.split(/,\s*(?:or\s+)?|\s+or\s+/).map((entry) => entry.trim()).filter(Boolean);
+    return keywords.some((keyword) => objectCurrentlyHasKeyword(referenced, keyword));
   }
 
   return undefined;

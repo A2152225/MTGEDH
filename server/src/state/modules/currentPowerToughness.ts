@@ -18,6 +18,7 @@ import {
   type PTBonusSource,
 } from "../utils.js";
 import { syncDerivedContinuousEffects } from "./staticEffectSpec.js";
+import { registerStaticConditionCurrentPowerResolver } from "./staticEffectSpecConditionEval.js";
 import { applyLayer7bSetBasePowerToughness } from "./setBasePtTimestampResolution.js";
 import { sumLongDurationPtModifiers } from "./longDurationPtModifiers.js";
 import { registerCurrentPowerToughnessResolver } from "../../../../rules-engine/src/currentPowerToughnessHook.js";
@@ -173,6 +174,14 @@ export function getCurrentPowerToughness(perm: any, state: any): { power: number
 // Rules-engine readers with a game state but no server access (AI evaluation, combat scoring) read the
 // same calculation through this hook instead of the recorded/printed values.
 registerCurrentPowerToughnessResolver((state, permanent) => getCurrentPowerToughness(permanent, state));
+// Static-effect conditions ("creatures with power N or less", "power greater than hand size") read the same current power.
+// This runs while syncDerivedContinuousEffects is itself evaluating conditions, so it must not call sync again
+// (getCurrentPowerToughness would); it reads the last synced derived effects (or the regex fallback) directly.
+registerStaticConditionCurrentPowerResolver((permanent, state) => {
+  const current = computeCurrentPowerToughnessWithSources(permanent, state);
+  if (!current) return undefined;
+  return current.power + sumUnmirroredOracleIrPtModifiers(permanent).power;
+});
 
 /**
  * Rules-facing variant that always returns numbers: current P/T when computable, otherwise the

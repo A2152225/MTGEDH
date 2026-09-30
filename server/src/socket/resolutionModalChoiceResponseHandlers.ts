@@ -25,6 +25,7 @@ import {
   getResolutionSourcePermanentSnapshot,
 } from "./resolutionKeywordChoiceHandlers.js";
 import { getPlayerName, persistAndResolveTopOfStack } from "./util.js";
+import { stampPermanentEntryTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
 
 /**
  * Handle Modal Choice response
@@ -117,6 +118,7 @@ export async function handleModalChoiceResponse(
     } as any;
     
     battlefield.push(newPermanent);
+    stampPermanentEntryTimestamp(game.state, battlefield[battlefield.length - 1]);
     
     debug(2, `[Resolution] ${step.sourceName || 'Effect'}: Put ${card.name} onto battlefield${tappedAndAttacking ? ' tapped and attacking' : ''} for ${pid}`);
     

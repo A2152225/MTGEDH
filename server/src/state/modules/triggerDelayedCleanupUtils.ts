@@ -10,6 +10,7 @@ import {
 import { destroyPermanent, movePermanentToExile } from './counters_tokens.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentBridge.js';
 import { queueDelayedDrawUpToChoice } from './triggerDelayedDrawUpToUtils.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 export interface TriggerDelayedCleanupParams {
   readonly ctx: GameContext;
@@ -133,6 +134,7 @@ export function applyDelayedCleanupTriggersFromMetadata(
         }
         markPermanentEnteredFromZone(permanent, 'graveyard');
         battlefield.push(permanent);
+        stampPermanentEntryTimestamp(params.state, battlefield[battlefield.length - 1]);
         if (!(params.ctx as any).isReplaying) {
           triggerETBEffectsForPermanent(params.ctx, permanent, battlefieldControllerId as PlayerID);
         }

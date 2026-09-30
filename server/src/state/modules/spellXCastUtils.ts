@@ -63,6 +63,22 @@ export function getMaxAffordableSpellX(
 }
 
 /**
+ * How many X the player can pay for right now when each X costs `costPerX` (e.g. "{1}" for Well of Lost
+ * Dreams). Only generic per-X costs are estimated; colored per-X costs return undefined (no hint).
+ */
+export function getAffordableXHintForCostPerX(
+  game: any,
+  playerId: string,
+  costPerX: string,
+  maxValue?: number,
+): number | undefined {
+  const normalized = String(costPerX || '').replace(/\s+/g, '');
+  if (normalized !== '{1}' && normalized !== '{X}') return undefined;
+  const cap = Number.isFinite(Number(maxValue)) ? Math.max(0, Math.floor(Number(maxValue))) : 20;
+  return getMaxAffordableSpellX(game, playerId as PlayerID, '{X}', { minValue: 0, maxValue: cap });
+}
+
+/**
  * Returns false when paying X=0 would waste the spell (e.g. Pest Infestation for {G}).
  * Mandatory effects like "destroy target creature" still return true at X=0.
  */

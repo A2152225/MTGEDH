@@ -123,6 +123,8 @@ export interface PendingSpellXSelectionState {
   maxValue: number;
   xCount?: number;
   affordableXHint?: number;
+  /** Mana paid per X (e.g. "{1}" for Well of Lost Dreams); drives the cost preview in the X modal. */
+  costPerX?: string;
 }
 
 export function buildPendingSpellXSelectionFromStep(
@@ -134,6 +136,7 @@ export function buildPendingSpellXSelectionFromStep(
     description: String(step.description || ''),
     minValue: Math.max(0, Number(step.minValue ?? step.minX ?? 0)),
     maxValue: Math.max(0, Number(step.maxValue ?? step.maxX ?? 20)),
+    costPerX: typeof step.costPerX === 'string' && step.costPerX.trim() ? step.costPerX.trim() : undefined,
     xCount: Number.isFinite(step.xCount) ? Math.max(1, Number(step.xCount)) : undefined,
     affordableXHint: Number.isFinite(step.affordableXHint)
       ? Math.max(0, Number(step.affordableXHint))

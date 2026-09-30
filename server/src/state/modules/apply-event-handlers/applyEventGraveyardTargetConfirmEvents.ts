@@ -21,6 +21,7 @@ import { applyOpponentMayPayResolve, pickMutablePlayerLibrary, writePlayerLibrar
 import { debugWarn } from "../../../utils/debug.js";
 import { ResolutionStepType } from "../../resolution/index.js";
 import { stampCardExiledWithSource } from "../exileWithSourceStamp.js";
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 export function applyGraveyardTargetConfirmEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -238,6 +239,7 @@ export function applyGraveyardTargetConfirmEvents(ctx: GameContext, e: GameEvent
                   });
                   markReplayPermanentEnteredFromZone(permanent, 'graveyard');
                   ctx.state.battlefield.push(permanent as any);
+                  stampPermanentEntryTimestamp(ctx.state, ctx.state.battlefield[ctx.state.battlefield.length - 1]);
                 }
                 break;
               case 'library_top':

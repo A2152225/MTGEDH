@@ -11,6 +11,7 @@ import { detectEntersWithCounters } from "../detectEntersWithCounters.js";
 import { uid } from "../../utils.js";
 import { cleanupCardLeavingExile } from "../playable-from-exile.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -103,6 +104,7 @@ export function processPendingFlickerReturnsAtBeginningOfEndStep(
       }
 
       battlefield.push(newPermanent);
+      stampPermanentEntryTimestamp(state, battlefield[battlefield.length - 1]);
       returnedCount += 1;
 
       try {

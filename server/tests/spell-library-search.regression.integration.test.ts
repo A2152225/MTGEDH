@@ -93,9 +93,9 @@ describe('spell library search regressions', () => {
     (game.state as any).battlefield = [];
     (game as any).libraries = new Map([
       [playerId, [
-        { id: 'forest_dual', name: 'Tropical Island', type_line: 'Land — Forest Island', oracle_text: '', image_uris: { normal: 'forest_dual.png' } },
-        { id: 'plains_only', name: 'Plains', type_line: 'Basic Land — Plains', oracle_text: '', image_uris: { normal: 'plains.png' } },
-        { id: 'forest_basic', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: { normal: 'forest.png' } },
+        { id: 'forest_dual', name: 'Tropical Island', type_line: 'Land â€” Forest Island', oracle_text: '', image_uris: { normal: 'forest_dual.png' } },
+        { id: 'plains_only', name: 'Plains', type_line: 'Basic Land â€” Plains', oracle_text: '', image_uris: { normal: 'plains.png' } },
+        { id: 'forest_basic', name: 'Forest', type_line: 'Basic Land â€” Forest', oracle_text: '', image_uris: { normal: 'forest.png' } },
         { id: 'spell_c', name: 'Cultivate', type_line: 'Sorcery', oracle_text: '', image_uris: { normal: 'cultivate.png' } },
       ]],
     ]);
@@ -169,7 +169,7 @@ describe('spell library search regressions', () => {
     (game as any).libraries = new Map([
       [playerId, [
         { id: 'spell_top', name: 'Cultivate', type_line: 'Sorcery', oracle_text: '', image_uris: { normal: 'spell_top.png' } },
-        { id: 'forest_hit', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: { normal: 'forest_hit.png' } },
+        { id: 'forest_hit', name: 'Forest', type_line: 'Basic Land â€” Forest', oracle_text: '', image_uris: { normal: 'forest_hit.png' } },
         { id: 'spell_bottom', name: 'Harmonize', type_line: 'Sorcery', oracle_text: '', image_uris: { normal: 'spell_bottom.png' } },
       ]],
     ]);
@@ -213,7 +213,8 @@ describe('spell library search regressions', () => {
 
     const hand = (game.state as any).zones?.[playerId]?.hand || [];
     expect(hand.map((card: any) => card.id)).toEqual(['forest_hit']);
-    expect(((game as any).libraries.get(playerId) || []).map((card: any) => card.id)).toEqual(['spell_bottom', 'spell_top']);
+    // Abundant Harvest puts the rest on the bottom in a RANDOM order, so assert the set, not the order.
+    expect(((game as any).libraries.get(playerId) || []).map((card: any) => card.id).sort()).toEqual(['spell_bottom', 'spell_top']);
 
     const resolvedEvent = [...getEvents(gameId)].reverse().find((event: any) => event.type === 'librarySearchResolve') as any;
     expect(resolvedEvent?.payload?.selectedCardIds).toEqual(['forest_hit']);
@@ -243,7 +244,7 @@ describe('spell library search regressions', () => {
     (game.state as any).battlefield = [];
     (game as any).libraries = new Map([
       [playerId, [
-        { id: 'basic_forest', name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '', image_uris: { normal: 'forest.png' } },
+        { id: 'basic_forest', name: 'Forest', type_line: 'Basic Land â€” Forest', oracle_text: '', image_uris: { normal: 'forest.png' } },
         { id: 'spell_bottom', name: 'Harmonize', type_line: 'Sorcery', oracle_text: '', image_uris: { normal: 'harmonize.png' } },
       ]],
     ]);

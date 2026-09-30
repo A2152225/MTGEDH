@@ -13,6 +13,7 @@ import { ResolutionQueueManager } from "../../../resolution/index.js";
 import { getGameId } from "../utils.js";
 import { shuffleInPlace, isNonAuraPermanentCard } from "./loyaltyTemplateHelpers.js";
 import { drawCards as drawCardsFromZone } from "../../../modules/zones.js";
+import { stampPermanentEntryTimestamp } from '../../../../../../rules-engine/src/permanentTimestamps.js';
 
 export function restartGameWithKarnExemptions(
   ctx: GameContext,
@@ -227,6 +228,7 @@ export function restartGameWithKarnExemptions(
     }
 
     state.battlefield.push(newPermanent);
+    stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
   }
 
   ;(ctx as any).bumpSeq?.();

@@ -278,6 +278,9 @@ export function applySacrificeChoiceEvents(ctx: GameContext, e: GameEvent): bool
                 mandatory: true,
                 ...(card && typeof card === 'object' ? { card } : null),
                 ...(sourcePermanentSnapshot && typeof sourcePermanentSnapshot === 'object' ? { sourcePermanentSnapshot } : null),
+                ...(Array.isArray((e as any).lastSacrificedPermanents) && (e as any).lastSacrificedPermanents.length > 0
+                  ? { lastSacrificedPermanents: (e as any).lastSacrificedPermanents.map((entry: any) => ({ ...entry })) }
+                  : null),
                 ...(requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : null),
                 ...(targetType ? { targetType } : null),
                 ...(targetConstraint ? { targetConstraint } : null),

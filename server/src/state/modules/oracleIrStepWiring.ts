@@ -71,6 +71,19 @@ export function isOracleEffectStepCoveredByApplied(
   }
   const nested = getOracleEffectStepThenBranch(step);
   if (nested.length === 0) return false;
+  // "If X, do A instead" (Surtland Flinger Giant doubling): when the condition is false the else branch
+  // is what ran, so the wrapper is complete once every mandatory else step is applied.
+  const elseBranch = (step as { elseSteps?: readonly OracleEffectStep[] }).elseSteps;
+  if (Array.isArray(elseBranch) && elseBranch.length > 0) {
+    const mandatoryElse = elseBranch.filter((inner) => !isOptionalOracleEffectStep(inner));
+    if (
+      mandatoryElse.length > 0
+      && mandatoryElse.every((inner) =>
+        isOracleEffectStepCoveredByApplied(inner, appliedFingerprints, continuationFingerprints))
+    ) {
+      return true;
+    }
+  }
   const mandatoryNested = nested.filter((inner) => !isOptionalOracleEffectStep(inner));
   // May-only then-branch (Sevinne GY copy, etc.): the wrapper is mandatory in the
   // parse, but it has no mandatory work. A false condition, declined may, or

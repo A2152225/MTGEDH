@@ -16,6 +16,7 @@ import {
   type CopyTokenOverrides,
 } from '../../../../shared/src/copyTokenOverrides.js';
 import { copyAsEntersCopiableChoicesFromSource } from '../../../../shared/src/copyTokenUtils.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 export function createEquippedCreatureCopyTokenFromEquipment(
   ctx: GameContext,
@@ -109,6 +110,7 @@ export function createEquippedCreatureCopyTokenFromEquipment(
 
   state.battlefield = state.battlefield || [];
   state.battlefield.push(tokenCopy);
+  stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
 
   debug(
     2,

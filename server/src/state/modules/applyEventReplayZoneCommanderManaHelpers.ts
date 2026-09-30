@@ -14,6 +14,7 @@ import { resolveCastPermissionId } from "./castIntent.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
 import { calculateManaProduction, getOrInitManaPool } from "../../socket/util.js";
 import { applyManaAbilityLifeEffectToState, resolveManaAbilityLifeEffect } from "./mana-abilities-handlers/manaAbilitySelfDamage.js";
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 export function getReplayStartingPlayerId(state: any): string {
   return String(state?.startingPlayerId || state?.startingPlayer || state?.turnPlayer || '').trim();
@@ -464,6 +465,7 @@ export function restoreMirrormindReplayTokens(ctx: GameContext, event: any): voi
     const alreadyPresent = state.battlefield.some((permanent: any) => String(permanent?.id || '') === snapshotId);
     if (alreadyPresent) continue;
     state.battlefield.push(cloneReplayPayload(snapshot));
+    stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
     addedSnapshots += 1;
   }
 

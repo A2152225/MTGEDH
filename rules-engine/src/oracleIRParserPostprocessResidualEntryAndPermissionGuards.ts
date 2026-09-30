@@ -326,6 +326,21 @@ export function parseResidualEntryAndPermissionGuardsFour(
     } as unknown as OracleEffectStep];
   }
 
+  // Goblin Charbelcher: "Put the revealed cards on the bottom of your library in any order." The player
+  // orders them (BOTTOM_ORDER prompt for interactive players); it reuses the reveal-remainder move.
+  if (/^(?:then\s+)?put\s+the\s+revealed\s+cards\s+on\s+the\s+bottom\s+of\s+your\s+library\s+in\s+any\s+order$/i.test(raw)) {
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector("all cards revealed this way that weren't put onto the battlefield"),
+      to: 'library',
+      toRaw: 'the bottom of your library in any order',
+      libraryPlacement: 'bottom',
+      order: 'any',
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
+  }
+
   if (/^(?:then\s+)?that\s+player\s+chooses\s+a\s+card\s+name$/i.test(raw)) {
     return [{ kind: 'choose_card_name', raw, ...sequence } as unknown as OracleEffectStep];
   }

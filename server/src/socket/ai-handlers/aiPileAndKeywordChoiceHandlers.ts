@@ -61,8 +61,9 @@ export function chooseAIPileFromSplitSelection(
       const manaValue = Math.max(0, Number(card?.cmc ?? card?.mana_value ?? 0) || 0);
       const typeLine = String(card?.type_line || '').toLowerCase();
       const oracleText = String(card?.oracle_text || '').toLowerCase();
-      const power = Math.max(0, Number(card?.power ?? permanent?.basePower ?? 0) || 0);
-      const toughness = Math.max(0, Number(card?.toughness ?? permanent?.baseToughness ?? 0) || 0);
+      const pileStats = getPermanentCombatStats(permanent, game?.state);
+      const power = Math.max(0, pileStats.power);
+      const toughness = Math.max(0, pileStats.toughness);
       let score = 30 + manaValue * 2;
       if (typeLine.includes('creature')) score += power * 2 + toughness;
       if (typeLine.includes('artifact') || typeLine.includes('enchantment') || typeLine.includes('planeswalker')) score += 5;
@@ -614,7 +615,7 @@ function scoreKeywordCounterChoiceOption(
   const typeLine = String(targetPermanent?.card?.type_line || '').toLowerCase();
   const isCreature = typeLine.includes('creature');
   const isCommander = Boolean((targetPermanent as any)?.isCommander);
-  const { power, toughness } = getPermanentCombatStats(targetPermanent);
+  const { power, toughness } = getPermanentCombatStats(targetPermanent, game?.state);
   const offensiveWeight = power >= 4 ? 1 : 0;
   const opponents = battlefield.filter((perm: any) => perm?.controller !== playerId);
   const opposingFlyers = opponents.filter((perm: any) => {

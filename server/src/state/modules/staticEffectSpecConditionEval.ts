@@ -218,7 +218,37 @@ function sourceControllerHandCount(spec: ConditionSpec, state: StaticConditionSt
   return null;
 }
 
-function readPermanentPower(permanent: BattlefieldPermanent): number {
+/**
+ * Shared current-power reader, registered by currentPowerToughness.ts. currentPowerToughness.ts imports
+ * staticEffectSpec.ts, which imports this file, so a direct import here would be circular; the hook keeps the
+ * dependency one-way (registration happens when currentPowerToughness.ts loads).
+ */
+type CurrentPowerResolver = (permanent: BattlefieldPermanent, state: StaticConditionState) => number | undefined;
+let currentPowerResolver: CurrentPowerResolver | undefined;
+/** Permanents whose current power is being computed right now (guards spec -> power -> spec recursion). */
+const permanentsResolvingCurrentPower = new Set<string>();
+
+export function registerStaticConditionCurrentPowerResolver(resolver: CurrentPowerResolver | undefined): void {
+  currentPowerResolver = resolver;
+}
+
+function readPermanentPower(permanent: BattlefieldPermanent, state?: StaticConditionState): number {
+  const guardKey = String((permanent as { id?: unknown }).id ?? '');
+  if (currentPowerResolver && state && guardKey && !permanentsResolvingCurrentPower.has(guardKey)) {
+    permanentsResolvingCurrentPower.add(guardKey);
+    try {
+      const current = currentPowerResolver(permanent, state);
+      if (typeof current === 'number' && Number.isFinite(current)) return current;
+    } catch {
+      // fall through to the cached/printed reader
+    } finally {
+      permanentsResolvingCurrentPower.delete(guardKey);
+    }
+  }
+  return readCachedPermanentPower(permanent);
+}
+
+function readCachedPermanentPower(permanent: BattlefieldPermanent): number {
   const record = permanent as BattlefieldPermanent & {
     effectivePower?: number;
     power?: number | string;
@@ -435,12 +465,12 @@ export function specMatchesStaticCondition(
     case 'target_power_greater_than_source_controller_hand_size': {
       const handCount = sourceControllerHandCount(spec, state);
       if (handCount === null) return false;
-      return readPermanentPower(permanent) > handCount;
+      return readPermanentPower(permanent, state) > handCount;
     }
     case 'target_power_at_most': {
       const cap = Number(condition.power);
       if (!Number.isFinite(cap)) return false;
-      return readPermanentPower(permanent) <= cap;
+      return readPermanentPower(permanent, state) <= cap;
     }
     case 'target_has_creature_type':
       return permanentHasCreatureType(permanent as any, String(condition.creatureType || ''));

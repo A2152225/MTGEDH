@@ -308,6 +308,7 @@ import type {
   AISupportedCardSourceZone,
 } from "./ai-handlers/aiActionCandidateTypes.js";
 import { setAIHandlerDeps } from "./aiHandlerDeps.js";
+import { stampPermanentEntryTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
 
 export { autoSelectAICommander, handleAIGameFlow, handleAIMulligan };
 export {
@@ -819,6 +820,7 @@ async function resolveAISpell(
         summoningSickness: typeLine.includes('creature'),
       };
       game.state.battlefield.push(permanent as any);
+      stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
       debug(1, '[AI] Permanent entered battlefield:', card.name);
     } else {
       // Instants and sorceries go to graveyard

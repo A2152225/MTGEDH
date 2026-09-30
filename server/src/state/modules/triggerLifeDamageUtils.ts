@@ -159,6 +159,30 @@ export function tryApplyEachOpponentDamageTrigger(
 const TARGETED_DAMAGE_PATTERN =
   /\bdeals? (\d+) damage to (?:any )?target(?: creature| player| opponent| permanent)?(?:\b|$)/i;
 const THAT_PLAYER_DAMAGE_PATTERN = /\bdeals? (\d+) damage to that player\b/i;
+/** Surtland Flinger shape: "deals damage equal to the sacrificed creature's power to any target". */
+const SACRIFICED_POWER_DAMAGE_PATTERN =
+  /\bdeals? damage equal to the sacrificed (?:creature|permanent)'s power to (?:any )?target(?: creature| player| opponent| permanent)?(?:\b|$)/i;
+
+function snapshotPower(snapshot: any): number {
+  const raw = snapshot?.power ?? snapshot?.card?.power;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
+
+/** Damage from the sacrificed creature's last-known power, honoring "if it was a <Type>, twice that much". */
+function sacrificedPowerDamageAmount(text: string, triggerItem: any): number {
+  const snapshots: any[] = Array.isArray(triggerItem?.lastSacrificedPermanents) ? triggerItem.lastSacrificedPermanents : [];
+  if (snapshots.length === 0) return 0;
+  const base = snapshots.reduce((sum, snapshot) => sum + snapshotPower(snapshot), 0);
+  const doubling = text.match(/\bif the sacrificed (?:creature|permanent) was an? ([a-z' -]+?),[^.]*\btwice that much damage instead\b/i);
+  if (doubling) {
+    const typeWord = String(doubling[1] || '').trim().toLowerCase();
+    const matches = snapshots.some((snapshot) =>
+      typeLineHasAllWords(String(snapshot?.typeLine ?? snapshot?.type_line ?? snapshot?.card?.type_line ?? ''), typeWord));
+    if (matches) return base * 2;
+  }
+  return base;
+}
 
 function collectEffectTargetIds(triggerItem: any): string[] {
   const raw = triggerItem?.targets;
@@ -200,8 +224,11 @@ export function tryApplyTargetedDamageFromEffectText(
   if (!text || /to each opponent/i.test(text)) return false;
 
   const thatPlayerMatch = text.match(THAT_PLAYER_DAMAGE_PATTERN);
-  const targetedMatch = !thatPlayerMatch ? text.match(TARGETED_DAMAGE_PATTERN) : null;
-  const amount = Math.max(0, parseInt(String(thatPlayerMatch?.[1] || targetedMatch?.[1] || ''), 10) || 0);
+  const sacrificedPowerMatch = !thatPlayerMatch ? text.match(SACRIFICED_POWER_DAMAGE_PATTERN) : null;
+  const targetedMatch = !thatPlayerMatch ? (sacrificedPowerMatch || text.match(TARGETED_DAMAGE_PATTERN)) : null;
+  const amount = sacrificedPowerMatch
+    ? sacrificedPowerDamageAmount(text, triggerItem)
+    : Math.max(0, parseInt(String(thatPlayerMatch?.[1] || targetedMatch?.[1] || ''), 10) || 0);
   if (amount <= 0) return false;
 
   const state = (ctx as any).state;

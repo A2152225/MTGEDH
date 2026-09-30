@@ -520,6 +520,8 @@ export interface OracleIRExecutionResult {
   /** Step carry-over for chained selectors (e.g. reveal_top → move_zone "those cards"). */
   readonly lastMovedCards?: readonly any[];
   readonly lastMilledCards?: readonly any[];
+  /** Last-known snapshots of permanents sacrificed during this execution ("the sacrificed creature's power"). */
+  readonly lastSacrificedPermanents?: readonly any[];
   readonly lastRevealedCardCount?: number;
   /** Per-player "that many" amounts (Warp World) when a later prompt resumes after shuffle. */
   readonly lastMovedCountByPlayer?: Readonly<Record<string, number>>;

@@ -5,6 +5,7 @@ import { debug } from '../../utils/debug.js';
 import { countControlledCreaturesOfChosenType } from './chosen-creature-type.js';
 import { cardHasCreatureType, isCreatureNow, permanentHasCreatureTypeNow } from '../creatureTypeNow.js';
 import { createCopyTokensOfCard } from './counters_tokens.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 export function shuffleCards(cards: any[]): any[] {
   const copy = [...cards];
@@ -77,6 +78,7 @@ export function resolveKindredSummonsFromLibrary(
     }
 
     battlefield.push(newPermanent);
+    stampPermanentEntryTimestamp(state, battlefield[battlefield.length - 1]);
   }
   state.battlefield = battlefield;
 

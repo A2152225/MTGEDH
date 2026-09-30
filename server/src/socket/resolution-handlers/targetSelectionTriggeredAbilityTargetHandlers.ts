@@ -71,8 +71,15 @@ export function handleTargetedTriggeredAbilityTargetSelection(
       debugWarn(1, '[Resolution] appendEvent(assignTriggeredAbilityTargets) failed:', err);
     }
   }
+  const liveStackItem = triggerStackItemId && Array.isArray(game.state?.stack)
+    ? game.state.stack.find((item: any) => item && String(item.id || '') === triggerStackItemId)
+    : undefined;
   const triggerItem = {
     ...(stepAny.triggerItem || {}),
+    // Sacrifice snapshots ("the sacrificed creature's power") live on the stack item, not on the queued step copy.
+    ...(Array.isArray((liveStackItem as any)?.lastSacrificedPermanents) && !Array.isArray(stepAny?.triggerItem?.lastSacrificedPermanents)
+      ? { lastSacrificedPermanents: (liveStackItem as any).lastSacrificedPermanents }
+      : {}),
     sourceName,
     description,
     controller,
@@ -123,6 +130,14 @@ export function handleTargetedTriggeredAbilityTargetSelection(
   }
 
   executeTriggerEffect(ctx as any, controller as PlayerID, sourceName, effectText, triggerItem);
+
+  // The effect has just been applied with its chosen targets. If the trigger's stack item is still on the
+  // stack (reflexive "when you do" triggers are pushed before their target is chosen), drop it now so
+  // resolveTopOfStack does not apply the same effect a second time (double Surtland Flinger damage).
+  if (triggerStackItemId && Array.isArray(game.state?.stack)) {
+    const index = game.state.stack.findIndex((item: any) => item && String(item.id || '') === triggerStackItemId);
+    if (index >= 0) game.state.stack.splice(index, 1);
+  }
 
   if (typeof (game as any).bumpSeq === 'function') {
     (game as any).bumpSeq();

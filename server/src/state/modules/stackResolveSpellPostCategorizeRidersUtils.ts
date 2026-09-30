@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { destroyPermanent } from './counters_tokens.js';
+import { permanentHasIndestructible } from '../../rules-engine/index.js';
 import {
   createSpellLegacyTokenFromSpec,
   parseSpellLegacyTokenCreation,
@@ -19,6 +20,7 @@ import {
   shouldSkipLegacySpellBodyHandlers,
   skipRetiredSpellLegacyHandler,
 } from './oracleIrSpellLegacyRouting.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 type InstantSorceryPostCategorizeRiderOptions = {
   controller: PlayerID;
@@ -285,6 +287,7 @@ export function applyInstantSorceryFracturedIdentityAndFallbackRiders(
 
           state.battlefield = state.battlefield || [];
           state.battlefield.push(tokenPerm as any);
+          stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
 
           debug(2, `[resolveTopOfStack] Fractured Identity: Created token copy of ${targetCard.name} for ${recipient.name || recipient.id}`);
         } catch (err) {
@@ -293,6 +296,14 @@ export function applyInstantSorceryFracturedIdentityAndFallbackRiders(
       }
     }
   }
+
+  // Battlefield ids before this resolution creates any tokens: "destroy all other creatures" (Martial Coup)
+  // spares only the tokens this same spell just made, never older tokens (rulings 2009-02-01).
+  const battlefieldIdsBeforeSpellTokens = new Set<string>(
+    (Array.isArray(state.battlefield) ? state.battlefield : [])
+      .map((perm: any) => String(perm?.id || '').trim())
+      .filter(Boolean),
+  );
 
   // P1a: CREATE_TOKEN/INVESTIGATE resolve deleted — skip dual-apply legacy creature-token rider
   // (including under ORACLE_IR_SPELL_LEGACY). Treasure/Clue already no-op via deleted categorize.
@@ -329,20 +340,22 @@ export function applyInstantSorceryFracturedIdentityAndFallbackRiders(
       debug(2, `[resolveTopOfStack] ${effectiveCard.name}: X=${spellXValue} >= ${threshold}, triggering: ${destroyPattern}`);
 
       const battlefield = state.battlefield || [];
-      const creaturesBeforeSpell = battlefield.filter((perm: any) => {
+      const creaturesToConsider = battlefield.filter((perm: any) => {
         if (!perm) return false;
         const typeLine = (perm.card?.type_line || '').toLowerCase();
         return typeLine.includes('creature');
       });
 
       const destroyOther = destroyPattern.includes('other');
-      for (const creature of creaturesBeforeSpell) {
-        if (destroyOther && (creature as any).isToken) {
-          const hasCounters = creature.counters && Object.keys(creature.counters).length > 0;
-          const hasDamage = (creature as any).damage > 0;
-          if (!hasCounters && !hasDamage) {
-            continue;
-          }
+      for (const creature of creaturesToConsider) {
+        // Only the tokens created by this very resolution survive "destroy all other creatures".
+        if (destroyOther && (creature as any).isToken && !battlefieldIdsBeforeSpellTokens.has(String(creature.id))) {
+          continue;
+        }
+        // CR 702.12: an indestructible creature is not destroyed.
+        if (permanentHasIndestructible(state, creature as any)) {
+          debug(2, `[resolveTopOfStack] ${effectiveCard.name}: ${creature.card?.name || creature.id} is indestructible`);
+          continue;
         }
 
         destroyPermanent(ctx, creature.id);

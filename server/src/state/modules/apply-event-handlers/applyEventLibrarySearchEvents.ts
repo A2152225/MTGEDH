@@ -29,6 +29,7 @@ import {
   clearOracleIrPendingCompoundResumeOnState,
 } from "../oracleIrTransitionPipeline.js";
 import { ensureDeferredOracleIrStackItem } from "../oracleIrDeferredStackFinalize.js";
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 export function applyLibrarySearchEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -62,6 +63,7 @@ export function applyLibrarySearchEvents(ctx: GameContext, e: GameEvent): boolea
                     counters: {},
                     card: { ...card, zone: "battlefield" },
                   } as any);
+                  stampPermanentEntryTimestamp(ctx.state, ctx.state.battlefield[ctx.state.battlefield.length - 1]);
                 } else if (destination === "top") {
                   lib.unshift({ ...card, zone: "library" });
                 }

@@ -24,6 +24,7 @@ import { getPanglacialCastableCards } from "./panglacialSearchCastUtils.js";
 import { getFilteredValidTargetsForStep } from "./resolutionTargetSelectionDistinctTargetUtils.js";
 import { hydrateSpellPaymentPresentationFieldsForClient } from "./spellPaymentPresentationSanitizeUtils.js";
 import { resolveResolutionPromptCause } from "../../state/modules/resolutionPromptCause.js";
+import { getAffordableXHintForCostPerX } from "../../state/modules/spellXCastUtils.js";
 
 export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any {
   const oracleText = getOracleTextFromResolutionStep(step);
@@ -72,6 +73,24 @@ export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any
       }
     } catch {
       // best-effort affordability presentation; submission is still server-validated
+    }
+  }
+
+  // "You may pay {X}, where X is ..." prompts: tell the client how many X the player's current mana can
+  // actually pay for, so the modal can show it (and cap its suggestion) next to the per-X cost.
+  if (
+    step.type === ResolutionStepType.X_VALUE_SELECTION
+    && typeof (step as any).costPerX === 'string'
+    && (typeSpecificFields as any).affordableXHint === undefined
+  ) {
+    try {
+      const game = ensureGame(gameId);
+      const hint = game
+        ? getAffordableXHintForCostPerX(game, String(step.playerId || ''), String((step as any).costPerX), (typeSpecificFields as any).maxValue)
+        : undefined;
+      if (hint !== undefined) (typeSpecificFields as any).affordableXHint = hint;
+    } catch {
+      // best-effort presentation hint; the submission itself is validated server-side
     }
   }
 

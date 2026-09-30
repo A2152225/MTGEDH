@@ -45,6 +45,7 @@ import {
   resolveGraveyardExileSourcePermanentId,
   stampCardExiledWithSource,
 } from "../state/modules/exileWithSourceStamp.js";
+import { stampPermanentEntryTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
 
 export async function handleGraveyardSelectionResponse(
   io: Server,
@@ -789,6 +790,7 @@ export async function handleGraveyardSelectionResponse(
       }
       markPermanentEnteredFromZone(permanent, 'graveyard');
       battlefield.push(permanent);
+      stampPermanentEntryTimestamp(game.state, battlefield[battlefield.length - 1]);
       createdPermanentIds.push(permanentId);
       createdBattlefieldEntries.push({ permanent, controllerId: battlefieldControllerId });
     } else if (destination === 'library_top' || destination === 'library_bottom') {

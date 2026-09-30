@@ -39,6 +39,8 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
     focusedPlayerId,
     handleCastCommander,
     handleDeckMgrOpenChange,
+    handleExileAbility,
+    handleGraveyardAbility,
     handleFocusPlayer,
     handleIgnoreTriggerSourceFromStack,
     handleLocalImportConfirmChange,
@@ -822,6 +824,8 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
               }}
               onUseTopOfLibrary={handleUseTopOfLibrary}
               onCastCommander={handleCastCommander}
+              onGraveyardAbility={handleGraveyardAbility}
+              onExileAbility={handleExileAbility}
               reasonCannotPlayLand={reasonCannotPlayLand}
               reasonCannotCast={reasonCannotCast}
               enablePanZoom

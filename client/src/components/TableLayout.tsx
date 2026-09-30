@@ -70,6 +70,8 @@ export function TableLayout(props: {
   onCastFromHand?: (cardId: string) => void;
   onUseTopOfLibrary?: () => void;
   onCastCommander?: (commanderId: string, commanderName: string, manaCost?: string, tax?: number) => void;
+  onGraveyardAbility?: (cardId: string, abilityId: string, card: any) => void;
+  onExileAbility?: (cardId: string, abilityId: string, card: any) => void;
   reasonCannotPlayLand?: (card: any) => string | null;
   reasonCannotCast?: (card: any) => string | null;
   onImportDeckText?: (txt: string, name?: string) => void;
@@ -153,7 +155,7 @@ export function TableLayout(props: {
     onRemove, onCounter, onBulkCounter,
     highlightPermTargets, selectedPermTargets, onPermanentClick,
     highlightPlayerTargets, selectedPlayerTargets, onPlayerClick,
-    onPlayLandFromHand, onCastFromHand, onUseTopOfLibrary, onCastCommander, reasonCannotPlayLand, reasonCannotCast,
+    onPlayLandFromHand, onCastFromHand, onUseTopOfLibrary, onCastCommander, onGraveyardAbility, onExileAbility, reasonCannotPlayLand, reasonCannotCast,
     onReorderHand, onShuffleHand,
     threeD, enablePanZoom = true,
     tableCloth, worldSize, onUpdatePermPos,
@@ -967,6 +969,8 @@ export function TableLayout(props: {
           onPlayLandFromHand={onPlayLandFromHand}
           onCastFromHand={onCastFromHand}
           onCastCommander={onCastCommander}
+          onGraveyardAbility={onGraveyardAbility}
+          onExileAbility={onExileAbility}
           reasonCannotPlayLand={reasonCannotPlayLand}
           reasonCannotCast={reasonCannotCast}
         />

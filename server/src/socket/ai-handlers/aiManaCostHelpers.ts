@@ -25,6 +25,7 @@ import type { AdditionalCostResult } from "../land-helpers.js";
 import { collectAIManaColorNeedWeights, pickAIManaColorByNeedWeights } from "./aiManaColorNeedHelpers.js";
 import { calculateCardThemeAlignment, ensureAIDeckProfile } from "./aiDeckProfileHandlers.js";
 import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
+import { getPermanentCombatStats } from "./aiPermanentCombatStats.js";
 
 /**
  * Determine what color of mana a permanent can produce based on its type and oracle text
@@ -255,8 +256,7 @@ export function scoreAISacrificePermanentForManaAbility(game: any, playerId: Pla
   const profile = ensureAIDeckProfile(game, playerId);
   const analysis = cardAnalyzer.analyzeCard(permanent);
   const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
-  const power = Number(permanent?.card?.power || permanent?.basePower || 0) || 0;
-  const toughness = Number(permanent?.card?.toughness || permanent?.baseToughness || 0) || 0;
+  const { power, toughness } = getPermanentCombatStats(permanent, game?.state);
   let score = 0;
 
   if ((permanent as any)?.isCommander) score += 1000;

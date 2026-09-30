@@ -9,6 +9,7 @@ import { debug } from '../../utils/debug.js';
 import { sacrificePermanent } from './upkeep-triggers.js';
 import { finishPlayLandBattlefieldEntry, type PlayLandEntryOptions } from './stackPlayLandUtils.js';
 import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 export const WOULD_ENTER_DISCARD_LAND_DECLINE_ID = 'decline_mox_diamond';
 
@@ -439,6 +440,7 @@ export function resolveWouldEnterDiscardLandChoice(
       card: spellCard,
       tapped: false,
     } as any);
+    stampPermanentEntryTimestamp(ctx.state, ctx.state.battlefield[ctx.state.battlefield.length - 1]);
   }
 
   if (!discardedLandName) {

@@ -1,6 +1,7 @@
-import type { BattlefieldPermanent } from '../../shared/src';
+import type { BattlefieldPermanent, GameState } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { readPermanentPower, readPermanentToughness } from './oracleIRExecutorCreatureStepUtils';
+import { readCurrentPower, readCurrentToughness } from './oracleIRExecutorCurrentPowerToughness';
 
 type PlayerLike = {
   readonly life?: number;
@@ -29,6 +30,8 @@ type HasExecutorClass = (obj: unknown, klass: string) => boolean;
 type GetExcludedId = () => string;
 
 export function tryEvaluateModifyPtWhereReferenceStats(args: {
+  /** Game state, so "its power" / "that creature's power" read the shared current P/T (pumps, set-base effects). */
+  state?: GameState;
   raw: string;
   battlefield: readonly BattlefieldPermanent[];
   controllerId: string;
@@ -50,6 +53,7 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
   getExcludedId: GetExcludedId;
 }): number | null {
   const {
+    state,
     raw,
     battlefield,
     controllerId,
@@ -101,10 +105,10 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
       const target = findObjectById(refId) ?? battlefield.find((p: any) => p.id === refId) as any;
       if (!target) return null;
       if (which === 'power') {
-        const power = readPermanentPower(target);
+        const power = (state ? readCurrentPower(state, target, ctx) : null) ?? readPermanentPower(target);
         return power === null ? null : power;
       }
-      const toughness = readPermanentToughness(target);
+      const toughness = (state ? readCurrentToughness(state, target, ctx) : null) ?? readPermanentToughness(target);
       return toughness === null ? null : toughness;
     }
   }
@@ -141,10 +145,10 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
         return readFromSacrificedSnapshot();
       }
       if (which === 'power') {
-        const power = readPermanentPower(target);
+        const power = (state ? readCurrentPower(state, target, ctx) : null) ?? readPermanentPower(target);
         return power === null ? null : power;
       }
-      const toughness = readPermanentToughness(target);
+      const toughness = (state ? readCurrentToughness(state, target, ctx) : null) ?? readPermanentToughness(target);
       return toughness === null ? null : toughness;
     }
   }
@@ -404,8 +408,8 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
       }
 
       const rawValue = statWord === 'power'
-        ? readPermanentPower(target)
-        : Number(target.toughness ?? target.baseToughness ?? target.card?.toughness);
+        ? ((state ? readCurrentPower(state, target, ctx) : null) ?? readPermanentPower(target))
+        : (state ? readCurrentToughness(state, target, ctx) : null) ?? Number(target.toughness ?? target.baseToughness ?? target.card?.toughness);
       const val = statWord === 'power' ? rawValue : Number(rawValue);
       return val === null || !Number.isFinite(val) ? null : val;
     }

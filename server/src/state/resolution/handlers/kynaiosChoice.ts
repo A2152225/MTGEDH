@@ -14,6 +14,7 @@ import { queueSelfETBTriggersForPermanent } from '../../modules/triggerEtbEntryE
 import { triggerETBEffectsForPermanent } from '../../modules/triggerEtbPermanentEffects.js';
 import { runPostResolutionPermanentPromptChecks } from '../../../socket/game-actions.js';
 import { broadcastGame } from '../../../socket/util.js';
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 function drawKynaiosCard(game: any, playerId: PlayerID): void {
   if (typeof game?.drawCards === 'function') {
@@ -117,6 +118,7 @@ export function moveKynaiosLandFromHandToBattlefield(
   };
 
   battlefield.push(permanent);
+  stampPermanentEntryTimestamp(game.state, battlefield[battlefield.length - 1]);
   game.state.battlefield = battlefield;
   zones.handCount = zones.hand.length;
 

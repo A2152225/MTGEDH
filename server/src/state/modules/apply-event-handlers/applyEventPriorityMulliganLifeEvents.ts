@@ -32,6 +32,7 @@ import {
   pickMutablePlayerLibrary,
   writePlayerLibrary,
 } from "../applyEventReplayCardMoveLibraryHelpers.js";
+import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
 export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -540,6 +541,7 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
                     counters: getReplayOpeningHandBattlefieldCounters(ctx.state, card, pid),
                     card: { ...card, zone: "battlefield" },
                   } as any);
+                  stampPermanentEntryTimestamp(ctx.state, ctx.state.battlefield[ctx.state.battlefield.length - 1]);
                 }
               }
               z.handCount = hand.length;

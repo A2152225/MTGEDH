@@ -309,5 +309,6 @@ describe('Loop Shortcut batch execute', () => {
     const apply = events.find((e) => e.type === 'loopShortcutBatchApply') as any;
     expect(apply?.payload?.iterationsCompleted).toBe(50);
     expect(apply?.payload?.statePatch?.battlefield).toBeTruthy();
-  });
+    // 50 real activations take ~2 minutes on a loaded machine; the 120s global default is too tight.
+  }, 600_000);
 });

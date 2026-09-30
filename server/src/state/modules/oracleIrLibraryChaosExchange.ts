@@ -7,6 +7,7 @@ import { uid } from '../utils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { movePermanentToLibrary } from './zones.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 export type LibraryChaosExchangeStep = Extract<OracleEffectStep, { kind: 'library_chaos_exchange' }>;
 
@@ -172,6 +173,7 @@ export function executeLibraryChaosExchange(
             card: { ...topCard, zone: 'battlefield' },
           };
           state.battlefield.push(permanent);
+          stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
           battlefieldAdded.push(permanent);
         } else {
           const exiled = appendToExile(ctx, playerId, topCard);

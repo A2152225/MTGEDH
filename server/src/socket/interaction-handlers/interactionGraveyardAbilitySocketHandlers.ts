@@ -46,6 +46,7 @@ import {
 } from "./interactionGraveyardCastCostAndTimingRules.js";
 import { detectTutorEffect, parseSearchCriteria } from "./interactionTutorSearchCriteriaParsing.js";
 import { type EnsureInRoomAndSeated } from "./interactionRoomAndBattlefield.js";
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 // Handle graveyard ability activation
 export async function handleActivateGraveyardAbilityRequest(
@@ -196,6 +197,7 @@ export async function handleActivateGraveyardAbilityRequest(
         },
     } as any;
       game.state.battlefield.push(createdPermanent);
+      stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
       queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), createdPermanent);
     const fireAtTurnNumber = getNextEndStepFireTurnNumber(game.state);
     (game.state as any).pendingExileAtNextEndStep = Array.isArray((game.state as any).pendingExileAtNextEndStep)
@@ -285,6 +287,7 @@ export async function handleActivateGraveyardAbilityRequest(
       createdPermanentId,
     );
     game.state.battlefield.push(createdToken as any);
+    stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
     queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), createdToken);
     
     if (typeof game.bumpSeq === "function") {
@@ -537,6 +540,7 @@ export async function handleActivateGraveyardAbilityRequest(
         card: { ...card, zone: "battlefield" },
       } as any;
       game.state.battlefield.push(createdPermanent);
+      stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
       queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), createdPermanent);
       
       io.to(gameId).emit("chat", {
@@ -723,6 +727,7 @@ export async function handleActivateGraveyardAbilityRequest(
       createdPermanentIds.push(tokenId);
       const token = createEncoreToken(game.state, pid, card, tokenId, targetPlayerId);
       game.state.battlefield.push(token);
+      stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
       queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), token);
       (game.state as any).pendingSacrificeAtNextEndStep.push({
         permanentId: tokenId,

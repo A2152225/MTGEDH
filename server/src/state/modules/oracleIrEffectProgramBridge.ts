@@ -15,6 +15,7 @@ import { appendCopyTriggeredAbilityResolveEvent } from './triggerAbilityCopyUtil
 import { queueCopySpellStackPushFromOracleIRResult } from './oracleIrServerCopySpellSync.js';
 import { queueLifegainTriggers } from './triggers/lifegain.js';
 import { queueLifeLossTriggers } from './triggers/life-loss.js';
+import { queueOracleIrReflexiveSacrificeDamageFollowups } from './triggerReflexiveSacrificeDamageQueueUtils.js';
 import { persistEffectProgramReplayMutationsFromRun } from '../effects/effectProgramReplayMutationPersistence.js';
 
 export interface EffectProgramOracleIrBridgeConfig {
@@ -114,6 +115,12 @@ export function bridgeOracleIrEffectProgramRunEvents(
       sourceId: bridge.sourceId || bridge.irCtx.sourceId,
       irCtx: bridge.irCtx,
       sourceItem: bridge.triggerItem,
+    });
+    queueOracleIrReflexiveSacrificeDamageFollowups(ctx, state, typed.execution, {
+      controller: bridge.controller,
+      sourceName: bridge.sourceName || bridge.irCtx.sourceName,
+      sourceId: bridge.sourceId || bridge.irCtx.sourceId,
+      triggerItem: bridge.triggerItem,
     });
     emitLifeChangeTriggersFromEffectProgramExecution(ctx, typed.execution.replayMutations);
   }

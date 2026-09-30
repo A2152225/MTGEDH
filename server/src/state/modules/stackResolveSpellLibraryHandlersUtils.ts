@@ -25,6 +25,7 @@ import {
   shouldSkipLegacySpellBodyHandlers,
   skipRetiredSpellLegacyHandler,
 } from './oracleIrSpellLegacyRouting.js';
+import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
 function hasIrBridgedLibrarySearchForSpell(ctx: GameContext, spellName: string): boolean {
   const gameId = String((ctx as any).gameId || '').trim();
@@ -184,6 +185,7 @@ export function applyInstantSorceryTokenForEachCreatureHandler(
     };
 
     state.battlefield.push(token as any);
+    stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
     triggerETBEffectsForToken(ctx, token, controller);
   }
 

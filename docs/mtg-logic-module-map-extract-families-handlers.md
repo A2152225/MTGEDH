@@ -313,7 +313,8 @@ Public path stays `mana-check.ts`. Leaves must not import `mana-check.ts` or the
 | `manaCheckRemoveCounterCost.ts` | Self-remove-counter parse and permanent counter budgets. |
 | `manaCheckCostedTapFilter.ts` | `filterOutCostedTapMatches`. |
 | `manaCheckPermanentColors.ts` | `getOpponentPermanentColors`, `getControlledPermanentColors`. Land permanents use `getLandTopLayerProducibleColorSymbols` (no nested Exotic / Reflecting Pool walk). |
-| `manaCheckAvailableMana.ts` | `getAvailableMana`. Dual-ability scaling taps (Three Tree City `{2}`) count **net** of activation pips; unpaid invest does not inflate the optimistic pool. Basic-name shortcut uses `getEffectiveBasicLandTypes` (Yavimaya / Spreading Seas); type-setting auras skip printed oracle. |
+| `manaCheckAvailableMana.ts` | `getAvailableMana`. Dual-ability scaling taps (Three Tree City `{2}`) count **net** of activation pips; unpaid invest does not inflate the optimistic pool. Basic-name shortcut uses `getEffectiveBasicLandTypes` (Yavimaya / Spreading Seas); type-setting auras skip printed oracle. Lands with no printed `: Add` (Urborg, Yavimaya, including the source) contribute intrinsic mana from effective basic land types. |
+| `manaCheckIntrinsicBasicLandMana.ts` | `buildIntrinsicBasicLandExactOptions`. Exact-payment options for printed basics (granted types included) and nonbasic lands whose only mana is an intrinsic basic-land ability. |
 | `manaCheckParseManaCost.ts` | `parseManaCost`, `normalizeParsedManaCost`, `stringifyParsedManaCost`. |
 | `manaCheckScalingExactOptions.ts` | `buildScalingManaExactOptions`. |
 | `manaCheckAbilityCostParsers.ts` | Hand / life / return-to-hand mana-ability cost parsers. |
