@@ -22198,7 +22198,7 @@ describe('Oracle IR Executor', () => {
     expect(remainingIds).toEqual(['safe-permanent-after-name']);
   });
 
-  it('applies the sacrifice half of a split conjunction and skips contextual countering without a stack target', () => {
+  it('applies the sacrifice half of a split conjunction and treats "counter that spell" as a no-op when the spell is already gone', () => {
     const ir = parseOracleTextToIR('Sacrifice this enchantment and counter that spell.', 'Hesitation');
     const steps = ir.abilities[0]?.steps ?? [];
 
@@ -22227,7 +22227,11 @@ describe('Oracle IR Executor', () => {
     const remainingIds = (result.state.battlefield as any[]).map(perm => perm.id);
 
     expect(result.appliedSteps.some(s => s.kind === 'sacrifice')).toBe(true);
-    expect(result.skippedSteps.some(s => s.kind === 'counter_spell')).toBe(true);
+    // 4b464957 deliberately made "counter that spell" resolve as a logged no-op when the spell has left
+    // the stack (rule 608.2b: nothing happens), so it is applied rather than skipped.
+    expect(result.appliedSteps.some(s => s.kind === 'counter_spell')).toBe(true);
+    expect(result.skippedSteps.some(s => s.kind === 'counter_spell')).toBe(false);
+    expect(result.log.some(line => /no spell left on the stack to counter/i.test(line))).toBe(true);
     expect(result.automationGaps.some(gap => String(gap.raw || '').toLowerCase().includes('counter that spell'))).toBe(false);
     expect(remainingIds).toEqual(['safe-artifact-after-split']);
   });
@@ -27025,8 +27029,17 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'copy_spell']);
     expect((p2.exile || []).map((card: any) => card.id)).toEqual(['psionic-target']);
-    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['top-a', 'top-b']);
-    expect(p1.library || []).toEqual([]);
+    // "You may cast the copy" is a may-cast (ca5d7565): the copy is created in exile, castable by its
+    // controller for free, and is NOT auto-replayed - so nothing is drawn during this resolution.
+    expect((p1.exile || []).map((card: any) => card.id)).toEqual(['psionic-target-copy-1']);
+    expect((p1.exile || [])[0]).toMatchObject({
+      isCopy: true,
+      copiedFromCardId: 'psionic-target',
+      canBePlayedBy: 'p1',
+      withoutPayingManaCost: true,
+    });
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual([]);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual(['top-a', 'top-b']);
   });
 
   it('applies targeted spell-copy steps by replaying the bound spell on the stack', () => {
@@ -27226,8 +27239,17 @@ This creature has protection from each of the exiled card's card types. (Artifac
       const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
       expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'roll_die', 'copy_spell', 'die_roll_results']);
       expect((p2.exile || []).map((card: any) => card.id)).toEqual(['spellbook-target']);
-      expect((p1.hand || []).map((card: any) => card.id)).toEqual(['spellbook-draw-1', 'spellbook-draw-2']);
-      expect((result.state as any).manaPool?.p1?.colorless).toBe(0);
+      // May-cast copy (ca5d7565): created in exile with the {1} alternative cost recorded for cast time,
+      // so no mana is spent and nothing is drawn while the ability resolves.
+      expect((p1.exile || []).map((card: any) => card.id)).toEqual(['spellbook-target-copy-1']);
+      expect((p1.exile || [])[0]).toMatchObject({
+        isCopy: true,
+        copiedFromCardId: 'spellbook-target',
+        canBePlayedBy: 'p1',
+        exileCastCost: '{1}',
+      });
+      expect((p1.hand || []).map((card: any) => card.id)).toEqual([]);
+      expect((result.state as any).manaPool?.p1?.colorless).toBe(1);
       expect((result.state as any).lastDieRollByPlayer?.p1?.result).toBe(13);
     } finally {
       randomSpy.mockRestore();
@@ -27296,8 +27318,15 @@ This creature has protection from each of the exiled card's card types. (Artifac
       const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
       expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'roll_die', 'copy_spell', 'die_roll_results']);
       expect((p2.exile || []).map((card: any) => card.id)).toEqual(['spellbook-inline-target']);
-      expect((p1.hand || []).map((card: any) => card.id)).toEqual(['spellbook-inline-draw-1', 'spellbook-inline-draw-2']);
-      expect((result.state as any).manaPool?.p1?.colorless).toBe(0);
+      expect((p1.exile || []).map((card: any) => card.id)).toEqual(['spellbook-inline-target-copy-1']);
+      expect((p1.exile || [])[0]).toMatchObject({
+        isCopy: true,
+        copiedFromCardId: 'spellbook-inline-target',
+        canBePlayedBy: 'p1',
+        exileCastCost: '{1}',
+      });
+      expect((p1.hand || []).map((card: any) => card.id)).toEqual([]);
+      expect((result.state as any).manaPool?.p1?.colorless).toBe(1);
       expect((result.state as any).lastDieRollByPlayer?.p1?.result).toBe(13);
     } finally {
       randomSpy.mockRestore();
@@ -27372,9 +27401,20 @@ This creature has protection from each of the exiled card's card types. (Artifac
       const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
       const p2 = result.state.players.find((player: any) => player.id === 'p2') as any;
       expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'roll_die', 'copy_spell', 'die_roll_results']);
-      expect((p1.exile || []).map((card: any) => card.id)).toEqual(['spellbook-old-exile']);
+      // May-cast copies (ca5d7565): one free castable copy per linked exiled card - the older exile
+      // and the card just exiled - each sitting in exile, none auto-replayed.
+      expect((p1.exile || []).map((card: any) => card.id)).toEqual([
+        'spellbook-old-exile',
+        'spellbook-old-exile-copy-1',
+        'spellbook-new-target-copy-1',
+      ]);
+      expect((p1.exile || []).filter((card: any) => card.isCopy).map((card: any) => [card.copiedFromCardId, card.withoutPayingManaCost, card.canBePlayedBy])).toEqual([
+        ['spellbook-old-exile', true, 'p1'],
+        ['spellbook-new-target', true, 'p1'],
+      ]);
       expect((p2.exile || []).map((card: any) => card.id)).toEqual(['spellbook-new-target']);
-      expect((p1.hand || []).map((card: any) => card.id)).toEqual([
+      expect((p1.hand || []).map((card: any) => card.id)).toEqual([]);
+      expect((p1.library || []).map((card: any) => card.id)).toEqual([
         'spellbook-free-1',
         'spellbook-free-2',
         'spellbook-free-3',
@@ -27431,7 +27471,17 @@ This creature has protection from each of the exiled card's card types. (Artifac
     const p1 = result.state.players.find((player: any) => player.id === 'p1') as any;
 
     expect(result.appliedSteps.map(step => step.kind)).toEqual(['copy_spell']);
-    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['scepter-draw-1', 'scepter-draw-2']);
+    // "You may copy the exiled card. If you do, you may cast the copy" is a may-cast: the copy waits in
+    // exile as a free castable card and is not replayed during resolution (ca5d7565).
+    expect((p1.exile || []).map((card: any) => card.id)).toEqual(['scepter-imprint', 'scepter-imprint-copy-1']);
+    expect((p1.exile || [])[1]).toMatchObject({
+      isCopy: true,
+      copiedFromCardId: 'scepter-imprint',
+      canBePlayedBy: 'p1',
+      withoutPayingManaCost: true,
+    });
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual([]);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual(['scepter-draw-1', 'scepter-draw-2']);
   });
 
   it("applies The Many Deeds of Belzenlok by exiling the Saga and replaying the chosen chapter ability", () => {
@@ -54705,7 +54755,16 @@ This creature has protection from each of the exiled card's card types. (Artifac
 
     expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'copy_spell']);
     expect((p2.exile || []).map((card: any) => card.id)).toEqual(['narset-target']);
-    expect((p1.hand || []).map((card: any) => card.id)).toEqual(['narset-draw-1', 'narset-draw-2']);
+    // May-cast copy (ca5d7565): a free castable copy is left in exile rather than auto-replayed.
+    expect((p1.exile || []).map((card: any) => card.id)).toEqual(['narset-target-copy-1']);
+    expect((p1.exile || [])[0]).toMatchObject({
+      isCopy: true,
+      copiedFromCardId: 'narset-target',
+      canBePlayedBy: 'p1',
+      withoutPayingManaCost: true,
+    });
+    expect((p1.hand || []).map((card: any) => card.id)).toEqual([]);
+    expect((p1.library || []).map((card: any) => card.id)).toEqual(['narset-draw-1', 'narset-draw-2']);
   });
 
   it("applies Kenrith, the Returned King by returning the target under its owner's control", () => {

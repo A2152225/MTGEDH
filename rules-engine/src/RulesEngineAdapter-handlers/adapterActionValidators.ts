@@ -207,7 +207,9 @@ export function validateSpellCast(this: AdapterActionValidationHost, state: Game
         : undefined);
 
     // Check mana availability if mana cost is provided
-    if (derivedManaCostInput && !ignoresManaCost) {
+    // manaAlreadyPaid: the server consumed the pool before asking the bridge to validate, so the
+    // pool no longer holds the cost (and X spells never have a fixed pool total to compare with).
+    if (derivedManaCostInput && !ignoresManaCost && action.manaAlreadyPaid !== true) {
       const player = state.players.find(p => p.id === action.playerId);
       if (!player) {
         return {

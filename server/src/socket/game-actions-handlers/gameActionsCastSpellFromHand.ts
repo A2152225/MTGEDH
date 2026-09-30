@@ -342,6 +342,7 @@ export async function handleCastSpellFromHandRequest(
             manaCost: castSourceZone === 'command' ? (commandZoneManaCost || cardInHand.mana_cost) : cardInHand.mana_cost,
             cardTypes: (cardInHand.type_line || '').split('G��').map((s: string) => s.trim()),
             targets: targets || [],
+            manaAlreadyPaid: true,
           });
           
           if (!validation.legal) {
@@ -379,6 +380,7 @@ export async function handleCastSpellFromHandRequest(
               manaCost: castSourceZone === 'command' ? (commandZoneManaCost || cardInHand.mana_cost) : cardInHand.mana_cost,
               cardTypes: (cardInHand.type_line || '').split('G��').map((s: string) => s.trim()),
               targets: targets || [],
+              manaAlreadyPaid: true,
               ...((targets as any)?.targetGrouping ? { targetGrouping: (targets as any).targetGrouping } : {}),
             });
             

@@ -238,6 +238,21 @@ function withDamageAmountTargetPlayer(
   };
 }
 
+// The runtime and the execution context both remember the last moved cards, so the same card is
+// usually present twice. Summing stats over that list would double a single card's value.
+function dedupeReferencedCards(cards: readonly any[]): any[] {
+  const seen = new Set<unknown>();
+  const out: any[] = [];
+  for (const card of cards) {
+    const id = String(card?.id ?? card?.card?.id ?? '').trim();
+    const key: unknown = id || card;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(card);
+  }
+  return out;
+}
+
 function resolveDamageAmountBoundPlayerId(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'deal_damage' }>,
@@ -290,12 +305,12 @@ function resolveDamageAmount(
         ? (Array.isArray(runtime?.lastSacrificedPermanents) ? [...runtime.lastSacrificedPermanents] : [])
         :
       amount.subject === 'that_card' || amount.subject === 'that_creature' || amount.subject === 'that_spell'
-        ? [
+        ? dedupeReferencedCards([
             ...(Array.isArray(runtime?.lastMovedCards) ? [...runtime.lastMovedCards] : []),
             ...(Array.isArray(runtime?.lastDiscardedCards) ? [...runtime.lastDiscardedCards] : []),
             ...(Array.isArray(runtime?.lastExiledCards) ? [...runtime.lastExiledCards] : []),
             ...(Array.isArray((ctx as any).lastMovedCards) ? [...(ctx as any).lastMovedCards] : []),
-          ]
+          ])
         : resolveDamageAmountSourceObjects(state, source, ctx, runtime);
     if (sourceObjects.length === 0 && amount.subject === 'that_spell') {
       const spellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();

@@ -411,6 +411,11 @@ function resolveTokenAmount(
 
   const whereMatch = raw.match(/\bwhere\s+x\s+is\s+(.+)$/i);
   if (!whereMatch) {
+    // A plain "Create X ..." on a spell or ability whose X was chosen at cast/activation (Martial Coup,
+    // Hordeling Outburst-style X makers) reads that announced X. Without this the amount stayed unknown
+    // and the whole step was skipped.
+    const announcedX = readFiniteAmount(ctx.xValue);
+    if (announcedX !== null) return Math.max(0, Math.floor(announcedX)) * twiceXMultiplier;
     const contextX = readFiniteAmount(ctx.referenceAmount ?? runtime?.lastReferenceAmount);
     return contextX === null ? null : contextX * twiceXMultiplier;
   }

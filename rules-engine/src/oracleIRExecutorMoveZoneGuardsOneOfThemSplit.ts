@@ -771,7 +771,8 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
       parsedSingleTargetFromAnyGraveyard.graveyardOwner === 'opponent'
         ? getTargetPlayerId(ctx)
         : '';
-    const uniqueAnyGraveyardTargetId = boundTargetIsIllegalGraveyardCard
+    // Without a bound target or explicit choice nothing was targeted, so a lone legal card must not be auto-picked.
+    const uniqueAnyGraveyardTargetId = boundTargetIsIllegalGraveyardCard || !(hasExplicitChosenObjectIds(ctx) || boundTargetRaw)
       ? ''
       : resolveUniqueChosenAnyGraveyardTargetId(
           nextState,

@@ -744,6 +744,10 @@ export function pruneReinforceReminderAddCounterSteps(
   return abilities.map((ability) => {
     const blob = `${String(ability.text || '')} ${String((ability as any).effectText || '')}`;
     if (!/reinforce\s+\d+/i.test(blob)) return ability;
+    // The Reinforce keyword ability itself ("{1}{W}, Discard this card: Put two +1/+1 counters on
+    // target creature") carries the discard cost, and its add_counter step IS the effect. Only the
+    // reminder text swallowed into a spell's own steps is redundant.
+    if (/\bdiscard this card\b/i.test(String((ability as any).cost || ''))) return ability;
     const nextSteps = ability.steps.filter((step) => {
       if (step.kind !== 'add_counter') return true;
       const raw = normalizeOracleText(String(step.raw || ''))

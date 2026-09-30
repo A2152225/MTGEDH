@@ -53,7 +53,9 @@ export function castSpellAction(this: AdapterCastSpellActionHost, gameId: string
         : this.collectTargetIdsFromEventData(spellTargetHints);
     
     // Prepare casting context
-    const manaCost = (sourceCard as any)?.withoutPayingManaCost
+    const manaCost = action.manaAlreadyPaid === true
+      ? {}
+      : (sourceCard as any)?.withoutPayingManaCost
       ? (keywordAdjustedManaCostInput ?? {})
       : action.manaCost
         ? this.parseManaCostString(action.manaCost)

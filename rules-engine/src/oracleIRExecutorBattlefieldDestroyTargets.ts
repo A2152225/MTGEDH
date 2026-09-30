@@ -242,6 +242,27 @@ export function resolveDestroyTargets(
     });
   }
 
+  // "Destroy all other creatures" (Martial Coup): "other" means other than the object doing this, and
+  // other than the tokens this same resolution just made (rulings 2009-02-01: tokens are created first,
+  // then the wipe happens, and the new Soldiers survive). Older tokens are still destroyed.
+  if (/^all other creatures$/i.test(targetText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const madeHereIds = new Set(
+      [
+        ...((Array.isArray((ctx as any).lastCreatedTokenIds) ? (ctx as any).lastCreatedTokenIds : []) as unknown[]),
+        ...((Array.isArray(ctx.lastMovedBattlefieldPermanentIds) ? ctx.lastMovedBattlefieldPermanentIds : []) as unknown[]),
+      ]
+        .map((id) => String(id || '').trim())
+        .filter(Boolean),
+    );
+    return battlefield.filter((perm: any) => {
+      if (!permanentMatchesType(perm, 'creature')) return false;
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (sourceId && permanentId === sourceId) return false;
+      return !((perm as any)?.isToken && madeHereIds.has(permanentId));
+    });
+  }
+
   if (/^all creatures other than this (?:creature|permanent)$/i.test(targetText)) {
     const sourceId = String(ctx.sourceId || '').trim();
     return battlefield.filter((perm: any) => {

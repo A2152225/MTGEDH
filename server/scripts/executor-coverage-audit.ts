@@ -258,6 +258,9 @@ export function collectStepsFromIrText(text: string, cardName: string): readonly
   const parsed = parseOracleTextToIR(auditedText, cardName);
   const out: OracleEffectStep[] = [];
   for (const ability of parsed.abilities || []) {
+    // Reinforce is an activated ability from the hand ("{cost}, Discard this card: ..."), not part of the
+    // spell's own resolution, so it must not be audited as a spell step.
+    if (/\bdiscard this card\b/i.test(String((ability as any).cost || '')) && (ability as any).type === 'keyword') continue;
     for (const step of ability.steps || []) out.push(step);
   }
   if (out.length === 0 && /for as long as this creature remains on the battlefield.*become treasure/i.test(auditedText)) {

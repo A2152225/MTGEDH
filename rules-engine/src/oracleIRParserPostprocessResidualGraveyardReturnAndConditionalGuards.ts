@@ -362,6 +362,16 @@ export function parseResidualGraveyardReturnAndConditionalGuardsThirteen(
     ...sequence,
   } as unknown as OracleEffectStep];
 
+  // The residual chain strips a leading "-" before it gets here (unknown-step normalisation), so the
+  // dash-prefixed alternatives ("- text", "-8: text") in the generic supplemental pattern below can no
+  // longer see these rows: the Yet Another Night in Vegas menu line and a bare loyalty-style "8: text".
+  if (
+    /^(?:-\s*)?all\s+modes\s+reset\s+and\s+can\s+be\s+chosen\s+again$/i.test(raw)
+    || /^\d+:\s+\S.*$/.test(raw)
+  ) {
+    return staticMetadata('supplemental ability text', raw);
+  }
+
   const shouldDeferSupplementalFallback =
     /^you\s+get\s+an\s+emblem\s+with\s+"/i.test(raw) ||
     /^(?:[ivxlcdm]+|spell\s+mastery)\s+-/i.test(raw) ||

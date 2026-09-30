@@ -168,9 +168,15 @@ describe('generic canary-hole follow-ons', () => {
       'Destroy target creature with flying. Reinforce 2-{2}{G} ({2}{G}, Discard this card: Put two +1/+1 counters on target creature.)',
       'Fowl Strike',
     );
-    const steps = ir.abilities.flatMap((ability) => ability.steps || []);
-    expect(steps.map((step) => step.kind)).toContain('destroy');
-    expect(steps.some((step) => step.kind === 'add_counter')).toBe(false);
+    // The reminder text must not leak into the spell's own steps...
+    const spellSteps = ir.abilities.filter((ability) => ability.type === 'spell').flatMap((ability) => ability.steps || []);
+    expect(spellSteps.map((step) => step.kind)).toContain('destroy');
+    expect(spellSteps.some((step) => step.kind === 'add_counter')).toBe(false);
+    // ...while the Reinforce keyword ability itself keeps its real discard activation and add_counter effect.
+    const reinforce = ir.abilities.filter((ability) => ability.type === 'keyword');
+    expect(reinforce).toHaveLength(1);
+    expect(reinforce[0]).toMatchObject({ cost: '{2}{G}, Discard this card' });
+    expect(reinforce[0]?.steps.map((step) => step.kind)).toEqual(['add_counter']);
   });
 
   it('normalizes Devoid off an exile target before matching', () => {

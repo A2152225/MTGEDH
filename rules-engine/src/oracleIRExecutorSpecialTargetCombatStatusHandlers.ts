@@ -147,6 +147,27 @@ export function trySpecialTapOrUntapStep(
   }
   if (!/untap all creatures you control/.test(raw)) {
     const untapAllSubtypeMatch = raw.match(/^untap all (\w+(?:\s+\w+)*) you control\.?$/i);
+    // "Untap all other creatures you control" (Ahn-Crop Champion's exert reward). This is a mass effect
+    // with no target, so it must not reach the generic resolver, which found nothing for it and logged
+    // "No permanents to tap/untap". The source creature is excluded by the word "other".
+    if (untapAllSubtypeMatch && /^other creatures?$/i.test(String(untapAllSubtypeMatch[1] || '').trim())) {
+      const controllerId = String(ctx.controllerId || '').trim();
+      const sourceId = String(ctx.sourceId || '').trim();
+      let untappedCount = 0;
+      const battlefield = ((state.battlefield || []) as any[]).map((perm: any) => {
+        if (String(perm?.controller || '').trim() !== controllerId) return perm;
+        if (!permanentMatchesType(perm, 'creature')) return perm;
+        if (sourceId && String(perm?.id || '').trim() === sourceId) return perm;
+        if (!perm?.tapped && !perm?.isTapped) return perm;
+        untappedCount += 1;
+        return { ...perm, tapped: false, isTapped: false };
+      });
+      return {
+        applied: true,
+        state: { ...(state as any), battlefield } as GameState,
+        log: [`Untapped ${untappedCount} other creature(s) you control`],
+      };
+    }
     if (untapAllSubtypeMatch) {
       const rawType = String(untapAllSubtypeMatch[1] || '').toLowerCase().trim();
       const standardBulkTypes = new Set([
