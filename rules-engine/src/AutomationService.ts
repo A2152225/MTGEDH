@@ -19,6 +19,7 @@
 
 import type { GameState, BattlefieldPermanent, StackItem, ManaPool } from '../../shared/src';
 import { hasPermanentType } from './permanentTypeUtils';
+import { getMarkedDamage } from '../../shared/src/markedDamage.js';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { clearEndOfTurnWinLossEffects } from './winEffectCards';
 import { clearFutureSpellEffects } from './futureSpellEffects';
@@ -694,7 +695,7 @@ function checkStateBasedActions(state: GameState): {
       const effectiveToughness = typeof (perm as any).effectiveToughness === 'number'
         ? (perm as any).effectiveToughness
         : toughness;
-      const damage = (perm as any).damage || 0;
+      const damage = getMarkedDamage(perm);
       
       if (damage >= effectiveToughness) {
         // Creature dies

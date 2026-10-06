@@ -25,7 +25,7 @@ import {
   buildFolderTree,
 } from "../db/decks";
 import { listDecksVisibleTo, canReadDeck, normalizeDeckVisibility } from "../decks/deckAccess.js";
-import { getSocketAccountIsAdmin, getSocketAccountUserId } from "../auth/attachSocketAuth.js";
+import { attachSocketAuth, getSocketAccountIsAdmin, getSocketAccountUserId } from "../auth/attachSocketAuth.js";
 import type { KnownCardRef, PlayerID, GameState } from "../../../shared/src";
 import { GamePhase, createCardFromScryfall } from "../../../shared/src";
 import { COMMANDER_PRECONS } from "../../../shared/src/precons";
@@ -251,6 +251,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
       list?: string;
       cacheCards?: boolean;
       folder?: string;
+      visibility?: string;
     }) => {
       const gameId = payload?.gameId;
       const name = payload?.name;
@@ -357,7 +358,18 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
             }
           }
 
+          // Re-validate the handshake token if the account identity is missing on this socket.
+          if (!getSocketAccountUserId(socket)) attachSocketAuth(socket);
           const accountUserId = getSocketAccountUserId(socket);
+          if (!accountUserId && (payload as any)?.visibility === "private") {
+            // Never silently downgrade an explicit private save to a public deck.
+            socket.emit("deckError", {
+              gameId,
+              message:
+                "You are not logged in on this connection, so a private deck cannot be saved. Log in (or refresh the page) and try again.",
+            });
+            return;
+          }
           saveDeckDB({
             id: deckId,
             name: name.trim(),
@@ -383,7 +395,9 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
           // Broadcast updated deck list and folder tree to all clients in the game
           const allDecks = visibleDecksForSocket(socket);
-          io.to(gameId).emit("savedDecksList", {
+          // Send to the saver only: the list is filtered to what THIS account may see, so a room-wide
+          // broadcast would overwrite other players' lists (and expose the saver's private decks).
+          socket.emit("savedDecksList", {
             gameId,
             decks: allDecks,
             folders: buildFolderTree(allDecks),
@@ -515,7 +529,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
           socket.emit("deckUpdated", { gameId, deck: updated });
 
           const allDecks = visibleDecksForSocket(socket);
-          io.to(gameId).emit("savedDecksList", {
+          socket.emit("savedDecksList", {
             gameId,
             decks: allDecks,
             folders: buildFolderTree(allDecks),
@@ -742,7 +756,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         socket.emit("deckRenamed", { gameId, deck });
 
         // Broadcast updated deck list
-        io.to(gameId).emit("savedDecksList", {
+        socket.emit("savedDecksList", {
           gameId,
           decks: visibleDecksForSocket(socket),
         });
@@ -826,7 +840,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
         socket.emit("deckDeleted", { gameId, deckId });
 
         // Broadcast updated deck list
-        io.to(gameId).emit("savedDecksList", {
+        socket.emit("savedDecksList", {
           gameId,
           decks: visibleDecksForSocket(socket),
         });
@@ -970,7 +984,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         // Broadcast updated deck list to show the cached indicator
         const allDecks = visibleDecksForSocket(socket);
-        io.to(gameId).emit("savedDecksList", {
+        socket.emit("savedDecksList", {
           gameId,
           decks: allDecks,
           folders: buildFolderTree(allDecks),
@@ -1051,7 +1065,7 @@ export function registerDeckHandlers(io: Server, socket: Socket) {
 
         // Broadcast updated deck list
         const allDecks = visibleDecksForSocket(socket);
-        io.to(gameId).emit("savedDecksList", {
+        socket.emit("savedDecksList", {
           gameId,
           decks: allDecks,
           folders: buildFolderTree(allDecks),

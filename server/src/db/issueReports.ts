@@ -40,6 +40,8 @@ export type IssueReportRow = {
   resolved_at: string | null;
   resolved_by: string | null;
   resolution_notes: string | null;
+  /** Set by the triage export (--mark) once the report was forwarded; independent of resolved_at. */
+  forwarded_at?: string | null;
 };
 
 export type NewIssueReport = {
@@ -82,9 +84,11 @@ const COLUMN_MIGRATIONS: Array<[string, string]> = [
   ['client_version', 'TEXT'],
   ['permanent_id', 'TEXT'],
   ['created_at_local', 'TEXT'],
+  ['forwarded_at', 'TEXT'],
 ];
 
-function ensureSchema(handle: Database.Database): void {
+/** Creates the table/indexes and applies additive column migrations (also used by scripts/triage-export). */
+export function ensureIssueReportsSchema(handle: Database.Database): void {
   handle.exec(`
     CREATE TABLE IF NOT EXISTS issue_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,7 +141,7 @@ export function getIssueReportsDb(): Database.Database {
     handle.pragma('journal_mode = WAL');
     handle.pragma('synchronous = NORMAL');
   }
-  ensureSchema(handle);
+  ensureIssueReportsSchema(handle);
   db = handle;
   openedFile = file;
   return handle;

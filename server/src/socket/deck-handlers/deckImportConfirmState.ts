@@ -26,6 +26,9 @@ export type PendingConfirm = {
   parsedCount: number;
   deckName?: string;
   save?: boolean;
+  // Logged-in account of the importing socket (used by the optional auto-save so the deck
+  // is owned by the account, private, and only listed to people allowed to see it).
+  saveOwner?: { userId: string; displayName?: string; isAdmin: boolean } | null;
   responses: Record<string, "pending" | "yes" | "no">;
   timeout?: NodeJS.Timeout | null;
   // snapshots to allow restore on cancel
@@ -35,6 +38,19 @@ export type PendingConfirm = {
   // PRE_GAME optimization: apply only for the importer (do not wipe/reset table)
   applyImporterOnly?: boolean;
 };
+
+export function getSaveOwnerFromSocket(socket: {
+  data?: any;
+}): { userId: string; displayName?: string; isAdmin: boolean } | null {
+  const userId = socket?.data?.accountUserId;
+  if (typeof userId !== "string" || !userId.trim()) return null;
+  const displayName = socket.data?.accountDisplayName;
+  return {
+    userId,
+    displayName: typeof displayName === "string" && displayName ? displayName : undefined,
+    isAdmin: socket.data?.accountIsAdmin === true,
+  };
+}
 
 export function toImportBufferCard(c: any) {
   return {

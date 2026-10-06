@@ -29,6 +29,12 @@ import {
 } from '../src/services/preconDecklistStore.js';
 import { fetchDeckFromMoxfield, isMoxfieldUrl, type ParsedLine } from '../src/services/scryfall.js';
 import { fetchWizardsPreconDecklist } from '../src/services/wizardsPreconDecklists.js';
+import {
+  buildCommanderDeckIndex,
+  isCommanderDeckType,
+  listLocalDeckEntriesMissingFromIndex,
+  type MtgJsonDeckListEntry,
+} from '../src/services/mtgJsonDeckIndex.js';
 
 const MIN_UNIQUE = 50;
 const MIN_TOTAL = 90;
@@ -39,13 +45,6 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
 const localMtgJsonDeckListPath = path.join(repoRoot, 'DeckList.json');
 const localMtgJsonDecksDir = path.join(repoRoot, 'AllDeckFiles');
-
-type MtgJsonDeckListEntry = {
-  code?: string;
-  fileName?: string;
-  name?: string;
-  type?: string;
-};
 
 type MtgJsonDeckCard = {
   name?: string;
@@ -243,18 +242,23 @@ async function loadMtgJsonCommanderIndex(): Promise<Map<string, MtgJsonDeckListE
     body = (await response.json()) as { data?: MtgJsonDeckListEntry[] } | MtgJsonDeckListEntry[];
   }
   const entries = Array.isArray(body) ? body : Array.isArray(body.data) ? body.data : [];
-  const byName = new Map<string, MtgJsonDeckListEntry[]>();
-  for (const entry of entries) {
-    if (!/commander/i.test(String(entry.type || ''))) continue;
-    const name = String(entry.name || '').trim().toLowerCase();
-    if (!name) continue;
-    for (const alias of new Set([name, name.replace(/\s+\([^)]*\)\s*$/, '')])) {
-      const list = byName.get(alias) || [];
-      list.push(entry);
-      byName.set(alias, list);
+  // AllDeckFiles may be newer than DeckList.json: index local files the list does not know yet.
+  const localExtras = listLocalDeckEntriesMissingFromIndex(
+    localMtgJsonDecksDir,
+    entries.map((entry) => String(entry.fileName || '')),
+    (file, reason) => console.warn(`[mtgjson] unreadable local deck file ${file}: ${reason}`),
+  );
+  if (localExtras.length > 0) {
+    const commanderExtras = localExtras.filter((entry) => isCommanderDeckType(entry.type));
+    console.log(
+      `[mtgjson] ${localExtras.length} local deck files not in DeckList index (${commanderExtras.length} commander, ` +
+        `${localExtras.length - commanderExtras.length} non-commander skipped)`,
+    );
+    for (const entry of localExtras) {
+      if (!isCommanderDeckType(entry.type)) console.log(`[mtgjson-skip] ${entry.type} | ${entry.code} | ${entry.name}`);
     }
   }
-  return byName;
+  return buildCommanderDeckIndex([...entries, ...localExtras]);
 }
 
 function pickMtgJsonEntry(

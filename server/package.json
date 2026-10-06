@@ -6,6 +6,7 @@
   "main": "src/index.ts",
   "scripts": {
     "issues": "node --enable-source-maps --import tsx/esm scripts/issues.ts",
+    "triage:export": "node --enable-source-maps --import tsx/esm scripts/triage-export.ts",
     "blight:audit": "node --enable-source-maps --import tsx/esm scripts/blight-audit.ts",
     "intervening-if:audit": "node --enable-source-maps --import tsx/esm scripts/intervening-if-audit.ts",
     "intervening-if:backlog": "node --enable-source-maps --import tsx/esm scripts/intervening-if-backlog.ts",

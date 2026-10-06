@@ -1,5 +1,6 @@
 import type { GameState } from '../../shared/src';
 import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
+import { getMarkedDamage } from '../../shared/src/markedDamage.js';
 import { getLeaveBattlefieldDestination } from '../../shared/src/leaveBattlefieldReplacement';
 import type { EngineResult } from './index';
 import {
@@ -241,7 +242,7 @@ export function checkCreatureDeathsForState(args: {
     if (Number.isNaN(toughness)) continue;
     const plusCounters = perm.counters?.['+1/+1'] || 0;
     const minusCounters = perm.counters?.['-1/-1'] || 0;
-    const damageMarked = perm.counters?.damage || perm.damageMarked || 0;
+    const damageMarked = getMarkedDamage(perm);
 
     if (!(shouldTrustEffectiveToughness && typeof perm.effectiveToughness === 'number')) {
       toughness += plusCounters - minusCounters;

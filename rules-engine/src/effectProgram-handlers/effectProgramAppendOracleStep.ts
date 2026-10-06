@@ -10,6 +10,7 @@ import { ChoiceEventType, type ChoiceOption } from '../choiceEventsTypes';
 import { isPerPlayerOptionalOracleStep } from '../oracleIRPerPlayerOptional';
 import { sacrificeSelectorRequiresPlayerChoice } from '../oracleIRExecutorBattlefieldStepHandlers';
 import { discardSelectorRequiresPlayerChoice } from '../oracleIRExecutorPlayerStepHandlers';
+import { readOptionalStepChoiceWho } from '../effectProgramOptionalChoicePlayer';
 import type {
   BuildEffectProgramFromOracleIRInput,
   EffectProgram,
@@ -180,6 +181,7 @@ function appendOracleStepToEffectProgram(args: {
             ],
             minSelections: 1,
             maxSelections: 1,
+            ...(readOptionalStepChoiceWho(oracleStep) ? { optionalStepWho: readOptionalStepChoiceWho(oracleStep) } : {}),
           },
         },
       });

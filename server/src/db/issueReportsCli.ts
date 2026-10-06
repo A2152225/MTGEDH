@@ -15,11 +15,18 @@ import {
   type IssueListFilter,
   type IssueReportRow,
 } from './issueReports.js';
+import { formatIssueSummary } from './issueReportsCliFormat.js';
 
-export const ISSUES_CLI_USAGE = `Usage: npm --workspace @mtgedh/server run issues -- <command> [options]
+export const ISSUES_CLI_USAGE = `Usage (repo root):  npm run issues [open|closed|all]      (PowerShell 5: also works with "-- open")
+       npm --workspace @mtgedh/server run issues -- <command> [options]
+
+Friendly views (each report shows player, game, card, category, description, resolution and a card/game summary):
+  (no command) | all                  Every report, newest last
+  open                                Only open reports
+  closed | resolved                   Only resolved reports (closed = alias of resolved)
 
 Commands:
-  list [--open|--resolved|--all]      List reports (default: --open)
+  list [--open|--resolved|--all]      One line per report (default: --open)
   show <id>                           Show one report in full
   resolve <id> [--note "text"] [--by name]   Mark a report resolved
   reopen <id>                         Clear the resolved state
@@ -122,6 +129,23 @@ export function runIssuesCli(argv: string[], io: CliIo): number {
         io.out(resolveIssueReportsDbFile());
         return 0;
       }
+      case 'all':
+      case 'open':
+      case 'closed':
+      case 'resolved':
+      case undefined: {
+        const filter: IssueListFilter = command === 'open' ? 'open' : command === 'closed' || command === 'resolved' ? 'resolved' : 'all';
+        const rows = listIssueReports(filter);
+        const label = filter === 'resolved' ? 'closed ' : filter === 'all' ? '' : filter + ' ';
+        if (rows.length === 0) {
+          io.out(`No ${label}issue reports.`);
+          return 0;
+        }
+        io.out(rows.map(formatIssueSummary).join('\n\n'));
+        const c = countIssueReports();
+        io.out(`\n${rows.length} ${label}report${rows.length === 1 ? '' : 's'} shown. Totals: ${c.open} open, ${c.resolved} closed. Full detail: issues show <id>`);
+        return 0;
+      }
       case 'list': {
         const filter = pickFilter(rest, 'open');
         const rows = listIssueReports(filter);
@@ -175,12 +199,11 @@ export function runIssuesCli(argv: string[], io: CliIo): number {
         }
         return 0;
       }
-      case undefined:
       case 'help':
       case '--help':
       case '-h': {
         io.out(ISSUES_CLI_USAGE);
-        return command ? 0 : 2;
+        return 0;
       }
       default: {
         io.err(`Unknown command: ${command}`);

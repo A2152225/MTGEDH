@@ -27,6 +27,7 @@ import {
   suggestCommanderNames,
 } from "./deckImportConfirmHelpers.js";
 import {
+  getSaveOwnerFromSocket,
   isSocketInGameRoom,
   makeImportConfirmId,
   pendingImportConfirmations,
@@ -349,6 +350,7 @@ export function registerImportDeckHandler(io: Server, socket: Socket) {
           parsedCount: parsed.reduce((s, p) => s + (p.count || 0), 0),
           deckName: effectiveDeckName,
           save: saveFlag,
+          saveOwner: getSaveOwnerFromSocket(socket),
           responses: { [pid]: "yes" },
           timeout: null,
           snapshotZones:
@@ -456,6 +458,7 @@ export function registerImportDeckHandler(io: Server, socket: Socket) {
         parsedCount: parsed.reduce((s, p) => s + (p.count || 0), 0),
         deckName: effectiveDeckName,
         save: saveFlag,
+        saveOwner: getSaveOwnerFromSocket(socket),
         responses,
         timeout: null,
         snapshotZones,

@@ -10,6 +10,7 @@ import { resolveAttachedStaticAbilityGrantTargets } from './oracleIRExecutorBatt
 import { resolveDirectBattlefieldPermanents } from './oracleIRExecutorBattlefieldPermanentSelectors';
 import { getProcessedBattlefield } from './oracleIRExecutorCreatureStepUtils';
 import { tryApplyGrantKeywordsToStackSpell } from './oracleIRExecutorBattlefieldGrantStackSpell';
+import { tryApplyAttackProhibitedThisTurnGrant } from './oracleIRExecutorAttackProhibitedThisTurn';
 import { tryApplyAttackTaxThisTurnGrant } from './oracleIRExecutorAttackTaxThisTurn';
 import { tryApplyAttackYouProhibitedExceptKeywordsGrant } from './oracleIRExecutorAttackYouProhibitedExceptKeywords';
 import { tryApplyBlockTaxThisTurnGrant } from './oracleIRExecutorBlockTaxThisTurn';
@@ -30,6 +31,8 @@ export function applyGrantStaticAbilityStep(
   if (attackYouLock) return attackYouLock;
   const thisTurnAttackTax = tryApplyAttackTaxThisTurnGrant(state, step, ctx);
   if (thisTurnAttackTax) return thisTurnAttackTax;
+  const thisTurnAttackProhibition = tryApplyAttackProhibitedThisTurnGrant(state, step, ctx);
+  if (thisTurnAttackProhibition) return thisTurnAttackProhibition;
   const thisTurnBlockTax = tryApplyBlockTaxThisTurnGrant(state, step, ctx);
   if (thisTurnBlockTax) return thisTurnBlockTax;
   const untilEotOverride = tryApplyUntilEotProtectionOverrideGrant(state, step, ctx);

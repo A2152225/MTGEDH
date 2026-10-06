@@ -46,6 +46,7 @@ import {
   collectMaxAttackersEachCombat,
 } from "../../state/modules/staticEffectSpecAttackYouTax.js";
 import { collectThisTurnAttackLifeTaxForAttacker, collectThisTurnAttackTaxForAttacker } from "../../state/modules/staticEffectSpecAttackTaxThisTurn.js";
+import { collectThisTurnAttackProhibition } from "../../state/modules/attackProhibitedThisTurn.js";
 import { collectAttackYouTaxPhyrexianForDefender } from "../../state/modules/staticEffectSpecAttackYouTaxPhyrexian.js";
 import { collectAttackerSelfAttackTax } from "../../../../shared/src/combatAttackerSelfTax.js";
 import type { AttackYouTaxPhyrexianItem } from "../../state/modules/staticEffectSpecAttackYouTaxPhyrexian.js";
@@ -236,6 +237,15 @@ export async function handleDeclareAttackers(
         socket.emit("error", {
           code: "INVALID_ATTACKER",
           message: `Creature ${attacker.creatureId} not found or not controlled by you`,
+        });
+        return;
+      }
+
+      const thisTurnProhibition = collectThisTurnAttackProhibition(game.state, creature, attacker);
+      if (thisTurnProhibition) {
+        socket.emit('error', {
+          code: 'ATTACK_PROHIBITED',
+          message: `Creatures you control can't attack that ${attacker.targetPermanentId ? 'permanent' : 'player'} this turn (${thisTurnProhibition}).`,
         });
         return;
       }

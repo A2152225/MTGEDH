@@ -31,6 +31,8 @@ export function TableLayoutZoneCardContextMenu(props: {
   /** Same App handlers the Graveyard / Exile view modals use for their ability buttons. */
   onGraveyardAbility?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
   onExileAbility?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
+  /** Cycling with {X} in its cost: open the X prompt instead of emitting right away. */
+  onCyclingNeedsX?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
   reasonCannotPlayLand?: (card: any) => string | null;
   reasonCannotCast?: (card: any) => string | null;
 }): React.ReactElement {
@@ -48,6 +50,7 @@ export function TableLayoutZoneCardContextMenu(props: {
     onCastCommander,
     onGraveyardAbility,
     onExileAbility,
+    onCyclingNeedsX,
     reasonCannotPlayLand,
     reasonCannotCast,
   } = props;
@@ -89,6 +92,7 @@ export function TableLayoutZoneCardContextMenu(props: {
           onCastFromHand,
           onGraveyardAbility,
           onExileAbility,
+          onCyclingNeedsX,
         });
       }}
       onIgnoreForPlayability={(cardId, cardName, zone, imageUrl) => {

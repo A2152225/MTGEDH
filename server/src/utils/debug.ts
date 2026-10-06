@@ -41,6 +41,7 @@ import {
   isInteractiveCliActive,
   redrawCliPromptIfNeeded,
 } from './cliConsoleState.js';
+import { recordRecentLogLine } from './recentLogBuffer.js';
 
 function emitInteractiveLog(write: (...items: any[]) => void, args: any[]): void {
   const interactive = isInteractiveCliActive();
@@ -97,6 +98,7 @@ export function debug(requiredLevel: number, ...args: any[]): void {
   // Loop batches emit thousands of lines (casts, ETBs, token images); quiet them.
   if (loopShortcutQuietDepth > 0) return;
   const currentLevel = getDebugLevel();
+  if (requiredLevel <= 1 || currentLevel >= requiredLevel) recordRecentLogLine('log', args);
   if (currentLevel >= requiredLevel) {
     try {
       emitInteractiveLog(console.log, args);
@@ -119,6 +121,7 @@ export function debug(requiredLevel: number, ...args: any[]): void {
 export function debugWarn(requiredLevel: number, ...args: any[]): void {
   if (loopShortcutQuietDepth > 0 && requiredLevel >= 2) return;
   const currentLevel = getDebugLevel();
+  if (requiredLevel <= 1 || currentLevel >= requiredLevel) recordRecentLogLine('warn', args);
   if (currentLevel >= requiredLevel) {
     try {
       emitInteractiveLog(console.warn, args);
@@ -139,6 +142,7 @@ export function debugWarn(requiredLevel: number, ...args: any[]): void {
  */
 export function debugError(requiredLevel: number, ...args: any[]): void {
   const currentLevel = getDebugLevel();
+  if (requiredLevel <= 1 || currentLevel >= requiredLevel) recordRecentLogLine('error', args);
   if (currentLevel >= requiredLevel) {
     try {
       emitInteractiveLog(console.error, args);

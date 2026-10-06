@@ -1,3 +1,4 @@
+import { getMarkedDamage } from '../../../../shared/src/markedDamage.js';
 import { evaluateDamageReplacementEvent, evaluateLeaveBattlefieldDestinationReplacement } from './replacement-effects.js';
 
 const COMMON_GRANTED_ABILITIES = [
@@ -152,13 +153,14 @@ export function applyDamageToPermanentWithCounterEffects(
     return { prevented: true, appliedAmount: 0 };
   }
 
-  permanent[damageField] = Number(permanent[damageField] || 0) + normalizedAmount;
-  // Combat writes `markedDamage`; the client P/T remaining-health badge reads `damageMarked`.
-  const markedTotal = Number(permanent[damageField] || 0);
-  if (damageField === 'damage' || damageField === 'markedDamage' || damageField === 'damageMarked') {
-    permanent.damageMarked = markedTotal;
-    permanent.markedDamage = markedTotal;
-  }
+  // Start from the largest mirrored field so a stale 0 (from cleanup) cannot drop earlier damage,
+  // then keep every mirror in sync: combat reads `markedDamage`, the client badge reads
+  // `damageMarked`, and spell effects / SBA paths read `damage`.
+  const markedTotal = getMarkedDamage(permanent) + normalizedAmount;
+  permanent[damageField] = markedTotal;
+  permanent.damageMarked = markedTotal;
+  permanent.markedDamage = markedTotal;
+  permanent.damage = markedTotal;
   if (options?.fromDeathtouch && normalizedAmount > 0) {
     markPermanentDeathtouchDamage(permanent);
   }

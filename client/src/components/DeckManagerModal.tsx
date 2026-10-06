@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { socket } from '../socket';
+import { toast } from './ToastHost';
 import type { SavedDeckSummary, SavedDeckDetail, DeckFolder } from '../../../shared/src/decks';
 import type { GameID } from '../../../shared/src/types';
 import { PreconBrowser } from './PreconBrowser';
@@ -190,9 +191,15 @@ export function DeckManagerModal({
     const onDetail = ({ deck }: { deck: SavedDeckDetail }) => {
       applyServerDeckDetail(deck);
     };
-    const onSaved = () => { setSaving(false); gameId && socket.emit('listSavedDecks', { gameId }); };
+    const onSaved = () => {
+      setSaving(false);
+      setServerErr(null);
+      toast.success('Deck saved to the server.');
+      gameId && socket.emit('listSavedDecks', { gameId });
+    };
     const onUpdated = () => {
       setUpdatingServer(false);
+      toast.success('Deck updated on the server.');
       clearEditMode();
       setLocalName('');
       setLocalText('');
@@ -207,8 +214,11 @@ export function DeckManagerModal({
     };
     const onError = ({ message }: { message: string }) => {
       setServerErr(message);
-      // Clear caching state on error
+      // Clear busy states on error so buttons never stick on "Saving..."
+      setSaving(false);
+      setUpdatingServer(false);
       setCachingDeckId(null);
+      toast.error(message || 'Deck request failed.');
     };
     const onCached = ({ deckId }: { deckId: string }) => {
       setCachingDeckId(null);
@@ -350,6 +360,7 @@ export function DeckManagerModal({
     setRandomDeckMessage,
     initialAction,
     onInitialActionConsumed,
+    saveVisibility,
   });
 
   if (!open) return null;

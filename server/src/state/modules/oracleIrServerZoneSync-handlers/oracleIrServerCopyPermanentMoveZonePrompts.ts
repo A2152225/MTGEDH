@@ -33,6 +33,7 @@ import {
   isControllerMayPutLandFromHandStep,
   isEachPlayerMayPutLandFromHandStep,
 } from '../triggerLandPlayPromptUtils.js';
+import { isHandCardToLibraryChoiceStep } from './oracleIrServerHandCardToLibraryPrompts.js';
 
 export function queueCopyPermanentChoicePromptsFromOracleIRResult(
   ctx: GameContext,
@@ -154,7 +155,8 @@ function collectMoveZoneChoiceSteps(
       continue;
     }
     const step = findSkippedOracleStep(result, gap) as Extract<OracleEffectStep, { kind: 'move_zone' }> | undefined;
-    if (!step || isLandPlayFromHandStep(step)) continue;
+    // Hand-to-library single-card moves use the dedicated OPTION_CHOICE bridge.
+    if (!step || isLandPlayFromHandStep(step) || isHandCardToLibraryChoiceStep(step)) continue;
     const key = `${String((step as any).raw || '')}:${String((step.what as any)?.text || '')}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -181,7 +183,7 @@ function collectMoveZoneChoiceSteps(
     // Unsupported / impossible skips must not re-queue the same LIBRARY_SEARCH
     // (Emeria upkeep reanimate looped when a non-creature pick failed to apply).
     if (!matchingGaps.some((gap) => isOracleIrPlayerChoiceGap(gap))) continue;
-    if (isLandPlayFromHandStep(moveStep)) continue;
+    if (isLandPlayFromHandStep(moveStep) || isHandCardToLibraryChoiceStep(moveStep)) continue;
     const key = `${String((moveStep as any).raw || '')}:${String((moveStep.what as any)?.text || '')}`;
     if (seen.has(key)) continue;
     seen.add(key);

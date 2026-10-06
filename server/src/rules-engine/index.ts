@@ -1,5 +1,6 @@
 import type { GameState, BattlefieldPermanent } from '../../../shared/src';
 import { permanentHasAttachmentGrantedKeyword } from '../../../shared/src';
+import { getMarkedDamage } from '../../../shared/src/markedDamage.js';
 
 import {
   getCounterValue,
@@ -325,7 +326,8 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     if (!isNumber(totalToughness)) continue;
     
     // Get damage
-    const damage = (perm as any).damage ?? (perm as any).markedDamage ?? (perm as any).damageMarked ?? 0;
+    // Largest of all mirrored damage fields: a stale damage:0 from cleanup must not hide combat damage.
+    const damage = getMarkedDamage(perm);
     
     // CR 704.5f: 0 or less toughness - NOT destruction, ignores indestructible
     if (totalToughness <= 0) {

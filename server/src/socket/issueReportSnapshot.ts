@@ -8,6 +8,7 @@
  */
 import type { IssueReportRequest, IssueZone } from '../../../shared/src/issueReport.js';
 import { getCurrentPowerToughness } from '../state/modules/currentPowerToughness.js';
+import { getMarkedDamage } from '../../../shared/src/markedDamage.js';
 
 export type IssueCardSnapshot = {
   found: boolean;
@@ -89,7 +90,7 @@ function buildPermanentState(perm: any, state: any): Record<string, unknown> {
     currentToughness: currentPT?.toughness ?? null,
     basePower: perm?.basePower ?? null,
     baseToughness: perm?.baseToughness ?? null,
-    damageMarked: perm?.damageMarked ?? 0,
+    damageMarked: getMarkedDamage(perm),
     loyalty: perm?.loyalty ?? null,
     isToken: !!perm?.isToken,
     summoningSickness: !!perm?.summoningSickness,

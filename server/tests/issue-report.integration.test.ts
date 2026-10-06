@@ -3,6 +3,8 @@ import { closeIssueReportsDb, getIssueReport, listIssueReports } from '../src/db
 import { processIssueReport, registerIssueReportHandlers } from '../src/socket/issueReport.js';
 import { resetIssueReportRateLimitForTests } from '../src/socket/issueReportRateLimit.js';
 import { runIssuesCli, issuesToCsv } from '../src/db/issueReportsCli.js';
+import { formatIssueSummary, summarizeCardState, summarizeGameContext, recentLogLines } from '../src/db/issueReportsCliFormat.js';
+import { readFileSync } from 'node:fs';
 import { games } from '../src/socket/socket.js';
 import { ISSUE_DESCRIPTION_MAX } from '../../shared/src/issueReport.js';
 
@@ -188,5 +190,82 @@ describe('issues CLI', () => {
     expect(run('export').code).toBe(2);
     expect(run('bogus').code).toBe(2);
     expect(issuesToCsv([]).trim().split('\n')).toHaveLength(1);
+  });
+
+  it('friendly views: bare "issues"/all, open, closed and resolved (alias) show full per-report details', () => {
+    const a = (processIssueReport(sock(), { ...base, description: 'first open one', category: 'missing_effect', recentLog: ['l1', 'l2', 'l3', 'l4', 'l5', 'l6', 'l7'] }) as any).id;
+    const b = (processIssueReport(sock(), { ...base, description: 'second\nmultiline' }) as any).id;
+    run('resolve', String(b), '--note', 'fixed it', '--by', 'Tester');
+
+    const everything = run();
+    expect(everything.code).toBe(0);
+    expect(everything.out).toContain(`#${a}  [OPEN]`);
+    expect(everything.out).toContain(`#${b}  [RESOLVED]`);
+    expect(everything.out).toContain('2 reports shown. Totals: 1 open, 1 closed.');
+    expect(run('all').out).toBe(everything.out);
+
+    const open = run('open');
+    expect(open.out).toContain(`#${a}  [OPEN]`);
+    expect(open.out).not.toContain(`#${b}  [`);
+    expect(open.out).toContain('Player:      Robert (p1)');
+    expect(open.out).toContain(`Game:        ${gameId}`);
+    expect(open.out).toContain('Card:        Grizzly Bears [battlefield] - Creature — Bear');
+    expect(open.out).toContain('Category:    missing_effect');
+    expect(open.out).toContain('Description: first open one');
+    expect(open.out).toContain('Resolved:    no');
+    expect(open.out).toContain('Card state:  P/T');
+    expect(open.out).toContain('tapped');
+    expect(open.out).toContain('+1/+1=2');
+    expect(open.out).toContain('Game state:  turn 4; combat/declareAttackers');
+    expect(open.out).toContain('Last 5 log lines:');
+    expect(open.out).toContain('- l7');
+    expect(open.out).not.toContain('- l2'); // only the last five
+
+    const closed = run('closed');
+    expect(closed.out).toContain(`#${b}  [RESOLVED]`);
+    expect(closed.out).not.toContain(`#${a}  [`);
+    expect(closed.out).toContain('Description: second / multiline');
+    expect(closed.out).toContain('by Tester');
+    expect(closed.out).toContain('Notes:       fixed it');
+    expect(closed.out).toContain('1 closed report shown.');
+    expect(run('resolved').out).toBe(closed.out);
+  });
+
+  it('friendly views report empty sets and keep the old subcommands working', () => {
+    expect(run('open').out).toBe('No open issue reports.');
+    expect(run('closed').out).toBe('No closed issue reports.');
+    expect(run().out).toBe('No issue reports.');
+    const id = (processIssueReport(sock(), { ...base }) as any).id;
+    expect(run('list').out).toContain(`#${id}\t`);
+    expect(run('show', String(id)).code).toBe(0);
+    expect(run('path').code).toBe(0);
+    expect(run('help').code).toBe(0);
+    expect(run('help').out).toContain('npm run issues');
+    expect(run('help').out).toContain('closed');
+  });
+
+  it('summaries tolerate missing or malformed JSON', () => {
+    expect(summarizeCardState(null)).toMatch(/no card state/);
+    expect(summarizeCardState('not json')).toMatch(/no card state/);
+    expect(summarizeGameContext(null)).toMatch(/no game context/);
+    expect(recentLogLines('{bad')).toEqual([]);
+    expect(summarizeCardState(JSON.stringify({ currentPower: 4, currentToughness: 4, basePower: 2, baseToughness: 2, damageMarked: 3, tapped: false, counters: {}, attachedTo: { id: 'a', name: 'Pacifism' }, blocking: ['x'] })))
+      .toBe('P/T 4/4 (base 2/2); damage 3; untapped; no counters; attached to Pacifism; blocking ["x"]');
+    expect(summarizeGameContext(JSON.stringify({ turn: 9, phase: 'main', stack: ['Bolt'], priorityHolder: 'Bob' })))
+      .toBe('turn 9; main; priority Bob; stack 1 (Bolt)');
+    const row: any = { id: 7, created_at: 'utc', created_at_local: null, player_id: 'p', player_name: null, game_id: 'g', card_name: 'C', card_zone: 'hand', card_type_line: null, category: null, description: 'd', resolved_at: null, card_state: null, game_context: null };
+    const text = formatIssueSummary(row);
+    expect(text).toContain('#7  [OPEN]  utc');
+    expect(text).toContain('Category:    (none)');
+    expect(text).not.toContain('Last ');
+  });
+
+  it('root package.json exposes "npm run issues" and docs explain the PowerShell argument rules', () => {
+    const root = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+    expect(root.scripts.issues).toBe('npm --workspace @mtgedh/server run issues --');
+    const docs = readFileSync(new URL('../../docs/issue-reports.md', import.meta.url), 'utf8');
+    expect(docs).toContain('npm run issues closed');
+    expect(docs).toContain('npm run issues -- closed');
+    expect(docs).toContain('PowerShell');
   });
 });

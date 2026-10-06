@@ -149,6 +149,7 @@ import {
   applyMillReplacementEffectsToSteps,
 } from './oracleIrServerMillCounterPreparedSync.js';
 import { queueSacrificeChoicePromptsFromOracleIRResult } from './oracleIrServerApplyDeps.js';
+import { queueHandCardToLibraryChoicePromptsFromOracleIRResult } from './oracleIrServerHandCardToLibraryPrompts.js';
 
 export function applyOracleIRStepsOnServer(
   ctx: GameContext,
@@ -522,6 +523,12 @@ export function applyOracleIRStepsOnServer(
     irCtx,
   });
   queueMoveZoneDestinationChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueHandCardToLibraryChoicePromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,

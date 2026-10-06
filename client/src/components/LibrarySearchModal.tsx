@@ -9,6 +9,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { KnownCardRef } from '../../../shared/src';
 import { getLibrarySearchTypeLine } from '../../../shared/src/cardFactory';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { librarySearchForcedSelectionIds, librarySearchSelectionResetKey } from './librarySearchSelectionKey';
 
 export interface LibrarySearchModalProps {
   open: boolean;
@@ -222,15 +223,18 @@ export function LibrarySearchModal({
     return merged;
   }, [cards, nonSelectableCards, revealedCards]);
   
-  // Reset selection state when modal opens or cards change
+  // Reset selection state when the modal opens or the offered cards change.
+  // Keyed on card ids (not array identity) so a re-sent prompt for the same step keeps the pick.
+  const cardsResetKey = useMemo(() => librarySearchSelectionResetKey(cards), [cards]);
   useEffect(() => {
     if (open) {
-      setSelectedIds(new Set());
+      setSelectedIds(new Set(librarySearchForcedSelectionIds({ cards, minSelections, mandatory, splitDestination, maxTotalManaValue })));
       setSearchQuery('');
       setBattlefieldAssignments(new Set());
       setHandAssignments(new Set());
     }
-  }, [open, cards]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, cardsResetKey]);
   
   // Get cards that match the type/attribute filter (before text search)
   // This represents all valid targets for the tutor

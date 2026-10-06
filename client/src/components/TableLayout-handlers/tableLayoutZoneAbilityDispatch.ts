@@ -5,6 +5,7 @@
 // did nothing when clicked.
 
 import type { KnownCardRef } from '../../../../shared/src';
+import { parseActivatedAbilities } from '../../utils/activatedAbilityParser';
 
 export type ZoneAbilityDispatchZone = 'hand' | 'graveyard' | 'exile' | 'library' | 'commander' | 'battlefield';
 
@@ -26,6 +27,17 @@ export interface ZoneAbilityDispatchArgs {
   onGraveyardAbility?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
   /** App-level handler shared with the Exile view modal. */
   onExileAbility?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
+  /** Cycling {X}... (Shark Typhoon): ask for X, then emit activateCycling with xValue. */
+  onCyclingNeedsX?: (cardId: string, abilityId: string, card: KnownCardRef) => void;
+}
+
+/** True when the clicked cycling ability's cost contains {X}. */
+export function cyclingAbilityHasXCost(card: KnownCardRef, abilityId: string): boolean {
+  const cyclingAbilities = parseActivatedAbilities(card).filter((ability) => /-cycling-\d+$/i.test(String(ability?.id || '')));
+  const ability = abilityId === 'cycling'
+    ? cyclingAbilities[0]
+    : cyclingAbilities.find((entry) => entry.id === abilityId);
+  return /\{X\}/i.test(String(ability?.cost || ability?.manaCost || ''));
 }
 
 /** Returns true when the click was routed somewhere. */
@@ -36,6 +48,10 @@ export function dispatchZoneCardAbility(args: ZoneAbilityDispatchArgs): boolean 
 
   if (zone === 'hand') {
     if (abilityId === 'cycling' || /-cycling-\d+$/i.test(abilityId)) {
+      if (args.onCyclingNeedsX && cyclingAbilityHasXCost(card, abilityId)) {
+        args.onCyclingNeedsX(cardId, abilityId, card);
+        return true;
+      }
       emit('activateCycling', { gameId, cardId, abilityId });
       return true;
     }

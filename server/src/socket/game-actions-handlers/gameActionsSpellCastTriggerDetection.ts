@@ -55,6 +55,8 @@ export function getSpellCastTriggersForCard(game: any, casterId: string, spellCa
     sourcePermanent?: any,
     spellSourceZone = castSourceZone,
   ): boolean => {
+    // Cycle triggers share the detector but fire on cycling, never on a spell cast.
+    if (trigger.triggerEvent === 'cycle') return false;
     if (trigger.sourceZoneRequirement === 'hand' && spellSourceZone && spellSourceZone !== 'hand') {
       return false;
     }

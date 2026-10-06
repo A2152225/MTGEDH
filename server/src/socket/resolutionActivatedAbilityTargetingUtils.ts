@@ -6,7 +6,7 @@
  */
 
 import { appendEvent } from "../db/index.js";
-import { canPlayerBeTargetedByPlayer, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements } from "../rules-engine/targeting";
+import { canPlayerBeTargetedByPlayer, detectAnotherTargetRestriction, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements } from "../rules-engine/targeting";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import {
   extractStackItemTargetIds,
@@ -145,7 +145,9 @@ export function activatedAbilityPermanentTargetMatches(
 export function buildActivatedAbilityValidTargets(
   game: any,
   controllerId: string,
-  targetReqs: ReturnType<typeof parseTargetRequirements>
+  targetReqs: ReturnType<typeof parseTargetRequirements>,
+  /** "Another target ..." in abilityText excludes the source permanent from the list. */
+  options?: { sourcePermanentId?: string; abilityText?: string }
 ): Array<{ id: string; name: string; type: string; controller?: string; zoneOwnerId?: string; imageUrl?: string; life?: number; isOpponent?: boolean }> {
   const validTargets: Array<{ id: string; name: string; type: string; controller?: string; zoneOwnerId?: string; imageUrl?: string; life?: number; isOpponent?: boolean }> = [];
   const stateBattlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
@@ -288,7 +290,12 @@ export function buildActivatedAbilityValidTargets(
     }
   }
 
-  return validTargets.filter((target, index, all) => all.findIndex((candidate) => candidate.id === target.id) === index);
+  const excludeSourceId = options?.sourcePermanentId && detectAnotherTargetRestriction(String(options.abilityText || ''))
+    ? String(options.sourcePermanentId)
+    : '';
+  return validTargets.filter((target, index, all) =>
+    (!excludeSourceId || target.id !== excludeSourceId)
+    && all.findIndex((candidate) => candidate.id === target.id) === index);
 }
 
 export function getSelectedGraveyardCardsForStep(

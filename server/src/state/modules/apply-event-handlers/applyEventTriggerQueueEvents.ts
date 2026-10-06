@@ -120,6 +120,7 @@ export function applyTriggerQueueEvents(ctx: GameContext, e: GameEvent): boolean
           : undefined;
         const discardedCard = (e as any).discardedCard;
         const milledCard = (e as any).milledCard;
+        const xValue = (e as any).xValue;
         
         try {
           // Check if this trigger is already on the stack (idempotency for replay)
@@ -212,6 +213,7 @@ export function applyTriggerQueueEvents(ctx: GameContext, e: GameEvent): boolean
             ...(sacrificedPermanent && typeof sacrificedPermanent === 'object' ? { sacrificedPermanent } : null),
             ...(lastSacrificedPermanents && lastSacrificedPermanents.length > 0 ? { lastSacrificedPermanents } : null),
             ...(discardedCard && typeof discardedCard === 'object' ? { discardedCard } : null),
+            ...(typeof xValue === 'number' && Number.isFinite(xValue) ? { xValue } : null),
             ...(milledCard && typeof milledCard === 'object' ? { milledCard } : null),
           } as any);
           pushTriggerDoublerCopies(ctx.state, (ctx.state.stack || [])[(ctx.state.stack || []).length - 1]);

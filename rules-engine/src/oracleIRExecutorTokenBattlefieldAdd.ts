@@ -21,6 +21,7 @@ import {
 import { applyBlockingEntryToCreatedTokens } from './oracleIRExecutorTokenBlockingEntry';
 import { getCardManaValue, quantityToNumber } from './oracleIRExecutorPlayerUtils';
 import { tryResolveForEachReferenceAmount } from './oracleIRExecutorForEachQuantity';
+import { applyVariableTokenPowerToughness } from './oracleIRExecutorTokenVariablePt';
 import {
   resolveBattlefieldEntryFromOracleIrContext,
   type OracleIrBattlefieldEntryContext,
@@ -980,7 +981,13 @@ function addTokensToBattlefield(
     };
   }
 
-  const tokenCharacteristics = resolveTokenCharacteristicsFromOracleStep(tokenHint, clauseRaw);
+  const parsedCharacteristics = resolveTokenCharacteristicsFromOracleStep(tokenHint, clauseRaw);
+  // X/X tokens: resolve X like an X token amount ("where X is ..." or the announced X).
+  const tokenCharacteristics = parsedCharacteristics && applyVariableTokenPowerToughness(parsedCharacteristics, tokenHint, clauseRaw, () =>
+    resolveTokenAmount(state, { kind: 'create_token', who: { kind: 'you' }, amount: { kind: 'x' }, token: tokenHint, raw: clauseRaw } as any, ctx, runtime));
+  if (parsedCharacteristics && !tokenCharacteristics) {
+    return { applied: false, message: `Skipped token creation (unknown X power/toughness): ${clauseRaw}`, reason: 'unknown_amount', options: { classification: 'ambiguous' } };
+  }
   if (!tokenCharacteristics) {
     // Do not report applied:true with zero tokens — that skips legacy create fallbacks
     // (named artifact tokens like Vibranium/Powerstone when hint matching fails).

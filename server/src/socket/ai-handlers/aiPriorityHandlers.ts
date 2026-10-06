@@ -14,6 +14,7 @@ import { runSBA } from "../../state/modules/counters_tokens.js";
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
 import { isPlayerCompletingSpellCast } from "../game-actions.js";
 import { isGameReplayLocked } from "../../gameRestoreState.js";
+import { noteGameStallAiFailure } from "../../state/modules/gameStall/gameStallDetector.js";
 import { broadcastGame, ensureGame } from "../util.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
@@ -195,6 +196,7 @@ export async function handleAIPriority(
       }
     } catch (err) {
       debugWarn(1, '[AI] Failed to resolve pending resolution step before priority:', err);
+      noteGameStallAiFailure(gameId, playerId, err, 'aiResolutionStep');
     }
     debug(1, '[AI] AI player has pending resolution steps but none found to resolve:', { gameId, playerId });
     return;
@@ -820,6 +822,7 @@ export async function handleAIPriority(
     
   } catch (error) {
     debugError(1, '[AI] Error handling AI priority:', error);
+    noteGameStallAiFailure(gameId, playerId, error, 'handleAIPriority');
     // Fallback: try to advance step or pass priority
     try {
       if (isAITurn && stackEmpty) {

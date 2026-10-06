@@ -36,7 +36,32 @@ The report is stored on the server for later review. Nothing is shown to other p
 
 ## Reviewing and resolving (CLI)
 
-From the repository root:
+### Quick commands (repository root)
+
+```
+npm run issues              # every report (open + closed), with full details
+npm run issues open         # only open reports
+npm run issues closed       # only resolved reports ("resolved" also works)
+npm run issues -- closed    # identical - the extra "--" is optional for plain words (same for open / all)
+```
+
+Each report is printed as a block: id and local time, status, player, game id, card name/zone/type line, category,
+description, resolved_at / resolved_by / notes, a one-line **card state** (P/T vs base, damage, tapped, counters,
+attachments, combat role) and **game state** (turn, phase/step, active player, priority, stack, permanent count) and
+the **last 5 log lines**. `issues show <id>` still prints everything (full JSON).
+
+**PowerShell 5 / npm argument rules (tested):**
+
+- Plain words (`open`, `closed`, `all`, `show 12`, `resolve 12`, `reopen 12`, `path`) pass through with or without `--`:
+  `npm run issues open` and `npm run issues -- open` behave the same.
+- Anything starting with `--` (`--note`, `--by`, `--all`, `--resolved`, `--csv`, `--out`) **must come after `--`**, otherwise npm
+  treats it as its own config flag and silently drops it (you only get an "npm warn Unknown cli config" message):
+  `npm run issues -- resolve 12 --note "Fixed in abc1234" --by "Robert"` (not `npm run issues resolve 12 --note ...`).
+- Quote values with spaces in double quotes. Do not use `&&` in PowerShell 5; run commands one per line or separate with `;`.
+
+### Full command list
+
+The long workspace form keeps working exactly as before:
 
 ```
 npm --workspace @mtgedh/server run issues -- list              # open reports (default)

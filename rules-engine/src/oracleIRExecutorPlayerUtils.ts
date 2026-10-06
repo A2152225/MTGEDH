@@ -472,6 +472,9 @@ function cardMatchesRevealUntilCriterion(card: any, criterion: string): boolean 
     }
   }
   if (normalized.endsWith(' card')) {
+    // "creature or planeswalker card" / "artifact, creature, or land card": any alternative matches.
+    const alternatives = normalized.slice(0, -' card'.length).split(/\s*,\s*(?:or\s+)?|\s+or\s+/).map((s) => s.trim()).filter(Boolean);
+    if (alternatives.length > 1) return alternatives.some((alt) => cardMatchesRevealUntilCriterion(card, `${alt} card`));
     const typeName = normalized.slice(0, -' card'.length).trim();
     return typeName ? typeLine.includes(typeName) : false;
   }

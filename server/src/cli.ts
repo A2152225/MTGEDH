@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { listGames, deleteGame as dbDeleteGame } from './db/index.js';
 import GameManager from './GameManager.js';
 import { games as socketGames, priorityTimers } from './socket/socket.js';
+import { forceAdvanceStalledGame } from './socket/gameStallSocketWiring.js';
 import { debug, debugWarn, debugError } from "./utils/debug.js";
 import {
   hasInteractiveConsoleTty,
@@ -378,6 +379,7 @@ ${CLI.hr}
   delete game #     Delete a specific game by its number (from list)
   delete id <id>    Delete a specific game by its gameId
   delete all        Delete ALL games (in-memory + persisted)
+  force-advance <id> Run stall recovery for a game (clear stuck AI action / prompts, advance step)
   clear / cls       Clear the console window (scrollback may remain; use DEBUG_STATE=0 to reduce log noise)
   stop              Stop the server gracefully
   restart           Restart the server (requires process manager)
@@ -393,6 +395,26 @@ Examples:
   delete all            - Deletes everything
   clear                - Clears the terminal (alias: cls)
 `);
+}
+
+/**
+ * Manually trigger game-stall recovery (same escalation as automatic recovery).
+ * gameId keeps its original case (processCommand lowercases its own copy).
+ */
+function forceAdvanceFromCli(gameId: string): void {
+  if (!gameId) {
+    debug(2, `\n${CLI.err} Usage: force-advance <gameId>\n`);
+    return;
+  }
+  void forceAdvanceStalledGame(gameId, 'cli')
+    .then((outcome) => {
+      if (!outcome) {
+        debug(2, `\n${CLI.err} Game not found or stall recovery not installed: ${gameId}\n`);
+        return;
+      }
+      debug(2, `\n${CLI.ok} force-advance ${gameId}: ${outcome.status}${outcome.reportPath ? ` (report: ${outcome.reportPath})` : ''}\n`);
+    })
+    .catch((err) => debugError(1, '[cli] force-advance failed:', err));
 }
 
 /**
@@ -441,6 +463,11 @@ function processCommand(input: string): void {
       clearConsole();
       break;
       
+    case 'force-advance':
+    case 'forceadvance':
+      forceAdvanceFromCli(input.trim().split(/\s+/).slice(1).join(' '));
+      break;
+
     case 'help':
     case '?':
       showHelp();

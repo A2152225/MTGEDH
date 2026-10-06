@@ -131,6 +131,8 @@ export function useTableLayoutViewport({
     abilityText?: string;
     xCount: number;
     affordableXHint?: number;
+    /** Set when the X prompt is for cycling a card in hand (emits activateCycling). */
+    cyclingCardId?: string;
   } | null>(null);
   // State for zone card context menu (works for hand, graveyard, exile, commander, library)
   const [zoneContextMenu, setZoneContextMenu] = useState<{ card: KnownCardRef; zone: ZoneType; x: number; y: number } | null>(null);

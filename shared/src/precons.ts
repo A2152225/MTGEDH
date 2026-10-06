@@ -42,10 +42,29 @@ export const COMMANDER_PRECONS: PreconYear[] = [
     year: 2026,
     sets: [
       {
+        name: "Foundations Commander",
+        code: "FDC",
+        decks: [
+          { name: "Calling All Angels", commanders: ["Giada, Font of Hope"], colorIdentity: "W" },
+          { name: "Keen Engineering", commanders: ["Sai, Master Thopterist"], colorIdentity: "U" },
+          { name: "Wretched Ranks", commanders: ["Ghoulcaller Gisa"], colorIdentity: "B" },
+          { name: "Reign of Dragons", commanders: ["Lathliss, Dragon Queen"], colorIdentity: "R" },
+          { name: "Tramplesaurus Rex", commanders: ["Ghalta, Primal Hunger"], colorIdentity: "G" }
+        ]
+      },
+      {
+        name: "Reality Fracture Commander",
+        code: "FRC",
+        decks: [
+          { name: "Multiverse Reforged", commanders: ["Jace, Multiverse Architect"], colorIdentity: "WUBR" }
+        ]
+      },
+      {
         name: "Secret Lair",
         code: "SLD",
         decks: [
-          { name: "Goblin Storm", commanders: ["Zada, Hedron Grinder"], colorIdentity: "R", decklistUrl: "https://moxfield.com/decks/b0pfkqDSJUu74BFaSCdnbA" }
+          { name: "Goblin Storm", commanders: ["Zada, Hedron Grinder"], colorIdentity: "R", decklistUrl: "https://moxfield.com/decks/b0pfkqDSJUu74BFaSCdnbA" },
+          { name: "Hatsune Miku", commanders: ["Trostani, Selesnya's Voice"], colorIdentity: "GW" }
         ]
       },
       {

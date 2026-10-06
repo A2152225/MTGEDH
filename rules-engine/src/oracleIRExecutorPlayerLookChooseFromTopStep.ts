@@ -11,6 +11,7 @@ import {
   commitCardZoneChanges,
   commitLookSelectRestZoneChanges,
 } from './oracleIRExecutorCardZoneTransitionCommit';
+import { putLookChosenCardsOntoBattlefield } from './oracleIRExecutorLookChooseBattlefieldEntry';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import {
@@ -109,7 +110,13 @@ function lookChooseFromTopRequiresPlayerChoice(
     && step.amount?.kind === 'reference_amount'
   ) {
     const builtRevealUntil = buildLookChooseFromTopSelectionOptions(state, step, ctx, runtime);
-    return Boolean(builtRevealUntil && builtRevealUntil.selectableCardIds.length > 0);
+    if (!builtRevealUntil || builtRevealUntil.selectableCardIds.length === 0) return false;
+    // Resume after the reveal prompt: apply the player's pick instead of prompting again
+    // (otherwise every confirm re-queued the same prompt and the pick never stuck).
+    const chosenRevealedIds = getNormalizedChosenIds(ctx).filter((id) =>
+      builtRevealUntil.availableCards.some((card) => String(card?.id || '').trim() === id)
+    );
+    return chosenRevealedIds.length === 0;
   }
 
   if (step.optional === true && ctx.deferOptionalLookChoices !== true) return false;
@@ -314,7 +321,42 @@ export function applyLookChooseFromTopStep(
       return false;
     };
 
-    if (canBridgeChosen) {
+    if (step.destination === 'battlefield' && chosenCards.length > 0) {
+      const entered = putLookChosenCardsOntoBattlefield({
+        state: nextState,
+        playerId,
+        player,
+        cards: chosenCards,
+        entersTapped: Boolean((step as { entersTapped?: boolean }).entersTapped),
+        ctx: bridgeOptions?.ctx,
+        stepKind: step.kind,
+      });
+      if (entered.halted) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state: nextState,
+          log,
+          ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+        }, ledgerRecordedViaBridge);
+      }
+      nextState = entered.state;
+      movedCards.push(...entered.movedCards);
+      if (canBridgeZone) {
+        ledgerRecordedViaBridge = true;
+        if (bridgeLookChooseRest()) {
+          return withDiscardLedgerFlags({
+            applied: true,
+            state: nextState,
+            log,
+            ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+          }, ledgerRecordedViaBridge);
+        }
+        log.push(
+          `${playerId} looks at ${lookedCount} card(s), puts ${entered.movedCards.length} onto the battlefield, and puts ${bottomedRest.length} on the bottom of their library in ${step.restOrder === 'any' ? 'any' : 'a random'} order`
+        );
+        continue;
+      }
+    } else if (canBridgeChosen) {
       const commitResult = commitCardZoneChanges({
         state: nextState,
         playerId,
@@ -389,6 +431,8 @@ export function applyLookChooseFromTopStep(
     let nextLibrary = library.slice(lookedCount);
 
     for (const chosenCard of chosenCards) {
+      // Battlefield picks were already put onto the battlefield above.
+      if (step.destination === 'battlefield') continue;
       movedCards.push(chosenCard);
       if (step.destination === 'hand') {
         nextHand.push(chosenCard);

@@ -429,6 +429,15 @@ export function tryResolveStackActivatedAbilityLateHandlers(
       bumpSeq();
       return true;
     }
+    if (irResult.applied > 0) {
+      // IR already mutated the game (e.g. drew cards) before all-or-nothing refused the rest.
+      // Re-running the whole text through the legacy path would apply those steps twice
+      // (Jace, Multiverse Architect +1 drew four). The gap is logged as IR telemetry.
+      debug(1, `[tryResolveStackActivatedAbilityLateHandlers] Oracle IR partially resolved ${sourceName} (${irResult.applied} step(s)); not re-running legacy fallback`);
+      markResolvedOncePerTurnActivatedAbility(state, item);
+      bumpSeq();
+      return true;
+    }
   }
 
   debug(2, `[tryResolveStackActivatedAbilityLateHandlers] Executing activated ability from ${sourceName} for ${controller}: ${description}`);

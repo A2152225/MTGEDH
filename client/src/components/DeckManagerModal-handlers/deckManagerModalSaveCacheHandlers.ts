@@ -5,6 +5,7 @@
 
 import type { Dispatch, SetStateAction } from 'react';
 import { socket } from '../../socket';
+import { toast } from '../ToastHost';
 import type { SavedDeckDetail, SavedDeckSummary } from '../../../../shared/src/decks';
 import type { GameID } from '../../../../shared/src/types';
 import {
@@ -151,12 +152,28 @@ export function createDeckManagerModalSaveCacheHandlers(
   };
 
   const saveLocalDeckToServer = async (name: string, text: string) => {
-    if (!canServer || !accountUserId) return;
+    if (!canServer) {
+      setServerErr('Server deck saving is not available here.');
+      toast.error('Server deck saving is not available here.');
+      return;
+    }
+    if (!accountUserId) {
+      const msg = 'Log in to save decks to the server.';
+      setServerErr(msg);
+      toast.error(msg);
+      return;
+    }
     if (gameId) {
+      setSaving(true);
       socket.emit('saveDeck', { gameId, name, list: text, cacheCards, visibility: saveVisibility || 'private' });
       return;
     }
-    if (!useRestServer) return;
+    if (!useRestServer) {
+      const msg = 'Join a game or use localhost to save server decks.';
+      setServerErr(msg);
+      toast.error(msg);
+      return;
+    }
     setSaving(true);
     try {
       await saveServerDeckViaApi({
@@ -169,8 +186,11 @@ export function createDeckManagerModalSaveCacheHandlers(
       });
       await refreshRestServerDecks();
       setServerErr(null);
+      toast.success(`Saved "${name}" to your server decks (${saveVisibility || 'private'}).`);
     } catch (err) {
-      setServerErr(err instanceof Error ? err.message : 'Failed to save deck');
+      const msg = err instanceof Error ? err.message : 'Failed to save deck';
+      setServerErr(msg);
+      toast.error(`Could not save deck: ${msg}`);
     } finally {
       setSaving(false);
     }
@@ -218,17 +238,9 @@ export function createDeckManagerModalSaveCacheHandlers(
     })();
   };
   const saveServer = () => {
-    if (!canServer) return;
+    if (!canServer) { setServerErr('Server deck saving is not available here.'); return; }
     if (!localText.trim() || !localName.trim()) { setServerErr('Name & text required'); return; }
-    if (gameId) {
-      setSaving(true);
-      socket.emit('saveDeck', { gameId, name: localName.trim(), list: localText, cacheCards, visibility: saveVisibility || 'private' });
-      return;
-    }
-    if (!useRestServer) {
-      setServerErr('Join a game or use localhost to save server decks.');
-      return;
-    }
+    // saveLocalDeckToServer handles in-game (socket) and REST saves and reports every failure.
     void saveLocalDeckToServer(localName.trim(), localText);
   };
   const updateServerDeck = () => {

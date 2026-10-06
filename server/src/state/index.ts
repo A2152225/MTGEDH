@@ -52,6 +52,7 @@ import { viewFor } from "./modules/view";
 import { applyEvent, replay, replayAsync, reset, skip, unskip, remove } from "./modules/applyEvent";
 import { mulberry32 } from "../utils/rng";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { observeGameStallPriorityPass, observeGameStallStepAdvance } from "./modules/gameStall/gameStallDetector.js";
 
 // Export the unified ResolutionQueue system
 export { ResolutionQueueManager, ResolutionStepType, ResolutionStepStatus } from "./resolution/index";
@@ -99,10 +100,10 @@ export function createInitialGameState(gameId: string): InMemoryGame {
       playerId: PlayerID,
       isAutoPass?: boolean,
       options?: { allowActiveMainPhaseAutoAdvance?: boolean },
-    ) => passPriority(ctx, playerId, isAutoPass, options),
+    ) => observeGameStallPriorityPass(game, gameId, playerId, isAutoPass, passPriority(ctx, playerId, isAutoPass, options)),
     setTurnDirection: (dir: 1 | -1) => setTurnDirection(ctx, dir),
     nextTurn: () => nextTurn(ctx),
-    nextStep: () => nextStep(ctx),
+    nextStep: () => observeGameStallStepAdvance(game, gameId, () => nextStep(ctx)),
     // Increment seq directly. Never delegate to ctx.bumpSeq(): handlers that use
     // `(game.ctx || game)` have rebound ctx.bumpSeq to game.bumpSeq.bind(game),
     // which would recurse until Maximum call stack size exceeded.

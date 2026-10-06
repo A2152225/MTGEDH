@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { dispatchZoneCardAbility } from './tableLayoutZoneAbilityDispatch';
+import { cyclingAbilityHasXCost, dispatchZoneCardAbility } from './tableLayoutZoneAbilityDispatch';
 
 const card = { id: 'c1', name: 'Test Card' } as any;
 
@@ -65,5 +65,37 @@ describe('dispatchZoneCardAbility (table card right-click menu)', () => {
   it('ignores clicks without a game id and unknown zones', () => {
     expect(run({ gameId: null }).handled).toBe(false);
     expect(run({ zone: 'library' }).handled).toBe(false);
+  });
+});
+
+describe('cycling with {X} in its cost', () => {
+  const shark = {
+    id: 'shark',
+    name: 'Shark Typhoon',
+    type_line: 'Enchantment',
+    oracle_text: "Whenever you cast a noncreature spell, create an X/X blue Shark creature token with flying, where X is that spell's mana value.\nCycling {X}{1}{U} ({X}{1}{U}, Discard this card: Draw a card.)\nWhen you cycle this card, create an X/X blue Shark creature token with flying.",
+  } as any;
+  const tusker = {
+    id: 'tusker',
+    name: 'Krosan Tusker',
+    type_line: 'Creature — Boar Beast',
+    oracle_text: 'Cycling {2}{G} ({2}{G}, Discard this card: Draw a card.)\nWhen you cycle this card, you may search your library for a basic land card, reveal that card, put it into your hand, then shuffle.',
+  } as any;
+
+  it('asks for X instead of emitting when the cycling cost has {X}', () => {
+    expect(cyclingAbilityHasXCost(shark, 'cycling')).toBe(true);
+    const onCyclingNeedsX = vi.fn();
+    const r = run({ zone: 'hand', cardId: 'shark', abilityId: 'cycling', card: shark, onCyclingNeedsX });
+    expect(r.handled).toBe(true);
+    expect(onCyclingNeedsX).toHaveBeenCalledWith('shark', 'cycling', shark);
+    expect(r.emit).not.toHaveBeenCalled();
+  });
+
+  it('emits right away for fixed-cost cycling', () => {
+    expect(cyclingAbilityHasXCost(tusker, 'cycling')).toBe(false);
+    const onCyclingNeedsX = vi.fn();
+    const r = run({ zone: 'hand', cardId: 'tusker', abilityId: 'cycling', card: tusker, onCyclingNeedsX });
+    expect(onCyclingNeedsX).not.toHaveBeenCalled();
+    expect(r.emit).toHaveBeenCalledWith('activateCycling', { gameId: 'g1', cardId: 'tusker', abilityId: 'cycling' });
   });
 });

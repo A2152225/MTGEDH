@@ -21,6 +21,7 @@ import { registerReplayHandlers } from "./replay.js";
 import { registerOpponentMayPayHandlers } from "./opponent-may-pay.js";
 import { registerIssueReportHandlers } from "./issueReport.js";
 import { registerResolutionHandlers, initializeAIResolutionHandler, initializePriorityResolutionHandler } from "./resolution.js";
+import { installGameStallRecovery, registerGameStallHandlers } from "./gameStallSocketWiring.js";
 import { GameManager } from "../GameManager.js";
 import { attachSocketAuth } from "../auth/attachSocketAuth.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -39,6 +40,7 @@ export function registerSocketHandlers(
   // Initialize global resolution handlers (once per server)
   initializeAIResolutionHandler(io);
   initializePriorityResolutionHandler(io);
+  installGameStallRecovery(io as any);
 
   io.on("connection", (socket) => {
     debug(2, `Socket connected: ${socket.id}`);
@@ -152,6 +154,7 @@ export function registerSocketHandlers(
     registerOpponentMayPayHandlers(io, socket);
     registerIssueReportHandlers(io, socket);
     registerResolutionHandlers(io, socket);
+    registerGameStallHandlers(io as any, socket);
 
     // Log disconnection reason
     socket.on("disconnect", (reason) => {

@@ -54,6 +54,21 @@ describe('bundled precon decklists', () => {
     expect((lines || []).reduce((sum, line) => sum + (line.count || 1), 0)).toBe(100);
   });
 
+  it.each([
+    ['FDC', 'Calling All Angels', 'Giada, Font of Hope'],
+    ['FDC', 'Keen Engineering', 'Sai, Master Thopterist'],
+    ['FDC', 'Wretched Ranks', 'Ghoulcaller Gisa'],
+    ['FDC', 'Reign of Dragons', 'Lathliss, Dragon Queen'],
+    ['FDC', 'Tramplesaurus Rex', 'Ghalta, Primal Hunger'],
+    ['FRC', 'Multiverse Reforged', 'Jace, Multiverse Architect'],
+    ['SLD', 'Hatsune Miku', "Trostani, Selesnya's Voice"],
+  ])('loads %s %s (baked from local AllDeckFiles) from SQLite', (setCode, deckName, commander) => {
+    const lines = getPreconDecklistLines(setCode, deckName);
+    expect(lines).toBeTruthy();
+    expect((lines || []).some((line) => line.name === commander)).toBe(true);
+    expect((lines || []).reduce((sum, line) => sum + (line.count || 1), 0)).toBe(100);
+  });
+
   it('loads TMNT Turtle Power! from SQLite', () => {
     const lines = getPreconDecklistLines('TMC', 'Turtle Power!');
     expect(lines).toBeTruthy();

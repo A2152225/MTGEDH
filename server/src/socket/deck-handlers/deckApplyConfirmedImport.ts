@@ -10,7 +10,8 @@
 import type { Server, Socket } from "socket.io";
 import type { GameState, PlayerID } from "../../../../shared/src";
 import { appendEvent } from "../../db";
-import { listDecks, saveDeck as saveDeckDB } from "../../db/decks";
+import { saveDeck as saveDeckDB } from "../../db/decks";
+import { listDecksVisibleTo } from "../../decks/deckAccess.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import {
   emitImportedDeckCandidatesToPlayer,
@@ -505,17 +506,22 @@ export async function applyConfirmedImport(
           (game.state.players as any[])?.find((pl) => pl.id === p.initiator)
             ?.name || String(p.initiator);
         const card_count = p.parsedCount;
+        const owner = p.saveOwner || null;
         saveDeckDB({
           id: deckId,
           name: p.deckName.trim(),
           text: "",
-          created_by_id: p.initiator,
-          created_by_name,
+          created_by_id: owner ? owner.userId : p.initiator,
+          created_by_name: owner?.displayName || created_by_name,
           card_count,
+          visibility: owner ? "private" : "public",
         });
-        io.to(p.gameId).emit("savedDecksList", {
+        // Only list what the saver is allowed to see (never leak other people's private decks).
+        // A logged-in saver's list goes only to that socket; a guest's (public-only) list may go to the room.
+        const listTarget = importerSocket || (owner ? null : io.to(p.gameId));
+        listTarget?.emit("savedDecksList", {
           gameId: p.gameId,
-          decks: listDecks(),
+          decks: listDecksVisibleTo(owner ? owner.userId : null, owner ? owner.isAdmin : false),
         });
       } catch (e) {
         debugWarn(1, "applyConfirmedImport: auto-save failed", e);

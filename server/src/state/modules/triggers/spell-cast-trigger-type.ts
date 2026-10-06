@@ -46,5 +46,11 @@ export interface SpellCastTrigger {
   optionalPaymentCost?: string; // Optional mana payment before effect (Emperor Mihail II)
   /** Minimum printed power of the cast creature spell (Gwenna, Eyes of Gaea). */
   minSpellPower?: number;
+  /**
+   * Game event that fires this trigger. Omitted means casting a spell. Cycle triggers
+   * ("whenever you cycle a card", "when you cycle this card") are recognized by the detector
+   * but must never be put on the stack by a spell cast.
+   */
+  triggerEvent?: 'cycle';
   mandatory: boolean;
 }

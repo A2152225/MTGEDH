@@ -667,7 +667,7 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
   // Comma/or multi-type lists (Atraxa's Fall, Nature's Claim). Must run before
   // the first-type-only "target artifact" match.
   const multiPermanentTypeMatch = t.match(
-    /target\s+((?:(?:non(?:land|creature)\s+)?(?:artifact|battle|enchantment|creature|land|planeswalker|permanent)s?(?:\s*,?\s+or\s+|\s+and\/or\s+|\s*,\s*))+(?:(?:non(?:land|creature)\s+)?(?:artifact|battle|enchantment|creature|land|planeswalker|permanent)s?))(?:\s+with\b[^.]+)?/i,
+    /target\s+((?:(?:non(?:land|creature)\s+)?(?:artifact|battle|enchantment|creature|land|planeswalker|permanent)s?(?:\s*,?\s+or\s+|\s+and\/or\s+|\s*,\s*))+(?:(?:non(?:land|creature)\s+)?(?:artifact|battle|enchantment|creature|land|planeswalker|permanent)s?))(?:\s+(you\s+control|an\s+opponent\s+controls|you\s+don'?t\s+control))?(?:\s+with\b[^.]+)?/i,
   );
   if (multiPermanentTypeMatch) {
     const parsedTypes = parseTargetTypePhrase(multiPermanentTypeMatch[1]);
@@ -675,8 +675,18 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       minTargets = 1;
       maxTargets = 1;
       targetTypes.push(...parsedTypes);
-      targetDescription = `target ${String(multiPermanentTypeMatch[1] || '').trim()}`;
-      return finish({ needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription });
+      // Keep the controller scope ("planeswalker or creature you control") like the single-type branch.
+      const scope = String(multiPermanentTypeMatch[2] || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      targetDescription = `target ${String(multiPermanentTypeMatch[1] || '').trim()}${scope ? ` ${scope}` : ''}`;
+      return finish({
+        needsTargets: true,
+        targetTypes,
+        minTargets,
+        maxTargets,
+        targetDescription,
+        ...(scope === 'you control' ? { targetControllerConstraint: 'you' as const } : {}),
+        ...(scope === 'an opponent controls' || /^you don'?t control$/.test(scope) ? { targetControllerConstraint: 'opponent' as const } : {}),
+      });
     }
   }
 

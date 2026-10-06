@@ -795,12 +795,8 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
 
             // Session metadata + socket room
             try {
-              socket.data = {
-                gameId,
-                playerId,
-                spectator: Boolean(spectator),
-                isSpectator: Boolean(spectator),
-              };
+              // Merge, never replace: keeps account* identity from attachSocketAuth.
+              Object.assign(socket.data, { gameId, playerId, spectator: Boolean(spectator), isSpectator: Boolean(spectator) });
             } catch {}
             try {
               socket.join(gameId);

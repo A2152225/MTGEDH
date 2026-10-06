@@ -1,5 +1,6 @@
 import type { BattlefieldPermanent, GameState } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { getMarkedDamage } from '../../shared/src/markedDamage.js';
 
 type PlayerLike = {
   readonly life?: number;
@@ -137,8 +138,7 @@ export function tryEvaluateModifyPtWhereLateReferenceStats(args: {
       if (!refId) return null;
       const ref = battlefield.find((p: any) => String((p as any)?.id || '').trim() === refId) as any;
       if (!ref) return null;
-      const damage = Number(ref?.damage ?? ref?.markedDamage ?? 0);
-      return Number.isFinite(damage) ? Math.max(0, damage) : null;
+      return getMarkedDamage(ref);
     }
   }
 

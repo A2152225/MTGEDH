@@ -28,6 +28,7 @@ export type DeckManagerModalRandomImportHandlerDeps = {
   setRandomDeckMessage: React.Dispatch<React.SetStateAction<string | null>>;
   initialAction?: 'random' | null;
   onInitialActionConsumed?: () => void;
+  saveVisibility?: 'public' | 'private';
 };
 
 export function useDeckManagerModalRandomImportHandlers(
@@ -49,6 +50,7 @@ export function useDeckManagerModalRandomImportHandlers(
     setRandomDeckMessage,
     initialAction,
     onInitialActionConsumed,
+    saveVisibility,
   } = deps;
 
   const initialActionHandledRef = useRef(false);
@@ -96,6 +98,7 @@ export function useDeckManagerModalRandomImportHandlers(
               name: name || 'Deck',
               list: text,
               cacheCards,
+              visibility: saveVisibility || 'private',
             });
           }
         },

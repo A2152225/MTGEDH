@@ -92,7 +92,7 @@ describe('saved decks update (integration)', () => {
     expect(updated?.payload?.deck?.name).toBe('Updated Deck');
     expect(updated?.payload?.deck?.card_count).toBe(3);
 
-    const listBroadcast = emitted.find((e) => e.event === 'savedDecksList' && e.room === gameId);
+    const listBroadcast = emitted.find((e) => e.event === 'savedDecksList');
     expect(listBroadcast?.payload?.decks?.some((d: any) => d.id === deckId && d.name === 'Updated Deck')).toBe(
       true
     );

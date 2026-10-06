@@ -145,6 +145,7 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
       description: `Whenever you cycle a card, ${effectText}`,
       effect: effectText,
       spellCondition: 'any',
+      triggerEvent: 'cycle',
       mandatory: !effectText.toLowerCase().includes('you may'),
     });
   }
@@ -159,6 +160,7 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
       description: `Whenever you cycle another card, ${effectText}`,
       effect: effectText,
       spellCondition: 'any',
+      triggerEvent: 'cycle',
       mandatory: !effectText.toLowerCase().includes('you may'),
     });
   }
@@ -173,6 +175,7 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
       description: `When you cycle this card, ${effectText}`,
       effect: effectText,
       spellCondition: 'any',
+      triggerEvent: 'cycle',
       mandatory: !effectText.toLowerCase().includes('you may'),
     });
   }

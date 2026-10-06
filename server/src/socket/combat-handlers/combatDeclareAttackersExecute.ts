@@ -35,6 +35,7 @@ import {
   collectAttackYouMaxAttackersForDefender,
   collectMaxAttackersEachCombat,
 } from "../../state/modules/staticEffectSpecAttackYouTax.js";
+import { collectThisTurnAttackProhibition } from "../../state/modules/attackProhibitedThisTurn.js";
 
 export async function executeDeclareAttackers(
   io: Server,
@@ -209,6 +210,14 @@ export async function executeDeclareAttackers(
       throw Object.assign(
         new Error(`${(creature as any).card?.name || 'Creature'} ${ownerRestrictionReason.toLowerCase()}`),
         { code: 'CANT_ATTACK_OWNER' },
+      );
+    }
+
+    const thisTurnProhibition = collectThisTurnAttackProhibition(game.state, creature, attacker);
+    if (thisTurnProhibition) {
+      throw Object.assign(
+        new Error(`Creatures you control can't attack that ${attacker.targetPermanentId ? 'permanent' : 'player'} this turn (${thisTurnProhibition})`),
+        { code: 'ATTACK_PROHIBITED' },
       );
     }
 

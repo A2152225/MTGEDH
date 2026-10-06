@@ -142,3 +142,13 @@ export function getCyclingDefinitionForActivation(oracleTextRaw: string, normali
 
   return undefined;
 }
+
+/**
+ * Substitutes the chosen X into a cycling cost ("{X}{1}{U}" with X=3 -> "{3}{1}{U}").
+ * X=0 drops the symbol; an all-X cost paid with X=0 becomes "{0}".
+ */
+export function resolveCyclingCostX(cost: string, xValue: number): string {
+  const x = Math.max(0, Math.floor(Number(xValue) || 0));
+  const resolved = String(cost || '').replace(/\{X\}/gi, x > 0 ? `{${x}}` : '').trim();
+  return resolved || '{0}';
+}

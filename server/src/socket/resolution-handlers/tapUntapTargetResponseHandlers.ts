@@ -458,7 +458,7 @@ export async function handleTapUntapTargetResponse(
       sourcePermanent: sourcePerm,
     });
     if (targetReqs.needsTargets) {
-      const validTargets = buildActivatedAbilityValidTargets(game, controllerId, targetReqs);
+      const validTargets = buildActivatedAbilityValidTargets(game, controllerId, targetReqs, { sourcePermanentId: String(permanentId), abilityText });
       const minTargets = Number(targetReqs.minTargets ?? 1);
       const maxTargets = Number(targetReqs.maxTargets ?? minTargets);
       if (validTargets.length < minTargets) {

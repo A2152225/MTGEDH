@@ -447,6 +447,7 @@ export function applyActivateAbilityEvents(ctx: GameContext, e: GameEvent): bool
         const cyclingCost = String((e as any).cyclingCost || '');
         const stackId = String((e as any).stackId || generateDeterministicId(ctx, 'ability_cycling', String(cardId || cardName || 'card')));
         const abilityId = String((e as any).abilityId || 'cycling');
+        const cyclingXValue = typeof (e as any).xValue === 'number' && Number.isFinite((e as any).xValue) ? Number((e as any).xValue) : undefined;
         const stackAbilityType = String((e as any).stackAbilityType || ((e as any).searchCriteria ? 'typecycling' : 'cycling'));
         const stackDescription = String((e as any).stackDescription || (stackAbilityType === 'typecycling' ? 'Search your library' : 'Draw a card'));
         const searchCriteria = typeof (e as any).searchCriteria === 'string' ? String((e as any).searchCriteria) : undefined;
@@ -490,6 +491,7 @@ export function applyActivateAbilityEvents(ctx: GameContext, e: GameEvent): bool
               cardName,
               searchCriteria,
               searchFilter,
+              ...(typeof cyclingXValue === 'number' ? { xValue: cyclingXValue } : null),
             });
           }
 

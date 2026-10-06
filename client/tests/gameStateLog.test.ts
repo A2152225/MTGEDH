@@ -503,3 +503,58 @@ describe('gameLogFormat combat messages', () => {
     expect(formatCombatDeathMessage('Spirit', { firstStrike: true })).toBe('First strike: Spirit dies in combat');
   });
 });
+
+describe('stack item log wording', () => {
+  const base = { life: { p1: 40, p2: 40 }, battlefield: [], stack: [] as any[], turnPlayer: 'p1' };
+
+  it('names the source of a triggered ability instead of logging "casts Permanent"', () => {
+    const next = {
+      ...base,
+      stack: [{
+        id: 'trig_1',
+        type: 'triggered_ability',
+        controller: 'p1',
+        source: 'jace',
+        sourceName: 'Jace, Multiverse Architect',
+        description: "they may pay {2}. If they don't, ...",
+      }],
+    };
+    const added = buildGameStateLogEntries(base, next, name).map((entry) => entry.message);
+    expect(added).toContain('Jace, Multiverse Architect triggers (Alice)');
+    expect(added.some((message) => /Permanent/.test(message) || /casts/.test(message))).toBe(false);
+
+    const resolved = buildGameStateLogEntries(next, { ...next, stack: [] }, name).map((entry) => entry.message);
+    expect(resolved).toContain('Jace, Multiverse Architect ability resolves');
+  });
+
+  it('logs activated abilities as activations of the real source', () => {
+    const next = {
+      ...base,
+      stack: [{
+        id: 'act_1',
+        type: 'ability',
+        controller: 'p2',
+        source: 'perm_1',
+        sourceName: 'Evolving Wilds',
+        card: { id: 'perm_1', name: 'Evolving Wilds (ability)' },
+        targetDetails: [{ id: 'p1', type: 'player', name: 'Alice' }],
+      }],
+    };
+    const added = buildGameStateLogEntries(base, next, name).map((entry) => entry.message);
+    expect(added).toContain('Bob activates Evolving Wilds targeting Alice');
+  });
+
+  it('uses the front-face name for an unnamed multi-face spell card', () => {
+    const next = {
+      ...base,
+      stack: [{
+        id: 'spell_1',
+        type: 'spell',
+        controller: 'p1',
+        card: { card_faces: [{ name: 'Fable of the Mirror-Breaker' }, { name: 'Reflection of Kiki-Jiki' }] },
+      }],
+    };
+    const added = buildGameStateLogEntries(base, next, name).map((entry) => entry.message);
+    expect(added).toContain('Alice casts Fable of the Mirror-Breaker');
+  });
+});

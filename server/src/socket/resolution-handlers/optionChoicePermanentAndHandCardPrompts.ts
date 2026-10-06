@@ -28,6 +28,7 @@ import {
 } from "../../state/resolution/index.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { debugWarn } from "../../utils/debug.js";
+import { maybeResumeOracleIRStepsAfterResolution } from "../../state/modules/oracleIrServerZoneSync.js";
 import { appendQueuedResolutionPromptEvent } from "../resolutionCloneQueuedPromptUtils.js";
 import { getPlayerName } from "../util.js";
 import { extractOptionChoiceSelectionId } from "./resolutionOptionChoiceSelectionIds.js";
@@ -88,6 +89,11 @@ export async function handleMoveChosenHandCardToLibraryChoice(
 
   z.handCount = (z.hand as any[]).length;
   z.libraryCount = lib.length;
+  const handPlayer = (Array.isArray(state.players) ? state.players : [])
+    .find((entry: any) => String(entry?.id || '') === controllerId);
+  if (handPlayer && Array.isArray(handPlayer.hand)) {
+    handPlayer.hand = handPlayer.hand.filter((c: any) => String(c?.id) !== String(chosenCardId));
+  }
 
   try {
     await appendEvent(gameId, (game as any).seq || 0, 'moveChosenHandCardToLibraryChoiceResolve', {
@@ -111,6 +117,16 @@ export async function handleMoveChosenHandCardToLibraryChoice(
     message: `${sourceName}: ${getPlayerName(game, controllerId)} put a card from their hand on the ${position} of their library.`,
     ts: Date.now(),
   });
+
+  // Oracle IR bridge prompts (oracleIrServerHandCardToLibraryPrompts) carry any steps that follow
+  // the move ("..., then shuffle", etc.); continue them now that the card is placed.
+  if (String(stepData.oracleIrResumeStepsJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    maybeResumeOracleIRStepsAfterResolution(ctx, step);
+    game.state = ctx.state;
+  }
 
   if (typeof (game as any).bumpSeq === 'function') {
     (game as any).bumpSeq();

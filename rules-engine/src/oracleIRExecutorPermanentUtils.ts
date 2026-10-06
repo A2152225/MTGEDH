@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent } from '../../shared/src';
+import { getMarkedDamage } from '../../shared/src/markedDamage.js';
 import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
 import { hasPermanentType } from './permanentTypeUtils';
 
@@ -86,8 +87,7 @@ export function addDamageToPermanentLikeCreatureFromSource(
   const n = Math.max(0, amount | 0);
   if (n <= 0) return perm;
 
-  const current =
-    Number((perm as any).markedDamage ?? (perm as any).damageMarked ?? (perm as any).damage ?? (perm as any).counters?.damage ?? 0) || 0;
+  const current = getMarkedDamage(perm);
   const next = current + n;
   const counters = { ...(((perm as any).counters || {}) as any), damage: next };
   const currentDamageSourceIds = Array.isArray((perm as any)?.damageSourceIds)
@@ -117,8 +117,7 @@ export function getExcessDamageToPermanent(perm: BattlefieldPermanent, amount: n
   if (hasExecutorClass(perm, 'creature')) {
     const toughness = Number((perm as any)?.toughness ?? (perm as any)?.card?.toughness);
     if (!Number.isFinite(toughness)) return 0;
-    const marked =
-      Number((perm as any).markedDamage ?? (perm as any).damageMarked ?? (perm as any).damage ?? (perm as any).counters?.damage ?? 0) || 0;
+    const marked = getMarkedDamage(perm);
     const remaining = Math.max(0, toughness - marked);
     return Math.max(0, n - remaining);
   }

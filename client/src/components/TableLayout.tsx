@@ -421,6 +421,11 @@ export function TableLayout(props: {
 
   const handlePendingXActivationSelect = useCallback((xValue: number) => {
     if (!pendingXActivation || !gameId) return;
+    if (pendingXActivation.cyclingCardId) {
+      socket.emit('activateCycling', { gameId, cardId: pendingXActivation.cyclingCardId, abilityId: pendingXActivation.abilityId, xValue });
+      setPendingXActivation(null);
+      return;
+    }
     socket.emit('activateBattlefieldAbility', {
       gameId,
       permanentId: pendingXActivation.permanentId,
@@ -971,6 +976,15 @@ export function TableLayout(props: {
           onCastCommander={onCastCommander}
           onGraveyardAbility={onGraveyardAbility}
           onExileAbility={onExileAbility}
+          onCyclingNeedsX={(cardId, abilityId, card) => setPendingXActivation({
+            permanentId: cardId,
+            abilityId,
+            cardName: card.name || 'Cycling',
+            abilityText: 'Cycling: choose X',
+            xCount: 1,
+            affordableXHint: totalFloatingMana > 0 ? totalFloatingMana : undefined,
+            cyclingCardId: cardId,
+          })}
           reasonCannotPlayLand={reasonCannotPlayLand}
           reasonCannotCast={reasonCannotCast}
         />

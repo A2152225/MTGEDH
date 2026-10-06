@@ -23,7 +23,9 @@ import {
   validateManaPayment,
 } from "../util";
 import { isSplitSecondLockActive } from "./interactionActivateBattlefieldAbilityHelpers.js";
-import { getCyclingDefinitionForActivation } from "./interactionCyclingActivationDefinitions.js";
+import { getCyclingDefinitionForActivation, resolveCyclingCostX } from "./interactionCyclingActivationDefinitions.js";
+import { queueCycleTriggeredAbilities } from "../../state/modules/triggers/cycle.js";
+import { queueDiscardTriggeredAbilities } from "../../state/modules/triggers/discard.js";
 
 export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: Socket): void {
   // ============================================================================
@@ -225,10 +227,13 @@ export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: 
   // Cycling and typecycling - discard a card from hand, pay cost, then draw or search.
   socket.on(
     "activateCycling",
-    (payload?: { gameId?: unknown; cardId?: unknown; abilityId?: unknown }) => {
+    (payload?: { gameId?: unknown; cardId?: unknown; abilityId?: unknown; xValue?: unknown }) => {
       const gameId = payload?.gameId;
       const cardId = payload?.cardId;
       const abilityId = payload?.abilityId;
+      const xValue = typeof payload?.xValue === "number" && Number.isFinite(payload.xValue)
+        ? Math.max(0, Math.floor(Number(payload.xValue)))
+        : undefined;
     const pid = socket.data.playerId as string | undefined;
     const socketIsSpectator = !!(
       (socket.data as any)?.spectator || (socket.data as any)?.isSpectator
@@ -306,6 +311,17 @@ export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: 
     }
 
     const cyclingCostStr = cyclingDefinition.cost;
+    // Cycling {X}{1}{U} (Shark Typhoon): X is chosen on activation and paid as part of the cost.
+    const cyclingHasX = /\{X\}/i.test(cyclingCostStr);
+    if (cyclingHasX && xValue === undefined) {
+      socket.emit("error", {
+        code: "X_VALUE_REQUIRED",
+        message: `Choose a value for X before cycling ${cardName}.`,
+      });
+      return;
+    }
+    const cyclingXValue = cyclingHasX ? xValue : undefined;
+    const resolvedCyclingCost = cyclingHasX ? resolveCyclingCostX(cyclingCostStr, xValue as number) : cyclingCostStr;
     const costAdjustment = adjustActivationManaCostForPayment({
       state: game.state,
       activatorId: String(pid),
@@ -314,10 +330,10 @@ export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: 
       sourceController: String(pid),
       sourceId: String(cardId),
       isManaAbility: false,
-      manaCostString: cyclingCostStr,
+      manaCostString: resolvedCyclingCost,
       sourceName: cardName,
     });
-    const effectiveCyclingCost = costAdjustment.adjustedManaCost || cyclingCostStr;
+    const effectiveCyclingCost = costAdjustment.adjustedManaCost || resolvedCyclingCost;
     const parsedCost = parseManaCost(effectiveCyclingCost);
     const manaPool = getOrInitManaPool(game.state, pid);
 
@@ -377,6 +393,7 @@ export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: 
       cardName: cardName,
       searchCriteria: cyclingDefinition.searchCriteria,
       searchFilter: cyclingDefinition.searchFilter,
+      ...(typeof cyclingXValue === "number" ? { xValue: cyclingXValue } : null),
     } as any);
 
     io.to(gameId).emit("chat", {
@@ -396,13 +413,20 @@ export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: 
       cardId,
       cardName,
       abilityId: normalizedAbilityId,
-      cyclingCost: cyclingCostStr,
+      cyclingCost: effectiveCyclingCost,
+      ...(typeof cyclingXValue === "number" ? { xValue: cyclingXValue } : null),
       stackId: abilityStackId,
       stackAbilityType: cyclingDefinition.kind,
       stackDescription: cyclingDefinition.stackDescription,
       searchCriteria: cyclingDefinition.searchCriteria,
       searchFilter: cyclingDefinition.searchFilter,
     });
+
+    // "When you cycle this card" and "whenever you/a player cycle(s) [or discard(s)]" triggers go on
+    // the stack above the cycling ability; cycling also discards the card (discard triggers).
+    const cycledCardSnapshot = { ...card };
+    queueCycleTriggeredAbilities(cyclingCtx, String(pid), cycledCardSnapshot, { xValue: cyclingXValue });
+    queueDiscardTriggeredAbilities(cyclingCtx, String(pid), [cycledCardSnapshot]);
 
     broadcastGame(io, game, gameId);
     }

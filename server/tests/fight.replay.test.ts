@@ -27,7 +27,8 @@ describe('fight replay semantics', () => {
           id: 'taunter_card',
           name: 'Brash Taunter',
           type_line: 'Creature — Goblin',
-          oracle_text: 'Indestructible. Whenever Brash Taunter is dealt damage, it deals that much damage to target opponent.',
+          // Real Scryfall text: the keyword is its own line (a one-line "Indestructible. Whenever..." is not the printed card).
+          oracle_text: 'Indestructible\nWhenever Brash Taunter is dealt damage, it deals that much damage to target opponent.\n{2}{R}, {T}: Brash Taunter fights another target creature.',
         },
       },
       {

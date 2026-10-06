@@ -44,6 +44,7 @@ export function getSpellCastTriggers(
     const permTriggers = detectSpellCastTriggers(permanent.card, permanent, ctx.state);
     
     for (const trigger of permTriggers) {
+      if (trigger.triggerEvent === 'cycle') continue; // cycle triggers never fire on a spell cast
       let shouldTrigger = false;
       
       switch (trigger.spellCondition) {

@@ -3,6 +3,7 @@
 // Public entry: resolveDestroyTargets.
 
 import type { BattlefieldPermanent } from '../../shared/src';
+import { getMarkedDamage } from '../../shared/src/markedDamage.js';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { collectBoundBattlefieldIds } from './oracleIRExecutorBattlefieldBoundIds';
@@ -569,8 +570,7 @@ export function resolveDestroyTargets(
       const sourceId = String(ctx.sourceId || '').trim();
       const permanentId = String((perm as any)?.id || '').trim();
       if (sourceId && permanentId === sourceId) return false;
-      const damageMarked =
-        Number((perm as any)?.markedDamage ?? (perm as any)?.damageMarked ?? (perm as any)?.damage ?? 0) || 0;
+      const damageMarked = getMarkedDamage(perm);
       return damageMarked > 0;
     });
   }

@@ -9,7 +9,8 @@
 
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { appendEvent } from "../../db";
-import { canPlayerBeTargetedByPlayer, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements } from "../../rules-engine/targeting.js";
+import { parseTargetRequirements } from "../../rules-engine/targeting.js";
+import { buildActivatedAbilityValidTargets } from "../resolutionActivatedAbilityTargetingUtils.js";
 import { getLoyaltyActivationLimit } from "../../state/modules/triggered-abilities";
 import { triggerAbilityActivatedTriggers } from "../../state/modules/triggers/ability-activated.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
@@ -107,136 +108,10 @@ export async function tryHandleActivatePlaneswalker(
     
     // If this ability requires targets, prompt for target selection
     if (targetReqs.needsTargets) {
-      // Build valid target list based on target type
-      let validTargets: { id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string }[] = [];
-      
-      for (const targetType of targetReqs.targetTypes) {
-        const battlefield = game.state.battlefield || [];
-        const players = game.state.players || [];
-        
-        switch (targetType.toLowerCase()) {
-          case 'creature':
-            validTargets.push(...battlefield
-              .filter((p: any) => {
-                const typeLine = (p.card?.type_line || '').toLowerCase();
-                return typeLine.includes('creature');
-              })
-              .map((p: any) => ({
-                id: p.id,
-                kind: 'permanent',
-                name: p.card?.name || 'Creature',
-                controller: p.controller,
-                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-              })));
-            break;
-          case 'permanent':
-          case 'nonland':
-            validTargets.push(...battlefield
-              .filter((p: any) => {
-                const typeLine = (p.card?.type_line || '').toLowerCase();
-                if (targetType === 'nonland') return !typeLine.includes('land');
-                return true;
-              })
-              .map((p: any) => ({
-                id: p.id,
-                kind: 'permanent',
-                name: p.card?.name || 'Permanent',
-                controller: p.controller,
-                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-              })));
-            break;
-          case 'player':
-          case 'opponent':
-            const lifeDict = game.state.life || {};
-            const startingLife = game.state.startingLife || 40;
-            validTargets.push(...players
-              .filter((p: any) => {
-                if (!p || !p.id) return false;
-                if (targetType === 'opponent' && p.id === pid) return false;
-                return canPlayerBeTargetedByPlayer(p.id, game.state, pid as PlayerID);
-              })
-              .map((p: any) => ({
-                id: p.id,
-                kind: 'player',
-                name: p.name || p.id,
-                isOpponent: p.id !== pid,
-                life: lifeDict[p.id] ?? p.life ?? startingLife,
-              })));
-            break;
-          case 'any':
-            // Can target creatures, planeswalkers, or players
-            validTargets.push(...battlefield
-              .filter((p: any) => {
-                const typeLine = (p.card?.type_line || '').toLowerCase();
-                return typeLine.includes('creature') || typeLine.includes('planeswalker');
-              })
-              .map((p: any) => ({
-                id: p.id,
-                kind: 'permanent',
-                name: p.card?.name || 'Permanent',
-                controller: p.controller,
-                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-              })));
-            // Also add players to 'any' targets
-            const anyLifeDict = game.state.life || {};
-            const anyStartingLife = game.state.startingLife || 40;
-            validTargets.push(...players
-              .filter((p: any) => p && p.id && canPlayerBeTargetedByPlayer(p.id, game.state, pid as PlayerID))
-              .map((p: any) => ({
-                id: p.id,
-                kind: 'player',
-                name: p.name || p.id,
-                isOpponent: p.id !== pid,
-                life: anyLifeDict[p.id] ?? p.life ?? anyStartingLife,
-              })));
-            break;
-          case 'artifact':
-          case 'enchantment':
-          case 'planeswalker':
-          case 'land':
-            validTargets.push(...battlefield
-              .filter((p: any) => {
-                const typeLine = (p.card?.type_line || '').toLowerCase();
-                return typeLine.includes(targetType);
-              })
-              .map((p: any) => ({
-                id: p.id,
-                kind: 'permanent',
-                name: p.card?.name || targetType,
-                controller: p.controller,
-                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
-              })));
-            break;
-          default: {
-            if (!targetType.startsWith('graveyard_')) {
-              break;
-            }
-            const graveyardOwnerIds = (targetReqs.graveyardScope === 'any'
-              ? players.filter((player: any) => player?.id).map((player: any) => String(player.id))
-              : [String(pid)]) as string[];
-            for (const ownerId of graveyardOwnerIds) {
-              const graveyard = Array.isArray((game.state as any)?.zones?.[ownerId]?.graveyard)
-                ? (game.state as any).zones[ownerId].graveyard
-                : [];
-              validTargets.push(...graveyard
-                .filter((card: any) => matchesSharedGraveyardCardTargetType(card, targetType))
-                .map((card: any) => ({
-                  id: card.id,
-                  kind: 'graveyard_card',
-                  name: card.name || 'Card',
-                  controller: ownerId,
-                  imageUrl: card.image_uris?.small || card.image_uris?.normal,
-                })));
-            }
-            break;
-          }
-        }
-      }
-      
-      // Remove duplicates
-      const uniqueTargets = validTargets.filter((t, i, arr) => 
-        arr.findIndex(x => x.id === t.id) === i
-      );
+      // Shared activated-ability target builder: honors "you control" / "an opponent controls"
+      // scope and type filters; "another target" excludes this planeswalker (Jace, Multiverse Architect -3).
+      const uniqueTargets = buildActivatedAbilityValidTargets(game, String(pid), targetReqs, { sourcePermanentId: String(permanentId), abilityText: ability.text })
+        .map((target) => ({ ...target, kind: target.type }));
       
       // ========================================================================
       // Handle "up to X" abilities with no valid targets

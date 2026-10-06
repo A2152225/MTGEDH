@@ -3,6 +3,7 @@
 // Public entry: applyDestroyStep.
 
 import type { GameState, BattlefieldPermanent } from '../../shared/src';
+import { getMarkedDamage } from '../../shared/src/markedDamage.js';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { BattlefieldStepHandlerResult } from './oracleIRExecutorBattlefieldStepTypes';
@@ -125,8 +126,7 @@ export function applyDestroyStep(
       continue;
     }
 
-    const damageMarked =
-      Number((perm as any).markedDamage ?? (perm as any).damageMarked ?? (perm as any).damage ?? (perm as any).counters?.damage ?? 0) || 0;
+    const damageMarked = getMarkedDamage(perm);
     const isInCombat = Boolean(
       (perm as any)?.attacking ||
       (perm as any)?.attackingPlayerId ||

@@ -16,6 +16,7 @@ import { isGameRestoring } from "../../gameRestoreState.js";
 import { debug, debugError } from "../../utils/debug.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { AI_REACTION_DELAY_MS } from "./aiConstants.js";
+import { observeGameStallAiActionById } from "../../state/modules/gameStall/gameStallDetector.js";
 
 // Singleton AI Engine instance
 export const aiEngine = new AIEngine();
@@ -164,9 +165,15 @@ export async function runExclusiveAIAction(
   }
 
   aiActionsInProgress.add(key);
+  let aiActionError: unknown;
   try {
     await action();
+  } catch (err) {
+    aiActionError = err;
+    throw err;
   } finally {
     aiActionsInProgress.delete(key);
+    // Game-stall detector: one observation per AI action (see state/modules/gameStall).
+    observeGameStallAiActionById(gameId, String(playerId), kind, aiActionError);
   }
 }

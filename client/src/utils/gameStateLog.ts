@@ -6,7 +6,6 @@ import {
   destroyedMessageKey,
   discardMessageKey,
   drawMessageKey,
-  formatCastSpellMessage,
   formatCommanderDamageMessage,
   formatDiscardMessage,
   formatDrawMessage,
@@ -27,6 +26,7 @@ import {
   tokenCreatedMessageKey,
   type PermanentLeaveDestination,
 } from '../../../shared/src/gameLogFormat';
+import { describeStackItemAdded, describeStackItemResolved } from './gameStateLogStackItems';
 import { collectCommanderDeckEntries } from './commanderDamageDisplay';
 
 export type GameLogEntry = {
@@ -611,13 +611,12 @@ export function buildGameStateLogEntries(
 
   for (const [stackId, item] of nextStackById) {
     if (!stackId || prevStackById.has(stackId)) continue;
-    const caster = resolveName(String(item?.controller || ''));
-    push(formatCastSpellMessage(caster, cardLabel(item?.card || item), item?.targetDetails, resolveName));
+    push(describeStackItemAdded(item, resolveName));
   }
 
   for (const [stackId, item] of prevStackById) {
     if (!stackId || nextStackById.has(stackId)) continue;
-    push(`${cardLabel(item?.card || item)} resolves`);
+    push(describeStackItemResolved(item));
   }
 
   const prevMonarch = prev.monarch ?? null;

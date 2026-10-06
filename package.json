@@ -17,6 +17,7 @@
     "dev:server": "npm run dev --workspace=server",
     "dev:client": "npm run dev --workspace=client",
     "dev:server:noreload": "npm run dev:noreload --workspace=server",
+    "issues": "npm --workspace @mtgedh/server run issues --",
     "admin:games:list": "node tools/admin-games.mjs list",
     "admin:games:delete": "node tools/admin-games.mjs delete",
     "admin:games:delete-all": "node tools/admin-games.mjs delete-all",
