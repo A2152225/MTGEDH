@@ -17,6 +17,9 @@ import { getMultikickerChargeEntryCounters } from "../../state/modules/multikick
 import { ResolutionQueueManager } from "../../state/resolution/index.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { broadcastGame, ensureGame } from "../util";
+import { repairReplayCardSourceZones } from "../../state/modules/stackReplayUtils.js";
+import { rememberAIFailedSpellCast } from "../ai-handlers/aiLandAuraCommander.js";
+import { noteGameStallAiFailure } from "../../state/modules/gameStall/gameStallDetector.js";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
 import { getPlayerCommandZoneCards } from "./gameActionsPlayerZoneCards.js";
 import {
@@ -91,6 +94,23 @@ export async function handleCompleteCastSpellRequest(
 
     if (isSpellAlreadyOnStackForPlayer(game, playerId, cardId)) {
       debug(2, `[completeCastSpell] Spell ${cardId} already on stack for ${playerId}, skipping duplicate completion`);
+      // Live AI / payment race: spell is already on the stack but a ghost copy can remain
+      // in hand. Strip it and remember the card as failed for this turn so findCastableSpells
+      // cannot re-queue the same cast forever (G1 Horizon Chimera DRAW loop).
+      const repaired = repairReplayCardSourceZones(game.state, playerId, cardId);
+      if (repaired.total > 0) {
+        debugWarn(1, `[completeCastSpell] Removed ${repaired.total} stale source-zone entr${repaired.total === 1 ? 'y' : 'ies'} for ${cardId} already on stack`);
+        if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      }
+      rememberAIFailedSpellCast(game, String(playerId), String(cardId));
+      // Feed stall detector so repeated duplicate completions can auto-unstuck even if
+      // cast-loop primary fixes miss a similar busy path.
+      noteGameStallAiFailure(
+        String(gameId),
+        String(playerId),
+        new Error(`duplicate completeCastSpell for ${cardId} already on stack`),
+        'completeCastSpellAlreadyOnStack',
+      );
       if (effectIdStr && (game.state as any).pendingSpellCasts?.[effectIdStr]) {
         delete (game.state as any).pendingSpellCasts[effectIdStr];
       }

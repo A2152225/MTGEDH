@@ -273,19 +273,25 @@ export function queueMoveZoneDestinationChoicePromptsFromOracleIRResult(
     if (queuedKeys.has(queueKey)) continue;
     queuedKeys.add(queueKey);
 
+    const graveyardReturn = /\bgraveyard\b/i.test(String((step as { raw?: string }).raw || ''));
     const options = destinations.map((destination) => {
       const normalized = String(destination || '').trim();
+      const battlefieldLabel = graveyardReturn ? 'To the battlefield' : 'Put onto the battlefield';
+      const handLabel = graveyardReturn ? 'To your hand' : 'Put into your hand';
       return {
         id: normalized,
-        label: normalized === 'battlefield' ? 'Put onto the battlefield' : 'Put into your hand',
+        label: normalized === 'battlefield' ? battlefieldLabel : handLabel,
         description: normalized,
       };
     });
+    const targetPermanentId = String(params.irCtx.targetPermanentId || '').trim();
 
     ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: params.controller,
-      description: `${sourceName}: Put the chosen cards onto the battlefield or into your hand`,
+      description: graveyardReturn
+        ? `${sourceName}: Return it to the battlefield or to your hand`
+        : `${sourceName}: Put the chosen cards onto the battlefield or into your hand`,
       mandatory: true,
       sourceId,
       sourceName,
@@ -295,6 +301,7 @@ export function queueMoveZoneDestinationChoicePromptsFromOracleIRResult(
       oracleIrMoveZoneDestinationChoice: true,
       oracleIrChoiceStepJson: JSON.stringify([step]),
       oracleIrPriorChosenObjectIdsJson: JSON.stringify(Array.from(new Set(priorChosenObjectIds))),
+      ...(targetPermanentId ? { oracleIrTargetPermanentId: targetPermanentId } : {}),
       oracleIrControllerId: params.controller,
       oracleIrSourceId: sourceId,
       oracleIrSourceName: sourceName,

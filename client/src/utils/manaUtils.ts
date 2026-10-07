@@ -800,23 +800,28 @@ export function calculateSuggestedPayment(
     for (const source of usableSources) {
       if (!suggestions.has(source.id)) continue;
 
-      let nativeLeft = remainingNative.get(source.id) || 0;
-      while (nativeLeft > 0) {
-        const fillColor = pickFillColor(source.options);
-        const assigned = assignFromSource(source, fillColor, nativeLeft);
-        if (assigned <= 0) break;
-        if (genericLeft > 0) genericLeft = Math.max(0, genericLeft - assigned);
-        nativeLeft = remainingNative.get(source.id) || 0;
+      const perActivation = Math.max(1, getSourceNativeManaAmount(source));
+      const quantity = getSourceAvailableQuantity(source);
+      const totalNative = perActivation * quantity;
+      const nativeLeft = remainingNative.get(source.id) || 0;
+      const usedNative = Math.max(0, totalNative - nativeLeft);
+      const unitsUsed = usedNative > 0 ? Math.ceil(usedNative / perActivation) : 0;
+      const nativeRemainder = Math.max(0, unitsUsed * perActivation - usedNative);
+      if (nativeRemainder > 0) {
+        const assigned = assignFromSource(source, pickFillColor(source.options), nativeRemainder);
+        if (assigned > 0 && genericLeft > 0) genericLeft = Math.max(0, genericLeft - assigned);
       }
 
+      const chunks = getSourceBonusChunks(source);
       const buckets = remainingBonus.get(source.id) || [];
-      for (const bucket of buckets) {
-        while (bucket.remaining > 0) {
-          const fillColor = bucket.locked || pickFillColor(bucket.options);
-          const assigned = assignFromSource(source, fillColor, bucket.remaining);
-          if (assigned <= 0) break;
-          if (genericLeft > 0) genericLeft = Math.max(0, genericLeft - assigned);
-        }
+      for (let index = 0; index < buckets.length; index += 1) {
+        const bucket = buckets[index];
+        const per = Math.max(0, Number(chunks[index]?.amount || 0));
+        const committedUnused = Math.max(0, per * unitsUsed - Math.max(0, per * quantity - bucket.remaining));
+        if (committedUnused <= 0) continue;
+        const fillColor = bucket.locked || pickFillColor(bucket.options);
+        const assigned = assignFromSource(source, fillColor, committedUnused);
+        if (assigned > 0 && genericLeft > 0) genericLeft = Math.max(0, genericLeft - assigned);
       }
     }
   };

@@ -3,6 +3,7 @@ import type { OracleEffectStep } from './oracleIR';
 import { parseMoveZoneWhatZoneQueries } from './oracleIRExecutorMoveZoneWhatParsersZoneQueries';
 import { parseMoveZoneWhatReferenceQueries } from './oracleIRExecutorMoveZoneWhatParsersReferenceQueries';
 import { buildMoveZoneBattlefieldEntryOverrides } from './oracleIRExecutorMoveZoneGuardArgs';
+import { applyChosenMoveZoneDestination } from './oracleIRExecutorMoveZoneChosenDestination';
 import { tryApplyMoveZoneGuardsFromOneOfThemSplit } from './oracleIRExecutorMoveZoneGuardsOneOfThemSplit';
 import { tryApplyMoveZoneGuardsFromTopCardLibraryOwnerId } from './oracleIRExecutorMoveZoneGuardsTopCardLibraryOwnerId';
 import { tryApplyMoveZoneGuardsFromDiceBracketIt } from './oracleIRExecutorMoveZoneGuardsDiceBracketIt';
@@ -148,6 +149,7 @@ export function applyMoveZoneStep(
   ctx: OracleIRExecutionContext,
   runtime?: MoveZoneRuntime
 ): MoveZoneStepHandlerResult {
+  step = applyChosenMoveZoneDestination(step, ctx);
   if (step.to !== 'hand' && step.to !== 'exile' && step.to !== 'graveyard' && step.to !== 'battlefield' && step.to !== 'library' && step.to !== 'command') {
     return {
       applied: false,
@@ -373,7 +375,7 @@ export function applyMoveZoneStep(
       if (hasDirectBattlefieldTarget) {
         const result =
           step.to === 'hand'
-            ? moveBattlefieldPermanentsByIdToOwnersHands(nextState, [directBattlefieldTargetId])
+            ? moveBattlefieldPermanentsByIdToOwnersHands(nextState, [directBattlefieldTargetId], ctx)
             : moveBattlefieldPermanentsByIdToOwnersLibraries(
                 nextState,
                 [directBattlefieldTargetId],
@@ -388,7 +390,7 @@ export function applyMoveZoneStep(
     if (selfBattlefieldPermanentId) {
       const result =
         step.to === 'hand'
-          ? moveBattlefieldPermanentsByIdToOwnersHands(nextState, [selfBattlefieldPermanentId])
+          ? moveBattlefieldPermanentsByIdToOwnersHands(nextState, [selfBattlefieldPermanentId], ctx)
           : moveBattlefieldPermanentsByIdToOwnersLibraries(
               nextState,
               [selfBattlefieldPermanentId],
@@ -403,7 +405,7 @@ export function applyMoveZoneStep(
       if (enchantedPermanentId) {
         const result =
           step.to === 'hand'
-            ? moveBattlefieldPermanentsByIdToOwnersHands(nextState, [enchantedPermanentId])
+            ? moveBattlefieldPermanentsByIdToOwnersHands(nextState, [enchantedPermanentId], ctx)
             : moveBattlefieldPermanentsByIdToOwnersLibraries(
                 nextState,
                 [enchantedPermanentId],
@@ -430,7 +432,7 @@ export function applyMoveZoneStep(
           const preferredMatches = targetIds.filter(id => preferred.includes(id));
           targetIds = preferredMatches.length > 0 ? preferredMatches.slice(0, 1) : targetIds.slice(0, 1);
         }
-        const result = moveBattlefieldPermanentsByIdToOwnersHands(nextState, targetIds);
+        const result = moveBattlefieldPermanentsByIdToOwnersHands(nextState, targetIds, ctx);
         return finalizeAppliedResult(result);
       }
     }
@@ -714,6 +716,51 @@ export function applyMoveZoneStep(
     ? resolveContextualCardIdsInZones(nextState, ctx, runtime, ['library', 'graveyard', 'hand', 'exile'])
     : [];
   let contextualBoundCardIds = contextualBoundCardIdsRaw;
+  // "those creature cards" / "those permanents" etc.: keep only matching types from the reveal pile.
+  if (contextualBoundCardIds.length > 0) {
+    const boundWhat = String((step.what as any)?.text || (step.what as any)?.raw || '')
+      .replace(/\u2019/g, "'")
+      .trim()
+      .toLowerCase();
+    const typeFilter = /\bcreature cards?\b|\bcreatures\b/.test(boundWhat)
+      ? 'creature'
+      : /\bpermanent cards?\b|\bpermanents\b/.test(boundWhat)
+        ? 'permanent'
+        : null;
+    if (typeFilter) {
+      const pile = [
+        ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+        ...(Array.isArray(ctx.lastMovedCards) ? ctx.lastMovedCards : []),
+        ...(Array.isArray((ctx as any).lastRevealedCards) ? (ctx as any).lastRevealedCards : []),
+      ];
+      const byId = new Map<string, any>();
+      for (const card of pile) {
+        const id = String((card as any)?.id || '').trim();
+        if (id && !byId.has(id)) byId.set(id, card);
+      }
+      contextualBoundCardIds = contextualBoundCardIds.filter((id) => {
+        const card = byId.get(id);
+        if (!card) {
+          const location = findBoundCardZoneLocation(nextState, id);
+          if (!location) return false;
+          const player = (nextState.players || []).find((p: any) => p.id === location.playerId) as any;
+          const zoneCards = location.zone === 'library'
+            ? (Array.isArray(player?.library) ? player.library : [])
+            : (Array.isArray(player?.[location.zone]) ? player[location.zone] : []);
+          const found = zoneCards.find((entry: any) => String(entry?.id || '').trim() === id);
+          if (!found) return false;
+          const typeLine = String(found?.type_line || found?.card?.type_line || '').toLowerCase();
+          return typeFilter === 'permanent'
+            ? !/instant|sorcery/.test(typeLine)
+            : typeLine.includes(typeFilter);
+        }
+        const typeLine = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+        return typeFilter === 'permanent'
+          ? !/instant|sorcery/.test(typeLine)
+          : typeLine.includes(typeFilter);
+      });
+    }
+  }
   if (contextualBoundCardIds.length > 0) {
     const preferredIds = getChosenObjectIds(ctx);
     if (preferredIds.length > 0) {

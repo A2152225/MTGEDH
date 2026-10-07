@@ -318,19 +318,39 @@ export function resolveGoadTargetCreatureIds(
     return pool.length === 1 ? pool : [];
   }
 
+  if (
+    raw === 'they' ||
+    raw === 'them' ||
+    raw === 'those creatures' ||
+    raw === 'those permanents' ||
+    raw === 'those creature cards'
+  ) {
+    const movedIds = Array.isArray(ctx.lastMovedBattlefieldPermanentIds)
+      ? ctx.lastMovedBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (movedIds.length > 0) {
+      const movedSet = new Set(movedIds);
+      return battlefield
+        .filter(permanent => movedSet.has(String((permanent as any)?.id || '').trim()))
+        .map(permanent => String((permanent as any)?.id || '').trim())
+        .filter(Boolean);
+    }
+  }
+
   return [];
 }
 
 export function applyGoadToCreatures(
   state: GameState,
   creatureIds: readonly string[],
-  goaderId: PlayerID
+  goaderId: PlayerID,
+  duration: 'until_your_next_turn' | 'rest_of_game' = 'until_your_next_turn'
 ): GameState | null {
   if (!Array.isArray(creatureIds) || creatureIds.length === 0) return null;
 
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
   const turnNumber = Number((state as any)?.turnNumber ?? 0) || 0;
-  const expiryTurn = turnNumber + 1;
+  // Rest-of-game: omit expiry so getGoadedBy treats undefined as never-expires (JSON-safe).
   const idSet = new Set(creatureIds.map(id => String(id || '').trim()).filter(Boolean));
   let changed = false;
 
@@ -348,8 +368,12 @@ export function applyGoadToCreatures(
       ...((permanent as any)?.goadedUntil && typeof (permanent as any).goadedUntil === 'object'
         ? (permanent as any).goadedUntil
         : {}),
-      [goaderId]: expiryTurn,
     };
+    if (duration === 'rest_of_game') {
+      delete nextGoadedUntil[goaderId];
+    } else {
+      nextGoadedUntil[goaderId] = turnNumber + 1;
+    }
 
     battlefield[index] = {
       ...permanent,
@@ -410,4 +434,3 @@ export function normalizeControlledClassKey(text: string): string | null {
 
   return null;
 }
-

@@ -247,6 +247,25 @@ export function resolveTokenCharacteristicsFromOracleStep(
     ? parseTokenCreationFromText(String(clauseRaw || '').trim())
     : null;
 
+  // Exact named-token hint (e.g. "Gingerbrute") must win over reminder-text words like "Food".
+  {
+    const exactHint = String(tokenHint || '').trim();
+    if (exactHint && !/\d+\s*\/\s*\d+/.test(exactHint) && !/\b(?:white|blue|black|red|green|colorless)\b/i.test(exactHint)) {
+      const exactCatalog = getTokenCharacteristics(exactHint)
+        || getTokenCharacteristics(exactHint.charAt(0).toUpperCase() + exactHint.slice(1));
+      if (exactCatalog) {
+        return mergeTokenCharacteristics(
+          {
+            ...exactCatalog,
+            abilities: Array.from(new Set([...(exactCatalog.abilities || []), ...extractedFromSources])),
+          },
+          fromHint?.characteristics || fromClause?.characteristics || null,
+          [],
+        );
+      }
+    }
+  }
+
   // Prefer catalog definitions for named tokens (Treasure, Powerstone, Vibranium, ...).
   // Reminder text on the creating card is not a reliable source of token abilities.
   // Scan known catalog names; skip noise words like Create/Tapped so matching cannot no-op.

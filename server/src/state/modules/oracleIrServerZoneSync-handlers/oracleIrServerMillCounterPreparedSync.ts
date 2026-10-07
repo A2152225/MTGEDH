@@ -18,6 +18,7 @@ import type { GameContext } from '../../context.js';
 import { syncPreparedPermanentAfterControlChange } from '../prepared.js';
 import { evaluateCounterPlacementReplacementEvent, evaluateMillReplacementEvent } from '../replacement-effects.js';
 import { updateCounters } from '../counters_tokens.js';
+import { queueCounterPlacedTriggers } from '../triggers/counters.js';
 
 export function snapshotBattlefieldControllers(state: any): Map<string, string> {
   const out = new Map<string, string>();
@@ -56,6 +57,7 @@ export function syncCounterReplacementEffectsAfterOracleIR(
     const newCounters = (perm?.counters || {}) as Record<string, number>;
     const counterKeys = new Set([...Object.keys(oldCounters), ...Object.keys(newCounters)]);
     const bonusDeltas: Record<string, number> = {};
+    const placedDeltas: Record<string, number> = {};
 
     for (const counterType of counterKeys) {
       const oldCount = Number(oldCounters[counterType] || 0);
@@ -71,10 +73,19 @@ export function syncCounterReplacementEffectsAfterOracleIR(
       });
       const modifiedDeltas = (replacementResult.metadata as { modifiedDeltas?: Record<string, number> } | undefined)?.modifiedDeltas;
       const modifiedDelta = Number(modifiedDeltas?.[counterType] ?? rawDelta);
+      const placed = Number.isFinite(modifiedDelta) && modifiedDelta > 0 ? modifiedDelta : rawDelta;
+      placedDeltas[counterType] = (placedDeltas[counterType] || 0) + placed;
       if (modifiedDelta <= rawDelta) continue;
 
       // Oracle IR already applied rawDelta directly to state; add only the replacement bonus.
       bonusDeltas[counterType] = (bonusDeltas[counterType] || 0) + (modifiedDelta - rawDelta);
+    }
+
+    // IR writes counters onto the battlefield without updateCounters, so
+    // "whenever you put one or more +1/+1 counters" (Exemplar of Light) never
+    // saw the placement. Queue once for the full amount, including replacements.
+    if (Object.keys(placedDeltas).length > 0) {
+      queueCounterPlacedTriggers(ctx, perm, permanentId, placedDeltas);
     }
 
     if (Object.keys(bonusDeltas).length === 0) continue;
@@ -86,6 +97,7 @@ export function syncCounterReplacementEffectsAfterOracleIR(
       deferRunSBA: true,
       skipCounterModifications: true,
       skipEventPersistence: true,
+      skipCounterPlacedTriggers: true,
     });
   }
 }

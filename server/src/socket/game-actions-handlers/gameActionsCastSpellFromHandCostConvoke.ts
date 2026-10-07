@@ -16,6 +16,7 @@ import {
   parseMadnessCost,
   parseMutateCost,
   parseWarpCost,
+  parseImpendingInfo,
 } from "../../state/modules/alternate-costs.js";
 import { spellHasConvokeForCast } from "../../state/modules/casting-modifiers.js";
 import {
@@ -177,7 +178,11 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
       const resolvedWarpCost = alternateCostId === 'warp'
         ? (parseWarpCost(String(cardInHand.oracle_text || '')) || '')
         : '';
-      const resolvedKeywordAlternateCost = (!resolvedWarpCost && alternateCostId && alternateCostId !== 'normal' && alternateCostId !== 'alternate')
+      const resolvedImpendingInfo = alternateCostId === 'impending'
+        ? parseImpendingInfo(String(cardInHand.oracle_text || ''))
+        : null;
+      const resolvedImpendingCost = resolvedImpendingInfo?.cost || '';
+      const resolvedKeywordAlternateCost = (!resolvedWarpCost && !resolvedImpendingCost && alternateCostId && alternateCostId !== 'normal' && alternateCostId !== 'alternate')
         ? (parseKeywordAlternateManaCost(String(cardInHand.oracle_text || ''), alternateCostId) || '')
         : '';
       const resolvedRatherThanPayCost = alternateCostId === 'alternate'
@@ -299,6 +304,10 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
         socket.emit('error', { code: 'NO_WARP', message: 'This card does not have warp.' });
         return;
       }
+      if (alternateCostId === 'impending' && !resolvedImpendingCost) {
+        socket.emit('error', { code: 'NO_IMPENDING', message: 'This card does not have impending.' });
+        return;
+      }
       if (alternateCostId === 'suspend') {
         if (castSourceZone !== 'hand') {
           socket.emit('error', { code: 'INVALID_SUSPEND_ZONE', message: 'You can only suspend a card from your hand.' });
@@ -329,6 +338,8 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
                   ? resolvedMutateCost
                   : resolvedWarpCost
                     ? resolvedWarpCost
+                    : resolvedImpendingCost
+                      ? resolvedImpendingCost
                     : resolvedRatherThanPayCost
                       ? resolvedRatherThanPayCost
                     : resolvedKeywordAlternateCost

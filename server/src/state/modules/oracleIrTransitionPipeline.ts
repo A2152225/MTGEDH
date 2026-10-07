@@ -22,6 +22,8 @@ import {
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import type { GameContext } from '../context.js';
 import { movePermanentToExile, movePermanentToGraveyard } from './counters_tokens.js';
+import { movePermanentToHand } from './zones-handlers/zonesMovePermanentToHand.js';
+import { movePermanentToLibrary } from './zones-handlers/zonesMovePermanentToLibrary.js';
 import { inferCommanderExileFollowup } from './commanderExileFollowup.js';
 import { calculateModifiedDamage, resolveOpponentDirectedDamage } from './game-state-effects.js';
 
@@ -371,7 +373,13 @@ export function createOracleIRServerExecutionBridge(args: {
         args.haltState.halted = true;
         args.haltState.deferred = [...deferred];
         args.onDeferred?.(args.haltState.deferred);
-        return { halt: true, deferred: args.haltState.deferred };
+        // Mass removal (Cleansing Nova, Austere Command) includes commanders and
+        // other permanents in one batch. Defer only the commander choice; the
+        // ready transitions still leave the battlefield.
+        if (ready.length > 0) {
+          commitOracleIRTransitionLedger(args.ledger, ready);
+        }
+        return { halt: true, deferred: args.haltState.deferred, ready };
       }
 
       commitOracleIRTransitionLedger(args.ledger, ready);
@@ -640,10 +648,17 @@ export function queueOracleIrDeferredReplacementPrompts(
             continuationSteps: params.continuationSteps,
           });
           movePermanentToExile(ctx, permanentId, followup);
-        } else if (destinationZone === 'library' || destinationZone === 'hand') {
-          // Warp World already wrote the commander via IR; do not treat library/hand
-          // as a graveyard 903.9a. Continuation stays on pending resume JSON.
-          continue;
+        } else if (destinationZone === 'hand') {
+          // CR 903.9b: bounce to hand is a replacement, not a graveyard SBA.
+          // The IR step leaves the commander on the battlefield; this prompt
+          // offers command zone instead of hand (Evacuation).
+          movePermanentToHand(ctx, permanentId);
+        } else if (destinationZone === 'library') {
+          const placement = String(
+            (transition.event.metadata as { libraryPlacement?: string } | undefined)?.libraryPlacement || '',
+          ).trim().toLowerCase();
+          const position = placement === 'top' ? 'top' : placement === 'bottom' ? 'bottom' : 'shuffle';
+          movePermanentToLibrary(ctx, permanentId, position);
         } else {
           // graveyard / unknown: queue the graveyard commander choice.
           movePermanentToGraveyard(ctx, permanentId, true);

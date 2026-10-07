@@ -31,6 +31,7 @@ import { tryApplyMainLoopChoiceKeywordLookSteps } from './oracleIRExecutorMainLo
 import { tryApplyMainLoopMillPtTokenSteps } from './oracleIRExecutorMainLoopMillPtTokenSteps';
 import { tryApplyMainLoopCopyDestroySteps } from './oracleIRExecutorMainLoopCopyDestroySteps';
 import { tryApplyMainLoopLateSteps } from './oracleIRExecutorMainLoopLateSteps';
+import { matchOptionalHandOrBattlefieldInsteadChoice } from './oracleIRExecutorOptionalDestinationChoice';
 
 const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'add_mana',
@@ -569,6 +570,31 @@ export function applyOracleIRStepsToGameStateImpl(
         }
       );
       continue;
+    }
+    if (
+      matchOptionalHandOrBattlefieldInsteadChoice({
+        step,
+        followingStep: steps[relativeIndex + 1],
+        state: nextState,
+        ctx: currentCtx,
+        controllerId,
+        lastMovedCards,
+      })
+    ) {
+      recordSkippedStep(
+        step,
+        `Skipped optional step (choose hand or battlefield): ${(step as any).raw ?? step.kind}`,
+        'optional_step_requires_player_choice',
+        {
+          pending: true,
+          classification: 'player_choice',
+          metadata: {
+            moveZoneDestinationChoice: ['battlefield', 'hand'],
+          },
+        },
+      );
+      pendingContinuationSteps = steps.slice(relativeIndex + 2) as OracleEffectStep[];
+      break;
     }
     if (isOptional && !options.allowOptional && !optionalLookLibraryStep && !optionalAnyNumberDiscardStep) {
       if (options.declineOptionalSteps) {

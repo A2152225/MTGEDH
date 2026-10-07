@@ -47,6 +47,16 @@ const ENCHANTED_HAVE_RE =
   /(?:^|[.\n;])\s*(other\s+)?enchanted creatures you control have ([^.]+)/gi;
 const CREATURES_HAVE_RE =
   /(?:^|[.\n;])\s*(?:all )?creatures you control have ([^.]+)/gi;
+// "Other creatures you control with flying have indestructible." (Sephara, Sky's Blade)
+// "Creatures you control with flying get +1/+1." - keyword-qualified lords.
+const KEYWORD_QUALIFIED_GET_RE =
+  /(?:^|[.\n;])\s*(other\s+)?creatures you control with ([a-z][a-z ]*?) get\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/gi;
+const KEYWORD_QUALIFIED_HAVE_RE =
+  /(?:^|[.\n;])\s*(other\s+)?creatures you control with ([a-z][a-z ]*?) have ([^.]+)/gi;
+const QUALIFYING_KEYWORDS = new Set([
+  'flying', 'reach', 'vigilance', 'trample', 'deathtouch', 'lifelink', 'haste', 'menace',
+  'first strike', 'double strike', 'defender', 'hexproof', 'indestructible', 'flash', 'ward',
+]);
 const YOU_AND_OTHER_TYPE_HAVE_RE =
   /you and other ([a-z]+)s? you control have ([^.]+)/gi;
 
@@ -311,6 +321,38 @@ export function pushTypedAndKeywordLordSpecs(
       { abilities },
     ));
     pushPlayerAbilityGrantsFromList(specs, source, `you-and-other-${creatureType}`, abilities);
+  }
+
+  for (const match of text.matchAll(KEYWORD_QUALIFIED_GET_RE)) {
+    const keyword = String(match[2] || '').trim().toLowerCase();
+    if (!QUALIFYING_KEYWORDS.has(keyword)) continue;
+    const tail = match[4] || '';
+    if (tailHasUnsupportedConditional(tail)) continue;
+    const buff = parseBuffSegment(match[3] || '');
+    if (!buff) continue;
+    const isOther = Boolean(match[1]);
+    specs.push(buildSpec(
+      source,
+      `${isOther ? 'other-' : ''}with-${keyword.replace(/\s+/g, '-')}-creatures-lord`,
+      otherScope(isOther),
+      { power: buff.power, toughness: buff.toughness, abilities: parseLordAbilitiesFromTail(tail) },
+      { kind: 'target_has_keyword', keyword },
+    ));
+  }
+
+  for (const match of text.matchAll(KEYWORD_QUALIFIED_HAVE_RE)) {
+    const keyword = String(match[2] || '').trim().toLowerCase();
+    if (!QUALIFYING_KEYWORDS.has(keyword)) continue;
+    const abilities = parseLordAbilitiesFromTail(match[3] || '');
+    if (abilities.length === 0) continue;
+    const isOther = Boolean(match[1]);
+    specs.push(buildSpec(
+      source,
+      `${isOther ? 'other-' : ''}with-${keyword.replace(/\s+/g, '-')}-creatures-ability-grant`,
+      otherScope(isOther),
+      { abilities },
+      { kind: 'target_has_keyword', keyword },
+    ));
   }
 
   if (!/other creatures you control have/i.test(text)) {

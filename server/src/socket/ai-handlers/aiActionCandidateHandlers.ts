@@ -185,6 +185,18 @@ export function canAIAssembleManaPaymentPlan(
   return !validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
 }
 
+function aiCommanderIsInCommandZone(game: any, playerId: PlayerID): boolean {
+  const info = game?.state?.commandZone?.[playerId];
+  if (!info || Array.isArray(info)) return Array.isArray(info) && info.length > 0;
+  if (!Array.isArray(info.inCommandZone)) return false;
+  return info.inCommandZone.some((id: unknown) => String(id || '').trim().length > 0);
+}
+
+/** "{1}: Exile target card from a graveyard" and the same shape with a colored cost. */
+function isSingleGraveyardCardExileAbility(abilityText: string): boolean {
+  return /exile target card from (?:a|target) graveyard/i.test(abilityText);
+}
+
 function isAIPureManaAbilityAction(action: any): boolean {
   const abilityText = String(action?.abilityText || '').trim();
   if (!abilityText) return false;
@@ -209,6 +221,16 @@ export function canAIActivateBattlefieldAbilityNow(
   }
 
   if (isHandOnlyDiscardThisCardActivatedAbility(String(action?.abilityText || ''))) {
+    return false;
+  }
+
+  // Repeatable single-card graveyard exile (Keen-Eyed Curator) will otherwise
+  // spend every mana the AI could have used to cast its commander.
+  if (
+    isSingleGraveyardCardExileAbility(String(action?.abilityText || ''))
+    && (permanent as any).activatedThisTurn === true
+    && aiCommanderIsInCommandZone(game, playerId)
+  ) {
     return false;
   }
 

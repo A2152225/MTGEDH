@@ -305,6 +305,75 @@ describe('game stall detector', () => {
     fs.rmSync(reportDir, { recursive: true, force: true });
   });
 
+
+  it('still detects repeated AI failures when RQ step ids and pendingSpellCasts churn (busy cast loop)', async () => {
+    // G1 Horizon Chimera: every cast attempt minted a new payment RQ step id and
+    // pendingSpellCasts entry. Those used to flip the board fingerprint and reset
+    // the stall run, so auto-unstuck never fired on the busy loop.
+    setGameStallConfigOverrides({ repeatedAiFailureThreshold: 5, minStallDurationMs: 0 });
+    const gameId = 'stall_busy_cast';
+    const game = makeGame(gameId);
+    registerGameStallRuntime({ resolveGame: () => game });
+
+    // Seed the same RQ shape the busy loop keeps regenerating (unique ids each time).
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'pay_seed',
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: AI as any,
+      sourceName: 'Horizon Chimera',
+      status: 'pending',
+    } as any);
+    (game.state as any).pendingSpellCasts = { cast_seed: { cardId: 'chimera', playerId: AI } };
+    const baseFp = computeGameStallFingerprint(game, gameId).board;
+
+    for (let i = 0; i < 5; i++) {
+      (game.state as any).pendingSpellCasts = {
+        [`cast_effect_${i}_${Date.now()}`]: { cardId: 'chimera', playerId: AI },
+      };
+      ResolutionQueueManager.removeQueue(gameId);
+      ResolutionQueueManager.addStep(gameId, {
+        id: `pay_${i}_${Date.now()}`,
+        type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+        playerId: AI as any,
+        sourceName: 'Horizon Chimera',
+        status: 'pending',
+      } as any);
+      const churnFp = computeGameStallFingerprint(game, gameId).board;
+      expect(churnFp).toBe(baseFp);
+
+      noteGameStallAiFailure(
+        gameId,
+        AI,
+        new Error(`duplicate completeCastSpell for chimera already on stack`),
+        'completeCastSpellAlreadyOnStack',
+      );
+      observeGameStallAiActionById(gameId, AI, 'priority');
+    }
+    await flushTimers();
+    expect(detections).toHaveLength(1);
+    expect(detections[0].rule).toBe('repeatedAiFailure');
+    expect(detections[0].stuckSeat).toBe(AI);
+  });
+
+  it('aiIdleNoProgress measures AI hold time, not board age (human thinking then passing)', async () => {
+    const gameId = 'stall_idle_human_think';
+    const game = makeGame(gameId, { humanSeat: true });
+    registerGameStallRuntime({ resolveGame: () => game, isAiSeat: (_g: string, pid: string) => pid === AI } as any);
+    const t0 = Date.now();
+    game.state.priority = HUMAN;
+    expect(checkGameStallIdle(game, gameId, t0)).toBeNull();
+    // Human holds priority for 60s with a frozen board, then passes to the AI.
+    game.state.priority = AI;
+    expect(checkGameStallIdle(game, gameId, t0 + 60_000)).toBeNull();
+    await flushTimers();
+    expect(detections).toHaveLength(0);
+    // AI then really holds priority past the idle timeout.
+    expect(checkGameStallIdle(game, gameId, t0 + 60_000 + 46_000)).not.toBeNull();
+    await flushTimers();
+    expect(detections).toHaveLength(1);
+    expect(detections[0].rule).toBe('aiIdleNoProgress');
+  });
+
   it('only treats clearly invalid stack items as orphaned', () => {
     const state = { players: [{ id: AI }] };
     expect(isOrphanedStackItem(null, state)).toBe(true);

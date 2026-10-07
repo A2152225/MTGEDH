@@ -373,6 +373,11 @@ export function tryParseSimpleActionDrawTurnClauses(args: SimpleActionClausePars
     if (drawIfCondition) {
       const who = parsePlayerSelector(drawIfCondition[1]);
       const amountRaw = String(drawIfCondition[2] || '').trim().replace(/\s+cards?$/i, '');
+      // "(?:may\s+)?" is optional in the regex — preserve optional so "that player may draw
+      // a card if ..." stays a may-choice after the condition (Ludevic, Necro-Alchemist).
+      const optionalDraw = /\bmay\b/i.test(String(drawClause || ''));
+      const subject = String(drawIfCondition[1] || '').trim();
+      const amountText = String(drawIfCondition[2] || '').trim();
       return withMeta({
         kind: 'conditional',
         condition: { kind: 'if', raw: String(drawIfCondition[3] || '').trim() },
@@ -380,7 +385,10 @@ export function tryParseSimpleActionDrawTurnClauses(args: SimpleActionClausePars
           kind: 'draw',
           who,
           amount: parseQuantity(amountRaw || 'a card'),
-          raw: `${String(drawIfCondition[1] || '').trim()} draws ${String(drawIfCondition[2] || '').trim()}`,
+          ...(optionalDraw ? { optional: true as const } : {}),
+          raw: optionalDraw
+            ? `${subject} may draw ${amountText}`
+            : `${subject} draws ${amountText}`,
         } as OracleEffectStep],
         raw: rawClause,
       } as OracleEffectStep);

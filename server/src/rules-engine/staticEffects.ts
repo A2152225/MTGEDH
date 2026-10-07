@@ -242,7 +242,7 @@ export function computeContinuousEffects(
 
     // Creatures you control get +X/+Y (and maybe abilities)
     const ctrlBuffMatches = !leylineLifeMatch && !tokenBuffMatch && !nontokenBuffMatch && !tokenTurnBuffMatch && !legendaryCtrlBuffMatch
-      ? oracle.match(/(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/)
+      ? oracle.match(/(?<!nontoken )(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/)
       : null;
     if (ctrlBuffMatches) {
       const buffSeg = ctrlBuffMatches[1];

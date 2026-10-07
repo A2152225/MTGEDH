@@ -69,11 +69,38 @@ export function CentralStack({
     // Then check stack (for countering spells targeting other spells)
     const stackItem = stack.find(s => s.id === targetId);
     if (stackItem?.card) return stackItem.card as KnownCardRef;
+    const zoneHit = findZoneCard(targetId);
+    if (zoneHit?.card) return (zoneHit.card.card || zoneHit.card) as KnownCardRef;
     return undefined;
   };
   
-  // Helper to find target name from either battlefield or stack
-  const findPermanentName = (targetId: string): { name: string; controllerName?: string } | undefined => {
+  const findZoneCard = (
+    targetId: string,
+  ): { card: any; ownerId: string; zone: 'graveyard' | 'exile' } | undefined => {
+    for (const player of players || []) {
+      for (const zone of ['graveyard', 'exile'] as const) {
+        const cards = Array.isArray(player[zone]) ? player[zone] : [];
+        const card = cards.find((entry: any) => String(entry?.id || '') === targetId);
+        if (card) return { card, ownerId: player.id, zone };
+      }
+    }
+    return undefined;
+  };
+
+  const zoneCardName = (card: any): string | undefined => {
+    const direct = card?.name || card?.card?.name;
+    if (direct) return String(direct);
+    const faces = card?.card_faces || card?.card?.card_faces;
+    if (Array.isArray(faces) && faces[0]?.name) return String(faces[0].name);
+    return undefined;
+  };
+
+  // Helper to find target name from battlefield, stack, graveyard, or exile
+  const findPermanentName = (targetId: string): {
+    name: string;
+    controllerName?: string;
+    zone?: 'graveyard' | 'exile';
+  } | undefined => {
     // Check battlefield first
     if (battlefield) {
       const perm = battlefield.find(p => p.id === targetId);
@@ -104,6 +131,18 @@ export function CentralStack({
       }
     }
     
+    const zoneHit = findZoneCard(targetId);
+    if (zoneHit) {
+      const name = zoneCardName(zoneHit.card);
+      if (name) {
+        return {
+          name,
+          controllerName: getPlayerName(zoneHit.ownerId),
+          zone: zoneHit.zone,
+        };
+      }
+    }
+
     return undefined;
   };
   
@@ -122,7 +161,7 @@ export function CentralStack({
       const lookup = findPermanentName(targetId);
       if (lookup) {
         displayName = lookup.name;
-        displayControllerName = displayControllerName || lookup.controllerName;
+        if (!lookup.zone) displayControllerName = displayControllerName || lookup.controllerName;
       }
     }
     
@@ -485,9 +524,7 @@ export function CentralStack({
                     <span style={{ color:'#9ca3af' }}>→</span>
                     <span style={{ fontWeight:'500', display:'flex', flexWrap:'wrap', gap:4 }}>
                       {targetDisplayDetails.map((t: any) => {
-                        const targetCard = (t.type === 'permanent' || t.type === 'spell' || t.type === 'ability')
-                          ? findTargetCard(t.id)
-                          : undefined;
+                        const targetCard = t.type === 'player' ? undefined : findTargetCard(t.id);
                         // Access extended target info properties
                         const extendedTarget = t as { id: string; type: string; name?: string; controllerId?: string; controllerName?: string };
                         
@@ -544,12 +581,18 @@ export function CentralStack({
                           );
                         } else {
                           // Permanent target - format with controller info and add hover preview
+                          const zoneLookup = findPermanentName(t.id);
                           const displayText = formatTargetDisplay(extendedTarget.name, undefined, undefined, t.id);
                           const controllerLabel = formatStackTargetControllerLabel(
                             extendedTarget.controllerId,
-                            extendedTarget.controllerName,
+                            extendedTarget.controllerName || zoneLookup?.controllerName,
                             getPlayerName,
                           );
+                          const zoneLabel = zoneLookup?.zone === 'graveyard'
+                            ? `in ${zoneLookup.controllerName || 'unknown'}'s graveyard`
+                            : zoneLookup?.zone === 'exile'
+                              ? `in ${zoneLookup.controllerName || 'unknown'}'s exile`
+                              : undefined;
                           const targetsYou = Boolean(you && extendedTarget.controllerId === you);
                           return (
                             <span 
@@ -583,7 +626,7 @@ export function CentralStack({
                                 {displayText}
                               </span>
                               <span style={{ color: targetsYou ? '#fecaca' : '#cbd5e1', marginLeft:4 }}>
-                                — controlled by {controllerLabel || 'unknown'}
+                                — {zoneLabel || `controlled by ${controllerLabel || 'unknown'}`}
                               </span>
                             </span>
                           );

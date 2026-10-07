@@ -443,6 +443,20 @@ export const COMMON_TOKENS: Record<string, TokenCharacteristics> = {
     toughness: 1,
     abilities: ['Hexproof'],
   },
+  'Gingerbrute': {
+    name: 'Gingerbrute',
+    colors: [],
+    types: ['Artifact', 'Creature'],
+    subtypes: ['Food', 'Golem'],
+    power: 1,
+    toughness: 1,
+    abilities: [
+      'Haste',
+      "{1}: This creature can't be blocked this turn except by creatures with haste.",
+      '{2}, {T}, Sacrifice this creature: You gain 3 life.',
+    ],
+    isArtifact: true,
+  },
   // Comp Rules 20260925 / 701.71 - Empower Jace predefined planeswalker token
   'Jace': {
     name: 'Jace',

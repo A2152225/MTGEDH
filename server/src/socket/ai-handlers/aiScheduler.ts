@@ -6,17 +6,19 @@
  *
  * Public entry symbols: aiEngine, aiPlayers, aiActionsInProgress, getAIActionKey,
  * clearScheduledAIAction, clearScheduledAIActionsForGame, scheduleAIGameFlow,
- * scheduleAIPriority, getAIPendingSpellCastStatus, runExclusiveAIAction.
+ * scheduleAIPriority, getAIPendingSpellCastStatus, runExclusiveAIAction,
+ * resetAIActionLocksForTests, getAIActionGenerationForTests.
  */
 import type { Server } from "socket.io";
+import { clearTimeout as nodeClearTimeout, setTimeout as nodeSetTimeout } from "node:timers";
 import { AIEngine, type AIPlayerConfig } from "../../../../rules-engine/src/AIEngine.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
 import { isGameRestoring } from "../../gameRestoreState.js";
-import { debug, debugError } from "../../utils/debug.js";
+import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
-import { AI_REACTION_DELAY_MS } from "./aiConstants.js";
-import { observeGameStallAiActionById } from "../../state/modules/gameStall/gameStallDetector.js";
+import { AI_EXCLUSIVE_ACTION_TIMEOUT_MS, AI_REACTION_DELAY_MS } from "./aiConstants.js";
+import { noteGameStallAiFailure, observeGameStallAiActionById } from "../../state/modules/gameStall/gameStallDetector.js";
 
 // Singleton AI Engine instance
 export const aiEngine = new AIEngine();
@@ -150,12 +152,25 @@ export function getAIPendingSpellCastStatus(gameId: string, game: any, playerId:
   };
 }
 
+/** Per-seat generation so a timed-out action cannot clear a newer seat's in-progress lock. */
+const aiActionGenerations = new Map<string, number>();
+
+export function getAIActionGenerationForTests(gameId: string, playerId: PlayerID): number {
+  return aiActionGenerations.get(getAIActionKey(gameId, playerId)) || 0;
+}
+
+export function resetAIActionLocksForTests(): void {
+  aiActionsInProgress.clear();
+  aiActionGenerations.clear();
+}
+
 export async function runExclusiveAIAction(
   io: Server,
   gameId: string,
   playerId: PlayerID,
   kind: AIScheduledActionKind,
   action: () => Promise<void>,
+  options?: { readonly timeoutMs?: number },
 ): Promise<void> {
   const key = getAIActionKey(gameId, playerId);
   if (aiActionsInProgress.has(key)) {
@@ -164,15 +179,57 @@ export async function runExclusiveAIAction(
     return;
   }
 
+  const generation = (aiActionGenerations.get(key) || 0) + 1;
+  aiActionGenerations.set(key, generation);
   aiActionsInProgress.add(key);
   let aiActionError: unknown;
+  let timedOut = false;
+  const timeoutMs = Math.max(
+    1_000,
+    Number(options?.timeoutMs ?? AI_EXCLUSIVE_ACTION_TIMEOUT_MS) || AI_EXCLUSIVE_ACTION_TIMEOUT_MS,
+  );
+
+  // Use node:timers (not globalThis.setTimeout) so vitest spies that stub the global
+  // for AI scheduling drains cannot instantly fire this hang-safety timeout.
+  let timeoutHandle: ReturnType<typeof nodeSetTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = nodeSetTimeout(() => {
+      timedOut = true;
+      reject(new Error(`AI ${kind} action timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    timeoutHandle.unref?.();
+  });
+
   try {
-    await action();
+    await Promise.race([action(), timeoutPromise]);
   } catch (err) {
     aiActionError = err;
-    throw err;
+    if (timedOut) {
+      // Invalidate this generation so a late-finishing action cannot clear a newer lock.
+      aiActionGenerations.set(key, generation + 1);
+      aiActionsInProgress.delete(key);
+      debugWarn(1, `[AI] ${kind} exclusive action timed out; releasing lock and bailing`, {
+        gameId,
+        playerId,
+        timeoutMs,
+      });
+      noteGameStallAiFailure(gameId, playerId, err, `runExclusiveAIAction:${kind}:timeout`);
+      try {
+        // Dynamic import avoids a static cycle with aiPriorityPassCombatExecutors -> aiScheduler.
+        const passMod = await import("./aiPriorityPassCombatExecutors.js");
+        await passMod.executePassPriority(io, gameId, playerId, { allowActiveMainPhaseAutoAdvance: true });
+      } catch (passErr) {
+        debugWarn(1, '[AI] Timeout bail pass failed; scheduling priority follow-up', passErr);
+        scheduleAIActionInternal(io, gameId, playerId, kind, 25);
+      }
+    } else {
+      throw err;
+    }
   } finally {
-    aiActionsInProgress.delete(key);
+    if (timeoutHandle) nodeClearTimeout(timeoutHandle);
+    if (aiActionGenerations.get(key) === generation) {
+      aiActionsInProgress.delete(key);
+    }
     // Game-stall detector: one observation per AI action (see state/modules/gameStall).
     observeGameStallAiActionById(gameId, String(playerId), kind, aiActionError);
   }

@@ -576,7 +576,7 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   const hasOtherTypeLordPattern = /other\s+[a-z]+\s+creatures?\s+you\s+control\s+get/i.test(oracle);
 
   const monumentMatch = oracle.match(
-    /(?<!other )(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/i,
+    /(?<!other )(?<!nontoken )(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/i,
   );
   if (monumentMatch) {
     const buff = parseBuffSegment(monumentMatch[1]);
@@ -600,7 +600,7 @@ export function parseStaticEffectSpecsFromOraclePermanent(
       && !hasOtherTypeLordPattern
       && !legendaryMatch
       && !legendaryHaveMatch
-      ? oracle.match(/(?<!other )(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/i)
+      ? oracle.match(/(?<!other )(?<!nontoken )(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/i)
       : null;
     if (anthemMatch) {
       const buff = parseBuffSegment(anthemMatch[1]);

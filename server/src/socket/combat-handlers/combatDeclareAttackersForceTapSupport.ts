@@ -357,7 +357,7 @@ export function processTapTriggersForAttackers(
       const creature = battlefield.find((p: any) => p?.id === attacker.creatureId);
       if (!creature) continue;
 
-      const hasVigilance = permanentHasKeyword(creature, battlefield, attackingPlayerId, 'vigilance');
+      const hasVigilance = permanentHasKeyword(creature, battlefield, attackingPlayerId, 'vigilance', game?.state);
       if (!hasVigilance && creature.tapped) {
         tappedAttackerIds.push(String(creature.id));
       }

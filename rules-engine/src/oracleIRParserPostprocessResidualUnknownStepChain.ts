@@ -268,6 +268,10 @@ function parseCurrentResidualUnknownStep(step: OracleEffectStep): readonly Oracl
 
   if (/^for\b/i.test(raw)) {
     if (/^for each opponent,\s+(?:exile|return)\s+/i.test(raw)) return null;
+    // Pairing is executed by the following gain_control step (1:1 different opponents).
+    if (/^for each of those permanents,\s*choose a different opponent$/i.test(raw)) {
+      return [];
+    }
     return staticMetadata('for residual', raw);
   }
 

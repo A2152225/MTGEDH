@@ -37,6 +37,7 @@ import {
 import { copyAsEntersCopiableChoicesFromSource } from "../../../../../shared/src/copyTokenUtils.js";
 import { getCountersTokensHandlerDeps } from "./countersTokensHandlerDeps.js";
 import { applyGraveyardTypeEntryCounterGrants } from "../graveyardTypeEntryCounterBonus.js";
+import { applyBattlefieldTypeEntryCounterGrants } from "../battlefieldTypeEntryCounterBonus.js";
 
 function runSBA(ctx: GameContext): void {
   getCountersTokensHandlerDeps().runSBA(ctx);
@@ -368,7 +369,8 @@ export function createToken(
     }
     state.battlefield.push(tokenPerm);
     stampPermanentEntryTimestamp(state, tokenPerm);
-    applyGraveyardTypeEntryCounterGrants(state, tokenPerm, String(controller));
+    applyBattlefieldTypeEntryCounterGrants(state, tokenPerm, String(controller));
+  applyGraveyardTypeEntryCounterGrants(state, tokenPerm, String(controller));
 
     if (!tokenPerm.card.image_uris?.normal && !tokenPerm.card.image_uris?.small) {
       void resolveTokenPrinting(tokenSpec).then((resolved) => {
@@ -518,7 +520,8 @@ export function createCopyTokensOfCard(
 
     state.battlefield.push(tokenPerm);
     stampPermanentEntryTimestamp(state, tokenPerm);
-    applyGraveyardTypeEntryCounterGrants(state, tokenPerm, String(controller));
+    applyBattlefieldTypeEntryCounterGrants(state, tokenPerm, String(controller));
+  applyGraveyardTypeEntryCounterGrants(state, tokenPerm, String(controller));
 
     // Fire ETB triggers for the copy token.
     try {

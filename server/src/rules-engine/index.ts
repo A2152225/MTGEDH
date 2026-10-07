@@ -12,6 +12,7 @@ import { sumActiveTemporaryPTMods } from '../state/modules/temporaryPtMods.js';
 import { sumLongDurationPtModifiers } from '../state/modules/longDurationPtModifiers.js';
 import { applyLayer7bSetBasePowerToughness } from '../state/modules/setBasePtTimestampResolution.js';
 import { stripCreateTokenGrantedAbilities } from '../../../rules-engine/src/oracleReminderText.js';
+import { getContinuousGrantedAbilitiesForPermanent } from '../state/modules/staticEffectSpec.js';
 
 /**
  * Parse power/toughness value from string or number
@@ -244,6 +245,16 @@ function hasIndestructible(state: Readonly<GameState>, perm: BattlefieldPermanen
 
   if (permanentHasCounterGrantedAbility(state, perm, 'indestructible')) {
     return true;
+  }
+
+  // Static grants from other permanents (Avacyn, Sephara "other creatures you control
+  // with flying have indestructible", etc.) via the derived continuous-effects view.
+  try {
+    if (getContinuousGrantedAbilitiesForPermanent(perm, state).includes('indestructible')) {
+      return true;
+    }
+  } catch {
+    // best-effort only
   }
 
   return false;

@@ -207,7 +207,7 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
     });
   }
 
-  const mayhemMatch = text.match(/mayhem\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  const mayhemMatch = text.match(/mayhem\s*[Ã¢â‚¬â€-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
   if (mayhemMatch) {
     costs.push({
       id: 'mayhem',
@@ -217,14 +217,14 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
     });
   }
 
-  const webSlingingMatch = text.match(/web-slinging\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  const webSlingingMatch = text.match(/web-slinging\s*[Ã¢â‚¬â€-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
   if (webSlingingMatch) {
     costs.push({
       id: 'web_slinging',
       label: 'Web-slinging',
-      description: 'Return a tapped creature you control to its owner’s hand',
+      description: 'Return a tapped creature you control to its ownerÃ¢â‚¬â„¢s hand',
       manaCost: webSlingingMatch[1],
-      additionalCost: 'Return a tapped creature you control to its owner’s hand',
+      additionalCost: 'Return a tapped creature you control to its ownerÃ¢â‚¬â„¢s hand',
     });
   }
 
@@ -236,6 +236,20 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
       label: 'Warp',
       description: 'Cast for warp cost; exile at the beginning of the next end step',
       manaCost: warpMatch[1],
+    });
+  }
+
+  // Impending N-{cost}: enters with N time counters; is not a creature until the last is removed
+  const impendingMatch = text.match(/impending\s+(\d+)\s*[-\u2013\u2014]\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (impendingMatch) {
+    const impendingN = Number.parseInt(String(impendingMatch[1] || ''), 10);
+    costs.push({
+      id: 'impending',
+      label: Number.isFinite(impendingN) ? `Impending ${impendingN}` : 'Impending',
+      description: Number.isFinite(impendingN)
+        ? `Cast for impending cost; enters with ${impendingN} time counters and is not a creature until the last is removed`
+        : 'Cast for impending cost; enters with time counters and is not a creature until the last is removed',
+      manaCost: impendingMatch[2],
     });
   }
 
@@ -254,7 +268,7 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
   }
   
   // Prototype (smaller stats, cheaper cost) - Phyrexian construct cards
-  const prototypeMatch = text.match(/prototype\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*[-—]\s*(\d+)\/(\d+)/i);
+  const prototypeMatch = text.match(/prototype\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*[-Ã¢â‚¬â€]\s*(\d+)\/(\d+)/i);
   if (prototypeMatch) {
     costs.push({
       id: 'prototype',
@@ -358,7 +372,7 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
   
   // Suspend - exile with time counters, cast for free when last counter removed
   if (lowerText.includes('suspend')) {
-    const suspendMatch = text.match(/suspend\s+(\d+)[—\-]\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+    const suspendMatch = text.match(/suspend\s+(\d+)[Ã¢â‚¬â€\-]\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
     if (suspendMatch) {
       costs.push({
         id: 'suspend',

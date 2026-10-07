@@ -28,6 +28,7 @@ import { resolveSubtypeOrCompoundBattlefieldPermanents } from './oracleIRExecuto
 import { typeLineHasSubtype } from './oracleIRExecutorBattlefieldSubtypeUtils';
 import { normalizeBattlefieldTargetReferenceText } from './oracleIRExecutorBattlefieldTargetReferenceText';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
+import { readCurrentPowerFromHook, readCurrentToughnessFromHook } from './currentPowerToughnessHook';
 import {
   resolveAttachedReferenceTargets,
   resolveMassCreatureRestrictionTargets,
@@ -72,6 +73,9 @@ export function resolveDirectBattlefieldPermanents(
     });
     if (controlledMatches.length === 1) return controlledMatches;
   }
+
+  const compoundRestricted = resolveCompoundTypesOrRestrictedCreatureTarget(battlefield, targetText, ctx);
+  if (compoundRestricted !== null) return compoundRestricted;
 
   const attachedMatches = resolveAttachedReferenceTargets(battlefield, targetText, ctx);
   if (attachedMatches !== null) return attachedMatches;
@@ -769,3 +773,53 @@ export function resolveGrantTemporaryMassTargets(
   return null;
 }
 
+/**
+ * "target artifact, enchantment, or creature with power 4 or greater" (Exorcise) - the
+ * stat restriction binds only to the final "creature"; the other listed types are
+ * unrestricted. Returns null when the text is not this template.
+ */
+function resolveCompoundTypesOrRestrictedCreatureTarget(
+  battlefield: readonly BattlefieldPermanent[],
+  targetText: string,
+  ctx: OracleIRExecutionContext,
+): BattlefieldPermanent[] | null {
+  const match = String(targetText || '').trim().match(
+    /^target ((?:[a-z]+,\s*)*[a-z]+),?\s+or\s+creature with (power|toughness|mana value) (\d+) or (greater|less)$/i,
+  );
+  if (!match) return null;
+  const otherTypes = String(match[1] || '')
+    .split(/\s*,\s*/)
+    .map((word) => parseSimplePermanentTypeFromText(word))
+    .filter((type): type is NonNullable<typeof type> => Boolean(type));
+  if (otherTypes.length === 0) return null;
+  const stat = String(match[2] || '').toLowerCase();
+  const threshold = Number(match[3]);
+  const atLeast = String(match[4] || '').toLowerCase() === 'greater';
+  const pseudoState = { battlefield };
+  const readStat = (perm: any): number | undefined => {
+    if (stat === 'mana value') {
+      return readCharacteristicNumber(perm?.card?.cmc, perm?.card?.mana_value, perm?.cmc);
+    }
+    const counters = perm?.counters || {};
+    const counterDelta = Number(counters['+1/+1'] || 0) - Number(counters['-1/-1'] || 0);
+    const hooked = stat === 'power'
+      ? readCurrentPowerFromHook(pseudoState, perm)
+      : readCurrentToughnessFromHook(pseudoState, perm);
+    if (hooked !== null) return hooked;
+    const printed = readCharacteristicNumber(perm?.[stat], perm?.card?.[stat]);
+    return printed === undefined ? undefined : printed + counterDelta;
+  };
+  const isLegal = (perm: any): boolean => {
+    if (otherTypes.some((type) => permanentMatchesType(perm, type))) return true;
+    if (!permanentMatchesType(perm, 'creature')) return false;
+    const value = readStat(perm);
+    if (value === undefined) return false;
+    return atLeast ? value >= threshold : value <= threshold;
+  };
+  const boundIds = collectBoundBattlefieldIds(ctx);
+  const bound = battlefield.filter((perm: any) => boundIds.includes(String(perm?.id || '').trim()) && isLegal(perm));
+  if (bound.length > 0) return bound.slice(0, 1);
+  if (boundIds.length > 0) return [];
+  const legal = battlefield.filter(isLegal);
+  return legal.length === 1 ? legal : [];
+}

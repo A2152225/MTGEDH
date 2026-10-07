@@ -146,11 +146,28 @@ export function collectGameStallPendingPrompts(game: any, gameId?: string): Game
 }
 
 /** Legacy `pending*` state fields with their key counts (keeps the fingerprint cheap). */
+/** Pending* keys that churn on every cast/payment attempt without real board progress.
+ * Including them in the stall fingerprint made busy AI cast loops look like continuous
+ * progress (G1 Horizon Chimera), so auto-unstuck never accumulated repeatedAi* counts.
+ */
+const VOLATILE_PENDING_FINGERPRINT_KEYS = new Set([
+  'pendingSpellCasts',
+  'pendingSpellCast',
+  'pendingCasts',
+  'pendingManaPayments',
+  'pendingManaPayment',
+  'pendingPayments',
+  'pendingPayment',
+  'pendingResolutions',
+  'pendingResolution',
+]);
+
 export function collectLegacyPendingStateSummary(state: any): Record<string, number> {
   const summary: Record<string, number> = {};
   if (!state || typeof state !== 'object') return summary;
   for (const key of Object.keys(state)) {
     if (!key.startsWith('pending')) continue;
+    if (VOLATILE_PENDING_FINGERPRINT_KEYS.has(key)) continue;
     const value = state[key];
     if (value === null || value === undefined || value === false) continue;
     if (Array.isArray(value)) {
@@ -227,7 +244,9 @@ export function computeGameStallFingerprint(game: any, gameId?: string): GameSta
     parts.push(`combat=${stableStringify(state.attackersDeclaredBy)}|${stableStringify(state.blockersDeclaredBy)}`);
 
     const prompts = collectGameStallPendingPrompts(game, gameId);
-    parts.push(`rq=${prompts.map((p) => `${p.id}:${p.type}:${p.playerId}:${p.status}`).join(',')}`);
+    // Bucket open RQ prompts by type/player/status only — unique step ids change every
+    // cast-payment attempt and were resetting the stall run (busy loop looked like progress).
+    parts.push(`rq=${prompts.map((p) => `${p.type}:${p.playerId}:${p.status}`).sort().join(',')}`);
     parts.push(`legacy=${stableStringify(collectLegacyPendingStateSummary(state))}`);
 
     const boardText = parts.join('\n');

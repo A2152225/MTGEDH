@@ -120,7 +120,7 @@ const ORACLE_LIFE_GAIN_REPLACEMENT_TEMPLATES: readonly OracleLifeGainReplacement
   },
   {
     templateId: 'controller-life-gain-plus-1-if-25-life',
-    oracleMustIncludeAll: ['if you would gain life', '25 or more life', 'that much life plus 1'],
+    oracleMustIncludeAll: ['if you would gain life and you have 25 or more life', 'that much life plus 1'],
     spec: {
       event: 'life-gain',
       match: { gainingPlayerIsSourceController: true, gainingPlayerLifeGte: 25 },
@@ -132,7 +132,8 @@ const ORACLE_LIFE_GAIN_REPLACEMENT_TEMPLATES: readonly OracleLifeGainReplacement
   {
     templateId: 'controller-life-gain-plus-1',
     oracleMustIncludeAll: ['if you would gain life', 'that much life plus 1'],
-    oracleMustExcludeAny: ['25 or more life'],
+    // Current Angel of Vitality text keeps "25 or more life" in a separate P/T sentence.
+    oracleMustExcludeAny: ['if you would gain life and you have 25 or more life'],
     spec: {
       event: 'life-gain',
       match: { gainingPlayerIsSourceController: true },

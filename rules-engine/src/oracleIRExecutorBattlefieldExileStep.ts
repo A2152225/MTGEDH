@@ -9,7 +9,6 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { BattlefieldStepHandlerResult } from './oracleIRExecutorBattlefieldStepTypes';
 import { annotateBattlefieldExilesWithSource } from './oracleIRExecutorBattlefieldAnnotateExiles';
 import { collectBoundBattlefieldIds } from './oracleIRExecutorBattlefieldBoundIds';
-import { getChosenObjectIdsFromContext } from './oracleIRExecutorBattlefieldCardZoneLocation';
 import { readCharacteristicNumber } from './oracleIRExecutorBattlefieldCharacteristicNumber';
 import { parseContextualBattlefieldReference } from './oracleIRExecutorBattlefieldContextualResolvers';
 import { DISTRIBUTE_WORD_TO_NUMBER } from './oracleIRExecutorBattlefieldDistributeWordToNumber';
@@ -48,6 +47,7 @@ import { tryApplyExileTargetCardFromGraveyard } from './oracleIRExecutorExileGra
 import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
 import { parseReferencedPossessiveZonePhrase, resolveReferencedPlayerZone } from './oracleIRExecutorReferenceUtils';
 import { trySpecialExileStep } from './oracleIRExecutorSpecialTargetHandlers';
+import { tryApplyForEachOpponentExileStep } from './oracleIRExecutorExileForEachOpponentTargets';
 import { bridgedZoneStepResult } from './oracleIRStepLedgerRuntime';
 
 export function applyExileStep(
@@ -61,62 +61,8 @@ export function applyExileStep(
   const special = trySpecialExileStep(state, step, ctx);
   if (special) return special;
 
-  const exileRaw = String(step.raw || '').trim();
-  if (/^for each opponent,\s+exile\s+/i.test(exileRaw)) {
-    const controllerId = String(ctx.controllerId || '').trim() as PlayerID;
-    const opponents = (state.players || [])
-      .map((entry: any) => String(entry?.id || '').trim())
-      .filter((id) => id && id !== controllerId);
-    const chosenIds = getChosenObjectIdsFromContext(ctx);
-    let workingState = state;
-    const combinedLog: string[] = [];
-    const exiledSnapshots: any[] = [];
-    let battlefieldNow = [...((workingState.battlefield || []) as any[])];
-
-    for (const opponentId of opponents) {
-      const boundForOpponent = chosenIds.filter((id) => {
-        const perm = battlefieldNow.find((p) => String(p?.id || '').trim() === id);
-        return (
-          perm &&
-          String(perm?.controller || '').trim() === opponentId &&
-          permanentMatchesType(perm, 'creature')
-        );
-      });
-      const targetId =
-        boundForOpponent[0] ||
-        String(
-          battlefieldNow.find(
-            (p) =>
-              String(p?.controller || '').trim() === opponentId && permanentMatchesType(p, 'creature'),
-          )?.id || '',
-        ).trim();
-      if (!targetId) continue;
-      const toRemove = battlefieldNow.filter((p) => String(p?.id || '').trim() === targetId);
-      if (toRemove.length === 0) continue;
-      const removedIds = new Set(toRemove.map((p) => String(p?.id || '').trim()));
-      const kept = battlefieldNow.filter((p) => !removedIds.has(String(p?.id || '').trim()));
-      const result = finalizeBattlefieldRemoval(
-        workingState,
-        toRemove,
-        removedIds,
-        kept,
-        'exile',
-        'exiled',
-        oracleIrBattlefieldRemovalOptions(ctx, 'exile'),
-      );
-      workingState = result.state;
-      battlefieldNow = [...((workingState.battlefield || []) as any[])];
-      combinedLog.push(...(result.log || []));
-      exiledSnapshots.push(...toRemove);
-    }
-
-    return {
-      applied: true,
-      state: workingState,
-      log: combinedLog.length > 0 ? combinedLog : [`Exiled opponent creatures: ${exileRaw}`],
-      lastMovedCards: exiledSnapshots,
-    };
-  }
+  const forEachOpponent = tryApplyForEachOpponentExileStep(state, step, ctx);
+  if (forEachOpponent) return forEachOpponent;
 
   const normalizedExileTargetText = normalizeExileTargetReferenceText(
     String((step.target as any)?.text || step.raw || '')

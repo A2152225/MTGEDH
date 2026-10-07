@@ -57,13 +57,15 @@ const PORTRAIT_PROFILE: Omit<MobilePlayLayoutProfile, 'orientation' | 'isMobileP
   battlefieldGridCols: 4,
   zonesPanelWidth: 118,
   handExtraPadding: 36,
-  boardHeightPadding: 180,
+  boardHeightPadding: 120,
   playAreaTopOffset: 108,
   centerHandViewportFraction: 0.78,
   seatGapX: 56,
   seatGapY: 56,
   handStripThumbWidth: 76,
-  playAreaBottomInset: 168,
+  // Dock (~56) + hand strip header/Expand (~48) + thumb row (~106) + strip pad (~8) + buffer.
+  // Safe-area is subtracted separately in TableLayout via env(safe-area-inset-bottom).
+  playAreaBottomInset: 236,
 };
 
 const LANDSCAPE_PROFILE: Omit<MobilePlayLayoutProfile, 'orientation' | 'isMobilePlay' | 'mode' | 'showMobileChrome'> = {
@@ -72,13 +74,14 @@ const LANDSCAPE_PROFILE: Omit<MobilePlayLayoutProfile, 'orientation' | 'isMobile
   battlefieldGridCols: 6,
   zonesPanelWidth: 148,
   handExtraPadding: 48,
-  boardHeightPadding: 240,
+  boardHeightPadding: 160,
   playAreaTopOffset: 88,
   centerHandViewportFraction: 0.82,
   seatGapX: 72,
   seatGapY: 72,
   handStripThumbWidth: 76,
-  playAreaBottomInset: 128,
+  // Landscape dock (~52) + hand strip (~162) + buffer; safe-area via TableLayout env().
+  playAreaBottomInset: 200,
 };
 
 export function getMobilePlayLayoutProfile(

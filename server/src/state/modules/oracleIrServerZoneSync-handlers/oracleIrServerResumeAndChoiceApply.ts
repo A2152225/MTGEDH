@@ -729,7 +729,11 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
       selectorContext: {
         moveZoneDestination: destination,
         ...(priorChosenObjectIds.length > 0 ? { chosenObjectIds: priorChosenObjectIds } : {}),
+        ...(String(step?.oracleIrTargetPermanentId || '').trim()
+          ? { targetPermanentId: String(step.oracleIrTargetPermanentId).trim() }
+          : {}),
       },
+      allowOptional: true,
       ...(Number.isFinite(xValue) ? { xValue } : {}),
     });
   }

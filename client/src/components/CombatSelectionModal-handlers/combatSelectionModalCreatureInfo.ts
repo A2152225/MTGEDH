@@ -6,6 +6,7 @@
 import type { BattlefieldPermanent, KnownCardRef } from '../../../../shared/src';
 import { getCombinedPermanentText } from '../../utils/permanentText';
 import { getPermanentGoaders, isPermanentGoaded } from '../../utils/combatGoad';
+import { hasCurrentKeyword } from '../../utils/creatureUtils';
 
 /**
  * Dangerous combat abilities that players should be warned about
@@ -112,7 +113,16 @@ export function getCreatureInfo(perm: BattlefieldPermanent): {
   
   const imageUrl = card?.image_uris?.small || card?.image_uris?.normal;
   
-  const hasAbility = (keyword: string) => combinedText.includes(keyword);
+  // Keyword dangers must be the creature's OWN abilities (printed, granted, temporary,
+  // attached). A raw substring scan flagged lords like Sephara ("Other creatures you
+  // control with flying have indestructible") as having the keyword themselves.
+  const temporaryEffectText = (Array.isArray((perm as any).temporaryEffects) ? (perm as any).temporaryEffects : [])
+    .map((effect: any) => String(effect?.description || '').toLowerCase())
+    .join('\n');
+  const hasAbility = (keyword: string) => {
+    const kw = keyword.replace(/_/g, ' ');
+    return hasCurrentKeyword(perm, kw) || new RegExp(`\\b${kw}\\b`).test(temporaryEffectText);
+  };
   
   // Parse toxic value
   let toxicValue = 0;

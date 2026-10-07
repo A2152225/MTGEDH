@@ -102,6 +102,7 @@ import {
 import { passPriority } from "./turn-handlers/turnPassPriority.js";
 import { clearCombatState } from "./turn-handlers/turnClearCombatState.js";
 import { processPendingFlickerReturnsAtBeginningOfEndStep } from "./turn-handlers/turnFlickerEndStepReturns.js";
+import { processImpendingEndStepCounterRemoval } from "./impendingEffects.js";
 import { computeNextStepPhaseAdvance } from "./turn-handlers/turnStepPhaseAdvance.js";
 import { pushTurnStepTriggersToStack } from "./turn-handlers/turnStepPushTriggers.js";
 import { grantTurnStepPriority } from "./turn-handlers/turnStepPriorityGrant.js";
@@ -873,6 +874,8 @@ export function nextStep(ctx: GameContext) {
 
           // Best-effort delayed return processing (planeswalker templates, etc.)
           processPendingFlickerReturnsAtBeginningOfEndStep(ctx, turnPlayer);
+          // Impending (CR 702.176): remove a time counter at the beginning of your end step.
+          processImpendingEndStepCounterRemoval(ctx);
         }
         
         grantTurnStepPriority(ctx, turnPlayer, nextStep, isReplaying);

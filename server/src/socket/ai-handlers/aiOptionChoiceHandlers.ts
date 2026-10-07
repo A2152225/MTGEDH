@@ -82,6 +82,11 @@ export function chooseAIOptionSelectionsForStep(
 
   const resolveOptionId = (option: any): string => String(option?.id || option?.value || option || '');
 
+  if (step?.oracleIrMoveZoneDestinationChoice === true) {
+    const battlefield = options.find((option: any) => resolveOptionId(option) === 'battlefield');
+    return { selections: [resolveOptionId(battlefield || options[0])], cancelled: false };
+  }
+
   if (step?.legendRuleChoice === true) {
     // Prefer the nontoken card when otherwise equivalent. Tokens cease to exist
     // after leaving the battlefield, while the real card remains recoverable.

@@ -18,6 +18,7 @@ import {
   parseMutateCost,
   parseRatherThanPayThisSpellManaCost,
   parseWarpCost,
+  parseImpendingCost,
 } from "../../state/modules/alternate-costs.js";
 import { getMiracleCastInfo } from "../../state/modules/casting-modifiers.js";
 import { getMatchingGraveyardCastingPermission } from "../../state/modules/graveyard-permissions.js";
@@ -50,6 +51,9 @@ export function resolveEffectiveSpellBaseManaCost(pendingCast: any): string {
 
   if (forcedAlternateCostId === 'warp') {
     return String(parseWarpCost(oracleText) || rawManaCost || manaCost || '').trim();
+  }
+  if (forcedAlternateCostId === 'impending') {
+    return String(parseImpendingCost(oracleText) || rawManaCost || manaCost || '').trim();
   }
 
   if (forcedAlternateCostId === 'madness') {

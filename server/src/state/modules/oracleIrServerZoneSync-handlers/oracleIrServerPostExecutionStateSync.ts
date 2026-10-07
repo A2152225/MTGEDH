@@ -353,6 +353,33 @@ export function syncIrLinkedExilesFromOracleIRResult(
       located.controllerId,
     );
   }
+
+  // Chosen ids are battlefield permanent ids, which rarely equal the exiled card id.
+  // The executor stamps exiledWithSourceId on everything this source just exiled
+  // (multi-target "for each opponent" exiles like Grasp of Fate), so link those too.
+  const zones = (state as any).zones || {};
+  for (const [playerId, zone] of Object.entries(zones)) {
+    const exile = Array.isArray((zone as any)?.exile) ? (zone as any).exile : [];
+    for (const card of exile) {
+      const stampedSource = String(card?.exiledWithSourceId || card?.exiledWith || '').trim();
+      if (stampedSource !== exilingPermanentId) continue;
+      const cardId = String(card?.id || '').trim();
+      if (!cardId) continue;
+      const alreadyRegistered = state.linkedExiles.some((entry: any) =>
+        String(entry?.exilingPermanentId || '') === exilingPermanentId
+        && String(entry?.exiledCardId || '') === cardId,
+      );
+      if (alreadyRegistered) continue;
+      registerLinkedExile(
+        ctx,
+        exilingPermanentId,
+        exilingPermanentName,
+        card,
+        String(card?.owner || card?.ownerId || playerId),
+        String(card?.controller || card?.controllerId || playerId),
+      );
+    }
+  }
 }
 
 export function syncIrReanimationRidersFromOracleIRResult(

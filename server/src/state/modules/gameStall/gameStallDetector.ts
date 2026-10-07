@@ -132,6 +132,9 @@ export interface GameStallTracker {
   gameId: string;
   anchorBoard: string;
   anchorSince: number;
+  /** AI seat currently observed holding priority/prompt by the idle sweep, and since when. */
+  aiHoldSeat: string | null;
+  aiHoldSince: number;
   lastObservationAt: number;
   run: GameStallRun;
   window: GameStallActionEntry[];
@@ -193,6 +196,8 @@ function ensureTracker(gameId: string, boardFp: string, now: number): GameStallT
     gameId,
     anchorBoard: boardFp,
     anchorSince: now,
+    aiHoldSeat: null,
+    aiHoldSince: now,
     lastObservationAt: now,
     run: emptyRun(),
     window: [],
@@ -531,8 +536,10 @@ function dispatchDetection(tracker: GameStallTracker, game: any, detection: Game
 }
 
 function aiActionDetail(game: any, gameId: string, playerId: string, prompts: GameStallPendingPrompt[]): string {
+  // Use prompt *type* only — unique step ids would make repeatedAiAction never match
+  // across cast-payment churn (G1 Horizon Chimera busy loop).
   const own = prompts.find((prompt) => prompt.playerId === playerId);
-  let detail = own ? `step=${own.type}#${own.id}` : (String(game?.state?.priority ?? '') === playerId ? 'prio' : 'other');
+  let detail = own ? `step=${own.type}` : (String(game?.state?.priority ?? '') === playerId ? 'prio' : 'other');
   try {
     const extra = runtime.describeAiAction?.(gameId, playerId);
     if (extra) detail += `|${extra}`;
@@ -772,10 +779,21 @@ export function checkGameStallIdle(game: any, gameId: string, now = Date.now()):
       const aiPrompt = prompts.find((prompt) => prompt.playerId && isAiSeat(game, id, prompt.playerId));
       if (aiPrompt) seat = aiPrompt.playerId;
     }
-    if (!seat) return null;
-    if (now - tracker.anchorSince < cfg.aiIdleTimeoutMs) return null;
+    if (!seat) {
+      tracker.aiHoldSeat = null;
+      return null;
+    }
+    // Measure how long THIS AI seat has held priority/prompt, not just how long the board
+    // has been frozen. A human thinking for 60s then passing to an AI used to fire this
+    // rule instantly (G muxjp9tq turn 31 MAIN1 false positive).
+    if (tracker.aiHoldSeat !== seat) {
+      tracker.aiHoldSeat = seat;
+      tracker.aiHoldSince = now;
+    }
+    const heldSince = Math.max(tracker.anchorSince, tracker.aiHoldSince || now);
+    if (now - heldSince < cfg.aiIdleTimeoutMs) return null;
     const detection = buildDetection(tracker, id, 'aiIdleNoProgress',
-      `AI seat ${seat} has held priority/prompt for ${Math.round((now - tracker.anchorSince) / 1000)}s with no state change`,
+      `AI seat ${seat} has held priority/prompt for ${Math.round((now - heldSince) / 1000)}s with no state change`,
       seat, fingerprint, now);
     return dispatchDetection(tracker, game, detection) ? detection : null;
   } catch (err) {

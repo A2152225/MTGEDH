@@ -39,6 +39,8 @@ export type UpdateCountersOptions = {
   skipCounterModifications?: boolean;
   /** When true, do not append updateCounters to the event log (replay/applyEvent/oracle-IR batch paths). */
   skipEventPersistence?: boolean;
+  /** Oracle IR already queued the placement trigger for the full modified amount. */
+  skipCounterPlacedTriggers?: boolean;
 };
 
 function persistUpdateCountersEvent(
@@ -249,7 +251,9 @@ export function updateCounters(
   if (Object.prototype.hasOwnProperty.call(modifiedDeltas, 'loyalty')) {
     (p as any).loyalty = Number(current['loyalty'] || 0);
   }
-  queueCounterPlacedTriggers(ctx, p, permanentId, modifiedDeltas);
+  if (!options?.skipCounterPlacedTriggers) {
+    queueCounterPlacedTriggers(ctx, p, permanentId, modifiedDeltas);
+  }
   queueCounterRemovedTriggers(ctx, p, permanentId, removedDeltas);
 
   if (!options?.skipEventPersistence) {

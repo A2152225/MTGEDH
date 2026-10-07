@@ -319,7 +319,8 @@ export function appendCombatDamageDetectionEarly(state: CombatDamageDetectionSta
       triggerType: 'combat_damage_to_your_opponent',
       description: effectText,
       effect: effectText,
-      mandatory: !effectText.toLowerCase().includes('you may'),
+      // "its controller may draw a card" (Edric) is optional even without "you may".
+      mandatory: !/\bmay\b/i.test(effectText),
     });
   }
 

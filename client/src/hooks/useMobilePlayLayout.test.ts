@@ -26,7 +26,7 @@ describe('getMobilePlayLayoutProfile', () => {
     expect(profile.battlefieldViewportRows).toBe(2);
     expect(profile.battlefieldGridCols).toBe(4);
     expect(profile.showMobileChrome).toBe(true);
-    expect(profile.playAreaBottomInset).toBeGreaterThanOrEqual(168);
+    expect(profile.playAreaBottomInset).toBeGreaterThanOrEqual(236);
     expect(profile.handStripThumbWidth).toBeGreaterThanOrEqual(76);
   });
 

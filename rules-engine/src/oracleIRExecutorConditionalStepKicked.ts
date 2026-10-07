@@ -573,6 +573,22 @@ export function tryEvaluateConditionalKicked(
       const movedLand = movedCardsFromCtx(ctx, lastMovedCards).find((card: any) => cardHasType(card, 'land')) ?? null;
       if (movedLand) return matchesCardTypeDescriptor(movedLand, typeName);
 
+      // "That land" is the land that entered, which may sit beside a graveyard
+      // target in chosenObjectIds (Emeria Shepherd). Any bound land of the
+      // named type satisfies the condition.
+      const chosenIds = (Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds
+        : []
+      ).map((id) => String(id || '').trim()).filter(Boolean);
+      const chosenLands = chosenIds
+        .map((id) => battlefield.find((perm: any) => String(perm?.id || '').trim() === id))
+        .filter((perm): perm is NonNullable<typeof perm> =>
+          Boolean(perm) && battlefieldObjectHasType(perm, 'land'),
+        );
+      if (chosenLands.length > 0) {
+        return chosenLands.some((perm) => battlefieldObjectHasType(perm, typeName));
+      }
+
       const referencedId =
         getSingleChosenObjectId(ctx) ||
         String(ctx.targetPermanentId || '').trim() ||

@@ -426,6 +426,7 @@ export function finishPlayLandBattlefieldEntry(
             : {}),
           description: `Landfall - ${trigger.effect}`,
           triggerType: 'landfall',
+          triggeringLandId: String(newPermanent?.id || '').trim() || undefined,
           mandatory: trigger.mandatory,
           effect: trigger.effect,
           requiresChoice: trigger.requiresChoice,

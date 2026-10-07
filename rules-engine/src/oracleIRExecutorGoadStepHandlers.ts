@@ -33,7 +33,8 @@ export function applyGoadStep(
     };
   }
 
-  const nextState = applyGoadToCreatures(state, targetCreatureIds, controllerId);
+  const duration = step.duration === 'rest_of_game' ? 'rest_of_game' as const : 'until_your_next_turn' as const;
+  const nextState = applyGoadToCreatures(state, targetCreatureIds, controllerId, duration);
   if (!nextState) {
     return {
       applied: false,

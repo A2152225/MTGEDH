@@ -10,6 +10,7 @@
 import { debug } from "../../utils/debug.js";
 import type { PaymentItem } from "../../../../shared/src/index.js";
 import { stampReplayedGraveyardCastStackFlags } from "../../state/modules/stackReplayUtils.js";
+import { parseImpendingInfo } from "../../state/modules/alternate-costs.js";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
 
 export type StampCastSpellStackItemFromHandArgs = {
@@ -127,6 +128,13 @@ export function stampCastSpellStackItemFromHand(
                 (topStackItem as any).dashCostWasPaid = altLower === 'dash';
                 (topStackItem as any).blitzCostWasPaid = altLower === 'blitz';
                 (topStackItem as any).sneakCostWasPaid = altLower === 'sneak';
+                (topStackItem as any).impendingCostWasPaid = altLower === 'impending';
+                if (altLower === 'impending') {
+                  const impendingInfo = parseImpendingInfo(String((topStackItem as any)?.card?.oracle_text || ''));
+                  if (impendingInfo) {
+                    (topStackItem as any).impendingTimeCounters = impendingInfo.timeCounters;
+                  }
+                }
                 if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
                   (topStackItem as any).card.prowlCostWasPaid = (topStackItem as any).prowlCostWasPaid;
                   (topStackItem as any).card.surgeCostWasPaid = (topStackItem as any).surgeCostWasPaid;
@@ -136,6 +144,10 @@ export function stampCastSpellStackItemFromHand(
                   (topStackItem as any).card.dashCostWasPaid = (topStackItem as any).dashCostWasPaid;
                   (topStackItem as any).card.blitzCostWasPaid = (topStackItem as any).blitzCostWasPaid;
                   (topStackItem as any).card.sneakCostWasPaid = (topStackItem as any).sneakCostWasPaid;
+                  (topStackItem as any).card.impendingCostWasPaid = (topStackItem as any).impendingCostWasPaid;
+                  if ((topStackItem as any).impendingTimeCounters != null) {
+                    (topStackItem as any).card.impendingTimeCounters = (topStackItem as any).impendingTimeCounters;
+                  }
                 }
               }
 
@@ -315,6 +327,13 @@ export function stampCastSpellStackItemFromHand(
                 (topStackItem as any).dashCostWasPaid = altLower === 'dash';
                 (topStackItem as any).blitzCostWasPaid = altLower === 'blitz';
                 (topStackItem as any).sneakCostWasPaid = altLower === 'sneak';
+                (topStackItem as any).impendingCostWasPaid = altLower === 'impending';
+                if (altLower === 'impending') {
+                  const impendingInfo = parseImpendingInfo(String((topStackItem as any)?.card?.oracle_text || ''));
+                  if (impendingInfo) {
+                    (topStackItem as any).impendingTimeCounters = impendingInfo.timeCounters;
+                  }
+                }
                 if ((topStackItem as any).card && typeof (topStackItem as any).card === 'object') {
                   (topStackItem as any).card.prowlCostWasPaid = (topStackItem as any).prowlCostWasPaid;
                   (topStackItem as any).card.surgeCostWasPaid = (topStackItem as any).surgeCostWasPaid;
@@ -324,6 +343,10 @@ export function stampCastSpellStackItemFromHand(
                   (topStackItem as any).card.dashCostWasPaid = (topStackItem as any).dashCostWasPaid;
                   (topStackItem as any).card.blitzCostWasPaid = (topStackItem as any).blitzCostWasPaid;
                   (topStackItem as any).card.sneakCostWasPaid = (topStackItem as any).sneakCostWasPaid;
+                  (topStackItem as any).card.impendingCostWasPaid = (topStackItem as any).impendingCostWasPaid;
+                  if ((topStackItem as any).impendingTimeCounters != null) {
+                    (topStackItem as any).card.impendingTimeCounters = (topStackItem as any).impendingTimeCounters;
+                  }
                 }
               }
 

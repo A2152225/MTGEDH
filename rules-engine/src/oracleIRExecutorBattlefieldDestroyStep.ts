@@ -96,7 +96,7 @@ export function applyDestroyStep(
   // CR 702.12: indestructible is still a legal target; the destroy instruction is a no-op.
   // Special "destroy a permanent with indestructible" cards are handled above.
   const destroyable = toRemove.filter((perm) => {
-    if (!executorPermanentHasIndestructible(perm, battlefield)) return true;
+    if (!executorPermanentHasIndestructible(perm, battlefield, state)) return true;
     const name = String((perm as any)?.card?.name || (perm as any)?.name || perm.id || 'permanent');
     log.push(`${name} is indestructible and wasn't destroyed`);
     return false;

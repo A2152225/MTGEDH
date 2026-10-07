@@ -135,7 +135,20 @@ export function findCastableSpells(
         if (alreadyPresent) {
           debug(
             1,
-            `[AI] findCastableSpells: Skipping ${castCard?.name || cardId} — same card id already on battlefield (stale hand ghost)`,
+            `[AI] findCastableSpells: Skipping ${castCard?.name || cardId} - same card id already on battlefield (stale hand ghost)`,
+          );
+          return false;
+        }
+        const stack = Array.isArray(game.state?.stack) ? game.state.stack : [];
+        const alreadyOnStack = stack.some((item: any) =>
+          item
+          && String(item.controller || item.controllerId || '') === String(playerId)
+          && String(item.card?.id || item.cardId || '') === cardId,
+        );
+        if (alreadyOnStack) {
+          debug(
+            1,
+            `[AI] findCastableSpells: Skipping ${castCard?.name || cardId} - same card id already on stack (stale hand ghost)`,
           );
           return false;
         }

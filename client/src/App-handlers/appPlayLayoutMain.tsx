@@ -143,7 +143,7 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
   );
   return (
     <>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, width: "100%", maxWidth: "100%", overflow: "hidden", paddingRight: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, width: "100%", maxWidth: "100%", overflow: "hidden", paddingRight: 8, ...(showMobileChrome ? { flex: "1 1 auto", height: "100%", minHeight: 0, maxHeight: "100%", boxSizing: "border-box", paddingBottom: `calc(${mobilePlayLayout.playAreaBottomInset}px + env(safe-area-inset-bottom, 0px))` } : null) }}>
         {/* JOIN / ACTIVE GAMES (collapsible/accordion) - at very top */}
         <div
           style={{
@@ -742,6 +742,17 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
             padding: 4,
             position: "relative",
             minWidth: 0,
+            ...(showMobileChrome
+              ? {
+                  // flex:1 fills space left after Join/SeatStrip; do NOT set height:100%
+                  // or it ignores siblings and overflows the padded column.
+                  flex: "1 1 auto",
+                  minHeight: 0,
+                  overflow: "hidden",
+                  display: "flex",
+                  flexDirection: "column",
+                }
+              : null),
           }}
         >
           {safeView ? (

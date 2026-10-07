@@ -621,10 +621,16 @@ export function TableLayout(props: {
         }}
         style={{
           width: '100%',
+          // Mobile chrome: fill the OUTER table frame (parent already reserves dock/hand
+          // inset + status/seat chrome). Absolute 100dvh math over-counts because Join/
+          // SeatStrip sit above this node — that made the frame taller than the viewport
+          // and hid zoom +/- under the dock / off-screen.
           height: playAreaBottomInset > 0
-            ? `calc(100vh - ${PLAY_AREA_TOP_OFFSET}px - ${playAreaBottomInset}px)`
+            ? '100%'
             : `calc(100vh - ${PLAY_AREA_TOP_OFFSET}px)`,
-          minHeight: playAreaBottomInset > 0 ? 280 : 500,
+          maxHeight: playAreaBottomInset > 0 ? '100%' : undefined,
+          minHeight: playAreaBottomInset > 0 ? 240 : 500,
+          flex: playAreaBottomInset > 0 ? '1 1 auto' : undefined,
           overflow: 'hidden',
           ...tableContainerBg,
           border: '1px solid #222',

@@ -63,8 +63,12 @@ export function detectTokenCreatedTriggers(card: any, permanent: any): TokenCrea
     });
   }
 
-  const youCreateMatches = oracleText.matchAll(/whenever\s+you\s+create\s+(one or more\s+)?tokens?,?\s*([^.]+)/gi);
+  const youCreateMatches = oracleText.matchAll(/whenever\s+you\s+create\s+(one or more\s+)?(?:[a-z][a-z\s-]*?\s+)?tokens?,?\s*([^.]+)/gi);
   for (const match of youCreateMatches) {
+    const clause = String(match[0] || '').trim();
+    // create-or-sacrifice lines are handled above; the optional type group can
+    // greedily swallow "or sacrifice a" and double-queue the same trigger.
+    if (/\bcreate\s+or\s+sacrifice\b/i.test(clause)) continue;
     const effect = timingTriggerEffect(oracleText, match, 2);
     if (!effect) continue;
     triggers.push({
@@ -72,14 +76,14 @@ export function detectTokenCreatedTriggers(card: any, permanent: any): TokenCrea
       cardName,
       controllerId,
       triggerType: 'token_created',
-      oracleClause: String(match[0] || '').trim(),
+      oracleClause: clause,
       effect,
       mandatory: !/^you may\b/i.test(effect),
       perToken: !match[1],
     });
   }
 
-  const opponentCreateMatches = oracleText.matchAll(/whenever\s+an\s+opponent\s+creates\s+(one or more\s+)?tokens?,?\s*([^.]+)/gi);
+  const opponentCreateMatches = oracleText.matchAll(/whenever\s+an\s+opponent\s+creates\s+(one or more\s+)?(?:[a-z][a-z\s-]*?\s+)?tokens?,?\s*([^.]+)/gi);
   for (const match of opponentCreateMatches) {
     const effect = timingTriggerEffect(oracleText, match, 2);
     if (!effect) continue;

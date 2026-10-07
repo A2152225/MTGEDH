@@ -57,6 +57,8 @@ export {
   getAIActionKey,
   getAIPendingSpellCastStatus,
   runExclusiveAIAction,
+  resetAIActionLocksForTests,
+  getAIActionGenerationForTests,
   scheduleAIGameFlow,
   scheduleAIPriority,
 } from "./aiScheduler.js";

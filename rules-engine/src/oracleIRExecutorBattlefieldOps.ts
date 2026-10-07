@@ -666,7 +666,7 @@ function finalizeBattlefieldRemovalViaServerBridge(
   removed: readonly BattlefieldPermanent[],
   removedIds: ReadonlySet<string>,
   kept: readonly BattlefieldPermanent[],
-  destination: 'graveyard' | 'exile',
+  destination: 'graveyard' | 'exile' | 'hand',
   verbPastTense: string,
   options: FinalizeBattlefieldRemovalOptions,
 ): { state: GameState; log: string[] } {
@@ -692,7 +692,25 @@ function finalizeBattlefieldRemovalViaServerBridge(
       options.ctx.transitionHaltState.halted = true;
       options.ctx.transitionHaltState.deferred = [...(bridgeResult.deferred || [])];
     }
-    return { state, log: [] };
+    const ready = bridgeResult.ready ?? [];
+    if (ready.length === 0) {
+      return { state, log: [] };
+    }
+    // Commander (and other) replacements defer only those objects. Everyone
+    // else in the same destroy/bounce still leaves.
+    const destinationByPermId = mapTransitionsToExplicitDestinations(ready, destination);
+    const readyIds = new Set(destinationByPermId.keys());
+    const readyRemoved = removed.filter((perm) => readyIds.has(String((perm as any)?.id || '').trim()));
+    const deferredRemoved = removed.filter((perm) => !readyIds.has(String((perm as any)?.id || '').trim()));
+    const readyRemovedIds = new Set(readyRemoved.map((perm) => String((perm as any)?.id || '').trim()));
+    return finalizeBattlefieldRemovalWithExplicitDestinations(
+      state,
+      readyRemoved,
+      readyRemovedIds,
+      [...kept, ...deferredRemoved],
+      destinationByPermId,
+      verbPastTense,
+    );
   }
 
   const ready = bridgeResult.ready ?? transitions;
@@ -740,7 +758,7 @@ function finalizeBattlefieldRemovalDirect(
   removed: readonly BattlefieldPermanent[],
   removedIds: ReadonlySet<string>,
   kept: readonly BattlefieldPermanent[],
-  destination: 'graveyard' | 'exile',
+  destination: 'graveyard' | 'exile' | 'hand',
   verbPastTense: string,
 ): { state: GameState; log: string[] } {
   const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
@@ -852,7 +870,8 @@ export function bounceMatchingBattlefieldPermanentsToOwnersHands(
 
 export function moveBattlefieldPermanentsByIdToOwnersHands(
   state: GameState,
-  permanentIds: readonly string[]
+  permanentIds: readonly string[],
+  ctx?: OracleIRExecutionContext,
 ): { state: GameState; log: string[] } {
   const wanted = new Set(permanentIds.map(id => String(id || '').trim()).filter(Boolean));
   if (wanted.size === 0) return { state, log: [] };
@@ -873,6 +892,19 @@ export function moveBattlefieldPermanentsByIdToOwnersHands(
   }
 
   if (removed.length === 0) return { state, log: [] };
+
+  const bridgeOptions = ctx ? oracleIrBattlefieldRemovalBridgeOptions(ctx, 'move_zone') : undefined;
+  if (bridgeOptions?.ctx?.serverBridge) {
+    return finalizeBattlefieldRemovalViaServerBridge(
+      state,
+      removed,
+      removedIds,
+      kept,
+      'hand',
+      'returned',
+      bridgeOptions,
+    );
+  }
 
   const cleanedKept = cleanBattlefieldAfterRemovingIds(kept, removedIds);
   const players = (state.players || []).map(p => ({ ...p } as any));

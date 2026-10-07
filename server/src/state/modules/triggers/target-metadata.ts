@@ -1,3 +1,5 @@
+import { inferTriggeredAbilityTargetMetadata } from '../inferTriggeredAbilityTargetMetadata.js';
+
 export interface GenericTriggeredAbilityTargetMetadata {
   requiresTarget?: boolean;
   needsTargetSelection?: boolean;
@@ -6,6 +8,16 @@ export interface GenericTriggeredAbilityTargetMetadata {
   targetDescription?: string;
   minTargets?: number;
   maxTargets?: number;
+  targetZone?: 'graveyard';
+  targetDestination?: 'hand' | 'battlefield' | 'library_top' | 'library_bottom' | 'exile';
+  targetGraveyardScope?: 'your' | 'any' | 'opponent';
+  targetFilterTypes?: string[];
+  targetFilterRequiredTypeWords?: string[];
+  targetFilterExcludeTypes?: string[];
+  targetFilterPermanentOnly?: boolean;
+  targetAction?: 'cast';
+  destinationUsesSelectedCardOwner?: boolean;
+  battlefieldControllerMode?: 'selector' | 'owner';
 }
 
 function normalizeEffectText(effectText: string): string {
@@ -20,6 +32,36 @@ export function inferGenericTriggeredAbilityTargetMetadata(effectText: string): 
   }
   if (!/\btarget\b/.test(lower)) {
     return {};
+  }
+
+  const graveyardTarget = inferTriggeredAbilityTargetMetadata(normalized);
+  if (graveyardTarget.targetZone === 'graveyard') {
+    return {
+      requiresTarget: true,
+      needsTargetSelection: true,
+      ...(graveyardTarget.targetType ? { targetType: graveyardTarget.targetType } : {}),
+      targetDescription: graveyardTarget.targetType
+        ? `target ${graveyardTarget.targetType} card`
+        : 'target card',
+      ...(typeof graveyardTarget.minTargets === 'number' ? { minTargets: graveyardTarget.minTargets } : {}),
+      ...(typeof graveyardTarget.maxTargets === 'number' ? { maxTargets: graveyardTarget.maxTargets } : {}),
+      targetZone: 'graveyard',
+      ...(graveyardTarget.targetDestination ? { targetDestination: graveyardTarget.targetDestination } : {}),
+      ...(graveyardTarget.targetGraveyardScope ? { targetGraveyardScope: graveyardTarget.targetGraveyardScope } : {}),
+      ...(graveyardTarget.targetFilterTypes ? { targetFilterTypes: graveyardTarget.targetFilterTypes } : {}),
+      ...(graveyardTarget.targetFilterRequiredTypeWords
+        ? { targetFilterRequiredTypeWords: graveyardTarget.targetFilterRequiredTypeWords }
+        : {}),
+      ...(graveyardTarget.targetFilterExcludeTypes
+        ? { targetFilterExcludeTypes: graveyardTarget.targetFilterExcludeTypes }
+        : {}),
+      ...(graveyardTarget.targetFilterPermanentOnly ? { targetFilterPermanentOnly: true } : {}),
+      ...(graveyardTarget.targetAction ? { targetAction: graveyardTarget.targetAction } : {}),
+      ...(graveyardTarget.destinationUsesSelectedCardOwner ? { destinationUsesSelectedCardOwner: true } : {}),
+      ...(graveyardTarget.battlefieldControllerMode
+        ? { battlefieldControllerMode: graveyardTarget.battlefieldControllerMode }
+        : {}),
+    };
   }
 
   let targetType: string | undefined;

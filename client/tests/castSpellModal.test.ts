@@ -275,3 +275,18 @@ describe('resolveEffectiveManaCostForCastStep', () => {
     });
   });
 });
+
+describe('Impending alternate cost', () => {
+  it('offers Impending N as an alternate cast option with the impending mana cost', () => {
+    const oracle =
+      'Impending 4-{2}{W}{W} (If you cast this spell for its impending cost, it enters with four time counters and is not a creature until the last is removed.)\n' +
+      'Whenever this permanent enters or attacks, create two 2/1 white Insect creature tokens with flying.';
+    const costs = parseAlternateCosts(oracle, '{5}{W}{W}', 'Overlord of the Mistmoors');
+    const impending = costs.find((cost) => cost.id === 'impending');
+    expect(impending).toMatchObject({
+      id: 'impending',
+      label: 'Impending 4',
+      manaCost: '{2}{W}{W}',
+    });
+  });
+});

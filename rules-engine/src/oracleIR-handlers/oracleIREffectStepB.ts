@@ -304,6 +304,7 @@ export type OracleEffectStepB =
   | {
       readonly kind: 'goad';
       readonly target: OracleObjectSelector;
+      readonly duration?: 'until_your_next_turn' | 'rest_of_game';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

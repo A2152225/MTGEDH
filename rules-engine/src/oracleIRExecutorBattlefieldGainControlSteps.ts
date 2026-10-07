@@ -80,6 +80,103 @@ export function applyGainControlStep(
     .trim()
     .toLowerCase();
 
+  // Generic: each opponent gains control of a different permanent put onto the battlefield this way
+  // (Dack Fayden, Helping Hand / "for each of those permanents, choose a different opponent").
+  if (
+    /(?:each opponent gains control of the permanent for which they were chosen|gains control of the permanent for which (?:they|it) (?:were|was) chosen)/i.test(raw)
+    || (
+      step.newController?.kind === 'each_opponent'
+      && step.what?.kind === 'raw'
+      && /permanent for which they were chosen|those permanents|each of those permanents/i.test(String((step.what as any).text || ''))
+    )
+  ) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const opponentIds = resolvePlayers(state, { kind: 'each_opponent' } as any, ctx)
+      .map((id) => String(id || '').trim())
+      .filter((id) => id && id !== controllerId);
+    const permanentIds = Array.isArray(ctx.lastMovedBattlefieldPermanentIds)
+      ? ctx.lastMovedBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (permanentIds.length === 0 || opponentIds.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (no permanents/opponents to distribute): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+
+    // Prefer explicit player pairing when provided; otherwise assign seat-order 1:1.
+    const explicitPairs = Array.isArray((ctx as any).permanentControllerAssignments)
+      ? ((ctx as any).permanentControllerAssignments as Array<{ permanentId?: string; controllerId?: string }>)
+      : [];
+    const assignmentByPermanent = new Map<string, string>();
+    for (const pair of explicitPairs) {
+      const permanentId = String(pair?.permanentId || '').trim();
+      const nextController = String(pair?.controllerId || '').trim();
+      if (permanentId && nextController) assignmentByPermanent.set(permanentId, nextController);
+    }
+
+    if (assignmentByPermanent.size === 0 && ctx.interactivePlayerChoices !== false && permanentIds.length > 1) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (choose different opponents for each permanent): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: {
+          classification: 'player_choice',
+          metadata: {
+            candidatePermanentIds: permanentIds,
+            candidateOpponentIds: opponentIds,
+            requireDifferentOpponents: true,
+          },
+        },
+      };
+    }
+
+    const usedOpponents = new Set<string>();
+    let opponentCursor = 0;
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const log: string[] = [];
+    for (const permanentId of permanentIds) {
+      let nextController = assignmentByPermanent.get(permanentId) || '';
+      if (!nextController) {
+        while (opponentCursor < opponentIds.length && usedOpponents.has(opponentIds[opponentCursor])) {
+          opponentCursor += 1;
+        }
+        if (opponentCursor >= opponentIds.length) break;
+        nextController = opponentIds[opponentCursor];
+        opponentCursor += 1;
+      }
+      if (!nextController || usedOpponents.has(nextController)) continue;
+      usedOpponents.add(nextController);
+      const targetIndex = battlefield.findIndex(
+        (permanent) => String((permanent as any)?.id || '').trim() === permanentId,
+      );
+      if (targetIndex < 0) continue;
+      const targetPermanent = battlefield[targetIndex] as any;
+      battlefield[targetIndex] = {
+        ...targetPermanent,
+        controller: nextController,
+        summoningSickness: true,
+      } as BattlefieldPermanent;
+      log.push(`${permanentId} changes control to ${nextController}`);
+    }
+
+    if (log.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped gain-control (could not distribute permanents to opponents): ${step.raw}`,
+        reason: 'impossible_action',
+      };
+    }
+
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield } as GameState,
+      log,
+      lastAntecedentBattlefieldPermanentIds: permanentIds,
+    };
+  }
+
   // Generic: gain control of target opponent during that player's next turn.
   if (
     /gain(?:s)?\s+control\s+of\s+target\s+opponent\s+during\s+that\s+(?:player|opponent)['\u2019]?s\s+next\s+turn/i.test(raw)

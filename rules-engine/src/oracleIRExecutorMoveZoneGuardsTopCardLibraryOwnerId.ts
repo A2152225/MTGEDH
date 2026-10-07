@@ -165,6 +165,7 @@ export function tryApplyMoveZoneGuardsFromTopCardLibraryOwnerId(args: MoveZoneGu
     let workingState = nextState;
     const combinedLog: string[] = [];
     const movedCardIds: string[] = [];
+    const movedBattlefieldIds: string[] = [];
     for (const targetObjectId of contextualBoundCardIds) {
       const exactZone = findBoundCardZoneLocation(workingState, targetObjectId);
       if (!exactZone) {
@@ -280,6 +281,7 @@ export function tryApplyMoveZoneGuardsFromTopCardLibraryOwnerId(args: MoveZoneGu
       workingState = result.state;
       combinedLog.push(...(result.log || []));
       movedCardIds.push(targetObjectId);
+      movedBattlefieldIds.push(...((result as any).movedPermanentIds || []));
     }
 
     if (stepHasRevealedThisWayRestToLibrary(step)) {
@@ -297,6 +299,7 @@ export function tryApplyMoveZoneGuardsFromTopCardLibraryOwnerId(args: MoveZoneGu
     return buildAppliedResult({
       state: workingState,
       log: combinedLog.length > 0 ? combinedLog : [`Moved ${contextualBoundCardIds.length} contextual card(s)`],
+      ...(movedBattlefieldIds.length > 0 ? { movedBattlefieldPermanentIds: movedBattlefieldIds } : {}),
     });
   }
 

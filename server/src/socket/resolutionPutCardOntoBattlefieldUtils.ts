@@ -14,6 +14,7 @@ import { queueTributeChoiceOnEntry } from "../state/modules/triggerTributeChoice
 import { queueSelfETBTriggersForPermanent } from "../state/modules/triggerEtbEntryEffects.js";
 import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
 import { applyGraveyardTypeEntryCounterGrants } from "../state/modules/graveyardTypeEntryCounterBonus.js";
+import { applyBattlefieldTypeEntryCounterGrants } from "../state/modules/battlefieldTypeEntryCounterBonus.js";
 
 /**
  * Helper function to put a card onto the battlefield
@@ -84,6 +85,7 @@ export async function putCardOntoBattlefield(
   
   battlefield.push(newPermanent);
   stampPermanentEntryTimestamp(state, newPermanent);
+  applyBattlefieldTypeEntryCounterGrants(state, newPermanent, String(controller));
   applyGraveyardTypeEntryCounterGrants(state, newPermanent, String(controller));
   
   // ====================================================================================

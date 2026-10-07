@@ -7,6 +7,7 @@
 // applyConniveStep, applyRegisterLoseGameReplacementStep, applyGainLifeStep,
 // applyLoseLifeStep, applyAddPlayerCounterStep, applyDoublePlayerCountersStep, applyDrawStep.
 
+import { resolveLifeGainDeltaFromHook } from './lifeGainReplacementHook';
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
@@ -664,11 +665,13 @@ export function applyGainLifeStep(
           const playerId = String(card?.controller || card?.controllerId || controllerId || '').trim() as PlayerID;
           const amount = Math.max(0, getCardManaValue(card) ?? (Number(card?.cmc ?? card?.manaValue ?? 0) || 0));
           if (!playerId || amount <= 0) continue;
-          const result = adjustLife(nextState, playerId, amount);
+          const delta = resolveLifeGainDeltaFromHook(nextState, playerId, amount);
+          if (delta === 0) continue;
+          const result = adjustLife(nextState, playerId, delta);
           nextState = result.state;
           log.push(...result.log);
-          totalGained += amount;
-          replayMutations.push({ kind: 'adjustLife', playerId, delta: amount });
+          totalGained += delta;
+          replayMutations.push({ kind: 'adjustLife', playerId, delta });
         }
         if (totalGained > 0) {
           return {
@@ -703,11 +706,13 @@ export function applyGainLifeStep(
         const playerId = String(snapshot?.controller || snapshot?.controllerId || '').trim() as PlayerID;
         const amount = readExiledPermanentPower(snapshot);
         if (!playerId || amount <= 0) continue;
-        const result = adjustLife(nextState, playerId, amount);
+        const delta = resolveLifeGainDeltaFromHook(nextState, playerId, amount);
+        if (delta === 0) continue;
+        const result = adjustLife(nextState, playerId, delta);
         nextState = result.state;
         log.push(...result.log);
-        totalGained += amount;
-        replayMutations.push({ kind: 'adjustLife', playerId, delta: amount });
+        totalGained += delta;
+        replayMutations.push({ kind: 'adjustLife', playerId, delta });
       }
       if (totalGained > 0) {
         return {
@@ -749,13 +754,14 @@ export function applyGainLifeStep(
         options: { classification: 'ambiguous' },
       };
     }
-    lastCount = amount;
-    const result = adjustLife(nextState, playerId, amount);
+    // CR 616 / 614: life-gain replacement effects (Angel of Vitality, doublers, reversal).
+    const delta = resolveLifeGainDeltaFromHook(nextState, playerId, amount);
+    lastCount = delta > 0 ? delta : amount;
+    if (delta === 0) continue;
+    const result = adjustLife(nextState, playerId, delta);
     nextState = result.state;
     log.push(...result.log);
-    if (amount > 0) {
-      replayMutations.push({ kind: 'adjustLife', playerId, delta: amount });
-    }
+    replayMutations.push({ kind: 'adjustLife', playerId, delta });
   }
 
   return {

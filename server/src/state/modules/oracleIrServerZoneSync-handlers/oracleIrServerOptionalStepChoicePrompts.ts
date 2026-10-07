@@ -96,6 +96,8 @@ export function queueOptionalStepChoicePromptsFromOracleIRResult(
 
   for (const gap of result.automationGaps || []) {
     if (gap.reasonCode !== 'optional_step_requires_player_choice') continue;
+    const destinationChoice = (gap.metadata as { moveZoneDestinationChoice?: unknown } | undefined)?.moveZoneDestinationChoice;
+    if (Array.isArray(destinationChoice) && destinationChoice.length > 0) continue;
     const stepKind = String(gap.stepKind || '');
     if (stepKind === 'lose_life') {
       const step = findSkippedOracleStep(result, gap);

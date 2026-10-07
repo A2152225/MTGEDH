@@ -13,6 +13,7 @@ import {
   matchesTriggeredBattlefieldTarget,
   type TriggeredBattlefieldTargetFilterMetadata,
 } from './triggeredAbilityBattlefieldTargetMatch.js';
+import { canPermanentBeTargetedByPlayer } from '../../rules-engine/targeting.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { isPermanentCardTypeLine } from './stackResolvePermanentSpellTypeUtils.js';
 import { stampMissingTargetMetadataAfterOptionalAccept } from './stackResolveTriggeredAbilityMissingTargetSafetyNet.js';
@@ -299,6 +300,11 @@ export function tryDeferTriggeredAbilityTargetSelection(
     }
   }
 
+  // Graveyard-card targets are not also battlefield creatures.
+  if (targetZone === 'graveyard') {
+    return false;
+  }
+
   if (!isReplaying && !hasLockedBattlefieldTargets) {
     const targetFilterTypes = Array.isArray((item as any).targetFilterTypes) ? (item as any).targetFilterTypes : undefined;
     const targetFilterRequiredTypeWords = Array.isArray((item as any).targetFilterRequiredTypeWords) ? (item as any).targetFilterRequiredTypeWords : undefined;
@@ -325,6 +331,8 @@ export function tryDeferTriggeredAbilityTargetSelection(
               state,
             );
             if (!matchesType) return false;
+            // Hexproof/shroud (printed, equipment/aura, static and runtime grants).
+            if (!canPermanentBeTargetedByPlayer(permanent, state, String(triggerController) as PlayerID)) return false;
             if (String((item as any).targetConstraint || '').toLowerCase() === 'opponent') {
               return String(permanent.controller || '') !== String(triggerController);
             }

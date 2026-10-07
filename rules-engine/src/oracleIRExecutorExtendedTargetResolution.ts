@@ -271,6 +271,23 @@ export function resolveMassCreatureRestrictionTargets(
     return battlefield.filter((perm) => isCreature(perm));
   }
 
+  // Austere Command: "all creatures with mana value 3 or less" / "4 or greater",
+  // and the same shape for artifacts, enchantments, and lands.
+  const massManaValue = text.match(
+    /^all (artifacts|enchantments|creatures|lands|permanents) with mana value (\d+) or (less|greater)$/i,
+  );
+  if (massManaValue) {
+    const kind = String(massManaValue[1] || '').toLowerCase().replace(/s$/, '');
+    const threshold = Number(massManaValue[2] || 0);
+    const greater = String(massManaValue[3] || '').toLowerCase() === 'greater';
+    return battlefield.filter((perm) => {
+      if (kind !== 'permanent' && !permanentMatchesType(perm, kind as 'creature')) return false;
+      const manaValue = getCardManaValue((perm as any)?.card || perm);
+      if (manaValue === null) return false;
+      return greater ? manaValue >= threshold : manaValue <= threshold;
+    });
+  }
+
   return null;
 }
 

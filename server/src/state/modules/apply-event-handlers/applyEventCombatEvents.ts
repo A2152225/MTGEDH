@@ -9,6 +9,7 @@ import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
 import { movePermanentToGraveyard, runSBA } from "../counters_tokens";
 import { permanentHasKeyword } from "../keyword-handlers";
+import { permanentHasKeyword as permanentHasKeywordFromAnySource } from "../../../socket/game-actions-handlers/gameActionsPermanentKeywordGrants.js";
 import { clearReplayQueuedSteps } from "../applyEventReplayZoneCommanderManaHelpers.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "../triggers/damage-received.js";
@@ -274,7 +275,9 @@ export function applyCombatEvents(ctx: GameContext, e: GameEvent): boolean {
 
               // Attacking creatures tap unless they have vigilance.
               // Keep replay deterministic and aligned with live combat logic.
-              const hasVigilance = permanentHasKeyword(perm, 'vigilance');
+              const stateBattlefield = Array.isArray((ctx.state as any)?.battlefield) ? (ctx.state as any).battlefield : [];
+              const hasVigilance = permanentHasKeyword(perm, 'vigilance')
+                || permanentHasKeywordFromAnySource(perm, stateBattlefield, String((perm as any)?.controller || ''), 'vigilance', ctx.state);
               if (!hasVigilance) {
                 (perm as any).tapped = true;
                 try {

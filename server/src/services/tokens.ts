@@ -893,15 +893,9 @@ export function applyTokenPrintingToCard(
   if (resolution.image_uris) {
     card.image_uris = resolution.image_uris;
   }
-  if (resolution.matchKind !== 'exact' || !resolution.printing) return;
-
-  const printing = resolution.printing;
-  if (printing.oracle_text) card.oracle_text = printing.oracle_text;
-  if (printing.keywords?.length) card.keywords = [...printing.keywords];
-  if (printing.power != null) card.power = printing.power;
-  if (printing.toughness != null) card.toughness = printing.toughness;
-  if (printing.colors?.length) card.colors = [...printing.colors];
-  if (printing.type_line) card.type_line = printing.type_line;
+  // Image only. Never copy P/T, colors, keywords, or oracle text from a printing:
+  // a fuzzy/exact cache hit on the wrong Insect (green infect vs white flying 2/1)
+  // must not rewrite the oracle-derived token characteristics.
 }
 
 export async function resolveTokenImageUrls(

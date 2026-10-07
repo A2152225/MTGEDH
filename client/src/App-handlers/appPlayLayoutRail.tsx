@@ -150,7 +150,7 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
   return (
     <>
       {/* RIGHT COLUMN: docked utilities on wider screens */}
-      <div style={{ minWidth: 0, width: '100%', overflow: 'hidden', maxWidth: '100%', boxSizing: 'border-box' }}>
+      <div style={{ minWidth: 0, width: '100%', overflow: 'hidden', maxWidth: '100%', boxSizing: 'border-box', ...(showUtilityRail ? null : { display: 'none' }) }}>
         {showUtilityRail && safeView && you && (
           <div
             style={{

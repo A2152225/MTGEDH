@@ -186,7 +186,7 @@ export async function handleDeclareControlledAttackers(
       (creature as any).attacking = attacker.targetPlayerId;
       
       // Tap the attacker (unless it has vigilance)
-      const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
+      const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance', game.state);
       if (!hasVigilance) {
         (creature as any).tapped = true;
       }

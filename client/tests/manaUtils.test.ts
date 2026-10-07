@@ -113,6 +113,24 @@ describe('calculateSuggestedPayment', () => {
     expect(suggestion.get('forest_fg')?.producedColors?.slice().sort()).toEqual(['G', 'U']);
   });
 
+  it('taps only the Plains a {3}{W}{W} spell needs from a grouped stack', () => {
+    const suggestion = calculateSuggestedPayment(
+      {
+        colors: { W: 2, U: 0, B: 0, R: 0, G: 0, C: 0 },
+        generic: 3,
+        hybrids: [],
+      },
+      [
+        { id: 'giada', name: 'Giada, Font of Hope', options: ['W'] },
+        { id: 'plains', name: 'Plains', options: ['W'], availableQuantity: 17 },
+      ],
+      new Set(),
+    );
+
+    expect(suggestion.get('giada')).toEqual({ color: 'W', count: 1 });
+    expect(suggestion.get('plains')).toEqual({ color: 'W', count: 4 });
+  });
+
   it('prefers a native Island over Fertile Ground bonus when paying blue', () => {
     const suggestion = calculateSuggestedPayment(
       {

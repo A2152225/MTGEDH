@@ -387,11 +387,27 @@ export function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { 
     };
   }
 
-  const goadMatch = normalized.match(/^goad\s+(.+)$/i);
+  // "They're goaded for the rest of the game" / "Those creatures are goaded..."
+  const goadedAreMatch = normalized.match(
+    /^(?:they(?:'|\u2019)?re|those (?:creatures|permanents) (?:are|become)) goaded(?: for the rest of the game)?$/i,
+  );
+  if (goadedAreMatch) {
+    const restOfGame = /for the rest of the game/i.test(normalized);
+    return {
+      kind: 'goad',
+      target: { kind: 'raw', text: 'those creatures' },
+      ...(restOfGame ? { duration: 'rest_of_game' as const } : {}),
+      ...(step.sequence ? { sequence: step.sequence } : {}),
+      raw: normalized,
+    };
+  }
+
+  const goadMatch = normalized.match(/^goad\s+(.+?)(?:\s+for the rest of the game)?$/i);
   if (goadMatch) {
     return {
       kind: 'goad',
       target: { kind: 'raw', text: String(goadMatch[1] || '').trim() },
+      ...(/for the rest of the game/i.test(normalized) ? { duration: 'rest_of_game' as const } : {}),
       ...(step.sequence ? { sequence: step.sequence } : {}),
       raw: normalized,
     };

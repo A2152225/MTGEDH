@@ -20,6 +20,7 @@ import {
   hasSelfWUBRGAlternateCost,
   parseKeywordAlternateManaCost,
   parseWarpCost,
+  parseImpendingInfo,
 } from "../../state/modules/alternate-costs.js";
 import {
   getCommandZoneCommanderCandidates,
@@ -165,6 +166,16 @@ export function buildAlternateCostPaymentExtrasForCast(
       label: 'Warp',
       description: 'Cast for warp cost; exile at the beginning of the next end step',
       rawCost: warpCost,
+    });
+  }
+
+  const impendingInfo = parseImpendingInfo(normalizedOracleText);
+  if (impendingInfo) {
+    handKeywordAlternateCosts.push({
+      id: 'impending',
+      label: `Impending ${impendingInfo.timeCounters}`,
+      description: `Cast for impending cost; enters with ${impendingInfo.timeCounters} time counters and isn't a creature until the last is removed`,
+      rawCost: impendingInfo.cost,
     });
   }
 

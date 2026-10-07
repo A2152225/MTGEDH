@@ -322,7 +322,7 @@ export async function handleDeclareAttackers(
 
       // Check if creature is tapped (can't attack if tapped, unless vigilance)
       if ((creature as any).tapped) {
-        const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
+        const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance', game.state);
         if (!hasVigilance) {
           socket.emit("error", {
             code: "CREATURE_TAPPED",
@@ -503,7 +503,7 @@ export async function handleDeclareAttackers(
       (creature as any).attackedThisTurn = true;
 
       // Tap the attacker (unless it has vigilance)
-      const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
+      const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance', game.state);
       if (!hasVigilance) {
         (creature as any).tapped = true;
       }

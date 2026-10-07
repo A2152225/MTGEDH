@@ -180,7 +180,7 @@ function buildKeywordCounterFromAmongModalPrompt(
   };
 }
 
-function buildPlayerChoicePrompt(
+export function buildPlayerChoicePrompt(
   step: Extract<OracleEffectStep, { kind: 'player_choice' }>,
   params: { controller: PlayerID; sourceName: string; sourceId?: string },
 ): Record<string, unknown> | null {
@@ -197,11 +197,19 @@ function buildPlayerChoicePrompt(
   };
 
   if (step.choice === 'card_type') {
+    // CR 205.2a card types (not creature subtypes). Serra's Emissary / similar.
+    const cardTypeOptions = [
+      'artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery',
+    ].map((id) => ({ id, label: id.charAt(0).toUpperCase() + id.slice(1) }));
     return {
       ...base,
-      type: ResolutionStepType.CREATURE_TYPE_CHOICE,
+      type: ResolutionStepType.OPTION_CHOICE,
       playerId: params.controller,
-      description,
+      description: description || 'Choose a card type',
+      options: cardTypeOptions,
+      minSelections: 1,
+      maxSelections: 1,
+      oracleIrPlayerChoiceKind: 'card_type',
     };
   }
 

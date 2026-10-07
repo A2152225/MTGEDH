@@ -404,10 +404,6 @@ export const KNOWN_COMBAT_DAMAGE_TRIGGERS: Record<string, {
     tokenType: "Snake",
     tokenCount: 1,
   },
-  "edric, spymaster of trest": { 
-    effect: "That creature's controller draws a card",
-    toOpponent: true,
-  },
   "toski, bearer of secrets": { 
     effect: "Draw a card",
   },
@@ -540,10 +536,6 @@ export const KNOWN_END_STEP_TRIGGERS: Record<string, {
     mandatory: true,
     requiresChoice: true,
     affectsAllPlayers: true,
-  },
-  "edric, spymaster of trest": { 
-    effect: "Opponents who dealt combat damage to your opponents draw a card", 
-    mandatory: true,
   },
   "nekusar, the mindrazer": { 
     effect: "Each player draws a card at end step (draw step)", 

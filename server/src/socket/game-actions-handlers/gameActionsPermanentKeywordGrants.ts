@@ -18,6 +18,7 @@ import {
   oracleTextHasOwnKeyword,
 } from "../../../../rules-engine/src/oracleOwnKeywordText.js";
 import { debugWarn } from "../../utils/debug.js";
+import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/staticEffectSpec.js";
 import { extractCreatureTypes } from "./gameActionsCastCostReduction.js";
 
 function cardListsKeyword(card: any, keyword: string): boolean {
@@ -260,7 +261,15 @@ export function creatureHasHaste(permanent: any, battlefield: any[], controller:
  * @param keyword - The keyword to check for (e.g., 'haste', 'vigilance', 'shroud', 'hexproof')
  * @returns true if the permanent has the keyword ability
  */
-export function permanentHasKeyword(permanent: any, battlefield: any[], controller: string, keyword: string): boolean {
+export function permanentHasKeyword(
+  permanent: any,
+  battlefield: any[],
+  controller: string,
+  keyword: string,
+  /** Optional game state: when given, derived continuous static grants (anthems like
+   *  "Nontoken creatures you control get +1/+1 and have vigilance") are honored too. */
+  state?: unknown,
+): boolean {
   try {
     const lowerKeyword = keyword.toLowerCase();
     const permCard = permanent?.card || {};
@@ -433,7 +442,15 @@ export function permanentHasKeyword(permanent: any, battlefield: any[], controll
         return true;
       }
     }
-    
+
+    // 5. Derived continuous static grants (StaticEffectSpec + regex statics).
+    if (state && typeof state === 'object') {
+      const continuous = getContinuousGrantedAbilitiesForPermanent(permanent, state);
+      if (continuous.some((a: string) => grantedAbilityIsOwnKeyword(a, lowerKeyword))) {
+        return true;
+      }
+    }
+
     return false;
   } catch (err) {
     debugWarn(1, `[permanentHasKeyword] Error checking ${keyword}:`, err);

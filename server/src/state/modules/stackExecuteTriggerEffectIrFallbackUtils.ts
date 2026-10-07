@@ -165,12 +165,18 @@ export function applyOracleIRFallbackForTriggeredEffect(
   if (!targetPlayerId && untappedPermanentController && playerIds.has(untappedPermanentController)) {
     targetPlayerId = untappedPermanentController as PlayerID;
   }
+  const triggeringLandId = String(
+    (triggerItem as any)?.triggeringLandId
+      || (triggerItem as any)?.effectData?.triggeringLandId
+      || '',
+  ).trim();
   const chosenObjectIds = Array.from(new Set([
     ...normalizedTargetIds,
     ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...(untappedPermanentId ? [untappedPermanentId] : []),
     ...(discardedCardId ? [discardedCardId] : []),
     ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
+    ...(triggeringLandId ? [triggeringLandId] : []),
   ]));
   const targetBinding = inferOracleIrTargetBinding((ctx as any).state, chosenObjectIds, controller);
 

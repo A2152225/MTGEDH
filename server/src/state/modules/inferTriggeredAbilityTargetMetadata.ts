@@ -324,6 +324,11 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
         targetConstraint = 'you';
         break;
       }
+      // "For each opponent, ... target X that player controls" (Grasp of Fate).
+      if (/\bthat player controls\b/.test(nounPhrase) && /\bfor each opponent\b/.test(lower)) {
+        targetConstraint = 'opponent';
+        break;
+      }
     }
   }
 

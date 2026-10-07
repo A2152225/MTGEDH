@@ -361,6 +361,11 @@ export async function handleAIPriority(
           trackedEffectIds: pendingCastStatus.trackedEffectIds,
           priority: game.state.priority,
         });
+        // Must wake again: otherwise a tracked cast/prompt can leave this seat holding
+        // priority with the exclusive lock released and no follow-up scheduled (MAIN1/MAIN2 stalls).
+        if (game.state.priority === playerId) {
+          scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
+        }
         return;
       }
 

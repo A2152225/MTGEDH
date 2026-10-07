@@ -5,6 +5,7 @@
 //   lifeGainBecomesLoss, canPlayerPayLife, processLifeChange.
 // Leaf must not import game-state-effects.ts or game-state-effects-handlers/index.ts.
 
+import { registerLifeGainAmountResolver } from "../../../../../rules-engine/src/lifeGainReplacementHook.js";
 import type { GameContext } from "../../context.js";
 import { evaluateLifeGainReplacementEvent, evaluateLifeLossReplacementEvent } from "../replacement-effects.js";
 import {
@@ -299,3 +300,9 @@ export function processLifeChange(
   const gainResult = applyLifeGainReplacements(ctx, amount, playerId);
   return { finalAmount: gainResult.finalAmount, prevented: false };
 }
+
+// Oracle IR executor gain_life steps route through the same replacement pipeline
+// (Angel of Vitality +1, doublers, reversal, can't-gain) as every server life gain.
+registerLifeGainAmountResolver((state, playerId, amount) =>
+  processLifeChange({ state } as unknown as GameContext, playerId, amount, true).finalAmount,
+);

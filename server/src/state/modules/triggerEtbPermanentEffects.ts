@@ -26,6 +26,7 @@ import {
   tryBuildTypedPermanentEtbStackItem,
 } from './triggerEtbEntryEffects.js';
 import { matchesColorRestriction } from './stackResolvePermanentEtbTriggerUtils.js';
+import { permanentIsCommanderCard } from './triggerPermanentUtils.js';
 import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
 import { wouldAutoDeclineOptionalTriggeredAbility } from './stackResolveTriggeredAbilityOptionalUtils.js';
 import { isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
@@ -412,14 +413,22 @@ export function triggerETBEffectsForPermanent(
         debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s chosen-type enters-or-attacks trigger: ${trigger.description}`);
       }
 
-      if (trigger.triggerType === 'commander_you_control_etb_or_attack') {
+      // "Whenever a commander you control enters or attacks" and
+      // "Whenever your commander enters [or attacks]" (Tome of Legends; "your" = you own it).
+      if (trigger.triggerType === 'commander_you_control_etb_or_attack' || trigger.triggerType === 'commander_etb') {
         const enteringIsCommander =
-          permanent?.isCommander === true || permanent?.commander === true || permanent?.card?.isCommander === true;
+          permanent?.isCommander === true
+          || permanent?.commander === true
+          || permanent?.card?.isCommander === true
+          || permanentIsCommanderCard(ctx, permanent);
         if (!enteringIsCommander) {
           continue;
         }
         const triggerController = perm.controller || controller;
-        if (controller !== triggerController) {
+        const relevantPlayer = trigger.triggerType === 'commander_etb'
+          ? String(permanent?.owner || controller)
+          : String(controller);
+        if (relevantPlayer !== String(triggerController)) {
           continue;
         }
 

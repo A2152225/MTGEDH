@@ -144,7 +144,7 @@ function deriveColorSymbolsFromManaCost(manaCost: unknown): string[] {
 /**
  * Card colors for pitch costs ("exile a blue card").
  * Prefer explicit `colors` (including empty = colorless). When missing, derive from
- * mana cost / color indicator — never color identity (Islands are not blue cards).
+ * mana cost / color indicator Ã¢â‚¬â€ never color identity (Islands are not blue cards).
  */
 export function getCardColorSymbolsForPitchCost(card: any): string[] {
   if (!card || typeof card !== 'object') return [];
@@ -569,6 +569,21 @@ export function parseWarpCost(oracleText: string): string | undefined {
   return match ? match[1].replace(/\s+/g, '').trim() : undefined;
 }
 
+/** Impending N-{cost}: alternate cast cost plus N time counters on entry (CR 702.176). */
+export function parseImpendingInfo(oracleText: string): { timeCounters: number; cost: string } | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const match = normalized.match(/\bimpending\s+(\d+)\s*[-\u2013\u2014]\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  if (!match) return null;
+  const timeCounters = Number.parseInt(String(match[1] || ''), 10);
+  const cost = String(match[2] || '').replace(/\s+/g, '').trim();
+  if (!Number.isFinite(timeCounters) || timeCounters <= 0 || !cost) return null;
+  return { timeCounters, cost };
+}
+
+export function parseImpendingCost(oracleText: string): string | undefined {
+  return parseImpendingInfo(oracleText)?.cost;
+}
+
 /** Parse mana cost for keyword alternate costs (dash, warp, blitz, etc.). */
 export function parseKeywordAlternateManaCost(
   oracleText: string,
@@ -588,7 +603,7 @@ export function parseKeywordAlternateManaCost(
  */
 export function parseRatherThanPayThisSpellManaCost(oracleText: string): string | undefined {
   const match = String(oracleText || '').match(
-    /you may pay (\{\s*[^}]+\s*\}(?:\s*\{\s*[^}]+\s*\})*) rather than pay this spell(?:'|’)s mana cost/i,
+    /you may pay (\{\s*[^}]+\s*\}(?:\s*\{\s*[^}]+\s*\})*) rather than pay this spell(?:'|Ã¢â‚¬â„¢)s mana cost/i,
   );
   return match ? match[1].replace(/\s+/g, '').trim() : undefined;
 }
@@ -663,7 +678,7 @@ export function buildWarpPaymentAlternateCost(
 
 export function parseMadnessCost(oracleText: string): string | undefined {
   if (!oracleText) return undefined;
-  const match = oracleText.match(/madness(?:\s*[—–-]\s*|\s+)(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
+  const match = oracleText.match(/madness(?:\s*[Ã¢â‚¬â€Ã¢â‚¬â€œ-]\s*|\s+)(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
   return match ? match[1].replace(/\s+/g, '').trim() : undefined;
 }
 

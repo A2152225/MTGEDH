@@ -97,6 +97,18 @@ export function queueSelfETBTriggersForPermanent(
         continue;
       }
     }
+    // "Whenever a land you control enters" is landfall, not this creature's ETB
+    // (Emeria Shepherd). Only queue it when the entering permanent is a land.
+    if (
+      triggerType === 'land_you_control_etb'
+      || triggerType === 'opponent_land_etb'
+      || triggerType === 'enchanted_player_land_etb'
+      || triggerType === 'any_land_etb'
+      || triggerType === 'this_or_another_land_you_control_etb'
+    ) {
+      const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
+      if (!/\bland\b/.test(typeLine)) continue;
+    }
     if (shouldSkipTurnLimitedEtbTrigger(state, trigger, String(permanent.id || ''))) {
       continue;
     }

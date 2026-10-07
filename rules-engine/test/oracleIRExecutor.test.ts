@@ -43536,7 +43536,93 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect(returned).toBeTruthy();
   });
 
-  it('applies Emeria Shepherd plains branch when the triggering land is bound as a Plains', () => {
+  it('asks hand or battlefield for Emeria Shepherd when the triggering land is a Plains', () => {
+    const start = makeState({
+      players: [
+        {
+          id: 'p1',
+          name: 'P1',
+          seat: 0,
+          life: 40,
+          library: [],
+          hand: [],
+          graveyard: [{ id: 'relic', name: 'Testing Relic', type_line: 'Artifact' }],
+          exile: [],
+        } as any,
+      ],
+      battlefield: [
+        {
+          id: 'plains1',
+          ownerId: 'p1',
+          controller: 'p1',
+          name: 'Plains',
+          type_line: 'Basic Land - Plains',
+          tapped: false,
+          summoningSick: false,
+          counters: {},
+        } as any,
+      ],
+      priority: 'p1',
+      turnPlayer: 'p1',
+    });
+    const ability = {
+      controllerId: 'p1',
+      sourceId: 'emeria',
+      sourceName: 'Emeria Shepherd',
+      effect:
+        'You may return target nonland permanent card from your graveyard to your hand. If that land is a Plains, you may return that nonland permanent card to the battlefield instead.',
+    };
+    const binding = {
+      targetPermanentId: 'relic',
+      chosenObjectIds: ['plains1'],
+    };
+    const result = executeTriggeredAbilityEffectWithOracleIR(start, ability, binding, { allowOptional: true });
+
+    const p1 = result.state.players.find(p => p.id === 'p1') as any;
+    const destinations = (result.automationGaps || [])
+      .map((gap) => (gap.metadata as { moveZoneDestinationChoice?: string[] } | undefined)?.moveZoneDestinationChoice)
+      .find((choice) => Array.isArray(choice));
+
+    expect((p1.graveyard || []).map((c: any) => c.id)).toEqual(['relic']);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
+    expect((result.state.battlefield || []).some((perm: any) => String(perm?.card?.id || perm?.id || '') === 'relic')).toBe(false);
+    expect(destinations).toEqual(['battlefield', 'hand']);
+
+    const handStep = result.pendingOptionalSteps?.[0];
+    expect(handStep?.kind).toBe('move_zone');
+    const chosen = applyOracleIRStepsToGameState(result.state, handStep ? [handStep] : [], {
+      controllerId: 'p1',
+      sourceId: 'emeria',
+      sourceName: 'Emeria Shepherd',
+      targetPermanentId: 'relic',
+      selectorContext: {
+        chosenObjectIds: ['relic', 'plains1'],
+        moveZoneDestination: 'battlefield',
+      },
+    }, { allowOptional: true });
+    const after = chosen.state.players.find(p => p.id === 'p1') as any;
+    const returned = (chosen.state.battlefield || []).find((perm: any) => String(perm?.card?.id || perm?.id || '') === 'relic');
+    expect((after.hand || []).map((c: any) => c.id)).toEqual([]);
+    expect((after.graveyard || []).map((c: any) => c.id)).toEqual([]);
+    expect(returned).toBeTruthy();
+
+    const toHand = applyOracleIRStepsToGameState(result.state, handStep ? [handStep] : [], {
+      controllerId: 'p1',
+      sourceId: 'emeria',
+      sourceName: 'Emeria Shepherd',
+      targetPermanentId: 'relic',
+      selectorContext: {
+        chosenObjectIds: ['relic', 'plains1'],
+        moveZoneDestination: 'hand',
+      },
+    }, { allowOptional: true });
+    const handed = toHand.state.players.find(p => p.id === 'p1') as any;
+    expect((handed.hand || []).map((c: any) => c.id)).toEqual(['relic']);
+    expect((handed.graveyard || []).map((c: any) => c.id)).toEqual([]);
+    expect((toHand.state.battlefield || []).some((perm: any) => String(perm?.card?.id || perm?.id || '') === 'relic')).toBe(false);
+  });
+
+  it('returns Emeria Shepherd\'s card to hand when the triggering land is not a Plains', () => {
     const result = executeTriggeredAbilityEffectWithOracleIR(
       makeState({
         players: [
@@ -43553,11 +43639,11 @@ This creature has protection from each of the exiled card's card types. (Artifac
         ],
         battlefield: [
           {
-            id: 'plains1',
+            id: 'forest1',
             ownerId: 'p1',
             controller: 'p1',
-            name: 'Plains',
-            type_line: 'Basic Land - Plains',
+            name: 'Forest',
+            type_line: 'Basic Land - Forest',
             tapped: false,
             summoningSick: false,
             counters: {},
@@ -43575,18 +43661,15 @@ This creature has protection from each of the exiled card's card types. (Artifac
       },
       {
         targetPermanentId: 'relic',
-        chosenObjectIds: ['plains1'],
+        chosenObjectIds: ['forest1'],
       },
       { allowOptional: true }
     );
 
     const p1 = result.state.players.find(p => p.id === 'p1') as any;
-    const returned = (result.state.battlefield || []).find((perm: any) => String(perm?.card?.id || perm?.id || '') === 'relic');
-
-    expect(result.appliedSteps.map(step => step.kind)).toEqual(['move_zone', 'move_zone']);
-    expect((p1.hand || []).map((c: any) => c.id)).toEqual([]);
+    expect((p1.hand || []).map((c: any) => c.id)).toEqual(['relic']);
     expect((p1.graveyard || []).map((c: any) => c.id)).toEqual([]);
-    expect(returned).toBeTruthy();
+    expect((result.state.battlefield || []).some((perm: any) => String(perm?.card?.id || perm?.id || '') === 'relic')).toBe(false);
   });
 
   it('applies Undead Butler by exiling the source from your graveyard and returning the chosen creature', () => {

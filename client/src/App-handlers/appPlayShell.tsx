@@ -468,14 +468,25 @@ export function renderAppPlayShell(p: Record<string, any>) {
       style={{
         padding: 8,
         fontFamily: "system-ui",
-        display: "grid",
-        gridTemplateColumns: isTable
-          ? (showUtilityRail
-            ? `minmax(0, 1fr) ${utilityRailCollapsed ? '84px' : '320px'}`
-            : "1fr")
-          : "1.2fr 380px",
+        // Mobile chrome: flex column so the table frame fills leftover viewport
+        // below Join/SeatStrip. Desktop keeps the two-column grid.
+        display: showMobileChrome ? 'flex' : 'grid',
+        flexDirection: showMobileChrome ? 'column' : undefined,
+        gridTemplateColumns: showMobileChrome
+          ? undefined
+          : (isTable
+            ? (showUtilityRail
+              ? `minmax(0, 1fr) ${utilityRailCollapsed ? '84px' : '320px'}`
+              : '1fr')
+            : '1.2fr 380px'),
         gap: 8,
-        minHeight: '100vh',
+        // Mobile: lock the play shell to the visual viewport so document scroll
+        // cannot push the battlefield under the fixed Pass dock / hand strip.
+        minHeight: showMobileChrome ? '100dvh' : '100vh',
+        height: showMobileChrome ? '100dvh' : undefined,
+        maxHeight: showMobileChrome ? '100dvh' : undefined,
+        overflow: showMobileChrome ? 'hidden' : undefined,
+        boxSizing: showMobileChrome ? 'border-box' : undefined,
         ...getBackgroundStyle(appearanceSettings.tableBackground),
       }}
     >

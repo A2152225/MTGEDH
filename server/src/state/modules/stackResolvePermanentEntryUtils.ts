@@ -13,6 +13,7 @@ import { applyCounterModifications } from './counters_tokens.js';
 import { evaluateBattlefieldEntryReplacementEvent } from './replacement-effects.js';
 import { applyTriggeredReanimationEntryRiders } from './triggerReanimationRiders.js';
 import { scheduleWarpDelayedExileOnPermanentEntry } from './warpDelayedEffects.js';
+import { applyImpendingOnPermanentEntry } from './impendingEffects.js';
 import {
   scheduleKeywordCastDelayedEffectsOnPermanentEntry,
   spellWasCastWithBlitzPaid,
@@ -29,6 +30,7 @@ import {
 import { syncArcaneAdaptationForNewCreature } from './chosen-creature-type.js';
 import { applyMetallicMimicEntryBonus } from './triggerChosenTypeSpellUtils.js';
 import { applyGraveyardTypeEntryCounterGrants } from './graveyardTypeEntryCounterBonus.js';
+import { applyBattlefieldTypeEntryCounterGrants } from './battlefieldTypeEntryCounterBonus.js';
 import { cardEntersPrepared, setPermanentPrepared } from './prepared.js';
 import { hydratePermanentCardOracleInPlace, hydrateCardOracleInPlace } from './cardOracleHydration.js';
 import { inferLeaveBattlefieldExileReplacement, applyLeaveBattlefieldExileReplacementStamp } from './leaveBattlefieldReplacementStamp.js';
@@ -513,6 +515,14 @@ export function resolvePermanentSpellBattlefieldEntry(
     item,
   );
 
+  applyImpendingOnPermanentEntry(
+    ctx,
+    newPermanent,
+    controller,
+    String(effectiveCard?.name || (item as any)?.card?.name || 'Permanent'),
+    item,
+  );
+
   scheduleKeywordCastDelayedEffectsOnPermanentEntry(
     ctx,
     newPermanent,
@@ -702,6 +712,7 @@ export function resolvePermanentSpellBattlefieldEntry(
   stampPermanentEntryTimestamp(state, newPermanent);
   syncArcaneAdaptationForNewCreature(state, newPermanent);
   applyMetallicMimicEntryBonus(ctx, newPermanent, controller as PlayerID);
+  applyBattlefieldTypeEntryCounterGrants(state, newPermanent, String(controller));
   applyGraveyardTypeEntryCounterGrants(state, newPermanent, String(controller));
 
   if (cardEntersPrepared(newPermanent.card)) {

@@ -104,6 +104,18 @@ export function tryParseSimpleActionMillClauses(args: SimpleActionClauseParseArg
   }
 
   {
+    const goadedAre = clause.match(
+      /^(?:they(?:'|\u2019)?re|those (?:creatures|permanents) (?:are|become)) goaded(?: for the rest of the game)?$/i,
+    );
+    if (goadedAre) {
+      return withMeta({
+        kind: 'goad',
+        target: { kind: 'raw', text: 'those creatures' },
+        ...(/for the rest of the game/i.test(clause) ? { duration: 'rest_of_game' as const } : {}),
+        raw: rawClause,
+      });
+    }
+
     const goad = clause.match(/^(?:for\s+each\s+opponent,\s+)?goad\s+(.+)$/i);
     if (goad) {
       return withMeta({
@@ -356,7 +368,7 @@ export function tryParseSimpleActionMillClauses(args: SimpleActionClauseParseArg
       });
     }
 
-    const activatedAbilitiesCantBeActivated = clause.match(/^activated\s+abilities\s+of\s+(.+?)\s+can(?:'|â€™)?t\s+be\s+activated\s+unless\s+they(?:'|â€™)?re\s+mana\s+abilities$/i);
+    const activatedAbilitiesCantBeActivated = clause.match(/^activated\s+abilities\s+of\s+(.+?)\s+can(?:'|\u2019)?t\s+be\s+activated\s+unless\s+they(?:'|\u2019)?re\s+mana\s+abilities$/i);
     if (activatedAbilitiesCantBeActivated) {
       return withMeta({
         kind: 'cant_activate_abilities',

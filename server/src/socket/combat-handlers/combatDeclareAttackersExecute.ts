@@ -235,7 +235,7 @@ export async function executeDeclareAttackers(
     }
 
     if ((creature as any).tapped) {
-      const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
+      const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance', game.state);
       if (!hasVigilance) {
         throw Object.assign(
           new Error(`${(creature as any).card?.name || 'Creature'} is tapped and cannot attack`),
@@ -352,7 +352,7 @@ export async function executeDeclareAttackers(
       // best-effort only
     }
 
-    const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance');
+    const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance', game.state);
     if (!hasVigilance) {
       (creature as any).tapped = true;
 
