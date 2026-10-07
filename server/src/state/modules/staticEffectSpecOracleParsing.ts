@@ -1,5 +1,8 @@
 import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
-import { parseAttachmentGrantedKeywordsFromOracle } from '../../../../shared/src/attachmentKeywordGrants.js';
+import {
+  parseAttachmentGrantedKeywordsFromOracle,
+  parseAttachmentGrantedTypesFromOracle,
+} from '../../../../shared/src/attachmentKeywordGrants.js';
 import { isCreatureTypeWord } from '../../../../shared/src/creatureTypes.js';
 import type { StaticEffectCountBasis, StaticEffectSpec } from './staticEffectSpec.js';
 import { sanitizeOracleTextForStaticEffectScan } from '../../../../rules-engine/src/staticEffectOracleSanitize.js';
@@ -58,6 +61,29 @@ function pushAttachedHostKeywordGrants(
       { kind: 'self' },
       { abilities: granted },
       duringYourTurn ? { kind: 'during_source_controller_turn' } : undefined,
+    ),
+    sourcePermanentId: attachedTo,
+    scope: { kind: 'self' },
+  });
+}
+
+/** Angelic Destiny: "is an Angel in addition to its other types" on the enchanted host. */
+function pushAttachedHostTypeAdditions(
+  specs: StaticEffectSpec[],
+  source: { sourcePermanentId: string; sourceController: string; sourceName: string },
+  perm: BattlefieldPermanent,
+  oracleText: string,
+): void {
+  const attachedTo = String((perm as any).attachedTo || '').trim();
+  if (!attachedTo) return;
+  const typeAdditions = parseAttachmentGrantedTypesFromOracle(oracleText);
+  if (typeAdditions.length === 0) return;
+  specs.push({
+    ...buildSpec(
+      source,
+      'attachment-type-host',
+      { kind: 'self' },
+      { typeAdditions },
     ),
     sourcePermanentId: attachedTo,
     scope: { kind: 'self' },
@@ -752,6 +778,7 @@ export function parseStaticEffectSpecsFromOraclePermanent(
 
   pushAttachedHostProtectionGrant(specs, source, perm, oracle, chosenColor);
   pushAttachedHostKeywordGrants(specs, source, perm, oracleText);
+  pushAttachedHostTypeAdditions(specs, source, perm, oracleText);
 
   if (chosenCreatureType) {
     const chosenTypeOtherBuffMatch = oracle.match(

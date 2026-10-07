@@ -297,26 +297,19 @@ export function applyOracleIRStepsToGameStateImpl(
     nextState = result.state;
     if (currentCtx.transitionHaltState?.halted) {
       const commanderOnly = isCommanderZoneReplacementHalt(currentCtx.transitionHaltState);
-      if (!(commanderOnly && commanderZoneReplacementConsumed)) {
+      if (commanderOnly && !commanderZoneReplacementConsumed) {
+        // Non-commander objects in this step already left. Keep the step applied
+        // so linked exile and replay still see the rest of the batch. The
+        // deferred commander gets a 903.9a prompt after apply.
+        haltedForPlayerChoice = false;
+        commanderZoneReplacementConsumed = true;
+      } else if (!(commanderOnly && commanderZoneReplacementConsumed)) {
         recordSkippedStep(
           step,
           'Deferred replacement effect choice required',
           'player_choice_required',
           { classification: 'player_choice' },
         );
-        if (commanderOnly) {
-          // Queue the 903.9a prompt after apply, but do not abort LKI riders.
-          haltedForPlayerChoice = false;
-          commanderZoneReplacementConsumed = true;
-          const moved = Array.isArray(result.lastMovedCards) ? result.lastMovedCards : [];
-          if (moved.length > 0) {
-            lastMovedCards = [...moved];
-            currentCtx = {
-              ...currentCtx,
-              lastMovedCards,
-            };
-          }
-        }
         return false;
       }
     }

@@ -1,0 +1,27 @@
+---
+description: When an issue-report bug is fixed, mark it resolved in the issue-reports database with notes
+alwaysApply: true
+---
+
+# Resolve issue reports in the database
+
+`server/data/issue-reports.sqlite` is the Report Issue database. CLI: `npm run issues` (see `docs/issue-reports.md`).
+
+## When a reported bug is fixed
+
+In the same turn, after the fix is in and the targeted tests pass, mark **that** report resolved. Do not leave it open for the user to close.
+
+```bash
+npm run issues -- resolve <id> --note "What changed and why, in one or two sentences."
+npm run issues -- show <id>
+```
+
+- One command per id. The note is `resolution_notes`. `resolved_at` and `resolved_by` are set by the CLI (`--by` only if the user named someone).
+- The note must say what the fix does. "Fixed" alone is not enough.
+- Resolve only reports this change actually fixes. Do not close unrelated open reports.
+- If the fix is incomplete or tests failed, leave the report open.
+
+## Do not
+
+- Edit the sqlite file by hand.
+- Resolve a report before the behavior is fixed.

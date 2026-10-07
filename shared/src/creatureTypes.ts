@@ -320,6 +320,20 @@ export function permanentHasCreatureType(
       return true;
     }
   }
+
+  // Continuous and one-shot type grants (Angelic Destiny, amass, animation).
+  const wanted = creatureType.toLowerCase();
+  const extraTypeLists = [
+    permAny.continuousTypeAdditions,
+    permAny.typeAdditions,
+    permAny.addedTypes,
+  ];
+  for (const list of extraTypeLists) {
+    if (!Array.isArray(list)) continue;
+    if (list.some((entry: unknown) => String(entry || '').trim().toLowerCase() === wanted)) {
+      return true;
+    }
+  }
   
   return cardHasCreatureType(
     permanent.card.type_line,

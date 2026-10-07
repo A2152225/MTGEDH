@@ -25,7 +25,11 @@ export function attachSocketAuth(socket: Socket): void {
   (socket.data as any).accountUsername = user.username;
   (socket.data as any).accountDisplayName = user.display_name;
   (socket.data as any).accountIsAdmin = userIsAdmin(user);
-  debug(2, '[Auth] socket attached to account', { socketId: socket.id, userId: user.id });
+  debug(2, '[Auth] socket attached to account', {
+    socketId: socket.id,
+    userId: user.id,
+    displayName: user.display_name,
+  });
 }
 
 export function getSocketAccountUserId(socket: { data?: any }): string | null {

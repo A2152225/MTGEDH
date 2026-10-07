@@ -4,7 +4,7 @@
  * Cluster moved: activateBattlefieldAbility sacrifice-to-draw family
  * (Sunbaked Canyon, Horizon Canopy, Commander's Sphere, etc.).
  *
- * Public entry symbols: tryHandleActivateSacrificeDraw.
+ * Public entry symbols: tryHandleActivateSacrificeDraw, finishSacrificeDrawActivation.
  */
 
 import { appendEvent } from "../../db";
@@ -12,14 +12,72 @@ import { sacrificePermanent } from "../../state/modules/upkeep-triggers.js";
 import { applySacrificeDrawFromAuthoritativeLibrary } from "../../state/modules/applyEventReplayCardMoveLibraryHelpers.js";
 import {
   broadcastGame,
-  calculateTotalAvailableMana,
-  consumeManaFromPool,
-  getOrInitManaPool,
   getPlayerName,
-  parseManaCost,
-  validateManaPayment,
 } from "../util";
+import { payBattlefieldAbilityManaCostOrQueue } from "./interactionActivateBattlefieldAbilityHelpers.js";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
+
+export async function finishSacrificeDrawActivation(params: {
+  io: ActivateBattlefieldAbilityContext['io'];
+  game: any;
+  gameId: string;
+  pid: string;
+  permanentId: string;
+  abilityId: string;
+  cardName: string;
+  manaCost?: string;
+  requiresTap: boolean;
+}): Promise<void> {
+  const { io, game, gameId, pid, permanentId, abilityId, cardName, manaCost, requiresTap } = params;
+  const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  const permanent = battlefield.find((entry: any) => entry && String(entry.id) === String(permanentId));
+  if (!permanent) return;
+
+  if (requiresTap && !(permanent as any).tapped) {
+    (permanent as any).tapped = true;
+  }
+
+  sacrificePermanent(game as any, String(permanentId), pid);
+
+  const drawnCards = applySacrificeDrawFromAuthoritativeLibrary(game as any, pid);
+  const drawnCardIds = drawnCards
+    .map((card: any) => String(card?.id || '').trim())
+    .filter(Boolean);
+
+  if (drawnCards.length > 0) {
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} sacrificed ${cardName} and drew a card.`,
+      ts: Date.now(),
+    });
+  } else {
+    io.to(gameId).emit("chat", {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: "system",
+      message: `${getPlayerName(game, pid)} sacrificed ${cardName} but had no cards to draw.`,
+      ts: Date.now(),
+    });
+  }
+
+  if (typeof game.bumpSeq === "function") {
+    game.bumpSeq();
+  }
+
+  appendEvent(gameId, (game as any).seq ?? 0, "activateSacrificeDrawAbility", {
+    playerId: pid,
+    permanentId,
+    abilityId,
+    cardName,
+    manaCost,
+    requiresTap,
+    ...(drawnCardIds.length > 0 ? { drawnCardIds } : {}),
+  });
+
+  broadcastGame(io, game, gameId);
+}
 
 export async function tryHandleActivateSacrificeDraw(
   ctx: ActivateBattlefieldAbilityContext,
@@ -33,6 +91,7 @@ export async function tryHandleActivateSacrificeDraw(
     permanentId,
     abilityId,
     permanent,
+    card,
     cardName,
     scopedAbilityFullText,
   } = ctx;
@@ -69,30 +128,37 @@ export async function tryHandleActivateSacrificeDraw(
       } else {
       const manaCostStr = sacrificeCostMatch[1];
       const requiresTap = Boolean(sacrificeCostMatch[2]);
-      const manaPool = getOrInitManaPool(game.state, pid);
+
+      if (requiresTap && (permanent as any).tapped) {
+        socket.emit("error", {
+          code: "ALREADY_TAPPED",
+          message: `${cardName} is already tapped`,
+        });
+        return true;
+      }
 
       if (manaCostStr) {
-        const parsedCost = parseManaCost(manaCostStr);
-
-        // Check if player can pay the mana cost
-        const totalAvailable = calculateTotalAvailableMana(manaPool, undefined);
-        const validationError = validateManaPayment(
-          totalAvailable,
-          parsedCost.colors,
-          parsedCost.generic
-        );
-
-        if (validationError) {
+        const paymentResult = payBattlefieldAbilityManaCostOrQueue({
+          game,
+          gameId,
+          pid,
+          permanentId,
+          abilityId,
+          cardName,
+          card,
+          manaCost: manaCostStr,
+          requiresTap,
+          activatedAbilityText: scopedAbilityFullText,
+          activationPaymentContext: 'sacrifice_draw',
+        });
+        if (paymentResult === 'queued') return true;
+        if (paymentResult === 'failed') {
           socket.emit("error", {
             code: "INSUFFICIENT_MANA",
-            message: validationError,
+            message: `Not enough mana to activate ${cardName}.`,
           });
           return true;
         }
-
-        // Consume the mana from the pool
-        consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
-
         io.to(gameId).emit("chat", {
           id: `m_${Date.now()}`,
           gameId,
@@ -102,60 +168,17 @@ export async function tryHandleActivateSacrificeDraw(
         });
       }
 
-      // Validate: permanent must not already be tapped if tapping is part of the cost
-      if (requiresTap && (permanent as any).tapped) {
-        socket.emit("error", {
-          code: "ALREADY_TAPPED",
-          message: `${cardName} is already tapped`,
-        });
-        return true;
-      }
-
-      // Tap the permanent if required (part of cost - paid immediately)
-      if (requiresTap) {
-        (permanent as any).tapped = true;
-      }
-      
-      sacrificePermanent(game as any, String(permanentId), pid);
-
-      const drawnCards = applySacrificeDrawFromAuthoritativeLibrary(game as any, pid);
-      const drawnCardIds = drawnCards
-        .map((card: any) => String(card?.id || '').trim())
-        .filter(Boolean);
-
-      if (drawnCards.length > 0) {
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} sacrificed ${cardName} and drew a card.`,
-          ts: Date.now(),
-        });
-      } else {
-        io.to(gameId).emit("chat", {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: "system",
-          message: `${getPlayerName(game, pid)} sacrificed ${cardName} but had no cards to draw.`,
-          ts: Date.now(),
-        });
-      }
-      
-      if (typeof game.bumpSeq === "function") {
-        game.bumpSeq();
-      }
-      
-      appendEvent(gameId, (game as any).seq ?? 0, "activateSacrificeDrawAbility", { 
-        playerId: pid, 
-        permanentId, 
-        abilityId, 
+      await finishSacrificeDrawActivation({
+        io,
+        game,
+        gameId,
+        pid,
+        permanentId,
+        abilityId,
         cardName,
         manaCost: manaCostStr,
         requiresTap,
-        ...(drawnCardIds.length > 0 ? { drawnCardIds } : {}),
       });
-      
-      broadcastGame(io, game, gameId);
       return true;
       }
     }

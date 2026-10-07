@@ -76,6 +76,22 @@ npm --workspace @mtgedh/server run issues -- path              # where the datab
 CSV export prefixes cells that start with `=`, `+`, `-`, `@` with `'` so player text cannot run as a spreadsheet formula.
 There is intentionally **no HTTP endpoint** for reading reports.
 
+## Finding and fixing a report
+
+1. **Find open reports.** From the repository root: `npm run issues open`. Each block has the id, card, category, description, card state, and the last few log lines.
+2. **Read the one you are fixing.** `npm run issues -- show <id>` prints the stored oracle text, full card state, and game context (turn, phase, stack, recent log). Treat that snapshot as the bug report. Look up current oracle text from `oracle-cards.jsonl` or `mtg_data.db` before changing card behavior; the snapshot can be stale.
+3. **Fix the behavior, not the card name.** Route the effect through Oracle IR (parse the clause, apply the step, resume from the queue). Add a test that asserts the outcome (zones, choices, types, payment), with the live IR flags the rest of the card tests use. Do not add a `cardName === '...'` handler or a one-card `KNOWN_*` row.
+4. **Resolve it in the database** in the same turn, after the targeted tests pass:
+
+```
+npm run issues -- resolve <id> --note "What changed and why, in one or two sentences."
+npm run issues -- show <id>
+```
+
+The note is stored as `resolution_notes`. The CLI sets `resolved_at` and `resolved_by`. Pass `--by` only when someone named the resolver. Confirm the show output says `RESOLVED` and includes the note.
+
+Resolve only the reports this change actually fixes. Leave a report open when the fix is incomplete or the tests failed. Do not edit `issue-reports.sqlite` by hand. `npm run issues -- reopen <id>` clears a resolution.
+
 ## Safety and privacy
 
 - Socket event `reportIssue` (payload `IssueReportRequest`, optional ack `IssueReportResult`) requires the socket to be

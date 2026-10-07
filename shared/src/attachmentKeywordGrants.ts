@@ -3,6 +3,8 @@
  * "Equipped creature has prowess", "Enchanted creature has hexproof and haste", etc.
  */
 
+import { CREATURE_TYPES, normalizeCreatureTypeWord } from './creatureTypes.js';
+
 /** Keywords that attachments commonly grant (static + triggered). */
 export const ATTACHMENT_GRANT_KEYWORDS: readonly string[] = [
   'flying', 'trample', 'lifelink', 'deathtouch', 'vigilance', 'haste',
@@ -88,6 +90,8 @@ export function parseAttachmentGrantedKeywordsFromOracle(oracleText: string): st
     /(?:equipped|enchanted)\s+creature\s+has\s+([^.]+)/gi,
     /(?:equipped|enchanted)\s+creature\s+gains?\s+([^.]+)/gi,
     /(?:equipped|enchanted)\s+creature\s+gets?\s+[+\-]?\d*\s*\/\s*[+\-]?\d*\s+and\s+(?:has|gains?)\s+([^.]+)/gi,
+    // "gets +4/+4, has flying and first strike, and is an Angel…"
+    /(?:equipped|enchanted)\s+creature\s+gets?\s+[+\-]?\d+\s*\/\s*[+\-]?\d+\s*,\s*(?:and\s+)?(?:has|gains?)\s+([^.]+)/gi,
   ];
 
   for (const pattern of hasGainPatterns) {
@@ -108,6 +112,31 @@ export function parseAttachmentGrantedKeywordsFromOracle(oracleText: string): st
   }
 
   return [...granted];
+}
+
+const CARD_TYPE_ADDITIONS = ['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'battle'];
+
+/**
+ * "Enchanted creature ... is an Angel in addition to its other types."
+ * Returns display-cased type names (Angel, Artifact, …).
+ */
+export function parseAttachmentGrantedTypesFromOracle(oracleText: string): string[] {
+  const found: string[] = [];
+  const re = /(?:equipped|enchanted)\s+(?:creature|permanent|artifact|enchantment|land)\b[^.]{0,320}?\bis\s+(?:a|an)\s+([a-z][a-z-]*)\s+in addition to its other types/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(String(oracleText || ''))) !== null) {
+    const word = String(match[1] || '').trim().toLowerCase();
+    const creatureType = normalizeCreatureTypeWord(word);
+    let display = '';
+    if (creatureType) {
+      display = CREATURE_TYPES.find((type) => type.toLowerCase() === creatureType) || creatureType;
+    } else if (CARD_TYPE_ADDITIONS.includes(word)) {
+      display = word.charAt(0).toUpperCase() + word.slice(1);
+    }
+    if (!display) continue;
+    if (!found.some((entry) => entry.toLowerCase() === display.toLowerCase())) found.push(display);
+  }
+  return found;
 }
 
 export function attachmentOracleGrantsKeyword(oracleText: string, keyword: string): boolean {

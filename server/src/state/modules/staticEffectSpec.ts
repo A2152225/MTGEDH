@@ -22,6 +22,10 @@ import { controllerHasLeftTheGame } from '../../../../rules-engine/src/playerInG
 import { expireSourceLinkedPtModifiers } from './sourceLinkedPtModifiers.js';
 import { readPermanentTimestamp, stampMissingPermanentTimestamps } from '../../../../rules-engine/src/permanentTimestamps.js';
 import { collectActivatedAbilitiesExiledWithSource } from './staticEffectSpecCopyExiledActivated.js';
+import {
+  recordDeclarativeTypeAdditions,
+  seedContinuousTypeAdditionsForStaticPass,
+} from './staticEffectSpecCreatureTypePass.js';
 
 export type {
   StaticEffectScopeKind,
@@ -561,6 +565,7 @@ export function applyDeclarativeStaticSpecs(
   };
 
   const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+  seedContinuousTypeAdditionsForStaticPass(battlefield, result.typeAdditions);
   const orderedSpecs = sortStaticEffectSpecsForApplication(specs, state);
   const keywordResolver = bindKeywordResolver(orderedSpecs, state);
 
@@ -612,18 +617,7 @@ export function applyDeclarativeStaticSpecs(
         }
       }
 
-      const typeAdds = Array.isArray(spec.grant.typeAdditions) ? spec.grant.typeAdditions : [];
-      if (typeAdds.length > 0) {
-        const existing = result.typeAdditions.get(permanentId) || [];
-        const merged = [...existing];
-        for (const typeName of typeAdds) {
-          const normalized = String(typeName || '').trim();
-          if (normalized && !merged.some((entry) => entry.toLowerCase() === normalized.toLowerCase())) {
-            merged.push(normalized);
-          }
-        }
-        result.typeAdditions.set(permanentId, merged);
-      }
+      recordDeclarativeTypeAdditions(result, permanent, spec.grant.typeAdditions);
 
       const colorAdds = Array.isArray(spec.grant.colorAdditions) ? spec.grant.colorAdditions : [];
       if (colorAdds.length > 0) {

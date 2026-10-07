@@ -13,6 +13,8 @@ import {
 } from '../src/state/modules/staticEffectSpec.js';
 import { inferTriggeredAbilityTargetMetadata } from '../src/state/modules/inferTriggeredAbilityTargetMetadata.js';
 import { permanentHasKeyword } from '../src/socket/game-actions-handlers/gameActionsPermanentKeywordGrants.js';
+import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
+import { handleCommanderZoneResponse } from '../src/socket/resolutionCommanderZoneResponseHandlers.js';
 
 // Regressions reported from game_muxjp9tq (issues #16-#22).
 const gameId = 'test_muxjp9tq_regressions';
@@ -88,6 +90,44 @@ describe('game_muxjp9tq regressions', () => {
     movePermanentToGraveyard(game as any, 'grasp', true);
     const names = game.state.battlefield.map((p: any) => p.card?.name);
     expect(names).toEqual(expect.arrayContaining(['Swiftfoot Boots', 'Gwafa Hazid, Profiteer', "Venser's Journal"]));
+  });
+
+  it('#33 Grasp of Fate still exiles the other chosen permanents when one is a commander sent to the command zone', () => {
+    const game = setupFourPlayer();
+    const omnath = game.state.battlefield.find((p: any) => p.id === 'omnath');
+    omnath.isCommander = true;
+    omnath.card.isCommander = true;
+    (game as any).commandZone = { p2: { commanderIds: ['omnath_c'], commanderCards: [omnath.card] } };
+    game.state.commandZone = (game as any).commandZone;
+    game.state.stack = [graspTrigger(game, ['omnath', 'gwafa', 'journal'])];
+    game.resolveTopOfStack();
+
+    const bfIds = game.state.battlefield.map((p: any) => p.id);
+    expect(bfIds).not.toContain('gwafa');
+    expect(bfIds).not.toContain('journal');
+    expect(game.state.zones.p3.exile.map((c: any) => c.name)).toEqual(['Gwafa Hazid, Profiteer']);
+    expect(game.state.zones.p4.exile.map((c: any) => c.name)).toEqual(["Venser's Journal"]);
+
+    const steps = ResolutionQueueManager.getQueue(gameId)?.steps || [];
+    const choice: any = steps.find((s: any) => s.commanderZoneChoice === true);
+    expect(choice).toBeTruthy();
+
+    const io = { to: () => ({ emit: () => {} }), emit: () => {} } as any;
+    handleCommanderZoneResponse(io, game, gameId, choice, {
+      playerId: 'p2',
+      selections: 'command',
+    } as any);
+
+    const bfAfter = game.state.battlefield.map((p: any) => p.id);
+    expect(bfAfter).not.toContain('gwafa');
+    expect(bfAfter).not.toContain('journal');
+    expect(game.state.zones.p3.exile.map((c: any) => c.name)).toEqual(['Gwafa Hazid, Profiteer']);
+    expect(game.state.zones.p4.exile.map((c: any) => c.name)).toEqual(["Venser's Journal"]);
+    const inCz = (game as any).commandZone?.p2?.inCommandZone || game.state.commandZone?.p2?.inCommandZone || [];
+    expect(inCz).toContain('omnath_c');
+    expect(getLinkedExilesForPermanent(game as any, 'grasp').map((entry: any) => entry?.exiledCardName || entry?.card?.name || entry?.name)).toEqual(
+      expect.arrayContaining(['Gwafa Hazid, Profiteer', "Venser's Journal"]),
+    );
   });
 
   it('#20b trigger target prompt excludes equipment-granted hexproof and your own permanents', () => {
@@ -171,6 +211,27 @@ describe('game_muxjp9tq static effect regressions', () => {
     recomputeContinuousEffects(state);
     const bear = state.battlefield.find((p: any) => p.id === 'bear');
     expect(permanentHasKeyword(bear, state.battlefield, 'p1', 'vigilance', state)).toBe(true);
+  });
+
+  it('#32 Angelic Destiny makes the enchanted creature an Angel that angel anthems can see', () => {
+    const destiny = 'Enchant creature\nEnchanted creature gets +4/+4, has flying and first strike, and is an Angel in addition to its other types.\nWhen enchanted creature dies, return this card to its owner\'s hand.';
+    const state = {
+      players: [{ id: 'p1' }],
+      battlefield: [
+        perm('beast', 'p1', 'Beast', 'Token Creature — Beast', '', { power: '3', toughness: '3', isToken: true }),
+        perm('destiny', 'p1', 'Angelic Destiny', 'Enchantment — Aura', destiny, { attachedTo: 'beast' }),
+        perm('lyra', 'p1', 'Lyra Dawnbringer', 'Legendary Creature — Angel', 'Flying\nOther Angels you control get +1/+1 and have lifelink.', { power: '5', toughness: '5' }),
+      ],
+    } as any;
+    recomputeContinuousEffects(state);
+    const beast = state.battlefield.find((p: any) => p.id === 'beast');
+    expect(permanentHasCreatureType(beast, 'Angel')).toBe(true);
+    expect((beast.continuousTypeAdditions || []).map((t: string) => t.toLowerCase())).toContain('angel');
+    const bonus = getContinuousPTBonusSourcesForPermanent(beast, state);
+    expect(bonus.power).toBeGreaterThanOrEqual(1);
+    expect(bonus.toughness).toBeGreaterThanOrEqual(1);
+    const abilities = getContinuousGrantedAbilitiesForPermanent(beast, state);
+    expect(abilities).toEqual(expect.arrayContaining(['flying', 'first strike', 'lifelink']));
   });
 
   it('#22 Sephara grants indestructible to other flyers only', () => {

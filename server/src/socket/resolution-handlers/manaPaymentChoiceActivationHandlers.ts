@@ -4,7 +4,7 @@
  * Origin parent: server/src/socket/resolution.ts (handleStepResponse, MANA_PAYMENT_CHOICE case).
  * Cluster moved: the `activationPaymentChoice` branch - pay an activated ability's mana cost from
  * a prompt, then continue into the ability's activationPaymentContext (battlefield_counter_target,
- * battlefield_targeted, mana_ability, battlefield_group_draw).
+ * battlefield_targeted, mana_ability, battlefield_group_draw, sacrifice_draw).
  * Public entry symbols: tryHandleManaPaymentChoiceActivation.
  *
  * Returns true when the original switch case would have hit `break` here, false when the
@@ -41,6 +41,7 @@ import {
   queueCounterTargetStepForBattlefieldAbility,
   resolveManaAbilityActivationShape,
 } from "../interaction.js";
+import { finishSacrificeDrawActivation } from "../interaction-handlers/interactionActivateSacrificeDraw.js";
 import {
   battlefieldAbilityStackReplayEvidence,
   fireBattlefieldAbilityActivatedTriggers,
@@ -680,6 +681,26 @@ export async function tryHandleManaPaymentChoiceActivation(
 
     if (typeof game.bumpSeq === 'function') game.bumpSeq();
     broadcastGame(io, game, gameId);
+    return true;
+  }
+
+  if (stepData.activationPaymentContext === 'sacrifice_draw') {
+    const controllerId = String(step.playerId || pid);
+    const permanentId = String(stepData?.permanentId || step.sourceId || '').trim();
+    const abilityId = String(stepData?.abilityId || '').trim();
+    const cardName = String(stepData?.cardName || step.sourceName || 'Ability');
+    const requiresTap = stepData.requiresTap === true;
+    await finishSacrificeDrawActivation({
+      io,
+      game,
+      gameId,
+      pid: controllerId,
+      permanentId,
+      abilityId,
+      cardName,
+      manaCost: manaCost,
+      requiresTap,
+    });
     return true;
   }
 
