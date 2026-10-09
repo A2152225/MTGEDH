@@ -1,3 +1,5 @@
+import type Database from 'better-sqlite3';
+
 import type { OracleIRCompilerEnvelope } from '../../../rules-engine/src/oracleIRCompilerEnvelope.js';
 import { validateCompiledOverlayEnvelope } from '../../../rules-engine/src/oracleIRCompilerEnvelope.js';
 
@@ -19,6 +21,38 @@ function normalizeCardId(value: string | undefined): string {
 
 function normalizeOverlayName(value: string | undefined): string {
   return String(value || '').trim().toLowerCase();
+}
+
+type OverlayDb = ReturnType<typeof getCompiledOracleIROverlayDatabase>;
+type OverlayStatement = Database.Statement<[string, string]>;
+
+const OVERLAY_BY_ID_SQL = `
+      SELECT payload FROM oracle_ir_compiled_overlay
+      WHERE card_id = ? OR overlay_key = ?
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `;
+const OVERLAY_BY_NAME_SQL = `
+      SELECT payload FROM oracle_ir_compiled_overlay
+      WHERE normalized_name = ? OR overlay_key = ?
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `;
+
+// Lookups run once per permanent per continuous-effect recompute; re-preparing the
+// statement each call showed up as seconds of sqlite `prepare` self time in profiles.
+const overlayReadStatements = new WeakMap<OverlayDb, { byId: OverlayStatement; byName: OverlayStatement }>();
+
+function getOverlayReadStatements(database: OverlayDb): { byId: OverlayStatement; byName: OverlayStatement } {
+  let statements = overlayReadStatements.get(database);
+  if (!statements) {
+    statements = {
+      byId: database.prepare<[string, string]>(OVERLAY_BY_ID_SQL),
+      byName: database.prepare<[string, string]>(OVERLAY_BY_NAME_SQL),
+    };
+    overlayReadStatements.set(database, statements);
+  }
+  return statements;
 }
 
 function parseStoredEnvelope(payload: string): OracleIRCompilerEnvelope | null {
@@ -83,16 +117,12 @@ export function lookupCompiledOracleIROverlaySync(
   input: CompiledOracleIROverlayLookupInput,
 ): OracleIRCompilerEnvelope | null {
   const database = getCompiledOracleIROverlayDatabase();
+  const statements = getOverlayReadStatements(database);
   const cardId = normalizeCardId(input.cardId);
   const normalizedName = normalizeOverlayName(input.name);
 
   if (cardId) {
-    const byId = database.prepare(`
-      SELECT payload FROM oracle_ir_compiled_overlay
-      WHERE card_id = ? OR overlay_key = ?
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `).get(cardId, normalizeOverlayKey(cardId)) as { payload: string } | undefined;
+    const byId = statements.byId.get(cardId, normalizeOverlayKey(cardId)) as { payload: string } | undefined;
     if (byId?.payload) {
       const envelope = parseStoredEnvelope(byId.payload);
       if (envelope) return envelope;
@@ -100,12 +130,7 @@ export function lookupCompiledOracleIROverlaySync(
   }
 
   if (normalizedName) {
-    const byName = database.prepare(`
-      SELECT payload FROM oracle_ir_compiled_overlay
-      WHERE normalized_name = ? OR overlay_key = ?
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `).get(normalizedName, normalizeOverlayKey(normalizedName)) as { payload: string } | undefined;
+    const byName = statements.byName.get(normalizedName, normalizeOverlayKey(normalizedName)) as { payload: string } | undefined;
     if (byName?.payload) {
       return parseStoredEnvelope(byName.payload);
     }
@@ -119,26 +144,17 @@ export function peekCompiledOracleIROverlayPayloadSync(
   input: CompiledOracleIROverlayLookupInput,
 ): string | null {
   const database = getCompiledOracleIROverlayDatabase();
+  const statements = getOverlayReadStatements(database);
   const cardId = normalizeCardId(input.cardId);
   const normalizedName = normalizeOverlayName(input.name);
 
   if (cardId) {
-    const byId = database.prepare(`
-      SELECT payload FROM oracle_ir_compiled_overlay
-      WHERE card_id = ? OR overlay_key = ?
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `).get(cardId, normalizeOverlayKey(cardId)) as { payload: string } | undefined;
+    const byId = statements.byId.get(cardId, normalizeOverlayKey(cardId)) as { payload: string } | undefined;
     if (byId?.payload) return byId.payload;
   }
 
   if (normalizedName) {
-    const byName = database.prepare(`
-      SELECT payload FROM oracle_ir_compiled_overlay
-      WHERE normalized_name = ? OR overlay_key = ?
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `).get(normalizedName, normalizeOverlayKey(normalizedName)) as { payload: string } | undefined;
+    const byName = statements.byName.get(normalizedName, normalizeOverlayKey(normalizedName)) as { payload: string } | undefined;
     if (byName?.payload) return byName.payload;
   }
 

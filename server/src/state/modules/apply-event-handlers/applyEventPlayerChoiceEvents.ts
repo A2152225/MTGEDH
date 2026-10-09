@@ -243,7 +243,7 @@ export function applyPlayerChoiceEvents(ctx: GameContext, e: GameEvent): boolean
       case "playerChoice": {
         // Player chose a player for a permanent (e.g., Xantcha, Curses)
         try {
-          const { playerId, permanentId, chosenPlayer } = e as any;
+          const { playerId, permanentId, chosenPlayer, chosenPlayerName } = e as any;
           const replayGameId = String((ctx as any).gameId || '').trim();
           const resolvedStepId = String((e as any).resolvedStepId || '').trim();
           const resolvedStepType = String((e as any).resolvedStepType || ResolutionStepType.PLAYER_CHOICE).trim();
@@ -268,8 +268,12 @@ export function applyPlayerChoiceEvents(ctx: GameContext, e: GameEvent): boolean
           
           if (permanent && chosenPlayer) {
             (permanent as any).chosenPlayer = chosenPlayer;
+            const resolvedName = String(chosenPlayerName || '').trim()
+              || String((ctx.state?.players || []).find((p: any) => String(p?.id || '') === String(chosenPlayer))?.name || '').trim();
+            if (resolvedName) (permanent as any).chosenPlayerName = resolvedName;
             if (permanent.card && typeof permanent.card === 'object') {
               (permanent.card as any).chosenPlayer = chosenPlayer;
+              if (resolvedName) (permanent.card as any).chosenPlayerName = resolvedName;
             }
             debug(2, `[applyEvent] Applied player choice: ${permanent.card?.name} -> ${chosenPlayer}`);
           } else {
@@ -319,6 +323,9 @@ export function applyPlayerChoiceEvents(ctx: GameContext, e: GameEvent): boolean
           if (effectType === 'set_chosen_player') {
             if (permanent) {
               (permanent as any).chosenPlayer = selectedPlayerId;
+              const resolvedName = String((e as any).selectedPlayerName || (e as any).chosenPlayerName || '').trim()
+                || String((ctx.state?.players || []).find((p: any) => String(p?.id || '') === String(selectedPlayerId))?.name || '').trim();
+              if (resolvedName) (permanent as any).chosenPlayerName = resolvedName;
             } else {
               debugWarn(2, `[applyEvent] playerSelection(set_chosen_player): permanent ${permanentId} not found`);
             }

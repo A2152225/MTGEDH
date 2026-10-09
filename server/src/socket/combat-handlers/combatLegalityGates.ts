@@ -16,6 +16,7 @@ import {
   isStationPermanentTypeLine,
 } from "../../../../rules-engine/src/stationPermanentUtils.js";
 import { getLandwalkUnblockableReason } from "../../../../shared/src/combatLandwalk.js";
+import { countDevotionAmongPermanents } from "../../../../shared/src/devotionCount.js";
 import { isCreatureTypeWord, permanentHasCreatureType } from "../../../../shared/src/creatureTypes.js";
 import {
   isCounterPreventingAttack,
@@ -58,6 +59,7 @@ import { debug } from "../../utils/debug.js";
  */
 export function isCurrentlyCreature(permanent: any, battlefield?: any[], controllerId?: string): boolean {
   if (!permanent) return false;
+  if (permanent.notCreature === true) return false;
   
   // Check type_line from card data
   const typeLine = permanent.card?.type_line?.toLowerCase() || 
@@ -205,7 +207,6 @@ export function isCurrentlyCreature(permanent: any, battlefield?: any[], control
       const playerPerms = battlefield 
         ? battlefield.filter((p: any) => p && p.controller === controller)
         : (permanent.controllerBattlefield || []);
-      let devotion = 0;
       
       // Map color words to mana symbols
       const colorToSymbol: Record<string, string> = {
@@ -214,37 +215,15 @@ export function isCurrentlyCreature(permanent: any, battlefield?: any[], control
       const symbol1 = colorToSymbol[color1] || color1.charAt(0).toUpperCase();
       const symbol2 = color2 ? (colorToSymbol[color2] || color2.charAt(0).toUpperCase()) : null;
       
-      for (const perm of playerPerms) {
-        const manaCost = perm.card?.mana_cost || '';
-        // Count occurrences of the color symbol(s)
-        const regex1 = new RegExp(`\\{${symbol1}\\}`, 'gi');
-        const matches1 = manaCost.match(regex1);
-        if (matches1) devotion += matches1.length;
-        
-        if (symbol2) {
-          const regex2 = new RegExp(`\\{${symbol2}\\}`, 'gi');
-          const matches2 = manaCost.match(regex2);
-          if (matches2) devotion += matches2.length;
-        }
-        
-        // Also check hybrid mana symbols - each hybrid symbol counts for BOTH colors
-        // Per MTG rules, {R/W} contributes 1 to both red and white devotion
-        const hybridRegex = /\{([WUBRG])\/([WUBRG])\}/gi;
-        let hybridMatch;
-        while ((hybridMatch = hybridRegex.exec(manaCost)) !== null) {
-          if (hybridMatch[1] === symbol1 || hybridMatch[2] === symbol1) devotion++;
-          if (symbol2 && (hybridMatch[1] === symbol2 || hybridMatch[2] === symbol2)) devotion++;
-        }
-      }
+      let devotion = countDevotionAmongPermanents(
+        playerPerms,
+        String(controller || ''),
+        symbol2 ? [symbol1, symbol2] : [symbol1],
+      );
       
       // Check if there's a stored devotion value on the permanent (from game state)
       if (permanent.calculatedDevotion !== undefined) {
         devotion = permanent.calculatedDevotion;
-      }
-      
-      // Check the notCreature flag set by game state
-      if (permanent.notCreature === true) {
-        return false;
       }
       
       // If devotion is less than threshold, it's not a creature

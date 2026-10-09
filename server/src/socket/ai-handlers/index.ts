@@ -258,6 +258,7 @@ export {
   buildAIAvailableManaForSpellPayment,
   buildAISpellPaymentPlan,
   canAIAssembleSpellPaymentPlan,
+  chooseAssembleableSpellXValueFromStep,
   chooseAISacrificePermanentForManaAbility,
   chooseAISacrificePermanentsForManaAbility,
   chooseAISpellPaymentSelections,

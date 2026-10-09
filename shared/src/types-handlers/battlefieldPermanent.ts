@@ -117,6 +117,11 @@ export interface BattlefieldPermanent {
   echoPaid?: boolean;
   // Token flag
   isToken?: boolean;
+  /**
+   * True when a characteristic-defining ability currently says this isn't a creature
+   * (Theros gods below devotion, impending with time counters).
+   */
+  notCreature?: boolean;
   // Provenance for token-linked delayed cleanup/reference effects
   createdBySourceId?: string;
   createdBySourceName?: string;

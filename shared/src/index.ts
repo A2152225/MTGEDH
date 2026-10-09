@@ -1,4 +1,5 @@
 export * from "./types.js";
+export * from "./devotionCount.js";
 export * from "./creatureTypes.js";
 export * from "./landTypes.js";
 export * from "./equipAbilities.js";

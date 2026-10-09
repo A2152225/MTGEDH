@@ -16,6 +16,13 @@
  */
 
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import {
+  normalizeTokenColors,
+  pickPreferredTokenPrinting,
+  scryfallExactColorClause,
+  tokenFieldsMatchSpec,
+  type TokenMatchFields,
+} from "./tokenImageMatch.js";
 
 export type ParsedLine = { name: string; count: number };
 
@@ -545,60 +552,53 @@ export function stripColorAdjectiveFromTokenName(name: string): string {
   return stripped || raw;
 }
 
-function normalizeScryfallTokenColors(colors?: string[]): string[] {
-  return (colors || [])
-    .map((color) => String(color || '').trim().toUpperCase())
-    .filter(Boolean)
-    .sort();
-}
-
 function buildScryfallTokenImageCacheKey(spec: ScryfallTokenImageSpec, searchName: string): string {
   const abilities = (spec.abilities || []).map((a) => String(a).toLowerCase()).sort().join(',');
   return [
     searchName.toLowerCase(),
     String(spec.power ?? ''),
     String(spec.toughness ?? ''),
-    normalizeScryfallTokenColors(spec.colors).join(''),
+    normalizeTokenColors(spec.colors).join(''),
     abilities,
     spec.isArtifact === true ? 'A' : spec.isArtifact === false ? 'a' : '',
-    spec.isEnchantment === true ? 'E' : '',
+    spec.isEnchantment === true ? 'E' : spec.isEnchantment === false ? 'e' : '',
   ].join('|');
 }
 
-function scryfallCardMatchesTokenSpec(card: any, spec: ScryfallTokenImageSpec): boolean {
-  const cardName = String(card?.name || '').toLowerCase();
-  const acceptedNames = new Set(
-    [spec.name, stripColorAdjectiveFromTokenName(spec.name)]
-      .map((n) => String(n || '').toLowerCase().trim())
-      .filter(Boolean),
-  );
-  if (!acceptedNames.has(cardName)) return false;
-  if (spec.power !== undefined && String(card?.power ?? '') !== String(spec.power)) return false;
-  if (spec.toughness !== undefined && String(card?.toughness ?? '') !== String(spec.toughness)) return false;
+type ScryfallTokenView = TokenMatchFields & { imageUris?: ScryfallTokenImageResult };
 
-  const cardColors = normalizeScryfallTokenColors(card?.colors);
-  const specColors = normalizeScryfallTokenColors(spec.colors);
-  if (spec.colors !== undefined && cardColors.join(',') !== specColors.join(',')) return false;
-
-  const typeLine = String(card?.type_line || '').toLowerCase();
-  if (spec.isArtifact === true && !typeLine.includes('artifact')) return false;
-  if (spec.isArtifact === false && typeLine.includes('artifact')) return false;
-  if (spec.isEnchantment === true && !typeLine.includes('enchantment')) return false;
-
-  if (spec.abilities && spec.abilities.length > 0) {
-    const keywords = (card?.keywords || []).map((keyword: string) => keyword.toLowerCase());
-    const oracleText = String(card?.oracle_text || '').toLowerCase();
-    for (const ability of spec.abilities) {
-      const abilityLower = ability.toLowerCase();
-      if (!keywords.includes(abilityLower) && !oracleText.includes(abilityLower)) return false;
-    }
-  }
-
-  return Boolean(
-    card?.image_uris?.normal ||
-      card?.image_uris?.small ||
-      card?.card_faces?.[0]?.image_uris?.normal,
-  );
+function scryfallTokenViews(card: any): ScryfallTokenView[] {
+  const faces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+  const top = card?.image_uris;
+  const hasTop = Boolean(top?.normal || top?.small);
+  const combined = String(card?.name || '').includes('//');
+  const sources = (!hasTop || combined) && faces.length > 0 ? faces : [card];
+  return sources.flatMap((source: any, index: number) => {
+    const imageUris = source?.image_uris?.normal || source?.image_uris?.small
+      ? source.image_uris
+      : undefined;
+    const name = String(source?.name || card?.name || '').trim();
+    if (!imageUris || !name || name.includes('//')) return [];
+    const colors = (Array.isArray(source?.colors) && source.colors.length ? source.colors : null)
+      || (Array.isArray(source?.color_indicator) && source.color_indicator.length ? source.color_indicator : null)
+      || card?.colors
+      || card?.color_indicator
+      || [];
+    const view: ScryfallTokenView = {
+      id: source !== card ? `${card?.id}#${index}` : String(card?.id || ''),
+      name,
+      power: source?.power ?? card?.power,
+      toughness: source?.toughness ?? card?.toughness,
+      colors,
+      keywords: source?.keywords || card?.keywords || [],
+      oracleText: String(source?.oracle_text || card?.oracle_text || ''),
+      typeLine: String(source?.type_line || card?.type_line || ''),
+      releasedAt: card?.released_at ? String(card.released_at) : undefined,
+      hasImage: true,
+      imageUris,
+    };
+    return [view];
+  });
 }
 
 /**
@@ -622,27 +622,41 @@ export async function searchScryfallTokenImage(
   const queryParts = ['is:token', `name:"${normalizeName(searchName)}"`];
   if (spec.power !== undefined) queryParts.push(`pow=${spec.power}`);
   if (spec.toughness !== undefined) queryParts.push(`tou=${spec.toughness}`);
-  if (spec.isArtifact) queryParts.push('t:artifact');
-  if (spec.isEnchantment) queryParts.push('t:enchantment');
-  const specColors = normalizeScryfallTokenColors(spec.colors);
-  if (specColors.length === 1) {
-    const colorMap: Record<string, string> = { W: 'w', U: 'u', B: 'b', R: 'r', G: 'g' };
-    const color = colorMap[specColors[0]];
-    if (color) queryParts.push(`c:${color}`);
-  }
+  if (spec.isArtifact === true) queryParts.push('t:artifact');
+  if (spec.isArtifact === false) queryParts.push('-t:artifact');
+  if (spec.isEnchantment === true) queryParts.push('t:enchantment');
+  if (spec.isEnchantment === false) queryParts.push('-t:enchantment');
+  const colorClause = scryfallExactColorClause(spec.colors);
+  if (colorClause) queryParts.push(colorClause);
+
+  const acceptedNames = [spec.name, stripColorAdjectiveFromTokenName(spec.name)];
+  const matchSpec = { ...spec, acceptedNames };
 
   const lookup = (async (): Promise<ScryfallTokenImageResult | undefined> => {
     try {
-      const url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(queryParts.join(' '))}`;
-      const data = await doFetchJSON(url);
-      const cards = Array.isArray(data?.data) ? data.data : [];
-      for (const card of cards) {
-        if (!scryfallCardMatchesTokenSpec(card, spec)) continue;
-        const images = card.image_uris ?? card.card_faces?.[0]?.image_uris;
-        if (images?.normal || images?.small) {
-          tokenImageSearchCache.set(cacheKey, images);
-          return images;
+      let url: string | undefined = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(queryParts.join(' '))}`;
+      const matches: ScryfallTokenView[] = [];
+      for (let page = 0; page < 8 && url; page += 1) {
+        let data: any;
+        try {
+          data = await doFetchJSON(url);
+        } catch (err) {
+          if (matches.length > 0) break;
+          throw err;
         }
+        const cards = Array.isArray(data?.data) ? data.data : [];
+        for (const card of cards) {
+          for (const view of scryfallTokenViews(card)) {
+            if (tokenFieldsMatchSpec(view, matchSpec)) matches.push(view);
+          }
+        }
+        url = data?.has_more && data?.next_page ? String(data.next_page) : undefined;
+        if (url) await new Promise((resolve) => setTimeout(resolve, 80));
+      }
+      const best = pickPreferredTokenPrinting(matches, matchSpec);
+      if (best?.imageUris?.normal || best?.imageUris?.small) {
+        tokenImageSearchCache.set(cacheKey, best.imageUris);
+        return best.imageUris;
       }
       // Definitive miss (empty / no matching printing) — cache so enrich storms stop.
       tokenImageSearchCache.set(cacheKey, null);

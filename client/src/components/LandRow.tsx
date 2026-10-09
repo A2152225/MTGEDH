@@ -447,6 +447,7 @@ export function LandRow(props: {
               }
               
               if (itAny.chosenPlayer) {
+                const chosenPlayerLabel = String(itAny.chosenPlayerName || itAny.chosenPlayer);
                 badges.push(
                   <div
                     key="player"
@@ -460,9 +461,9 @@ export function LandRow(props: {
                       border: '1px solid rgba(255,255,255,0.3)',
                       whiteSpace: 'nowrap',
                     }}
-                    title={`Chosen player: ${itAny.chosenPlayer}`}
+                    title={`Chosen player: ${chosenPlayerLabel}`}
                   >
-                    👤 {itAny.chosenPlayer}
+                    👤 {chosenPlayerLabel}
                   </div>
                 );
               }

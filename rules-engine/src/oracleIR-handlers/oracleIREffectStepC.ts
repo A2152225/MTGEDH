@@ -203,6 +203,21 @@ export type OracleEffectStepC =
     }
   | {
       /**
+       * "Each player secretly chooses a number N or greater... deals damage equal
+       * to the highest number... each player who didn't choose the lowest discards
+       * their hand, then draws K cards." (Wheel of Misfortune family).
+       */
+      readonly kind: 'secret_each_player_number';
+      readonly choosers: OraclePlayerSelector;
+      readonly secret: true;
+      readonly minNumber: number;
+      readonly drawCount: number;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
        * "You may cast a [types] spell with mana value X or less from among
        * them/milled cards without paying its mana cost."
        */

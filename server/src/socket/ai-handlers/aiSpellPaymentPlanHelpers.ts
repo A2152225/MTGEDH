@@ -8,13 +8,18 @@
  * Public entry symbols: chooseAISacrificePermanentForManaAbility,
  * chooseAISacrificePermanentsForManaAbility, buildAIAvailableManaForSpellPayment,
  * buildAISpellPaymentPlan, cloneAISpellPaymentSimulationGame,
- * canAIAssembleSpellPaymentPlan, getAINonTapManaAbilityCandidates,
- * chooseAISpellPaymentSelections.
+ * canAIAssembleSpellPaymentPlan, chooseAssembleableSpellXValueFromStep,
+ * getAINonTapManaAbilityCandidates, chooseAISpellPaymentSelections.
  */
 import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { parseSacrificeCost } from "../../../../shared/src/textUtils.js";
 import { getTotalManaFromPool, parseManaCost } from "../../state/modules/mana-check.js";
+import {
+  applyChosenXToManaCost,
+  chooseSpellXValueFromStep,
+  findSpellCardForXSelection,
+} from "../../state/modules/spellXCastUtils.js";
 import {
   calculateManaProduction,
   consumeManaFromPool,
@@ -281,6 +286,9 @@ export function buildAISpellPaymentPlan(
         ...(source.sacrificedPermanentIds && source.sacrificedPermanentIds.length > 0
           ? { sacrificedPermanentIds: source.sacrificedPermanentIds.map((id) => String(id || '')) }
           : {}),
+        ...(Array.isArray((source as any).producedColors) && (source as any).producedColors.length > 0
+          ? { producedColors: (source as any).producedColors.map((color: string) => String(color || '').toUpperCase()) }
+          : {}),
       })),
     };
   }
@@ -291,7 +299,7 @@ export function cloneAISpellPaymentSimulationGame(game: any): any {
     };
   }
 
-function canAISimulateNonTapManaToPaySpell(
+export function canAISimulateNonTapManaToPaySpell(
     game: any,
     playerId: PlayerID,
     parsedCost: ReturnType<typeof parseManaCost>,
@@ -306,6 +314,27 @@ function canAISimulateNonTapManaToPaySpell(
       if (!hasManaAbility(permanent?.card)) return false;
       return /charge counter/i.test(String(permanent?.card?.oracle_text || ''));
     });
+  }
+
+export function chooseAssembleableSpellXValueFromStep(game: any, playerId: PlayerID, step: any): number {
+    const chosenX = chooseSpellXValueFromStep(game, playerId, step);
+    if (step?.spellCastXSelection !== true) return chosenX;
+
+    const minValue = Number.isFinite(Number(step?.minValue))
+      ? Math.max(0, Math.floor(Number(step.minValue)))
+      : 0;
+    const spellCard = findSpellCardForXSelection(game, playerId, step);
+    const manaCost = String(spellCard?.manaCost || spellCard?.mana_cost || '').trim();
+    if (!manaCost.includes('X')) return chosenX;
+
+    const excludedHandCardIds = spellCard?.id ? [String(spellCard.id)] : undefined;
+    for (let candidate = chosenX; candidate >= minValue; candidate -= 1) {
+      const parsedCost = parseManaCost(applyChosenXToManaCost(manaCost, candidate));
+      if (canAIAssembleSpellPaymentPlan(game, playerId, parsedCost, excludedHandCardIds, spellCard)) {
+        return candidate;
+      }
+    }
+    return minValue;
   }
 
   export function canAIAssembleSpellPaymentPlan(
@@ -448,6 +477,12 @@ export function getAINonTapManaAbilityCandidates(
 
     let plan = buildPlan();
     if (plan) return plan;
+
+    // Tap-land / bounce mismatches must fail immediately. The battery-color-fix
+    // loop JSON-clones the battlefield and can block the event loop for 30–50s.
+    if (!canAISimulateNonTapManaToPaySpell(game, playerId, parsedCost, excludedHandCardIds)) {
+      return null;
+    }
 
     for (let attempt = 0; attempt < 6; attempt++) {
       const activated = await tryActivateAINonTapManaAbilityForSpellPayment(io, gameId, game, playerId, parsedCost, excludedHandCardIds)

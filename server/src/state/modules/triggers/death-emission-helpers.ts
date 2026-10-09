@@ -9,7 +9,10 @@
 
 import type { GameContext } from "../../context.js";
 import { detectDeathTriggers } from "./death-detection.js";
-import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.js";
+import {
+  getContinuousGrantedAbilitiesForPermanent,
+  primeDerivedContinuousEffectsForScan,
+} from "../staticEffectSpec.js";
 import { permanentHasCreatureTypeNow } from "../../creatureTypeNow.js";
 import { getCurrentGoaders } from "../goad-effects.js";
 
@@ -505,6 +508,9 @@ export function appendDetectedDeathWatcherTriggers(
     ...(ctx.state || {}),
     battlefield: permanentsToScan,
   };
+  // The spread above drops the non-enumerable continuous-effects cache; compute it once
+  // for this read-only scan instead of once per permanent inside detectDeathTriggers.
+  primeDerivedContinuousEffectsForScan(detectState);
   const detectCtx = { ...ctx, state: detectState };
   for (const permanent of permanentsToScan) {
     if (!permanent?.card) continue;

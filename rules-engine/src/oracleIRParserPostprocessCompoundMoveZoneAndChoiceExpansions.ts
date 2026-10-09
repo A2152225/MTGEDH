@@ -668,6 +668,28 @@ function parseAsEntersChooseStepsFromText(rawText: string, sequence?: 'then'): O
     return steps;
   }
 
+  if (/^an?\s+opponent$/i.test(choiceBody)) {
+    steps.push({
+      kind: 'choose_opponent',
+      ...(optional ? { optional: true } : {}),
+      ...seq,
+      raw: normalized,
+    });
+    return steps;
+  }
+
+  if (/^a\s+player$/i.test(choiceBody)) {
+    steps.push({
+      kind: 'player_choice',
+      choice: 'generic',
+      choiceText: 'Choose a player',
+      ...(optional ? { optional: true } : {}),
+      ...seq,
+      raw: normalized,
+    } as OracleEffectStep);
+    return steps;
+  }
+
   if (/^a\s+colou?r$/i.test(choiceBody)) {
     steps.push({
       kind: 'choose_color',

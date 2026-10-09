@@ -216,6 +216,14 @@ export function handleCounterTargetResponse(
   }
 
   const sourceId = String(step.sourceId || stepData.sourceId || '').trim();
+  const abilityOracle = String(stepData.oracleText || step.description || '');
+  if (/\banother\s+target\b/i.test(abilityOracle) && sourceId && targetId === sourceId) {
+    emitToPlayer(io, pid as any, 'error', {
+      code: 'INVALID_TARGET',
+      message: 'Target must be another permanent',
+    });
+    return;
+  }
   const sourceName = String(step.sourceName || stepData.title || 'an ability');
   const targetName = String((targetPermanent as any).card?.name || 'permanent');
   const activatedAbilityText = String(stepData.oracleText || step.description || '').trim();

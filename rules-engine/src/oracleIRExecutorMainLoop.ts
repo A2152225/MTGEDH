@@ -67,6 +67,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   'vote',
   'each_player_choose_then_destroy_rest',
   'secret_opponent_choice_damage',
+  'secret_each_player_number',
   'may_cast_from_among',
   'may_reveal_hand_then_win_if_own_named_in_zones',
   'unless_pays_mana',
@@ -724,6 +725,7 @@ export function applyOracleIRStepsToGameStateImpl(
       }
       case 'each_player_choose_then_destroy_rest':
       case 'secret_opponent_choice_damage':
+      case 'secret_each_player_number':
       case 'may_cast_from_among':
       case 'may_reveal_hand_then_win_if_own_named_in_zones': {
         tryApplyMainLoopChoiceFamilySteps(loopCtx, step);

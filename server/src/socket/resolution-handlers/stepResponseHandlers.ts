@@ -13,6 +13,10 @@ import { persistEffectProgramChoiceResolutionEvent, restoreEffectProgramRuntimeF
 import { maybeResumeDeferredOracleIrStackSpellOnGame } from "../../state/modules/oracleIrDeferredStackFinalize.js";
 import { handleKynaiosChoiceResponse as handleKynaiosChoiceResponseBatched } from "../../state/resolution/handlers/kynaiosChoice.js";
 import { ResolutionStepType, type ResolutionStep, type ResolutionStepResponse } from "../../state/resolution/index.js";
+import {
+  handleSecretEachPlayerNumberChoiceResponse,
+  isSecretEachPlayerNumberStep,
+} from "../resolutionSecretEachPlayerNumberResponseHandlers.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { handleLibrarySearchResponse } from "../resolutionLibrarySearchHandlers.js";
 import {
@@ -179,6 +183,11 @@ async function handleStepResponseBody(
 
   if (step.type === ResolutionStepType.OPTION_CHOICE && (step as any)?.prisonersDilemmaChoice === true) {
     await getResolutionHandlerDeps().handlePrisonersDilemmaChoiceResponse(io, game, gameId, step, response);
+    return;
+  }
+
+  if (isSecretEachPlayerNumberStep(step)) {
+    await handleSecretEachPlayerNumberChoiceResponse(io, game, gameId, step, response);
     return;
   }
   

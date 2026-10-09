@@ -44,13 +44,15 @@ export async function tryHandleActivatePlaneswalker(
     // Parse the planeswalker ability from oracle text
     // Scryfall oracle text uses plain format without brackets (e.g., "+1: Effect text")
     // The pattern matches various dash characters: regular minus (-), en dash (–), em dash (—), and Unicode minus (−)
-    const pwAbilityPattern = /^([+−–—-]?\d+):\s*(.+)/gm;
-    const abilities: { loyaltyCost: number; text: string }[] = [];
+    const pwAbilityPattern = /^([+−–—-]?(?:\d+|X)):\s*(.+)/gm;
+    const abilities: { loyaltyCost: number; text: string; isVariableLoyalty: boolean; isMinusX: boolean }[] = [];
     let pwMatch;
     while ((pwMatch = pwAbilityPattern.exec(oracleText)) !== null) {
       const costStr = pwMatch[1].replace(/[−–—]/g, '-');
-      const cost = parseInt(costStr, 10);
-      abilities.push({ loyaltyCost: cost, text: pwMatch[2].trim() });
+      const isVariableLoyalty = /x/i.test(costStr);
+      const isMinusX = isVariableLoyalty && costStr.startsWith('-');
+      const cost = isVariableLoyalty ? 0 : parseInt(costStr, 10);
+      abilities.push({ loyaltyCost: cost, text: pwMatch[2].trim(), isVariableLoyalty, isMinusX });
     }
     
     if (abilityIndex < 0 || abilityIndex >= abilities.length) {
@@ -72,9 +74,44 @@ export async function tryHandleActivatePlaneswalker(
     });
     
     // Get current loyalty (needed for validation)
-    const currentLoyalty = (permanent as any).counters?.loyalty || 0;
+    const currentLoyalty = (permanent as any).counters?.loyalty || (permanent as any).loyalty || 0;
     const loyaltyCost = ability.loyaltyCost;
-    const loyaltyActivatedAbilityText = `${loyaltyCost >= 0 ? '+' : ''}${loyaltyCost}: ${ability.text}`;
+    const loyaltyActivatedAbilityText = ability.isVariableLoyalty
+      ? `${ability.isMinusX ? '-' : '+'}X: ${ability.text}`
+      : `${loyaltyCost >= 0 ? '+' : ''}${loyaltyCost}: ${ability.text}`;
+
+    if (ability.isVariableLoyalty) {
+      const activationsThisTurnX = (permanent as any).loyaltyActivationsThisTurn || 0;
+      const maxActivationsX = getLoyaltyActivationLimit(game.state, pid);
+      if (activationsThisTurnX >= maxActivationsX) {
+        socket.emit("error", {
+          code: "LOYALTY_ALREADY_USED",
+          message: `${cardName} has already activated a loyalty ability this turn`,
+        });
+        return true;
+      }
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.X_VALUE_SELECTION,
+        playerId: pid as PlayerID,
+        description: `Choose X for ${cardName}'s [${ability.isMinusX ? '-' : '+'}X] ability`,
+        mandatory: true,
+        sourceId: permanentId,
+        sourceName: cardName,
+        sourceImage: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
+        minValue: 0,
+        maxValue: Math.max(0, currentLoyalty),
+        planeswalkerLoyaltyX: true,
+        planeswalkerAbility: {
+          abilityIndex,
+          abilityText: ability.text,
+          isMinusX: ability.isMinusX === true,
+          currentLoyalty,
+        },
+      } as any);
+      debug(2, `[planeswalker] Queued X_VALUE_SELECTION for ${cardName} −X / +X ability`);
+      broadcastGame(io, game, gameId);
+      return true;
+    }
     
     // Check if we can pay the cost BEFORE prompting for targets
     // For minus abilities, check we have enough loyalty

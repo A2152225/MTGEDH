@@ -1,4 +1,5 @@
 import type { PlayerID } from "../../../../shared/src";
+import { countDevotionAmongPermanents } from "../../../../shared/src/devotionCount.js";
 import { buildZoneObjectWithRetainedCounters } from "../../../../shared/src/zoneRetainedCounters";
 import type { GameContext } from "../context";
 import { applyStateBasedActions, evaluateAction } from "../../rules-engine";
@@ -205,6 +206,46 @@ export function applyCounterModifications(
   return ((replacement.metadata as any)?.modifiedDeltas as Record<string, number> | undefined) || deltas;
 }
 
+const PLUS_ONE_COUNTER_ALIASES = new Set(['+1/+1', 'p1p1', 'plus_one', 'plusone', 'plus1plus1', '+1+1']);
+const MINUS_ONE_COUNTER_ALIASES = new Set(['-1/-1', 'm1m1', 'minus_one', 'minusone', 'minus1minus1', '-1-1']);
+
+/**
+ * Canonical stored keys follow oracle text: '+1/+1' and '-1/-1'. P/T, SBA, and trigger
+ * code read those keys, so legacy aliases (e.g. a sanitizer that stripped the slash into
+ * '+1+1') must never reach `permanent.counters`. Other counter types pass through as-is.
+ */
+export function canonicalizeCounterKey(key: string): string {
+  const raw = String(key || '').trim();
+  const lower = raw.toLowerCase();
+  if (PLUS_ONE_COUNTER_ALIASES.has(lower)) return '+1/+1';
+  if (MINUS_ONE_COUNTER_ALIASES.has(lower)) return '-1/-1';
+  return raw;
+}
+
+function canonicalizeCounterDeltas(deltas: Record<string, number>): Record<string, number> {
+  const next: Record<string, number> = {};
+  for (const [key, value] of Object.entries(deltas || {})) {
+    const canonical = canonicalizeCounterKey(key);
+    if (!canonical) continue;
+    next[canonical] = (next[canonical] || 0) + (Number(value) || 0);
+  }
+  return next;
+}
+
+/** Fold leftover '+1+1' / '-1-1' (and other aliases) onto the oracle-text keys. */
+function canonicalizeStoredCounters(counters: Record<string, number> | undefined): Record<string, number> {
+  const next: Record<string, number> = {};
+  for (const [key, value] of Object.entries(counters || {})) {
+    const amount = Math.floor(Number(value) || 0);
+    if (!amount) continue;
+    const canonical = canonicalizeCounterKey(key);
+    if (!canonical) continue;
+    next[canonical] = (next[canonical] || 0) + amount;
+    if (next[canonical] <= 0) delete next[canonical];
+  }
+  return next;
+}
+
 export function updateCounters(
   ctx: GameContext,
   permanentId: string,
@@ -215,20 +256,16 @@ export function updateCounters(
   const p = state.battlefield.find(b => b.id === permanentId);
   if (!p) return;
 
-  const isPlusOneCounterKey = (key: string): boolean => {
-    const k = String(key || '').trim().toLowerCase();
-    if (!k) return false;
-    return k === '+1/+1' || k === 'p1p1' || k === 'plus_one' || k === 'plusone' || k === 'plus1plus1' || k === '+1+1';
-  };
-  
+  const canonicalDeltas = canonicalizeCounterDeltas(deltas);
+
   // Apply counter modification effects (Vorinclex, Doubling Season, Hardened Scales, etc.)
   const modifiedDeltas = options?.skipCounterModifications
-    ? deltas
-    : applyCounterModifications(state, permanentId, deltas);
+    ? canonicalDeltas
+    : applyCounterModifications(state, permanentId, canonicalDeltas);
 
   trackCountersPlacedThisTurn(state, p, permanentId, modifiedDeltas);
   
-  const current: Record<string, number> = { ...(p.counters ?? {}) };
+  const current: Record<string, number> = canonicalizeStoredCounters(p.counters as Record<string, number> | undefined);
   const removedDeltas: Record<string, number> = {};
   const effectiveDeltas: Record<string, number> = {};
   for (const [k, vRaw] of Object.entries(modifiedDeltas)) {
@@ -582,11 +619,12 @@ export function updateGodCreatureStatus(ctx: GameContext): void {
     const symbol1 = colorToSymbol[color1] || color1.charAt(0).toUpperCase();
     const symbol2 = color2 ? (colorToSymbol[color2] || color2.charAt(0).toUpperCase()) : null;
     
-    // Calculate devotion
-    let devotion = calculateDevotion(ctx, perm.controller as PlayerID, symbol1);
-    if (symbol2) {
-      devotion += calculateDevotion(ctx, perm.controller as PlayerID, symbol2);
-    }
+    // Two-color devotion counts each symbol once ({R/W} is 1, not 2).
+    const devotion = countDevotionAmongPermanents(
+      battlefield,
+      perm.controller as PlayerID,
+      symbol2 ? [symbol1, symbol2] : [symbol1],
+    );
     
     // Store calculated devotion for reference
     (perm as any).calculatedDevotion = devotion;

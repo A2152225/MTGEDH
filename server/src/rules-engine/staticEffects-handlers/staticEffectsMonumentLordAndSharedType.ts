@@ -45,6 +45,11 @@ export function applyMonumentLordAndSharedTypeEffects(
     // CREATURE TYPE LORD EFFECTS
     // ============================================
     const hasDeathBaronCompound = /skeletons you control and other zombies you control get/i.test(oracle);
+    // Every per-type pattern below embeds the literal (case-insensitive) type name, so a
+    // substring pre-check skips ~6 RegExp compilations per type for the common case where
+    // this permanent's text never mentions the type. Profiled as the dominant cost of a
+    // continuous-effects recompute on wide boards.
+    const lowerOracle = oracle.toLowerCase();
 
     // Pattern: "Other [TYPE]s (you control) get +X/+Y"
     // Examples: Valiant Veteran ("Other Soldiers you control get +1/+1")
@@ -57,6 +62,7 @@ export function applyMonumentLordAndSharedTypeEffects(
     // First, check for "Other [TYPE]s you control get +X/+Y" pattern
     for (const creatureType of CREATURE_TYPES) {
       if (creatureType === 'zombie' && hasDeathBaronCompound) continue;
+      if (!lowerOracle.includes(creatureType)) continue;
       // Pattern 1a: "Other [TYPE](s) (creatures) you control get +X/+Y" (controller-only lord)
       // Pattern 1b: "Other [TYPE](s) (creatures) get +X/+Y" (GLOBAL lord - no "you control")
       // 

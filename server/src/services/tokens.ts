@@ -4,6 +4,7 @@ import { deriveCreateTokenSourceFragment, extractCreateTokenGrantedAbilities } f
  * 
  * Token data service for loading and querying token definitions.
  * Uses pre-loaded token data from Tokens.json (Scryfall API dump).
+ * Refresh the dump with: node tools/refresh-scryfall-tokens.mjs
  */
 
 import { readFileSync } from 'fs';
@@ -15,6 +16,13 @@ import {
   stripColorAdjectiveFromTokenName,
   type ScryfallTokenImageSpec,
 } from './scryfall.js';
+import {
+  normalizeTokenColors,
+  pickPreferredTokenPrinting,
+  tokenFieldsMatchSpec,
+  type TokenImageMatchSpec,
+  type TokenMatchFields,
+} from './tokenImageMatch.js';
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -40,6 +48,9 @@ export interface TokenCard {
     large?: string;
     art_crop?: string;
   };
+  released_at?: string;
+  set?: string;
+  layout?: string;
 }
 
 /**
@@ -57,6 +68,67 @@ let tokensByName: Map<string, TokenCard[]> = new Map();
 let tokensByType: Map<string, TokenCard[]> = new Map();
 let tokensLoaded = false;
 
+function tokenColorsFromRaw(source: any, parent?: any): string[] {
+  if (Array.isArray(source?.colors) && source.colors.length) return source.colors.map((color: unknown) => String(color));
+  if (Array.isArray(source?.color_indicator) && source.color_indicator.length) {
+    return source.color_indicator.map((color: unknown) => String(color));
+  }
+  if (parent && parent !== source) return tokenColorsFromRaw(parent);
+  return [];
+}
+
+function imageUrisFromRaw(source: any): TokenCard['image_uris'] | undefined {
+  const uris = source?.image_uris;
+  if (!uris?.normal && !uris?.small) return undefined;
+  return {
+    small: uris.small,
+    normal: uris.normal,
+    large: uris.large,
+    art_crop: uris.art_crop,
+  };
+}
+
+function materializeOneToken(raw: any, face?: any, faceIndex?: number): TokenCard | undefined {
+  const source = face || raw;
+  const image = imageUrisFromRaw(source) || (!face ? imageUrisFromRaw(raw?.card_faces?.[0]) : undefined);
+  const name = String(source?.name || raw?.name || '').trim();
+  if (!image || !name || name.includes('//')) return undefined;
+  const keywords = Array.isArray(source?.keywords)
+    ? source.keywords.map((keyword: unknown) => String(keyword))
+    : Array.isArray(raw?.keywords)
+      ? raw.keywords.map((keyword: unknown) => String(keyword))
+      : [];
+  return {
+    id: face ? `${raw.id}#${faceIndex}` : String(raw?.id || name),
+    name,
+    type_line: String(source?.type_line || raw?.type_line || ''),
+    oracle_text: String(source?.oracle_text || raw?.oracle_text || ''),
+    power: source?.power ?? raw?.power,
+    toughness: source?.toughness ?? raw?.toughness,
+    colors: tokenColorsFromRaw(source, raw),
+    color_identity: Array.isArray(raw?.color_identity) ? raw.color_identity.map((color: unknown) => String(color)) : [],
+    keywords,
+    image_uris: image,
+    released_at: raw?.released_at ? String(raw.released_at) : undefined,
+    set: raw?.set ? String(raw.set) : undefined,
+    layout: raw?.layout ? String(raw.layout) : undefined,
+  };
+}
+
+/** Flat printings, plus one record per face when a double-faced token has no top-level image. */
+function materializeTokenRecords(raw: any): TokenCard[] {
+  const faces = Array.isArray(raw?.card_faces) ? raw.card_faces : [];
+  const topImage = imageUrisFromRaw(raw);
+  const combinedName = String(raw?.name || '').includes('//');
+  if (faces.length > 0 && (!topImage || combinedName)) {
+    return faces
+      .map((face: any, index: number) => materializeOneToken(raw, face, index))
+      .filter((token: TokenCard | undefined): token is TokenCard => Boolean(token));
+  }
+  const one = materializeOneToken(raw);
+  return one ? [one] : [];
+}
+
 /**
  * Load token data from Tokens.json
  * This is called lazily on first token lookup
@@ -72,7 +144,10 @@ function loadTokens(): void {
     const tokensData: TokensJsonResponse = JSON.parse(fileContent);
     
     if (Array.isArray(tokensData.data)) {
-      tokenCache = tokensData.data;
+      tokenCache = [];
+      for (const raw of tokensData.data) {
+        tokenCache.push(...materializeTokenRecords(raw));
+      }
       
       // Build lookup indices
       for (const token of tokenCache) {
@@ -555,6 +630,7 @@ export function getCommonToken(tokenType: string): {
 
 export type TokenImageSpec = ScryfallTokenImageSpec & {
   typeLine?: string;
+  rulesText?: string;
 };
 
 export type TokenPrintingMatchKind = 'exact' | 'scryfall' | 'fuzzy' | 'fallback';
@@ -629,7 +705,8 @@ export function buildTokenImageSpecFromCard(card: Record<string, unknown>): Toke
     power: card.power as string | number | undefined,
     toughness: card.toughness as string | number | undefined,
     colors: Array.isArray(card.colors) ? card.colors.map((color) => String(color)) : undefined,
-    abilities: abilities.length > 0 ? abilities : undefined,
+    abilities: abilities.length > 0 ? abilities : [],
+    rulesText: String(card.oracle_text || ''),
     typeLine: String(card.type_line || ''),
   });
 }
@@ -638,19 +715,13 @@ export function lookupExactTokenPrinting(spec: TokenImageSpec): TokenCard | unde
   return findExactTokenImageInCache(spec);
 }
 
-function normalizeTokenImageColors(colors?: string[]): string[] {
-  return (colors || [])
-    .map((color) => String(color || '').trim().toUpperCase())
-    .filter(Boolean)
-    .sort();
-}
-
 export function buildTokenImageSpec(input: {
   name: string;
   power?: number | string;
   toughness?: number | string;
   colors?: string[];
   abilities?: string[];
+  rulesText?: string;
   typeLine?: string;
   isArtifact?: boolean;
   isEnchantment?: boolean;
@@ -662,9 +733,18 @@ export function buildTokenImageSpec(input: {
     toughness: input.toughness,
     colors: input.colors,
     abilities: input.abilities,
+    rulesText: input.rulesText !== undefined
+      ? input.rulesText
+      : (Array.isArray(input.abilities) ? input.abilities.join('\n') : undefined),
     typeLine,
-    isArtifact: input.isArtifact ?? /\bartifact\b/i.test(typeLine),
-    isEnchantment: input.isEnchantment ?? /\benchantment\b/i.test(typeLine),
+    // Omitted means "unknown". Coercing that to false hid every artifact token
+    // (Treasure, Clue, Food) from callers that only pass a name.
+    isArtifact: input.isArtifact !== undefined
+      ? input.isArtifact
+      : (typeLine ? /\bartifact\b/i.test(typeLine) : undefined),
+    isEnchantment: input.isEnchantment !== undefined
+      ? input.isEnchantment
+      : (typeLine ? /\benchantment\b/i.test(typeLine) : undefined),
   };
 }
 
@@ -672,34 +752,33 @@ function tokenHasImage(token: TokenCard): boolean {
   return Boolean(token.image_uris?.normal || token.image_uris?.small);
 }
 
-function tokenMatchesImageSpecExactly(token: TokenCard, spec: TokenImageSpec): boolean {
-  if (String(token.name || '').toLowerCase() !== spec.name.toLowerCase()) return false;
-  if (spec.power !== undefined && String(token.power ?? '') !== String(spec.power)) return false;
-  if (spec.toughness !== undefined && String(token.toughness ?? '') !== String(spec.toughness)) return false;
+function toTokenMatchFields(token: TokenCard): TokenMatchFields {
+  return {
+    id: token.id,
+    name: token.name,
+    power: token.power,
+    toughness: token.toughness,
+    colors: token.colors,
+    keywords: token.keywords,
+    oracleText: token.oracle_text,
+    typeLine: token.type_line,
+    releasedAt: token.released_at,
+    hasImage: tokenHasImage(token),
+  };
+}
 
-  if (spec.colors !== undefined) {
-    const tokenColors = normalizeTokenImageColors(token.colors);
-    const specColors = normalizeTokenImageColors(spec.colors);
-    if (tokenColors.join(',') !== specColors.join(',')) return false;
-  }
-
-  const typeLine = String(token.type_line || '').toLowerCase();
-  if (spec.isArtifact === true && !typeLine.includes('artifact')) return false;
-  if (spec.isArtifact === false && typeLine.includes('artifact')) return false;
-  if (spec.isEnchantment === true && !typeLine.includes('enchantment')) return false;
-
-  if (spec.abilities && spec.abilities.length > 0) {
-    const tokenKeywords = (token.keywords || []).map((keyword) => keyword.toLowerCase());
-    const tokenOracleText = String(token.oracle_text || '').toLowerCase();
-    for (const ability of spec.abilities) {
-      const abilityLower = ability.toLowerCase();
-      if (!tokenKeywords.includes(abilityLower) && !tokenOracleText.includes(abilityLower)) {
-        return false;
-      }
-    }
-  }
-
-  return tokenHasImage(token);
+function matchSpecForName(spec: TokenImageSpec, name: string): TokenImageMatchSpec {
+  return {
+    name,
+    acceptedNames: [name],
+    power: spec.power,
+    toughness: spec.toughness,
+    colors: spec.colors,
+    abilities: spec.abilities,
+    rulesText: spec.rulesText,
+    isArtifact: spec.isArtifact,
+    isEnchantment: spec.isEnchantment,
+  };
 }
 
 function findExactTokenImageInCache(spec: TokenImageSpec): TokenCard | undefined {
@@ -714,11 +793,13 @@ function findExactTokenImageInCache(spec: TokenImageSpec): TokenCard | undefined
   for (const nameLower of namesToTry) {
     const candidates = tokensByName.get(nameLower) || [];
     // Match against a spec whose name matches the candidate bucket (color-stripped names).
-    const matchSpec = nameLower === spec.name.toLowerCase()
-      ? spec
-      : { ...spec, name: stripColorAdjectiveFromTokenName(spec.name) };
-    const hit = candidates.find((token) => tokenMatchesImageSpecExactly(token, matchSpec));
-    if (hit) return hit;
+    const matchName = nameLower === spec.name.toLowerCase()
+      ? spec.name
+      : stripColorAdjectiveFromTokenName(spec.name);
+    const matchSpec = matchSpecForName(spec, matchName);
+    const hits = candidates.filter((token) => tokenFieldsMatchSpec(toTokenMatchFields(token), matchSpec));
+    const hit = pickPreferredTokenPrinting(hits.map(toTokenMatchFields), matchSpec);
+    if (hit) return candidates.find((token) => token.id === hit.id);
   }
   return undefined;
 }
@@ -729,10 +810,6 @@ function findFuzzyTokenImageInCache(spec: TokenImageSpec): TokenCard | undefined
   loadTokens();
 
   const nameLower = spec.name.toLowerCase();
-  const abilitiesLower = spec.abilities?.map((ability) => ability.toLowerCase()) || [];
-  const abilitiesSet = new Set(abilitiesLower);
-  const requestedColors = spec.colors !== undefined ? normalizeTokenImageColors(spec.colors) : undefined;
-
   const strippedName = stripColorAdjectiveFromTokenName(spec.name).toLowerCase();
   let searchTokens = tokensByName.get(nameLower) || [];
   if (searchTokens.length === 0 && strippedName && strippedName !== nameLower) {
@@ -742,60 +819,16 @@ function findFuzzyTokenImageInCache(spec: TokenImageSpec): TokenCard | undefined
     searchTokens = tokensByType.get(nameLower) || tokensByType.get(strippedName) || [];
   }
 
-  const NO_MATCH_SCORE = -1;
-  let bestMatch: TokenCard | undefined;
-  let bestScore = NO_MATCH_SCORE;
-
-  for (const token of searchTokens) {
-    if (!tokenHasImage(token)) continue;
-
-    let score = 0;
-    if (spec.power !== undefined && token.power === String(spec.power)) score += 2;
-    if (spec.toughness !== undefined && token.toughness === String(spec.toughness)) score += 2;
-
-    const tokenColors = normalizeTokenImageColors(token.colors);
-    if (requestedColors !== undefined) {
-      if (requestedColors.length === 0) {
-        score += tokenColors.length === 0 ? 3 : -2;
-      } else if (tokenColors.join(',') === requestedColors.join(',')) {
-        score += 3;
-      }
-    }
-
-    if (abilitiesLower.length > 0) {
-      const tokenKeywords = (token.keywords || []).map((keyword) => keyword.toLowerCase());
-      const tokenOracleText = String(token.oracle_text || '').toLowerCase();
-      let abilityMatchCount = 0;
-      for (const ability of abilitiesLower) {
-        if (tokenKeywords.includes(ability) || tokenOracleText.includes(ability)) {
-          abilityMatchCount += 1;
-        }
-      }
-      score += abilityMatchCount * 4;
-      if (abilityMatchCount === abilitiesLower.length) score += 5;
-      for (const keyword of tokenKeywords) {
-        if (!abilitiesSet.has(keyword)) score -= 1;
-      }
-    } else if ((token.keywords || []).length === 0) {
-      score += 1;
-    }
-
-    const tokenTypeLine = String(token.type_line || '').toLowerCase();
-    if (spec.isArtifact === true) {
-      score += tokenTypeLine.includes('artifact') ? 6 : -4;
-    } else if (spec.isArtifact === false && tokenTypeLine.includes('artifact')) {
-      score -= 2;
-    }
-
-    if ((token.name || '').toLowerCase() === nameLower) score += 3;
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = token;
-    }
-  }
+  // Same characteristic filters as an exact match, but the name may come from a type bucket.
+  const hits = searchTokens.filter((token) => tokenFieldsMatchSpec(
+    toTokenMatchFields(token),
+    matchSpecForName(spec, token.name),
+  ));
+  const preferred = pickPreferredTokenPrinting(hits.map(toTokenMatchFields), matchSpecForName(spec, spec.name));
+  const bestMatch = preferred ? hits.find((token) => token.id === preferred.id) : undefined;
 
   if (bestMatch) {
-    debug(1, `[tokens] Fuzzy token image fallback for ${spec.name}: ${bestMatch.name} (score: ${bestScore})`);
+    debug(1, `[tokens] Fuzzy token image fallback for ${spec.name}: ${bestMatch.name}`);
   }
   return bestMatch;
 }
@@ -803,7 +836,7 @@ function findFuzzyTokenImageInCache(spec: TokenImageSpec): TokenCard | undefined
 function getHardcodedTokenImageFallback(
   spec: TokenImageSpec,
 ): { small?: string; normal?: string; large?: string; art_crop?: string } | undefined {
-  const colorArr = normalizeTokenImageColors(spec.colors);
+  const colorArr = normalizeTokenColors(spec.colors);
   const isWhite = colorArr.includes('W');
   const isColorless = colorArr.length === 0;
   const power = spec.power !== undefined ? String(spec.power) : '1';

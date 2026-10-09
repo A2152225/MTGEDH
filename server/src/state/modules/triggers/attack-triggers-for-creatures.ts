@@ -6,6 +6,7 @@
 
 import type { GameContext } from "../../context.js";
 import { debug } from "../../../utils/debug.js";
+import { primeDerivedContinuousEffectsForScan } from "../staticEffectSpec.js";
 import { detectAttackTriggers } from "./attack-detection.js";
 import { isReflexiveDelayedDoTriggerType } from "./attack-detection-reflexive.js";
 import { getAttachmentAttackTriggers } from "./attachment-attack-detection.js";
@@ -45,6 +46,9 @@ export function getAttackTriggersForCreatures(
         experienceCounters: (ctx.state as any).experienceCounters ?? (ctx as any).experience,
       }
     : undefined;
+  // Spread copy lost the non-enumerable continuous-effects cache; compute once for the scan
+  // rather than once per attacker/watcher inside detectAttackTriggers.
+  if (detectGameState) primeDerivedContinuousEffectsForScan(detectGameState);
   
   const playerIds = Array.isArray((ctx as any).state?.players)
     ? (ctx as any).state.players.map((player: any) => String(player?.id || '')).filter(Boolean)

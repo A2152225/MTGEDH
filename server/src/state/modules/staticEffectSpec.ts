@@ -262,9 +262,7 @@ function readOverlayStaticSpecs(ability: {
   return Array.isArray(specs) ? specs : [];
 }
 
-function permanentHasOverlayStaticSpecs(perm: BattlefieldPermanent): boolean {
-  const lookupKeys = extractOracleCardLookupKeys({ card: perm.card, effectiveCard: perm.card });
-  const overlay = resolveCompiledOverlayForCard(lookupKeys);
+function overlayHasStaticSpecs(overlay: { abilities?: readonly any[] } | null | undefined): boolean {
   if (!overlay?.abilities?.length) return false;
   for (const ability of overlay.abilities) {
     if (String(ability.ability_type || '').toUpperCase() !== 'STATIC') continue;
@@ -308,7 +306,7 @@ export function collectStaticEffectSpecsFromState(state: unknown): StaticEffectS
       }
     }
 
-    if (!permanentHasOverlayStaticSpecs(perm)) {
+    if (!overlayHasStaticSpecs(overlay)) {
       const resolvedChosenType = String(
         perm.chosenCreatureType
         || perm.card?.chosenCreatureType
@@ -889,12 +887,7 @@ export function syncDerivedContinuousEffects(state: unknown): ContinuousEffectRe
   }
   if (state && typeof state === 'object') {
     // recomputeContinuousEffects already caches _derivedStaticEffectSpecs on state.
-    Object.defineProperty(state, '_derivedContinuousEffects', {
-      value: derived,
-      writable: true,
-      configurable: true,
-      enumerable: false,
-    });
+    cacheDerivedContinuousEffects(state, derived);
     const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
     for (const permanent of battlefield) {
       if (!permanent) continue;
@@ -914,4 +907,30 @@ export function readDerivedContinuousEffects(state: unknown): ContinuousEffectRe
   if (!state || typeof state !== 'object') return null;
   const derived = (state as { _derivedContinuousEffects?: ContinuousEffectResult })._derivedContinuousEffects;
   return derived || null;
+}
+
+function cacheDerivedContinuousEffects(state: object, derived: ContinuousEffectResult): void {
+  Object.defineProperty(state, '_derivedContinuousEffects', {
+    value: derived,
+    writable: true,
+    configurable: true,
+    enumerable: false,
+  });
+}
+
+/**
+ * Compute-once primer for read-only detector scan states built as `{ ...state, battlefield }`.
+ * The spread drops the non-enumerable `_derivedContinuousEffects`, so without this every
+ * `detect*Triggers` call in a battlefield-wide scan recomputed all continuous effects
+ * (N permanents x N-permanent recompute = the multi-second sacrifice stalls in large games).
+ * Only call this on throwaway copies; the real game state is refreshed by SBA sync.
+ */
+export function primeDerivedContinuousEffectsForScan(scanState: unknown): ContinuousEffectResult | null {
+  if (!scanState || typeof scanState !== 'object') return null;
+  if (!Array.isArray((scanState as { battlefield?: unknown }).battlefield)) return null;
+  const existing = readDerivedContinuousEffects(scanState);
+  if (existing) return existing;
+  const derived = recomputeContinuousEffects(scanState as { battlefield?: readonly BattlefieldPermanent[] });
+  cacheDerivedContinuousEffects(scanState, derived);
+  return derived;
 }

@@ -23,6 +23,7 @@ import {
   inferGenericTriggeredAbilityTargetMetadata,
 } from './triggers/target-metadata.js';
 import { queueStackPutTriggers } from './triggers/stack-put.js';
+import { primeDerivedContinuousEffectsForScan } from './staticEffectSpec.js';
 
 function snapshotPermanent(permanent: any): any | undefined {
   if (!permanent || typeof permanent !== 'object') return undefined;
@@ -469,9 +470,14 @@ export function processLTBTriggers(
 
   const candidates = [...battlefield, leftPermanent];
   const seenKeys = new Set<string>();
-  const detectState = battlefield.some((perm: any) => String(perm?.id || '') === leftId)
+  const leftStillOnBattlefield = battlefield.some((perm: any) => String(perm?.id || '') === leftId);
+  const detectState = leftStillOnBattlefield
     ? state
     : { ...state, battlefield: [...battlefield, leftPermanent] };
+  if (!leftStillOnBattlefield) {
+    // Spread copy lost the non-enumerable continuous-effects cache; compute once for the scan.
+    primeDerivedContinuousEffectsForScan(detectState);
+  }
 
   for (const permanent of candidates) {
     if (!permanent?.card) continue;

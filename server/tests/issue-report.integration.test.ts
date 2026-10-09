@@ -183,6 +183,14 @@ describe('issues CLI', () => {
     expect(getIssueReport(id)!.resolution_notes).toBeNull();
     expect(run('resolve', '999').code).toBe(1);
 
+    const gone = (processIssueReport(sock(), { ...base, description: 'false positive goad' }) as any).id;
+    expect(run('delete', String(gone)).code).toBe(0);
+    expect(getIssueReport(gone)).toBeUndefined();
+    expect(run('show', String(gone)).code).toBe(1);
+    expect(run('list', '--all').out).not.toContain(`#${gone}\t`);
+    expect(run('delete', '999').code).toBe(1);
+    expect(run('delete').code).toBe(2);
+
     const csv = run('export', '--csv').out;
     expect(csv.split('\n')[0]).toContain('id,created_at');
     expect(csv).toContain("'=cmd|"); // formula injection neutralized

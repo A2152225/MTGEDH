@@ -4,6 +4,7 @@ import type { PlayerID } from '../../shared/src/index.js';
 import { createInitialGameState } from '../src/state/gameState.js';
 import { applyPlaneswalkerLoyaltyCountersFromTriggerMetadata } from '../src/state/modules/triggerPlaneswalkerLoyaltyUtils.js';
 import { applySimpleTargetedTemporarySpellEffects } from '../src/state/modules/oracleIrSpellLegacyTargetBuffUtils.js';
+import { updateCounters } from '../src/state/modules/counters_tokens.js';
 
 vi.mock('../src/db/index.js', () => ({
   appendEvent: vi.fn(),
@@ -184,6 +185,38 @@ describe('undo/replay High #3: route loyalty / +1/+1 through updateCounters', ()
       const payload = call[3] as any;
       return payload?.permanentId === 'bear_1' && Number(payload?.deltas?.['+1/+1'] || 0) === 1;
     })).toBe(true);
+  });
+
+  it('folds leftover +1+1 / -1-1 aliases onto the oracle-text keys', () => {
+    const gameId = 't_counter_key_canonicalize';
+    const game = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    (game.state as any).battlefield = [
+      {
+        id: 'bear_1',
+        controller: p1,
+        owner: p1,
+        counters: { '+1+1': 2, '-1-1': 1 },
+        card: { id: 'bear_card', name: 'Bear', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+      },
+    ];
+
+    const ctx = {
+      state: game.state,
+      bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
+      gameId,
+    } as any;
+    updateCounters(ctx, 'bear_1', { '+1+1': 1, p1p1: 1, m1m1: 1 }, {
+      deferRunSBA: true,
+      skipCounterModifications: true,
+    });
+
+    const bear = ((game.state as any).battlefield || []).find((p: any) => p.id === 'bear_1');
+    expect(bear?.counters).toEqual({ '+1/+1': 4, '-1/-1': 2 });
+    expect(bear?.counters?.['+1+1']).toBeUndefined();
+    expect(bear?.counters?.['-1-1']).toBeUndefined();
   });
 
   it('activatePlaneswalkerAbility apply uses updateCounters without nested append', () => {

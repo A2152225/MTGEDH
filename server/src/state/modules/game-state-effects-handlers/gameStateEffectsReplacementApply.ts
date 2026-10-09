@@ -461,7 +461,21 @@ export function detectDamageReplacementEffects(
     effects.push(overlayReplacementSpecToEffect(spec));
   }
 
-  void isToOpponent;
+  if (isCombatDamage && isToOpponent && damageSourcePermanentId) {
+    const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
+      ? (state as { battlefield: any[] }).battlefield
+      : [];
+    const sourcePerm = battlefield.find((perm) => perm && String(perm.id || '') === String(damageSourcePermanentId));
+    const grants = Array.isArray(sourcePerm?.untilNextTurnGrants) ? sourcePerm.untilNextTurnGrants : [];
+    if (grants.some((grant: any) => String(grant?.kind || '') === 'triple_combat_damage_to_opponents')) {
+      effects.push({
+        type: 'triple',
+        source: String(grants.find((grant: any) => String(grant?.kind || '') === 'triple_combat_damage_to_opponents')?.sourceName || sourcePerm?.card?.name || 'Triple combat damage'),
+        controllerId: String(sourcePerm?.controller || damageDealer),
+      });
+    }
+  }
+
   return effects;
 }
 

@@ -236,6 +236,7 @@ Coordinator merges owed extract-family rows there.
 | `localCardLookup.ts` | The `card_lookup` corpus connection, freshness check, and rebuild. `CARD_LOOKUP_SQLITE_FILE` picks the file; `CARD_LOOKUP_SQLITE_READONLY_FILE` names one path to open read-only with rebuild disabled. Entry points: `ensureLocalCardLookupIndexSync`, `lookupLocalCards`, `getLocalCardLookupDatabase`, `resetLocalCardLookupForTests`. |
 | `oracleIrCompiledOverlayDatabase.ts` | The connection backing `oracle_ir_compiled_overlay`, the only table written at runtime. `ORACLE_IR_OVERLAY_SQLITE_FILE` moves overlays into their own database (tests use one per worker); unset, they stay in the card-lookup database. Entry points: `getCompiledOracleIROverlayDatabase`, `resetCompiledOracleIROverlayDatabaseForTests`. |
 | `oracleIrCompiledOverlayStore.ts` | Overlay CRUD and envelope validation on top of that connection. |
+| `tokens.ts` / `tokenImageMatch.ts` | Local token art from `precon_json/Tokens.json` (refresh: `node tools/refresh-scryfall-tokens.mjs`). Match is name + P/T + color + artifact/enchantment + keyword alignment; among ties, fewer unrequested keywords, then newest printing. Double-faced token faces are indexed separately. |
 
 Tests share the prebuilt 137 MB `server/data/card-lookup.sqlite` read-only rather than copying it per worker; see `server/tests/vitest.setup.ts`.
 

@@ -1034,6 +1034,15 @@ export async function tryAIManaBatteryColorFixForSpellPayment(
     playerId: PlayerID,
     parsedCost: ReturnType<typeof parseManaCost>,
   ): Promise<boolean> {
+    const battlefieldPreview = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+    if (!battlefieldPreview.some((permanent: any) => (
+      permanent
+      && permanent.controller === playerId
+      && getAIManaBatteryChargeCandidate(permanent)
+    ))) {
+      return false;
+    }
+
     const simulatedGame = cloneAISpellPaymentSimulationGame(game);
     if (!tryAIManaBatteryColorFixForSpellPaymentSimulation(simulatedGame, playerId, parsedCost)) {
       return false;

@@ -615,6 +615,7 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
               }
               
               if (pAny.chosenPlayer) {
+                const chosenPlayerLabel = String(pAny.chosenPlayerName || pAny.chosenPlayer);
                 badges.push(
                   <div
                     key="player"
@@ -628,9 +629,9 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
                       border: '1px solid rgba(255,255,255,0.3)',
                       whiteSpace: 'nowrap',
                     }}
-                    title={`Chosen player: ${pAny.chosenPlayer}`}
+                    title={`Chosen player: ${chosenPlayerLabel}`}
                   >
-                    👤 {pAny.chosenPlayer}
+                    👤 {chosenPlayerLabel}
                   </div>
                 );
               }

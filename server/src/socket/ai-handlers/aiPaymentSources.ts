@@ -100,7 +100,9 @@ function aiSpellPaymentSourceHasUnsupportedAdditionalCosts(
     return true;
   }
 
-  return /\bpay\b|\bdiscard\b|\bexile\b|\breturn\b/.test(costText);
+  return /\bpay\b|\bdiscard\b|\bexile\b/.test(costText)
+    || (/\breturn\b/.test(costText)
+      && !/return\s+(?:this\s+(?:land|permanent)|~|cardname)\s+to\s+(?:its\s+owner'?s\s+hand|your\s+hand)/i.test(costText));
 }
 
 function aiSpellPaymentSourceProducesUnsupportedMulticolor(
@@ -123,25 +125,19 @@ function aiSpellPaymentSourceProducesUnsupportedMulticolor(
       || /one mana of any color|any color of mana|mana of any one color|one mana of any type/i.test(effectText)
       || /choose a colou?r/i.test(effectText)
       || /mana of that colou?r/i.test(effectText);
-    if (!isChoiceAbility && (distinctSymbols.size > 1 || /mana in any combination/i.test(effectText))) {
+    const isConsecutiveProduceBoth = /add\s+(?:\{[wubrgc]\}){2,}/i.test(effectText);
+    if (!isChoiceAbility && /mana in any combination/i.test(effectText)) {
       return true;
     }
-  }
-
-  const producedPoolKeys = new Set<string>();
-  const primaryPoolKey = COLOR_IDENTITY_MAP[String(manaColor || '').toUpperCase()] || 'colorless';
-  if (Number(manaInfo.totalAmount || 0) > 0) {
-    producedPoolKeys.add(primaryPoolKey);
-  }
-
-  for (const bonus of Array.isArray(manaInfo.bonusMana) ? manaInfo.bonusMana : []) {
-    const bonusPoolKey = COLOR_IDENTITY_MAP[String(bonus?.color || '').toUpperCase()] || 'colorless';
-    if (Number(bonus?.amount || 0) > 0) {
-      producedPoolKeys.add(bonusPoolKey);
+    // "{T}, return ~: Add {R}{W}" is one activation that produces both pips.
+    // Reject only true any-combination / split produces the planner cannot assign.
+    if (!isChoiceAbility && distinctSymbols.size > 1 && !isConsecutiveProduceBoth) {
+      return true;
     }
+    return false;
   }
 
-  return producedPoolKeys.size > 1;
+  return false;
 }
 
 function getAISupportedSpellPaymentSource(
@@ -220,12 +216,20 @@ function getAISupportedSpellPaymentSource(
  * Get untapped mana sources (lands, artifacts, creatures) that can pay for a spell
  * Returns source IDs in the order they should be tapped, with the color each should produce
  */
+function getFixedMultiProduceColors(manaInfo: ReturnType<typeof calculateManaProduction>): string[] | undefined {
+  if (manaInfo?.requiresColorChoice === true) return undefined;
+  const colors = (Array.isArray(manaInfo?.colors) ? manaInfo.colors : [])
+    .map((color) => String(color || '').toUpperCase())
+    .filter((color) => ['W', 'U', 'B', 'R', 'G', 'C'].includes(color));
+  return colors.length > 1 ? colors : undefined;
+}
+
 export function getPaymentSources(
   game: any,
   playerId: PlayerID,
   cost: { colors: Record<string, number>; generic: number },
   options?: { restrictedSpendPurpose?: RestrictedManaSpendPurpose },
-): Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number; sacrificedPermanentIds?: string[] }> {
+): Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number; sacrificedPermanentIds?: string[]; producedColors?: string[] }> {
   const battlefield = game.state?.battlefield || [];
   const payments: Array<{ sourceId: string; produceColor: string; abilityId?: string; count?: number; sacrificedPermanentIds?: string[] }> = [];
   const usedSourceIds = new Set<string>(); // Track which sources we've already assigned
@@ -381,16 +385,23 @@ export function getPaymentSources(
           reservedSacrificeIds.add(String(sacrificedId || ''));
         }
         const spendCount = Math.min(bestSourceAmount, needed - colorsPaid[color]);
+        const leftover = Math.max(0, bestSourceAmount - spendCount);
+        const chosenAbilityId = bestSourceAbilityId;
+        const produceBoth = getFixedMultiProduceColors(
+          calculateManaProduction(game.state, bestSource.perm, String(playerId), color, chosenAbilityId),
+        );
         payments.push({
           sourceId: bestSource.perm.id,
           produceColor: color,
-          ...(bestSourceAbilityId ? { abilityId: bestSourceAbilityId } : {}),
+          ...(chosenAbilityId ? { abilityId: chosenAbilityId } : {}),
           ...((spendCount !== 1 || bestSourceAmount !== spendCount) ? { count: spendCount } : {}),
           ...(bestSourceSacrificedPermanentIds && bestSourceSacrificedPermanentIds.length > 0
             ? { sacrificedPermanentIds: bestSourceSacrificedPermanentIds }
             : {}),
+          ...(produceBoth ? { producedColors: produceBoth } : {}),
         });
         colorsPaid[color] += spendCount;
+        if (leftover > 0) genericPaid += leftover;
       } else {
         break; // No more sources available for this color
       }
@@ -399,7 +410,7 @@ export function getPaymentSources(
   
   // Second pass: assign remaining sources to generic mana
   // For sources that produce 2 mana (Sol Ring), they count for 2 generic
-  let genericNeeded = cost.generic;
+  let genericNeeded = Math.max(0, Number(cost.generic || 0) - genericPaid);
   const remainingSources = availableSources
     .filter((source) => !usedSourceIds.has(source.perm.id))
     .map((source) => {
@@ -534,6 +545,9 @@ export function getPaymentSources(
     const creditAmount = entry.activationManaNeeded > 0 ? entry.netAmount : entry.amount;
     const credited = Math.min(creditAmount, genericNeeded);
     const spendCount = Math.min(entry.amount, genericNeeded);
+    const produceBoth = getFixedMultiProduceColors(
+      calculateManaProduction(game.state, entry.source.perm, String(playerId), entry.color, entry.abilityId),
+    );
     payments.push({
       sourceId: entry.source.perm.id,
       produceColor: entry.color,
@@ -542,6 +556,7 @@ export function getPaymentSources(
       ...(entry.sacrificedPermanentIds && entry.sacrificedPermanentIds.length > 0
         ? { sacrificedPermanentIds: entry.sacrificedPermanentIds }
         : {}),
+      ...(produceBoth ? { producedColors: produceBoth } : {}),
     });
 
     genericNeeded -= credited;

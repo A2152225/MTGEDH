@@ -11,6 +11,7 @@ import type { OracleEffectStep, OracleIRAbility } from './oracleIR';
 import { tryParseEachPlayerChooseThenDestroyRest } from './oracleIRParserEachPlayerChooseDestroyRest';
 import { tryParseMayCastFromAmong } from './oracleIRParserMayCastFromAmong';
 import { tryParseMayRevealHandWinIfOwnNamed } from './oracleIRParserMayRevealHandWinIfOwnNamed';
+import { tryParseSecretEachPlayerNumber } from './oracleIRParserSecretEachPlayerNumber';
 import { tryParseSecretOpponentChoiceDamage } from './oracleIRParserSecretOpponentChoiceDamage';
 import { normalizeOracleText } from './oracleIRParserUtils';
 
@@ -72,6 +73,25 @@ export function rewritePhase4ChoiceFamilyAbilities(
       if (replaced) return [];
       replaced = true;
       return [rewriteAbilitySteps(ability, [secret])];
+    });
+  }
+
+  const secretNumber = tryParseSecretEachPlayerNumber(identityArgs);
+  if (secretNumber) {
+    let replaced = false;
+    return abilities.flatMap((ability) => {
+      if (!isSpellLikeAbility(ability)) return [ability];
+      const steps = ability.steps || [];
+      const looksLikeFamily = steps.some((step) =>
+        step.kind === 'draw'
+        || step.kind === 'deal_damage'
+        || step.kind === 'grant_static_ability'
+        || /secretly\s+chooses\s+a\s+number/i.test(String(step.raw || ability.text || '')),
+      ) || /secretly\s+chooses\s+a\s+number/i.test(String(ability.text || ability.effectText || ''));
+      if (!looksLikeFamily) return [ability];
+      if (replaced) return [];
+      replaced = true;
+      return [rewriteAbilitySteps(ability, [secretNumber])];
     });
   }
 

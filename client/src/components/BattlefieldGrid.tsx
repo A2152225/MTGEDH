@@ -435,7 +435,7 @@ export function BattlefieldGrid(props: {
               // Player choice badge
               if (pAny.chosenPlayer) {
                 // Try to find player name
-                let playerDisplay = pAny.chosenPlayer;
+                let playerDisplay = pAny.chosenPlayerName || pAny.chosenPlayer;
                 // Could enhance this by looking up player name from game state if available
                 badges.push(
                   <div

@@ -69,6 +69,7 @@ npm --workspace @mtgedh/server run issues -- list --all        # or --resolved
 npm --workspace @mtgedh/server run issues -- show 12           # everything about #12
 npm --workspace @mtgedh/server run issues -- resolve 12 --note "Fixed in abc1234"   # optional: --by "name"
 npm --workspace @mtgedh/server run issues -- reopen 12
+npm --workspace @mtgedh/server run issues -- delete 12   # false positive; removed from open and closed
 npm --workspace @mtgedh/server run issues -- export --csv --out issues.csv   # or omit --out for stdout; --open/--resolved/--all
 npm --workspace @mtgedh/server run issues -- path              # where the database file is
 ```
@@ -90,7 +91,7 @@ npm run issues -- show <id>
 
 The note is stored as `resolution_notes`. The CLI sets `resolved_at` and `resolved_by`. Pass `--by` only when someone named the resolver. Confirm the show output says `RESOLVED` and includes the note.
 
-Resolve only the reports this change actually fixes. Leave a report open when the fix is incomplete or the tests failed. Do not edit `issue-reports.sqlite` by hand. `npm run issues -- reopen <id>` clears a resolution.
+Resolve only the reports this change actually fixes. Leave a report open when the fix is incomplete or the tests failed. Do not edit `issue-reports.sqlite` by hand. `npm run issues -- reopen <id>` clears a resolution. `npm run issues -- delete <id>` removes a false positive so it no longer appears in open or closed listings.
 
 ## Safety and privacy
 

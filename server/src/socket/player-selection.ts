@@ -277,6 +277,7 @@ export function applyPlayerSelectionEffect(
         const permanent = battlefield.find((p: any) => p && p.id === effectData.permanentId);
         if (permanent) {
           (permanent as any).chosenPlayer = selectedPlayerId;
+          (permanent as any).chosenPlayerName = getPlayerName(game, selectedPlayerId);
           delete (permanent as any).pendingPlayerSelection;
           delete (permanent as any).pendingControlChange;
           debug(2, `[playerSelection] Set chosenPlayer for ${cardName} to ${selectedPlayerId}`);
@@ -404,6 +405,7 @@ export function applyPlayerSelectionEffect(
   appendEvent(gameId, (game as any).seq ?? 0, "playerSelection", {
     choosingPlayerId,
     selectedPlayerId,
+    selectedPlayerName: getPlayerName(game, selectedPlayerId),
     cardName,
     effectType: effectData.type,
     permanentId: effectData.permanentId,

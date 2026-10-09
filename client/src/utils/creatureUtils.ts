@@ -179,6 +179,9 @@ export function isCurrentlyCreature(perm: BattlefieldPermanent): boolean {
   const oracleText = (card?.oracle_text || '').toLowerCase();
   const permAny = perm as any;
 
+  // Theros gods below devotion / impending with time counters.
+  if (permAny.notCreature === true) return false;
+
   // Crew / animate / station: temporary Creature type until EOT (or while stationed).
   if (permAny.crewed === true) return true;
   if (Array.isArray(permAny.grantedTypes) && permAny.grantedTypes.some((t: any) => String(t).toLowerCase() === 'creature')) {

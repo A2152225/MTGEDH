@@ -366,13 +366,16 @@ export function buildCounterTargetValidTargets(
   pid: string,
   targetType: string,
   targetController: 'opponent' | 'any' | 'you',
+  excludePermanentId?: string,
 ): Array<{ id: string; label: string; description: string; imageUrl?: string }> {
   const battlefield = gameState?.battlefield || [];
   const targetTypeLower = String(targetType || '').toLowerCase();
   const wantsCreature = targetTypeLower.includes('creature');
+  const excludedId = String(excludePermanentId || '').trim();
 
   return (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
     if (!perm || typeof perm.id !== 'string') return false;
+    if (excludedId && String(perm.id) === excludedId) return false;
     if (wantsCreature) {
       const tl = String(perm.card?.type_line || '').toLowerCase();
       if (!tl.includes('creature')) return false;
@@ -407,11 +410,15 @@ export function queueCounterTargetStepForBattlefieldAbility(params: {
   tappedPermanentIds?: string[];
 }): ReturnType<typeof ResolutionQueueManager.addStep> | null {
   const wantsCreature = String(params.targetType || '').toLowerCase().includes('creature');
+  const excludePermanentId = /\banother\s+target\b/i.test(String(params.scopedAbilityFullText || ''))
+    ? String(params.permanentId || '').trim()
+    : '';
   const validTargets = buildCounterTargetValidTargets(
     params.game.state,
     params.pid,
     params.targetType,
     params.targetController,
+    excludePermanentId || undefined,
   );
   if (validTargets.length === 0) {
     return null;

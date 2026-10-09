@@ -19,6 +19,12 @@ import {
   recordPrisonersDilemmaChoice,
 } from "../spellLegacyChoiceBatchUtils.js";
 import {
+  applySecretEachPlayerNumberBatchResult,
+  clearSecretEachPlayerNumberBatch,
+  createSecretEachPlayerNumberBatch,
+  recordSecretEachPlayerNumberChoice,
+} from "../secretEachPlayerNumberBatch.js";
+import {
   clearReplayQueuedSteps,
   matchesDungeonRoomPenaltyChoiceStep,
   matchesDungeonRoomFreeCastChoiceStep,
@@ -290,6 +296,88 @@ export function applyDungeonVoteEvents(ctx: GameContext, e: GameEvent): boolean 
           maybeResumeDeferredOracleIrStackSpell(ctx);
         } catch (err) {
           debugWarn(1, 'applyEvent(prisonersDilemmaBatchResolve): failed', err);
+        }
+        break;
+      }
+
+      case "secretEachPlayerNumberChoiceResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const batchId = String((e as any).batchId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const number = Math.floor(Number((e as any).number));
+          const sourceId = String((e as any).sourceId || '').trim() || undefined;
+          const sourceName = String((e as any).sourceName || 'Spell').trim() || 'Spell';
+          const drawCount = Math.max(0, Math.floor(Number((e as any).drawCount || 0)));
+          const minNumber = Math.max(0, Math.floor(Number((e as any).minNumber || 0)));
+          const expectedPlayerIds = Array.isArray((e as any).expectedPlayerIds)
+            ? ((e as any).expectedPlayerIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+
+          if (gameId && resolvedStepId) {
+            clearReplayQueuedSteps(gameId, (step: any) => String(step?.id || '').trim() === resolvedStepId);
+          }
+
+          if (batchId && playerId && Number.isFinite(number) && number >= 0) {
+            createSecretEachPlayerNumberBatch(ctx.state, {
+              id: batchId,
+              sourceId,
+              sourceName,
+              expectedPlayerIds,
+              drawCount,
+              minNumber,
+            });
+            recordSecretEachPlayerNumberChoice(ctx.state, batchId, {
+              playerId,
+              number,
+              sourceId,
+              sourceName,
+              expectedPlayerIds,
+              drawCount,
+              minNumber,
+            });
+          }
+
+          ctx.bumpSeq();
+          maybeResumeDeferredOracleIrStackSpell(ctx);
+        } catch (err) {
+          debugWarn(1, 'applyEvent(secretEachPlayerNumberChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "secretEachPlayerNumberBatchResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const batchId = String((e as any).batchId || '').trim();
+          const drawCount = Math.max(0, Math.floor(Number((e as any).drawCount || 0)));
+          const expectedPlayerIds = Array.isArray((e as any).expectedPlayerIds)
+            ? ((e as any).expectedPlayerIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
+            : [];
+          const choices = (e as any).choices && typeof (e as any).choices === 'object' && !Array.isArray((e as any).choices)
+            ? Object.fromEntries(
+                Object.entries((e as any).choices)
+                  .map(([playerId, amount]) => [String(playerId || '').trim(), Math.floor(Number(amount))])
+                  .filter(([playerId, amount]) => Boolean(playerId) && Number.isFinite(amount) && Number(amount) >= 0),
+              ) as Record<string, number>
+            : {};
+
+          if (gameId && batchId) {
+            clearReplayQueuedSteps(gameId, (step: any) => String((step as any)?.secretEachPlayerNumberBatchId || '').trim() === batchId);
+          }
+
+          applySecretEachPlayerNumberBatchResult(ctx as any, {
+            expectedPlayerIds,
+            choices,
+            drawCount,
+          });
+          clearSecretEachPlayerNumberBatch(ctx.state, batchId);
+
+          ctx.bumpSeq();
+          maybeResumeDeferredOracleIrStackSpell(ctx);
+        } catch (err) {
+          debugWarn(1, 'applyEvent(secretEachPlayerNumberBatchResolve): failed', err);
         }
         break;
       }

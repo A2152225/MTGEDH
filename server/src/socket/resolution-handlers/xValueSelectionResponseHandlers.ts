@@ -27,6 +27,7 @@ import {
   isDelayedDrawUpToSelectionStep,
 } from "../../state/modules/triggerDelayedDrawUpToUtils.js";
 import { resumeOracleIRRemainingStepsFromResolution } from "../../state/modules/oracleIrServerZoneSync-handlers/oracleIrServerResumeAndChoiceApply.js";
+import { continuePlaneswalkerAbilityAfterChosenX } from "../interaction-handlers/interactionActivatePlaneswalkerContinueAfterX.js";
 
 /** X_VALUE_SELECTION: record chosen X for a spell cast, delayed up-to draw, or Blight X activation cost. */
 export async function handleXValueSelectionResponse(
@@ -46,6 +47,26 @@ export async function handleXValueSelectionResponse(
   else if (rawSelection && typeof rawSelection === 'object' && rawSelection.xValue != null) selectedXValue = Number(rawSelection.xValue);
 
   selectedXValue = Number.isFinite(selectedXValue) ? Math.max(0, Math.floor(selectedXValue as number)) : null;
+
+  if (stepAny?.planeswalkerLoyaltyX === true) {
+    if (response.cancelled || selectedXValue == null) return;
+    const minValue = Math.max(0, Math.floor(Number(stepAny.minValue ?? 0)));
+    const maxValue = Math.max(minValue, Math.floor(Number(stepAny.maxValue ?? minValue)));
+    const chosen = Math.max(minValue, Math.min(maxValue, selectedXValue));
+    continuePlaneswalkerAbilityAfterChosenX({
+      io,
+      game,
+      gameId,
+      playerId: pid as any,
+      permanentId: String(step.sourceId || ''),
+      cardName: String(step.sourceName || 'Planeswalker'),
+      abilityIndex: Number(stepAny.planeswalkerAbility?.abilityIndex || 0),
+      abilityText: String(stepAny.planeswalkerAbility?.abilityText || ''),
+      isMinusX: stepAny.planeswalkerAbility?.isMinusX === true,
+      xValue: chosen,
+    });
+    return;
+  }
 
   if (isDelayedDrawUpToSelectionStep(stepAny)) {
     applyDelayedDrawUpToChoice(game, stepAny, response.cancelled ? 0 : selectedXValue);

@@ -12,6 +12,7 @@ import { applyEachPlayerChooseThenDestroyRestStep } from './oracleIRExecutorEach
 import { applyMayCastFromAmongStep } from './oracleIRExecutorMayCastFromAmong';
 import { applyMayRevealHandWinIfOwnNamedStep } from './oracleIRExecutorMayRevealHandWinIfOwnNamed';
 import type { MainLoopStepFamilyCtx } from './oracleIRExecutorMainLoopStepTypes';
+import { applySecretEachPlayerNumberStep } from './oracleIRExecutorSecretEachPlayerNumber';
 import { applySecretOpponentChoiceDamageStep } from './oracleIRExecutorSecretOpponentChoiceDamage';
 
 export function tryApplyMainLoopChoiceFamilySteps(
@@ -26,6 +27,11 @@ export function tryApplyMainLoopChoiceFamilySteps(
     }
     case 'secret_opponent_choice_damage': {
       const result = applySecretOpponentChoiceDamageStep(ctx.nextState, step, ctx.currentCtx);
+      ctx.applyHandledStepResult(step, result);
+      return true;
+    }
+    case 'secret_each_player_number': {
+      const result = applySecretEachPlayerNumberStep(ctx.nextState, step, ctx.currentCtx);
       ctx.applyHandledStepResult(step, result);
       return true;
     }

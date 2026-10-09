@@ -54,7 +54,7 @@ For **new cards**, step collection may hit the overlay **before** a parser batch
 | **L3 Integrate** | IR primary for spells/triggers/activated (`ORACLE_IR_*_PRIMARY` on) | ✅ Beta-ready |
 | **L3 Choices** | Queue + resume for scry/surveil/discard/unless-pay/library search/EP (fateseal, clash, choose_mode) + **VOTE** (council / secret council) | ✅ Migration suite + ~26 socket tests; vote Layer 3 in `oracle-ir-vote-end-combat.integration.test.ts` |
 | **L3 Overlays** | Probe / validate / import / upsert scripts; `@OracleIRCompiler` agent | ✅ In migration suite (batch 458) |
-| **Data refresh** | `npm run card-lookup:refresh` — oracle index + local SQLite rebuild | ✅ Script exists |
+| **Data refresh** | `npm run card-lookup:refresh` — oracle index + local SQLite rebuild. Token art: `node tools/refresh-scryfall-tokens.mjs` (repo root) rebuilds `precon_json/Tokens.json` | ✅ Script exists |
 | **Trigger detect** | `trigger:coverage` — timing phrases fire on server | ✅ 15,741/15,741 |
 | **Live seams** | `oracle-ir:live-seam` — lords / compound timings / watchers / exile-GY / granted quoted triggers on recipients | ⬜ Catch false greens that assisted IR dry-run misses. Steward / Hazel copy-exiled-activated stamps `exiledWithSourceId`. Granted quoted targeted / counters-put / becomes-tapped / spell-cast / becomes-blocked / LTB / upkeep / GY-from-battlefield (Kira / Danny / Katara / Dionus / Cursed Wombat / Folk Hero / Passionate Archaeologist / Retaliation / Candlekeep Sage / Tavern Brawler / Agent of the Iron Throne / Tabernacle / Energy Flux / Aura Flux) merge onto recipients. |
 
@@ -72,7 +72,7 @@ The delta audit (D1) now automates steps 2–3 for the changed cards only:
 
 | Step | Command / action | Why |
 |------|------------------|-----|
-| 1 | Drop refreshed `oracle-cards*.json`, rules txt; `cd server && npm run card-lookup:refresh` | Local oracle + `card-lookup.sqlite` must match Scryfall |
+| 1 | Drop refreshed `oracle-cards*.json`, rules txt; `cd server && npm run card-lookup:refresh`. From the repo root: `node tools/refresh-scryfall-tokens.mjs` | Local oracle + `card-lookup.sqlite` must match Scryfall. The token command rebuilds `precon_json/Tokens.json` so new token printings, including double-faced faces, are available for image matching |
 | 2 | `npm run oracle-ir:delta` | **Delta CI (D1):** audits only new/changed cards vs baseline; emits `overlayWorkQueue` in `scripts/out/oracle-delta-coverage-audit.json`; non-zero exit on gaps |
 | 3 | Per work-queue card: `npm run oracle-ir:overlay:probe -- --name "Card Name"` → **overlay** (default) | See decision tree below; each entry carries a `suggestedAction` |
 | 4 | `npm run executor:keyword-audit` when the set adds keyword/reminder shapes | New keyword reminder shapes vs static/triggered IR |
@@ -146,6 +146,7 @@ There is **no planned Track F or E15**. New-card work uses **§A workflow + B/C/
 ### Quick reference: new card with automation gap
 
 ```powershell
+node tools/refresh-scryfall-tokens.mjs
 cd server
 npm run card-lookup:refresh
 npm run oracle-ir:overlay:probe -- --name "New Card Name"

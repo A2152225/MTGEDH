@@ -190,7 +190,9 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
       /a (?:card|nonland card)(?: name)?/.test(choiceText) ||
       /(?:an opponent|a player)/.test(choiceText);
 
-    if (!isSpecificPattern && !newPermanent.chosenOption && !newPermanent.chosenOptions) {
+    // After the real PLAYER_CHOICE resolves, chosenPlayer is set. Do not also
+    // offer the leftover string "a player" as a modal option.
+    if (!isSpecificPattern && !newPermanent.chosenOption && !newPermanent.chosenOptions && !newPermanent.chosenPlayer) {
       let options: string[] = [];
       let minSelections = 1;
       let maxSelections = 1;

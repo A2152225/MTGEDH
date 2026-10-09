@@ -8,7 +8,7 @@ export function applyChosenXToManaCost(manaCost: string, xValue: number): string
     .replace(/\bX\b/g, `{${safeXValue}}`);
 }
 
-function findSpellCardForXSelection(game: any, playerId: PlayerID, step: any): any | null {
+export function findSpellCardForXSelection(game: any, playerId: PlayerID, step: any): any | null {
   const cardId = String(step?.spellCardId || step?.sourceId || '').trim();
   if (!cardId) return null;
 

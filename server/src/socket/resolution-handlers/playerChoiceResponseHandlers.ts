@@ -184,6 +184,7 @@ export async function handlePlayerChoiceResponse(
     if (permanent) {
       // Store the chosen player on the permanent
       (permanent as any).chosenPlayer = selectedPlayerId;
+      (permanent as any).chosenPlayerName = getPlayerName(game, selectedPlayerId);
       
       // Append event for replay
       try {
@@ -194,6 +195,7 @@ export async function handlePlayerChoiceResponse(
           permanentId: permanentId,
           cardName: cardName,
           chosenPlayer: selectedPlayerId,
+          chosenPlayerName: getPlayerName(game, selectedPlayerId),
         });
       } catch (e) {
         debugWarn(1, "[Resolution] Failed to persist player choice event:", e);

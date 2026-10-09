@@ -478,6 +478,13 @@ export function validateStepResponseClusterStepsBeforeComplete(
         return false;
       }
 
+      const counterSourceId = String(step.sourceId || stepAny.sourceId || '').trim();
+      const counterOracle = String(stepAny.oracleText || step.description || '');
+      if (/\banother\s+target\b/i.test(counterOracle) && counterSourceId && targetId === counterSourceId) {
+        socket.emit('error', { code: 'INVALID_TARGET', message: 'Target must be another permanent' });
+        return false;
+      }
+
       if (!canPermanentBeTargetedByPlayer(targetPermanent as any, game.state as any, pid as any)) {
         socket.emit('error', { code: 'INVALID_TARGET', message: 'Target cannot be legally targeted' });
         return false;

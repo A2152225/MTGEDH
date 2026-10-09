@@ -468,14 +468,11 @@ export const KNOWN_BEGINNING_COMBAT_TRIGGERS: Record<string, {
   "etali, primal storm": { effect: "Exile cards from each opponent's library and cast them without paying mana costs" },
   "marisi, breaker of the coil": { effect: "Goaded creatures can't block" },
   "aurelia, the warleader": { effect: "Untap all creatures, additional combat phase (first combat each turn)" },
-  "gisela, blade of goldnight": { effect: "Damage dealt to opponents is doubled; damage dealt to you is halved" },
-  "iroas, god of victory": { effect: "Creatures you control have menace and prevent damage that would be dealt to them" },
   "xenagos, god of revels": { effect: "Choose target creature you control. It gains haste and gets +X/+X", requiresChoice: true },
   "combat celebrant": { effect: "You may exert for additional combat phase" },
   "grand warlord radha": { effect: "Add mana equal to attacking creatures at beginning of combat" },
   "saskia the unyielding": { effect: "Damage to chosen player is dealt to them again" },
   // Najeela is typed_subtype_attacks_any (Whenever a Warrior attacks), not this table.
-  "grand arbiter augustin iv": { effect: "Your spells cost less; opponent spells cost more" },
   // NOTE: Hero of Bladehold, Hanweir Garrison, Brimaz, Adeline, and Rabble Rousing moved to KNOWN_ATTACK_TRIGGERS
   // because they trigger when attacking, not at beginning of combat
   // legion warboss / goblin rabblemaster — detected dynamically from oracle text

@@ -297,7 +297,9 @@ export function applyDealCombatDamageAttackerLoop(
           // BLOCKED ATTACKER: Deal damage to blockers
           let remainingDamage = attackerPower;
           
-          for (const blockerId of blockedBy) {
+          for (let blockerIndex = 0; blockerIndex < blockedBy.length; blockerIndex++) {
+            const blockerId = blockedBy[blockerIndex];
+            const isLastBlocker = blockerIndex === blockedBy.length - 1;
             const blocker = battlefield.find((p: any) => p?.id === blockerId);
             if (!blocker) continue;
             
@@ -325,14 +327,19 @@ export function applyDealCombatDamageAttackerLoop(
               lethalDamage = remainingToughness;
             }
             
-            // If blocker already has lethal damage, skip assigning more (relevant for trample)
-            if (lethalDamage <= 0) {
+            // CR 510.1c: earlier blockers get lethal before any later blocker is assigned damage.
+            // Trample may stop at lethal and send the excess to the player or planeswalker.
+            // Without trample the last blocker is assigned every remaining point, including
+            // damage above its toughness (a 7/7 blocked by a 1/1 deals 7).
+            const assignAllRemainingToBlocker = !keywords.trample && isLastBlocker;
+            if (lethalDamage <= 0 && !assignAllRemainingToBlocker) {
               debug(1, `${ts()} [dealCombatDamage] Blocker ${blockerCard.name || blockerId} already has lethal damage, skipping`);
               continue;
             }
-            
-            // Assign lethal damage (or all remaining damage if less than lethal)
-            const damageToBlocker = Math.min(lethalDamage, remainingDamage);
+
+            const damageToBlocker = assignAllRemainingToBlocker
+              ? remainingDamage
+              : Math.min(lethalDamage, remainingDamage);
             
             if (damageToBlocker > 0) {
               if (isCombatDamagePreventedForPermanent(blocker)) {

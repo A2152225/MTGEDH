@@ -22,6 +22,11 @@ export function paymentActivationCostHasUnsupportedAdditionalCosts(
   let residue = normalizedCost;
   residue = residue.replace(/\{(?:[tq]|\d+|[wubrgc])\}/gi, ' ');
   residue = residue.replace(/sacrifice\s+[^,;:]*/gi, ' ');
+  // Bounce / karoo lands: "{T}, Return this land to its owner's hand: Add {R}{W}"
+  residue = residue.replace(
+    /return\s+(?:this\s+(?:land|permanent)|~|CARDNAME)\s+to\s+(?:its\s+owner'?s\s+hand|your\s+hand)/gi,
+    ' ',
+  );
   // Self remove-counter costs are paid during spell payment; strip only those.
   const parsedRemove = parseRemoveCounterActivationCost(normalizedCost, sourceCardName);
   if (parsedRemove?.refersToSource) {

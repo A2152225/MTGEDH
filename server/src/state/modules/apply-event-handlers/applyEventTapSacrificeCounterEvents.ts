@@ -7,7 +7,7 @@
 // Handles: tapPermanent, untapPermanent, permanent_tapped, permanent_untapped, exilePermanent, sacrificePermanent, sacrificeSelected, randomPileSacrificeResolved, libraryChaosExchangeResolved, repeatedZoneDraftPick, counter_moved, changePermanentControl, setPermanentSelectedMode, counterTargetChosen, counterPlacementResolve
 import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
-import { updateCounters, trackPermanentSacrificedThisTurn, movePermanentToExile } from "../counters_tokens";
+import { updateCounters, canonicalizeCounterKey, trackPermanentSacrificedThisTurn, movePermanentToExile } from "../counters_tokens";
 import { syncPreparedPermanentAfterControlChange } from "../prepared.js";
 import {
   clearReplayQueuedSteps,
@@ -371,7 +371,7 @@ export function applyTapSacrificeCounterEvents(ctx: GameContext, e: GameEvent): 
       case "counter_moved": {
         const sourcePermanentId = String((e as any).sourcePermanentId || '').trim();
         const targetPermanentId = String((e as any).targetPermanentId || '').trim();
-        const counterType = String((e as any).counterType || '').trim();
+        const counterType = canonicalizeCounterKey(String((e as any).counterType || '').trim());
 
         try {
           clearReplayQueuedStepById(
@@ -494,7 +494,7 @@ export function applyTapSacrificeCounterEvents(ctx: GameContext, e: GameEvent): 
 
       case "counterTargetChosen": {
         const targetId = String((e as any).targetId || '').trim();
-        const counterType = String((e as any).counterType || '').trim();
+        const counterType = canonicalizeCounterKey(String((e as any).counterType || '').trim());
         const sourceId = String((e as any).sourceId || '').trim();
         const clearQueuedScavengePrompt = (e as any).clearQueuedScavengePrompt === true;
         const replayGameId = String((ctx as any).gameId || '').trim();

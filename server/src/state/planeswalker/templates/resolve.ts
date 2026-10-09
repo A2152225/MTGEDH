@@ -16,6 +16,7 @@ import { tryLoyaltyTemplateSearchEmblemHandPut } from "./resolve-handlers/loyalt
 import { tryLoyaltyTemplateHandPutPumpControl } from "./resolve-handlers/loyaltyTemplateHandPutPumpControl.js";
 import { tryLoyaltyTemplateControlExtraTurnGy } from "./resolve-handlers/loyaltyTemplateControlExtraTurnGy.js";
 import { tryLoyaltyTemplateNamedDamageFinale } from "./resolve-handlers/loyaltyTemplateNamedDamageFinale.js";
+import { tryLoyaltyTemplateTripleCombatDamage } from "./resolve-handlers/loyaltyTemplateTripleCombatDamage.js";
 
 export function tryResolvePlaneswalkerLoyaltyTemplate(
   ctx: GameContext,
@@ -30,6 +31,8 @@ export function tryResolvePlaneswalkerLoyaltyTemplate(
   const state = (ctx as any).state;
   const text = normalizeOracleEffectText(effectText);
 
+  const handledTripleCombat = tryLoyaltyTemplateTripleCombatDamage(ctx, controller, sourceName, triggerItem, match, state, text);
+  if (handledTripleCombat !== undefined) return handledTripleCombat;
   const handledManualDraft = tryLoyaltyTemplateManualDraft(ctx, controller, sourceName, triggerItem, match, state, text);
   if (handledManualDraft !== undefined) return handledManualDraft;
   const handledPerpetualLookReturn = tryLoyaltyTemplatePerpetualLookReturn(ctx, controller, sourceName, triggerItem, match, state, text);

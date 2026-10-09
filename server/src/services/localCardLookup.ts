@@ -16,6 +16,7 @@ import {
 } from './oracleCardsIndex.js';
 
 type DB = Database.Database;
+type Statement = Database.Statement;
 
 export type LocalCardLookupSource = 'oracle-cards' | 'AtomicCards';
 
@@ -56,6 +57,16 @@ let db: DB | null = null;
 let dbFilePath: string | null = null;
 let ensurePromise: Promise<void> | null = null;
 let cardNameChoiceCache = new Map<string, string[]>();
+/**
+ * Database handle whose lookup table has already been verified current this process.
+ * `isLookupCurrent` used to re-run four meta queries plus existsSync/statSync on the
+ * multi-hundred-MB oracle/Atomic source files on EVERY `lookupLocalCardByNameSync`
+ * call; with ~70 permanents and per-permanent static-effect recomputes that was
+ * tens of seconds per sacrifice. The sources only change when a rebuild runs here
+ * (which resets this) or the process restarts, so verifying once per handle is safe.
+ */
+let lookupVerifiedDb: DB | null = null;
+const lookupByNameStatements = new WeakMap<DB, Statement>();
 
 function emitStatus(options: LocalCardLookupOptions | undefined, status: LocalCardLookupStatus): void {
   options?.onStatus?.(status);
@@ -255,6 +266,7 @@ function getDatabase(): DB {
     }
     db = null;
     dbFilePath = null;
+    lookupVerifiedDb = null;
     cardNameChoiceCache.clear();
   }
 
@@ -315,10 +327,22 @@ function readMetaValue(database: DB, key: string): string | null {
 }
 
 function isLookupCurrent(database: DB): boolean {
-  return readMetaValue(database, 'ready') === '1'
+  if (lookupVerifiedDb === database) return true;
+  const current = readMetaValue(database, 'ready') === '1'
     && readMetaValue(database, 'schema_version') === schemaVersion
     && readMetaValue(database, 'oracle_signature') === getSourceSignature(resolveOracleCardsPathForLookup())
     && readMetaValue(database, 'atomic_signature') === getSourceSignature(resolveAtomicCardsPath());
+  if (current) lookupVerifiedDb = database;
+  return current;
+}
+
+function getLookupByNameStatement(database: DB): Statement {
+  let statement = lookupByNameStatements.get(database);
+  if (!statement) {
+    statement = database.prepare('SELECT payload FROM card_lookup WHERE normalized_name = ?');
+    lookupByNameStatements.set(database, statement);
+  }
+  return statement;
 }
 
 function getCardNameChoiceCacheKey(criteria: CardNameChoiceCriteria): string {
@@ -649,6 +673,7 @@ async function rebuildLookupIndex(database: DB, options?: LocalCardLookupOptions
 
   debug(1, `[card-lookup] Built lookup table with ${aliasMap.size} aliases`);
   cardNameChoiceCache.clear();
+  lookupVerifiedDb = null;
 }
 
 function rebuildLookupIndexSync(database: DB, options?: LocalCardLookupOptions): void {
@@ -687,6 +712,7 @@ function rebuildLookupIndexSync(database: DB, options?: LocalCardLookupOptions):
 
   debug(1, `[card-lookup] Built lookup table with ${aliasMap.size} aliases`);
   cardNameChoiceCache.clear();
+  lookupVerifiedDb = null;
 }
 
 function assertRebuildAllowed(): void {
@@ -788,7 +814,7 @@ export function lookupLocalCardByNameSync(
   }
 
   const database = getDatabase();
-  const row = database.prepare('SELECT payload FROM card_lookup WHERE normalized_name = ?').get(normalizedName) as
+  const row = getLookupByNameStatement(database).get(normalizedName) as
     | { payload: string }
     | undefined;
 
@@ -841,6 +867,7 @@ export function listLocalCardNamesForChoiceSyncIfReady(
 
 export function resetLocalCardLookupForTests(): void {
   ensurePromise = null;
+  lookupVerifiedDb = null;
   cardNameChoiceCache.clear();
   if (db) {
     try {

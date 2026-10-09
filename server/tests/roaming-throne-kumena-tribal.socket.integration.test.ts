@@ -166,7 +166,9 @@ describe('Roaming Throne + Kumena tribal socket integration', () => {
     // respond (see gwafa-bribery-counter). Solo tests still need to resolve it.
     refreshed.resolveTopOfStack();
     const throne = refreshed.state.battlefield.find((perm: any) => perm.id === 'roaming_throne_1');
-    expect(throne?.counters?.['+1+1']).toBe(1);
+    // Canonical key read by P/T + SBA is '+1/+1' (the old '+1+1' alias came from a
+    // sanitizer that stripped the slash and was never counted toward power/toughness).
+    expect(throne?.counters?.['+1/+1']).toBe(1);
     expect(refreshed.state.battlefield.find((perm: any) => perm.id === 'kumena_1')?.tapped).toBe(true);
   });
 });

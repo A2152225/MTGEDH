@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import {
   countIssueReports,
+  deleteIssueReport,
   getIssueReport,
   getIssueReportsDb,
   listIssueReports,
@@ -30,6 +31,7 @@ Commands:
   show <id>                           Show one report in full
   resolve <id> [--note "text"] [--by name]   Mark a report resolved
   reopen <id>                         Clear the resolved state
+  delete <id>                         Remove a report (false positive; gone from open and closed)
   export --csv [--open|--resolved|--all] [--out file.csv]   Export as CSV (default: all, to stdout)
   path                                Print the issue database file path
 
@@ -185,6 +187,13 @@ export function runIssuesCli(argv: string[], io: CliIo): number {
         if (id === null) { io.err('reopen: a numeric <id> is required.'); return 2; }
         if (!reopenIssueReport(id)) { io.err(`No issue report #${id}.`); return 1; }
         io.out(`Issue #${id} reopened.`);
+        return 0;
+      }
+      case 'delete': {
+        const id = parseId(rest[0]);
+        if (id === null) { io.err('delete: a numeric <id> is required.'); return 2; }
+        if (!deleteIssueReport(id)) { io.err(`No issue report #${id}.`); return 1; }
+        io.out(`Issue #${id} deleted.`);
         return 0;
       }
       case 'export': {

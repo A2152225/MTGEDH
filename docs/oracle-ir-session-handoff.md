@@ -758,6 +758,7 @@ See .cursor/rules/oracle-ir-no-bespoke-handlers.mdc
 Full checklist, decision tree, and task IDs **A–E**: [oracle-ir-track-e-remaining-work.md § Goal: Semantic atomic parsing](./oracle-ir-track-e-remaining-work.md#goal-semantic-atomic-parsing--seamless-effect-automation-new-cards). Architecture direction: [oracle-ir-architecture-guide.md §15](./oracle-ir-architecture-guide.md).
 
 ```powershell
+node tools/refresh-scryfall-tokens.mjs          # repo root; rebuild precon_json/Tokens.json
 cd server
 npm run card-lookup:refresh
 npm run oracle-ir:delta                          # audit new/changed cards vs baseline

@@ -254,3 +254,9 @@ export function reopenIssueReport(id: number): boolean {
     .run(id);
   return result.changes > 0;
 }
+
+/** Removes a report entirely. Returns false if it does not exist. */
+export function deleteIssueReport(id: number): boolean {
+  const result = getIssueReportsDb().prepare(`DELETE FROM issue_reports WHERE id = ?`).run(id);
+  return result.changes > 0;
+}

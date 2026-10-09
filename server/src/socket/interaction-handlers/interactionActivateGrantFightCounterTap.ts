@@ -32,6 +32,7 @@ import {
   snapshotInteractionManaPool,
 } from "./interactionActivationEventPersistence.js";
 import { WORD_TO_NUMBER } from "./interactionSpecialLandAndHideaway.js";
+import { canonicalizeCounterKey } from "../../state/modules/counters_tokens.js";
 
 export async function tryHandleActivateGrantFightCounterTap(
   ctx: ActivateBattlefieldAbilityContext,
@@ -503,11 +504,11 @@ export async function tryHandleActivateGrantFightCounterTap(
   // - Ozolith, the Shattered Spire: "{1}, {T}: Put a +1/+1 counter on target creature you control. Activate only as a sorcery."
   // - Immaculate Magistrate: "{T}: Put a +1/+1 counter on target creature for each Elf you control."
   // Works on: creatures, permanents, lands, artifacts, enchantments, planeswalkers, etc.
-  const counterMatch = scopedAbilityFullText.match(/put (?:a|an|one|two|three) ([^\s]+) counters? on target ([^.]+?)(?:\s+you\s+(don't\s+control|control|don't own|own))?(?:\s+for each ([^.]+?))?(?:\.|,|$)/i);
+  const counterMatch = scopedAbilityFullText.match(/put (?:a|an|one|two|three) ([^\s]+) counters? on (?:another )?target ([^.]+?)(?:\s+you\s+(don't\s+control|control|don't own|own))?(?:\s+for each ([^.]+?))?(?:\.|,|$)/i);
   const isCounterAbility = Boolean(counterMatch);
   
   if (isCounterAbility && counterMatch) {
-    const counterType = counterMatch[1].toLowerCase().replace(/[^a-z0-9+\-]/g, ''); // e.g., "bribery", "+1/+1", "loyalty"
+    const counterType = canonicalizeCounterKey(counterMatch[1].toLowerCase().replace(/[^a-z0-9+\-/]/g, '')); // e.g., "bribery", "+1/+1", "-1/-1"
     const targetType = counterMatch[2].trim(); // e.g., "creature", "permanent", "artifact", "land"
     const targetRestriction = counterMatch[3] ? counterMatch[3].toLowerCase() : null;
     const scalingText = counterMatch[4] ? counterMatch[4].trim() : null; // e.g., "Elf you control"

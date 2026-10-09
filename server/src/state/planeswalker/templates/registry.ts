@@ -4,6 +4,7 @@ import { tryMatchPlaneswalkerTemplateDrawExileSearch } from "./registry-handlers
 import { tryMatchPlaneswalkerTemplateLookDraftPerpetual } from "./registry-handlers/planeswalkerTemplateMatchLookDraftPerpetual.js";
 import { tryMatchPlaneswalkerTemplatePumpLifeCreate } from "./registry-handlers/planeswalkerTemplateMatchPumpLifeCreate.js";
 import { tryMatchPlaneswalkerTemplateControlFightNamedDamage } from "./registry-handlers/planeswalkerTemplateMatchControlFightNamedDamage.js";
+import { tryMatchTripleCombatDamageToOpponents } from "./resolve-handlers/loyaltyTemplateTripleCombatDamage.js";
 
 export function getPlaneswalkerTemplateMatch(
   effectText: string,
@@ -16,6 +17,9 @@ export function getPlaneswalkerTemplateMatch(
   }
 ): PlaneswalkerTemplateMatch | null {
   const text = normalizeOracleEffectText(effectText);
+
+  const matchedTripleCombat = tryMatchTripleCombatDamageToOpponents(text);
+  if (matchedTripleCombat) return matchedTripleCombat;
 
   const matchedPlaneswalkerTemplateDrawExileSearch = tryMatchPlaneswalkerTemplateDrawExileSearch(text);
   if (matchedPlaneswalkerTemplateDrawExileSearch) return matchedPlaneswalkerTemplateDrawExileSearch;

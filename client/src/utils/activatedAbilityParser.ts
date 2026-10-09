@@ -205,7 +205,7 @@ export function getActivatedAbilityActivationStatus(
     } else if (!context.stackEmpty) {
       canActivateAbility = false;
       reason = 'Stack must be empty';
-    } else if (ability.loyaltyCost !== undefined && context.loyaltyCounters !== undefined) {
+    } else if (ability.loyaltyCost !== undefined && context.loyaltyCounters !== undefined && !ability.isVariableLoyalty) {
       if (ability.loyaltyCost < 0 && context.loyaltyCounters < Math.abs(ability.loyaltyCost)) {
         canActivateAbility = false;
         reason = 'Not enough loyalty';
@@ -299,6 +299,7 @@ export function getAbilityIcon(ability: ParsedActivatedAbility): string {
   if (ability.isFetchAbility) return '🔍';
   if (ability.isMillAbility) return '📚';  // Mill icon (books/library)
   if (ability.isLoyaltyAbility) {
+    if (ability.isVariableLoyalty && String(ability.cost || '').includes('-')) return '⬇️';
     if (ability.loyaltyCost && ability.loyaltyCost > 0) return '⬆️';
     if (ability.loyaltyCost && ability.loyaltyCost < 0) return '⬇️';
     return '🔄';
@@ -331,7 +332,9 @@ export function formatAbilityCost(ability: ParsedActivatedAbility): string {
   if (ability.requiresSacrifice) {
     parts.push('Sacrifice');
   }
-  if (ability.loyaltyCost !== undefined) {
+  if (ability.isVariableLoyalty) {
+    parts.push(String(ability.cost || '[-X]').replace(/[\[\]]/g, ''));
+  } else if (ability.loyaltyCost !== undefined) {
     parts.push(ability.loyaltyCost > 0 ? `+${ability.loyaltyCost}` : `${ability.loyaltyCost}`);
   }
   if (ability.tapOtherPermanentsCost) {

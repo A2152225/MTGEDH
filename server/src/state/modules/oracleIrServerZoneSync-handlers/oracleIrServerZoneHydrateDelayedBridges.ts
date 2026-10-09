@@ -34,7 +34,7 @@ import {
 
 export function repairNamelessBattlefieldCards(state: any): void {
   for (const perm of state?.battlefield || []) {
-    if (!perm || perm.isFaceDown) continue;
+    if (!perm || perm.isFaceDown || perm.isToken) continue;
     const flat = flattenZoneCardForBattlefield(perm.card);
     if (flat && typeof flat === 'object') perm.card = flat;
     const card = perm.card as Record<string, unknown> | undefined;

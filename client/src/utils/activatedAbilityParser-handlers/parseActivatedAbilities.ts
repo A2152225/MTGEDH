@@ -107,15 +107,18 @@ export function parseActivatedAbilities(
     // Match planeswalker ability patterns: +N:, -N:, or 0: at start of line
     // Scryfall oracle text uses plain format without brackets (e.g., "+1: Effect text")
     // The pattern matches various dash characters: regular minus (-), en dash (–), em dash (—), and Unicode minus (−)
-    const pwAbilityPattern = /^([+−–—-]?\d+):\s*(.+)/gm;
+    const pwAbilityPattern = /^([+−–—-]?(?:\d+|X)):\s*(.+)/gm;
     let pwMatch;
     while ((pwMatch = pwAbilityPattern.exec(oracleText)) !== null) {
       const loyaltyCostStr = pwMatch[1].replace(/[−–—]/g, '-');
-      const loyaltyCost = parseInt(loyaltyCostStr, 10);
+      const isVariableLoyalty = /x/i.test(loyaltyCostStr);
+      const loyaltyCost = isVariableLoyalty ? 0 : parseInt(loyaltyCostStr, 10);
       const abilityText = pwMatch[2].trim();
       const shortText = abilityText.length > 60 ? abilityText.slice(0, 57) + '...' : abilityText;
       
-      const costLabel = loyaltyCost > 0 ? `+${loyaltyCost}` : `${loyaltyCost}`;
+      const costLabel = isVariableLoyalty
+        ? (loyaltyCostStr.startsWith('-') ? '-X' : loyaltyCostStr.startsWith('+') ? '+X' : 'X')
+        : (loyaltyCost > 0 ? `+${loyaltyCost}` : `${loyaltyCost}`);
       
       abilities.push({
         id: `pw-ability-${abilityIndex++}`,
@@ -127,6 +130,7 @@ export function parseActivatedAbilities(
         requiresUntap: false,
         requiresSacrifice: false,
         loyaltyCost,
+        isVariableLoyalty,
         isManaAbility: false,
         isLoyaltyAbility: true,
         isFetchAbility: false,

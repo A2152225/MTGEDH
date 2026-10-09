@@ -72,11 +72,6 @@ import { tryAutoStartGameFromPreGame } from "./pregame-auto-start.js";
 import { chooseAIReflexiveExileToOwnersGraveyardSelection } from "./aiReflexiveExileToOwnersGraveyardChoice.js";
 import { syncPreparedPermanentAfterControlChange } from "../state/modules/prepared.js";
 import { getOptionalPaymentValidationFailure } from "./optional-payment-prompts.js";
-import {
-  chooseSpellXValueFromStep,
-  getMaxAffordableSpellX,
-  isSpellWorthCastingAtX,
-} from "../state/modules/spellXCastUtils.js";
 import { chooseDelayedDrawUpToCount } from "../state/modules/triggerDelayedDrawUpToUtils.js";
 import {
   chooseMultikickerTimesForChargeInvest,
@@ -255,6 +250,7 @@ import {
   buildAIAvailableManaForSpellPayment,
   buildAISpellPaymentPlan,
   canAIAssembleSpellPaymentPlan,
+  chooseAssembleableSpellXValueFromStep,
   chooseAISacrificePermanentForManaAbility,
   chooseAISacrificePermanentsForManaAbility,
   chooseAISpellPaymentSelections,
@@ -350,7 +346,7 @@ export function chooseAIXValueSelection(game: any, playerId: PlayerID, step: any
   if (step?.delayedDrawUpTo === true) {
     return chooseDelayedDrawUpToCount(game, playerId, step);
   }
-  return chooseSpellXValueFromStep(game, playerId, step);
+  return chooseAssembleableSpellXValueFromStep(game, playerId, step);
 }
 
 

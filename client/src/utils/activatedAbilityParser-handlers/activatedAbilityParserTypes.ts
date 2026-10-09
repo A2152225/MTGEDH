@@ -27,6 +27,7 @@ export interface ParsedActivatedAbility {
   manaCost?: string;
   lifeCost?: number;
   loyaltyCost?: number;  // For planeswalker abilities
+  isVariableLoyalty?: boolean;  // +X / −X loyalty abilities
   otherCosts?: string[];
   // X cost support
   hasXCost?: boolean;  // Whether the cost contains {X}
