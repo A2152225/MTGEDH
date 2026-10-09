@@ -20,6 +20,7 @@ import { registerRandomnessHandlers } from "./randomness.js";
 import { registerReplayHandlers } from "./replay.js";
 import { registerOpponentMayPayHandlers } from "./opponent-may-pay.js";
 import { registerIssueReportHandlers } from "./issueReport.js";
+import { registerManualActionHandlers } from "./manual-action.js";
 import { registerResolutionHandlers, initializeAIResolutionHandler, initializePriorityResolutionHandler } from "./resolution.js";
 import { installGameStallRecovery, registerGameStallHandlers } from "./gameStallSocketWiring.js";
 import { GameManager } from "../GameManager.js";
@@ -153,6 +154,7 @@ export function registerSocketHandlers(
     registerReplayHandlers(io, socket);
     registerOpponentMayPayHandlers(io, socket);
     registerIssueReportHandlers(io, socket);
+    registerManualActionHandlers(io, socket);
     registerResolutionHandlers(io, socket);
     registerGameStallHandlers(io as any, socket);
 

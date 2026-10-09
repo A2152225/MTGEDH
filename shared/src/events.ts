@@ -68,6 +68,8 @@ export interface ClientToServerEvents {
   // state mutation helpers
   shuffleLibrary: (payload: { gameId: GameID; playerId?: PlayerID }) => void;
   drawCards: (payload: { gameId: GameID; count: number; playerId?: PlayerID }) => void;
+  manualAction: (payload: { gameId: GameID } & Record<string, unknown>, ack?: (result: { ok: boolean; error?: string; summary?: string; peekedCards?: Array<{ id: string; name: string; type_line?: string; image_uris?: { small?: string; normal?: string } }> }) => void) => void;
+  manualPeek: (payload: { gameId: GameID; playerId?: PlayerID; zone?: string; count?: number }, ack?: (result: { ok: boolean; error?: string; summary?: string; peekedCards?: Array<{ id: string; name: string; type_line?: string; image_uris?: { small?: string; normal?: string } }> }) => void) => void;
   shuffleHand: (payload: { gameId: GameID }) => void;
   reorderHand: (payload: { gameId: GameID; order: string[] }) => void;
 

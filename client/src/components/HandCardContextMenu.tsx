@@ -13,6 +13,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { CardCostAdjustment, KnownCardRef } from '../../../shared/src';
 import { ReportIssueMenuItem } from './ReportIssueMenuItem';
+import { ManualModeMenuItems } from './ManualMode-handlers/ManualModeMenuItems';
 
 export interface HandCardContextMenuProps {
   card: KnownCardRef;
@@ -386,6 +387,12 @@ export function HandCardContextMenu({
           </div>
         )}
 
+        <ManualModeMenuItems
+          objectId={card.id}
+          fromZone="hand"
+          itemStyle={menuItemStyle}
+          onClose={onClose}
+        />
         <ReportIssueMenuItem
           separator
           target={{ cardId: card.id, cardName: name, zone: 'hand' }}

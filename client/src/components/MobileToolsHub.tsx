@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 import type { PlayerID } from '../../../shared/src';
 import { AutoPassSettingsPanel } from './AutoPassSettingsPanel';
 import { IgnoredCardsPanel } from './IgnoredCardsPanel';
+import { ManualModeControl } from './ManualModeControl';
 import { colors, fontSize, radii, spacing } from '../theme';
 
 export type MobileUndoTurnPhaseTarget = {
@@ -51,6 +52,8 @@ export interface MobileToolsHubProps {
   onRollDie?: (sides: number) => void;
   onFlipCoin?: () => void;
   isSpectator?: boolean;
+  gameId?: string | null;
+  view?: any;
 }
 
 const toolBtnStyle: React.CSSProperties = {
@@ -86,6 +89,8 @@ export const MobileToolsHub: React.FC<MobileToolsHubProps> = (props) => {
     onClearIgnoredCards,
     onOpenTriggerShortcuts,
     onOpenLoopShortcuts,
+    gameId,
+    view,
     availableUndoCount = 0,
     undoTurnPhaseTargets = [],
     onOpenUndoMenu,
@@ -215,6 +220,10 @@ export const MobileToolsHub: React.FC<MobileToolsHubProps> = (props) => {
         <button type="button" onClick={onOpenLoopShortcuts} style={toolBtnStyle} title="Record and replay a manual action line">
           Loop Shortcuts
         </button>
+      )}
+
+      {!isSpectator && (
+        <ManualModeControl variant="mobile" gameId={gameId} you={you} view={view} />
       )}
 
       {showAi && (

@@ -25,6 +25,7 @@ import { PriorityModal } from "../components/PriorityModal";
 import { AutoPassSettingsPanel } from "../components/AutoPassSettingsPanel";
 import { TriggerShortcutsPanel } from "../components/TriggerShortcutsPanel";
 import { LoopShortcutPanel } from "../components/LoopShortcutPanel";
+import { ManualModeControl } from "../components/ManualModeControl";
 import { clampLoopShortcutIterations } from "../utils/loopShortcuts";
 import { GameRebuildProgressOverlay } from "../components/GameRebuildProgressOverlay";
 
@@ -653,6 +654,15 @@ export function renderAppPlayOverlaysLate(p: Record<string, any>) {
           >
             ↻ Loop Shortcuts
           </button>
+
+          <div style={{ marginTop: 8 }}>
+            <ManualModeControl
+              variant="settings"
+              gameId={safeView.id}
+              you={you}
+              view={safeView}
+            />
+          </div>
 
           <LoopShortcutPanel
             open={showLoopShortcutPanel}

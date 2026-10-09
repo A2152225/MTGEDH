@@ -32,3 +32,4 @@ export { applyAttachmentEvents } from "./applyEventAttachmentEvents.js"; // equi
 export { applyGraveyardTargetConfirmEvents } from "./applyEventGraveyardTargetConfirmEvents.js"; // GY targets and additional costs
 export { applyPlayerChoiceEvents } from "./applyEventPlayerChoiceEvents.js"; // color/name/vote/option choices
 export { applyEffectProgramZoneEvents } from "./applyEventEffectProgramZoneEvents.js"; // effect-program zone moves
+export { applyManualActionEvents } from "./applyEventManualActionEvents.js"; // kitchen-table manualAction replay

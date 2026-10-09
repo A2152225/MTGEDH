@@ -22,6 +22,7 @@ import {
 import { getBattlefieldTapActionDecision } from '../utils/battlefieldTapAction';
 import { canCreatureUseTapAbilityNow, hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
 import { ReportIssueMenuItem } from './ReportIssueMenuItem';
+import { ManualModeMenuItems } from './ManualMode-handlers/ManualModeMenuItems';
 
 export interface ActivatedAbilityOption {
   id: string;
@@ -579,6 +580,13 @@ export function CardContextMenu({
           )}
         </>
       )}
+      <ManualModeMenuItems
+        objectId={permanent.id}
+        fromZone="battlefield"
+        itemStyle={menuItemStyle}
+        onClose={onClose}
+        extraBattlefield
+      />
       <ReportIssueMenuItem
         separator
         target={{ cardId: String(card?.id || permanent.id), permanentId: permanent.id, cardName: name, zone: 'battlefield' }}

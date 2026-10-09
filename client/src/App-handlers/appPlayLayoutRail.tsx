@@ -13,6 +13,7 @@ import { MobilePlaySheets } from "../components/MobilePlaySheets";
 import { AutoPassSettingsPanel } from "../components/AutoPassSettingsPanel";
 import { IgnoredCardsPanel } from "../components/IgnoredCardsPanel";
 import { LoopShortcutPanel } from "../components/LoopShortcutPanel";
+import { ManualModeControl } from "../components/ManualModeControl";
 import { clampLoopShortcutIterations } from "../utils/loopShortcuts";
 import { getMobilePrimaryActionMode } from "../utils/mobilePlayActions";
 
@@ -289,6 +290,13 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
                     ↻ Loop Shortcuts
                   </button>
 
+                  <ManualModeControl
+                    variant="rail"
+                    gameId={safeView.id}
+                    you={you}
+                    view={safeView}
+                  />
+
                 </div>
                 )}
                 <PreviewSizeControl />
@@ -486,6 +494,8 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
               setMobilePlaySheet(null);
               setShowLoopShortcutPanel(true);
             }}
+            gameId={safeView.id}
+            view={safeView}
             availableUndoCount={availableUndoCount}
             undoTurnPhaseTargets={undoTurnPhaseTargets || []}
             onOpenUndoMenu={handleOpenUndoMenu}

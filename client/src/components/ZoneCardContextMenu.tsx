@@ -15,6 +15,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { CardCostAdjustment, KnownCardRef } from '../../../shared/src';
 import { parseActivatedAbilities } from '../utils/activatedAbilityParser';
 import { ReportIssueMenuItem } from './ReportIssueMenuItem';
+import { ManualModeMenuItems } from './ManualMode-handlers/ManualModeMenuItems';
+import type { ManualZone } from '../../../shared/src/manualAction';
 
 export type ZoneType = 'hand' | 'graveyard' | 'exile' | 'commander' | 'library' | 'battlefield';
 
@@ -535,6 +537,12 @@ export function ZoneCardContextMenu({
           </div>
         )}
 
+        <ManualModeMenuItems
+          objectId={card.id}
+          fromZone={(zone === 'commander' ? 'command' : zone) as ManualZone}
+          itemStyle={menuItemStyle}
+          onClose={onClose}
+        />
         <ReportIssueMenuItem
           separator
           target={{ cardId: card.id, cardName: name, zone }}

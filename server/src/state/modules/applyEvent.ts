@@ -82,6 +82,7 @@ import { applyGraveyardTargetConfirmEvents } from "./apply-event-handlers/applyE
 import { applyPlayerChoiceEvents } from "./apply-event-handlers/applyEventPlayerChoiceEvents.js";
 import { applyEffectProgramZoneEvents } from "./apply-event-handlers/applyEventEffectProgramZoneEvents.js";
 import { applyActivateBattlefieldAbilityEvents } from "./apply-event-handlers/applyEventActivateBattlefieldAbilityEvents.js";
+import { applyManualActionEvents } from "./apply-event-handlers/applyEventManualActionEvents.js";
 export { reset, skip, unskip, remove };
 
 
@@ -124,6 +125,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     if (applyPlayerChoiceEvents(ctx, e)) return;
     if (applyEffectProgramZoneEvents(ctx, e)) return;
     if (applyActivateBattlefieldAbilityEvents(ctx, e)) return;
+    if (applyManualActionEvents(ctx, e)) return;
     switch (e.type) {
 
       default: {

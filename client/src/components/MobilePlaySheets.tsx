@@ -266,6 +266,8 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
             onClearIgnoredCards={props.onClearIgnoredCards}
             onOpenTriggerShortcuts={props.onOpenTriggerShortcuts}
             onOpenLoopShortcuts={props.onOpenLoopShortcuts}
+            gameId={props.gameId}
+            view={props.view}
             availableUndoCount={props.availableUndoCount}
             undoTurnPhaseTargets={props.undoTurnPhaseTargets}
             onOpenUndoMenu={props.onOpenUndoMenu}
