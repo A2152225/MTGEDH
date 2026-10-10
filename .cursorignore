@@ -1,0 +1,34 @@
+# ==========================================
+# MTGEDH Workspace Optimization / Cache Protection
+# ==========================================
+
+# 1. Volatile Game Logs & Test Dumps (Wildcard Protected)
+G*.txt
+g*.txt
+TestFails.txt
+MerfolkCommanderTest1.txt
+Windows PowerShellmemused.txt
+logs/
+_agent_scratch/
+
+# 2. Large Data Tables & Local Databases
+*.sqlite
+*.xlsx
+precon_json/
+oracle-cards-*.jsonl.gz
+
+# 3. Intermediate Representation (IR) Probe Files 
+# (These change constantly during simulation tests and ruin caching)
+*.out.txt
+_probe_*
+probe_batch*
+debug_ir*
+dash-probe.*
+
+# 4. Standard Project Exclusions
+node_modules/
+.git/
+dist/
+.env
+.env.*
+!.env.example
