@@ -15,7 +15,7 @@ import { buildPersistedCastPermissionFields, buildPersistedFreeCastIntentFields,
 import { inferTriggeredAbilityTargetMetadata } from "../../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { isOnCastReflexiveCostGateEffect, resolveOnCastSpellTriggerDescriptions } from "../../state/modules/onCastSpellTriggerUtils.js";
 import { isInterveningIfSatisfied } from "../../state/modules/triggers/intervening-if";
-import { getOpponentSpellCastTriggers } from "../../state/modules/triggers/index.js";
+import { getOpponentSpellCastTriggers, spellOrdinalForCaster } from "../../state/modules/triggers/index.js";
 import { orderTriggersByAPNAP } from "../../state/modules/triggers/ordering.js";
 import { uid } from "../../state/utils";
 import { debug, debugWarn } from "../../utils/debug.js";
@@ -670,6 +670,7 @@ export async function persistAndProcessCastSpellFromHand(
             allPlayerIds,
             isFirstNoncreatureThisTurn,
             castSourceZone,
+            spellOrdinalForCaster(game.state, playerId, cardInHand),
           ),
         );
         

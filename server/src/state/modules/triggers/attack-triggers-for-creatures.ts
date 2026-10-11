@@ -23,6 +23,7 @@ import {
   applyTriggerDoublers,
   detectTriggerDoublers,
 } from "./trigger-doublers.js";
+import { collectMatchingParsedEventLines } from "./triggerConditionFamilyMatch.js";
 
 // ============================================================================
 // Attack Triggers
@@ -225,8 +226,44 @@ export function getAttackTriggersForCreatures(
     }
   }
   
+  const seenParsedAttacks = new Set<string>();
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const attacker of attackingCreatures) {
+      const effects = collectMatchingParsedEventLines({
+        ctx,
+        oracleText: String(permanent.card.oracle_text || ''),
+        event: 'attacks',
+        subjectPermanent: attacker,
+        subjectControllerId: String(attacker?.controller || ''),
+        sourcePermanent: permanent,
+      });
+      for (const line of effects) {
+        const effect = line.effect;
+        const key = `${String(permanent.id || '')}|${String(attacker?.id || '')}|${effect.toLowerCase()}`;
+        if (seenParsedAttacks.has(key)) continue;
+        const already = triggers.some((trigger) => (
+          String(trigger.permanentId || '') === String(permanent.id || '')
+          && String(trigger.effect || trigger.description || '').toLowerCase().includes(effect.toLowerCase().slice(0, 24))
+        ));
+        if (already) continue;
+        seenParsedAttacks.add(key);
+        triggers.push({
+          permanentId: String(permanent.id || ''),
+          cardName: String(permanent.card?.name || 'Unknown'),
+          controllerId: String(permanent.controller || ''),
+          triggerType: 'parsed_attacks',
+          description: effect,
+          effect,
+          mandatory: !/\byou may\b/i.test(effect),
+          ...(line.reflexive ? { reflexiveWhenYouDo: line.reflexive } : {}),
+          ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
+        });
+      }
+    }
+  }
+
   // ===== Apply trigger doublers (Roaming Throne, Isshin, etc.) =====
-  // Check for trigger doublers controlled by the attacking player
   const doublers = detectTriggerDoublers(battlefield, attackingPlayer);
   
   if (doublers.length > 0) {

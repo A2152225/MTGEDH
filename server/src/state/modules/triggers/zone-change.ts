@@ -9,7 +9,41 @@ import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 
 import { detectExiledFromBattlefieldTriggers, type ExiledFromBattlefieldTrigger } from './zone-change-handlers/exileFromBattlefieldDetection.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
+import type { TriggerConditionEvent, TriggerConditionIR } from '../../../../../rules-engine/src/triggerCondition/index.js';
 export { detectExiledFromBattlefieldTriggers, type ExiledFromBattlefieldTrigger };
+
+function forEachParsedZoneLine(
+  ctx: GameContext,
+  triggers: Array<{ permanentId: string; effect: string }>,
+  event: TriggerConditionEvent,
+  subjectPermanent: any,
+  subjectControllerId: string,
+  zone: { fromZone?: string; zoneOwnerId?: string },
+  push: (permanent: any, effect: string, condition: TriggerConditionIR | undefined) => void,
+): void {
+  const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event,
+      subjectPermanent,
+      subjectControllerId,
+      sourcePermanent: permanent,
+      fromZone: zone.fromZone,
+      zoneOwnerId: zone.zoneOwnerId,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      push(permanent, line.effect, line.condition);
+    }
+  }
+}
 
 export function getExiledFromBattlefieldTriggers(
   ctx: GameContext,
@@ -44,6 +78,29 @@ export function getExiledFromBattlefieldTriggers(
       triggers.push(trigger);
     }
   }
+
+  forEachParsedZoneLine(
+    ctx,
+    triggers,
+    'exiled',
+    exiledPermanent,
+    String(exiledPermanent?.controller || ''),
+    { fromZone: 'battlefield' },
+    (permanent, effect, condition) => {
+      const subject = condition?.alternatives[0]?.subject;
+      const creature = Boolean(subject && !subject.anyObject && subject.typeGroups.some((group) => group.includes('creature')));
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        triggerType: creature ? 'creature_exiled_from_battlefield' : 'permanent_exiled_from_battlefield',
+        oracleClause: effect,
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        targetFilter: creature ? 'creature' : 'permanent',
+      });
+    },
+  );
 
   return triggers;
 }
@@ -599,6 +656,32 @@ export function getPutIntoGraveyardTriggers(
     }
   }
 
+  forEachParsedZoneLine(
+    ctx,
+    triggers,
+    'put_into_graveyard',
+    card,
+    String(options?.controllerId || card?.controller || ownerId),
+    { fromZone: options?.fromBattlefield ? 'battlefield' : undefined, zoneOwnerId: ownerId },
+    (permanent, effect, condition) => {
+      const zoneOwner = condition?.zoneOwner;
+      const subject = condition?.alternatives[0]?.subject;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        triggerType: 'card_put_into_graveyard',
+        oracleClause: effect,
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: zoneOwner === 'you' ? 'your' : zoneOwner === 'not_you' ? 'opponent' : 'any',
+        creatureCardOnly: Boolean(subject && !subject.anyObject && subject.typeGroups.some((group) => group.includes('creature'))),
+        nonblackOnly: false,
+        excludesBattlefield: false,
+      });
+    },
+  );
+
   return triggers;
 }
 
@@ -831,6 +914,31 @@ export function getLeftGraveyardTriggers(
       triggers.push(trigger);
     }
   }
+
+  forEachParsedZoneLine(
+    ctx,
+    triggers,
+    'left_graveyard',
+    card,
+    ownerId,
+    { zoneOwnerId: ownerId },
+    (permanent, effect, condition) => {
+      const zoneOwner = condition?.zoneOwner;
+      const subject = condition?.alternatives[0]?.subject;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        triggerType: 'card_left_graveyard',
+        oracleClause: effect,
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+        graveyardScope: zoneOwner === 'you' ? 'your' : zoneOwner === 'not_you' ? 'opponent' : 'any',
+        creatureCardOnly: Boolean(subject && !subject.anyObject && subject.typeGroups.some((group) => group.includes('creature'))),
+        oneOrMore: condition?.quantity === 'one_or_more',
+      });
+    },
+  );
 
   return triggers;
 }

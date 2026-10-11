@@ -6,6 +6,7 @@ import type { TriggeredAbilityStackResolveOptions } from './stackResolveSharedTy
 import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
 import { maybeSacrificeSagaAfterChapterResolve } from './triggerSagaLoreUtils.js';
 import { resolveTriggeredAbilityControllerId } from './triggerSourceUtils.js';
+import { scheduleParsedTriggerRiders } from './parsedTriggerRiderSchedule.js';
 
 export { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
 
@@ -67,6 +68,7 @@ export function resolveTriggeredAbilityStackItem(
 
   debug(2, `[resolveTopOfStack] Executing trigger effect: controller=${triggerController}, sourceName=${sourceName}, triggerType=${triggerType}`);
   executeTriggerEffect(ctx, triggerController as PlayerID, sourceName, effectText, item);
+  scheduleParsedTriggerRiders(ctx, item, String(triggerController || ''));
   maybeSacrificeSagaAfterChapterResolve(ctx, triggerController as PlayerID, item);
   bumpSeq();
   return true;

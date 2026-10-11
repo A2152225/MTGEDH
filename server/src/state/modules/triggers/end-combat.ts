@@ -2,6 +2,7 @@ import type { GameContext } from '../../context.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { collectDelayedEndOfCombatRegistryTriggers } from './delayed-end-combat-watchers.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 import {
   inferEndCombatWhoseTurn,
   shouldQueuePhaseTriggerForActivePlayer,
@@ -109,6 +110,36 @@ export function getEndOfCombatTriggers(
       }
 
       triggers.push(trigger);
+    }
+
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'end_of_combat',
+      subjectPermanent: permanent,
+      subjectControllerId: String(permanent.controller || ''),
+      sourcePermanent: permanent,
+      activePlayerId,
+    })) {
+      if (triggers.length >= MAX_TRIGGERS_PER_STEP) break;
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        description: line.effect,
+        effect: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+        triggerType: line.condition?.whoseTurn === 'you' ? 'your_turn_end_combat' : 'each_combat_end',
+        stackItem: {
+          ...(line.reflexive ? { reflexiveWhenYouDo: line.reflexive } : {}),
+          ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
+        },
+      });
     }
   }
 

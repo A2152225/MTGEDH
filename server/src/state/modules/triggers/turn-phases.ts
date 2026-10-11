@@ -31,6 +31,7 @@ import { getActivePermanentCardFace } from "./turn-phases-handlers/turnPhaseActi
 import { detectRequiresChoice, detectAffectsAllPlayers } from "./turn-phases-handlers/turnPhaseEffectChoiceHelpers.js";
 import { detectEndStepTriggers } from "./turn-phases-handlers/turnPhaseEndStepTriggers.js";
 import { collectDelayedEndStepRegistryTriggers } from "./delayed-end-step-watchers.js";
+import { collectMatchingParsedEventLines } from "./triggerConditionFamilyMatch.js";
 
 // ============================================================================
 // Type Definitions for Turn Phase Triggers
@@ -232,6 +233,48 @@ export function detectPrecombatMainTriggers(card: any, permanent: any): EndStepT
   return triggers;
 }
 
+function appendParsedPhaseEvents(
+  ctx: GameContext,
+  triggers: EndStepTrigger[],
+  activePlayerId: string,
+  events: Array<'beginning_of_precombat_main' | 'beginning_of_postcombat_main' | 'each_of_your_main_phases'>,
+): void {
+  const battlefield = ctx.state?.battlefield || [];
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const event of events) {
+      for (const line of collectMatchingParsedEventLines({
+        ctx,
+        oracleText: String(permanent.card.oracle_text || ''),
+        event,
+        subjectPermanent: permanent,
+        subjectControllerId: String(permanent.controller || ''),
+        sourcePermanent: permanent,
+        activePlayerId,
+      })) {
+        const normalized = line.effect.toLowerCase();
+        if (triggers.some((existing) => (
+          String(existing.permanentId || '') === String(permanent.id || '')
+          && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+        ))) continue;
+        triggers.push({
+          permanentId: String(permanent.id || ''),
+          cardName: String(permanent.card?.name || 'Unknown'),
+          controllerId: String(permanent.controller || ''),
+          triggerType: 'end_step_effect',
+          description: line.effect,
+          effect: line.effect,
+          mandatory: !/\byou may\b/i.test(line.effect),
+          stackItem: {
+            ...(line.reflexive ? { reflexiveWhenYouDo: line.reflexive } : {}),
+            ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
+          },
+        });
+      }
+    }
+  }
+}
+
 /**
  * Get all precombat main phase triggers for the active player's first main phase.
  */
@@ -294,6 +337,7 @@ export function getPrecombatMainTriggers(
     }
   }
 
+  appendParsedPhaseEvents(ctx, triggers, activePlayerId, ['beginning_of_precombat_main', 'each_of_your_main_phases']);
   return triggers;
 }
 
@@ -431,6 +475,7 @@ export function getPostcombatMainTriggers(
     }
   }
 
+  appendParsedPhaseEvents(ctx, triggers, activePlayerId, ['beginning_of_postcombat_main', 'each_of_your_main_phases']);
   return triggers;
 }
 
@@ -502,6 +547,37 @@ export function getEndStepTriggers(
         continue;
       }
       triggers.push(trigger);
+    }
+
+    const parsedPhaseLines = collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'beginning_of_end_step',
+      subjectPermanent: permanent,
+      subjectControllerId: String(permanent.controller || ''),
+      sourcePermanent: permanent,
+      activePlayerId,
+    });
+    for (const line of parsedPhaseLines) {
+      const normalized = line.effect.toLowerCase();
+      const already = triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+      ));
+      if (already) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        triggerType: 'end_step_effect',
+        description: line.effect,
+        effect: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+        stackItem: {
+          ...(line.reflexive ? { reflexiveWhenYouDo: line.reflexive } : {}),
+          ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
+        },
+      });
     }
   }
 
@@ -749,6 +825,30 @@ export function getDrawStepTriggers(
         continue;
       }
       triggers.push(trigger);
+    }
+
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card?.oracle_text || ''),
+      event: 'beginning_of_draw_step',
+      subjectPermanent: permanent,
+      subjectControllerId: String(permanent.controller || ''),
+      sourcePermanent: permanent,
+      activePlayerId,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        description: line.effect,
+        effect: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+      });
     }
   }
   

@@ -432,6 +432,8 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     ...(metadata.destinationUsesSelectedCardOwner === true ? { destinationUsesSelectedCardOwner: true } : null),
     ...(metadata.battlefieldControllerMode ? { battlefieldControllerMode: metadata.battlefieldControllerMode } : null),
     ...(metadata.delayedReturnAt ? { delayedReturnAt: metadata.delayedReturnAt } : null),
+    ...(trigger.reflexiveWhenYouDo ? { reflexiveWhenYouDo: trigger.reflexiveWhenYouDo } : null),
+    ...(trigger.delayedEndStep ? { delayedEndStep: trigger.delayedEndStep } : null),
     ...(metadata.battlefieldTapped === true ? { battlefieldTapped: true } : null),
     ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
     ...(metadata.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),

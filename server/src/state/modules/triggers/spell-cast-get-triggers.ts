@@ -12,6 +12,8 @@ import { getEffectiveColors } from "../effectiveColors.js";
 import { detectSpellCastTriggers } from "./spell-cast-detection.js";
 import { spellSharesCreatureTypeWithSource } from "./spellCastSharedCreatureType.js";
 import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
+import { spellOrdinalForCaster } from "./spell-cast.js";
+import { collectMatchingParsedEventLines, spellCastConditionMatches } from "./triggerConditionFamilyMatch.js";
 /**
  * Get all spell-cast triggers that should fire when a spell is cast
  */
@@ -45,9 +47,19 @@ export function getSpellCastTriggers(
     
     for (const trigger of permTriggers) {
       if (trigger.triggerEvent === 'cycle') continue; // cycle triggers never fire on a spell cast
+      const parsedSpellMatch = spellCastConditionMatches({
+        spellCondition: trigger.spellCondition,
+        casterScope: 'you',
+        spellCard,
+        sourceControllerId: String(permanent.controller || casterId || ''),
+        casterId,
+        tribalType: spellDetailForTrigger(trigger, permanent),
+      });
       let shouldTrigger = false;
-      
-      switch (trigger.spellCondition) {
+
+      if (parsedSpellMatch !== null) {
+        shouldTrigger = parsedSpellMatch;
+      } else switch (trigger.spellCondition) {
         case 'any':
           shouldTrigger = true;
           break;
@@ -125,6 +137,52 @@ export function getSpellCastTriggers(
         triggers.push(trigger);
       }
     }
+
+    const spellOrdinal = spellOrdinalForCaster(ctx.state, casterId, spellCard);
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'spell_cast',
+      subjectPermanent: spellCard,
+      subjectControllerId: casterId,
+      sourcePermanent: permanent,
+      spellOrdinal,
+      castFromZone: String(spellCard?.castSourceZone || spellCard?.fromZone || ''),
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const subject = line.condition?.alternatives[0]?.subject;
+      const types = (subject?.typeGroups || []).flat();
+      const subtype = (subject?.subtypeGroups || []).flat()[0];
+      const spellCondition: SpellCastTrigger['spellCondition'] = subject?.historic
+        ? 'historic'
+        : subject?.colors?.length
+          ? 'color'
+          : types.includes('instant') || types.includes('sorcery')
+            ? 'instant_sorcery'
+            : subject?.excludedWords?.includes('creature')
+              ? 'noncreature'
+              : types.length === 1 && types[0] === 'creature'
+                ? 'creature'
+                : subtype
+                  ? 'tribal_type'
+                  : 'any';
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || casterId),
+        description: line.effect,
+        effect: line.effect,
+        spellCondition,
+        ...(subtype ? { tribalType: subtype } : {}),
+        ...(subject?.colors?.length === 1 ? { tribalType: subject.colors[0] } : {}),
+        mandatory: !/\byou may\b/i.test(line.effect),
+        ...(line.condition?.ordinal === 'first' ? { firstSpellThisTurn: true } : {}),
+      });
+    }
   }
   
   return triggers;
@@ -135,4 +193,20 @@ export function getSpellCastTriggers(
  */
 function extractCreatureTypes(typeLine: string): string[] {
   return extractCreatureTypesFromTypeLine(typeLine).map((type) => String(type || '').toLowerCase());
+}
+
+const SPELL_COLOR_WORD: Readonly<Record<string, string>> = {
+  white: 'white', blue: 'blue', black: 'black', red: 'red', green: 'green',
+  w: 'white', u: 'blue', b: 'black', r: 'red', g: 'green',
+};
+
+function spellDetailForTrigger(trigger: SpellCastTrigger, permanent: any): string | undefined {
+  if (trigger.spellCondition === 'tribal_type' || trigger.spellCondition === 'color') {
+    return trigger.tribalType;
+  }
+  if (trigger.spellCondition !== 'chosen_color') return undefined;
+  const chosen = String(
+    permanent?.chosenColor || permanent?.card?.chosenColor || '',
+  ).trim().toLowerCase();
+  return SPELL_COLOR_WORD[chosen] || chosen || undefined;
 }

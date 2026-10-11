@@ -45,6 +45,8 @@ export interface TapTrigger {
   /** "for the first time during each of your turns". */
   onlyOnControllerTurn?: boolean;
   mandatory: boolean;
+  reflexiveWhenYouDo?: { actor: 'you' | 'they'; effect: string; delayed?: { timing: string; effect: string } };
+  delayedEndStep?: { timing: string; effect: string };
   lifeGain?: number;
   createsToken?: boolean;
   tokenDetails?: {

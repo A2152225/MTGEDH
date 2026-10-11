@@ -24,6 +24,7 @@ import { uid } from "../../utils.js";
 import { orderTriggersByAPNAP } from "./ordering.js";
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 
 /**
  * Helper to extract card ID from various card formats in zones
@@ -441,6 +442,32 @@ export function detectLifegainTriggers(
         isMayAbility: knownTrigger.isMayAbility,
         oncePerTurn: knownTrigger.oncePerTurn,
         maxArtifactMV: knownTrigger.effectType === 'convert_and_return' ? totalLifeGainedThisTurn : undefined,
+      });
+    }
+  }
+
+  for (const perm of battlefield) {
+    if (!perm?.card) continue;
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(perm.card.oracle_text || ''),
+      event: 'gains_life',
+      subjectPermanent: { id: '', typeLine: '', controllerId: playerId },
+      subjectControllerId: playerId,
+      sourcePermanent: perm,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(perm.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      triggers.push({
+        permanentId: perm.id,
+        cardName: String(perm.card?.name || 'Unknown'),
+        controllerId: String(perm.controller || ''),
+        effect: line.effect,
+        effectType: 'custom',
+        isMayAbility: /\byou may\b/i.test(line.effect) && !/^you may pay\b/i.test(line.effect),
       });
     }
   }

@@ -26,6 +26,7 @@ import {
 import type { UpkeepTrigger } from "./upkeep-triggers-handlers/upkeepTriggerDetectHelpers.js";
 import { getLastUpkeepMarker } from "./upkeep-triggers-handlers/upkeepMarkerHelpers.js";
 import { detectUpkeepTriggers } from "./upkeep-triggers-handlers/upkeepTriggerDetect.js";
+import { collectMatchingParsedEventLines } from "./triggers/triggerConditionFamilyMatch.js";
 
 export type { UpkeepTrigger };
 export { detectUpkeepTriggers };
@@ -220,6 +221,33 @@ export function getUpkeepTriggersForPlayer(ctx: GameContext, activePlayerId: str
         continue;
       }
       triggers.push(trigger);
+    }
+
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card?.oracle_text || ''),
+      event: 'beginning_of_upkeep',
+      subjectPermanent: permanent,
+      subjectControllerId: String(controller || ''),
+      sourcePermanent: permanent,
+      activePlayerId,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const turn = line.condition?.whoseTurn;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        triggerType: turn === 'each_player' ? 'each_player_upkeep' : turn === 'each_opponent' ? 'opponent_upkeep' : 'upkeep_effect',
+        description: line.effect,
+        effect: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+        controllerTrigger: turn !== 'each_player' && turn !== 'each_opponent',
+        anyPlayerTrigger: turn === 'each_player',
+      });
     }
   }
   

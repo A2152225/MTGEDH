@@ -6,6 +6,7 @@ import { debugWarn } from '../../../utils/debug.js';
 import { uid } from '../../utils.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 
 export interface TokenCreatedTrigger {
   permanentId: string;
@@ -121,6 +122,7 @@ export function detectTokenCreatedTriggers(card: any, permanent: any): TokenCrea
 export function getTokenCreatedTriggers(
   ctx: GameContext,
   tokenControllerId: string,
+  tokenSnapshot: { typeLine?: string } = {},
 ): TokenCreatedTrigger[] {
   const stateAny = ctx.state as any;
   const battlefield = Array.isArray(stateAny?.battlefield) ? stateAny.battlefield : [];
@@ -132,6 +134,40 @@ export function getTokenCreatedTriggers(
     if (!permanent?.card) continue;
     if (String(permanent.controller || '') !== controllerId) continue;
     triggers.push(...detectTokenCreatedTriggers(permanent.card, permanent));
+  }
+
+  const subjectPermanent = {
+    id: '',
+    isToken: true,
+    controller: controllerId,
+    card: { type_line: String(tokenSnapshot.typeLine || 'Token') },
+  };
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'creates_token',
+      subjectPermanent,
+      subjectControllerId: controllerId,
+      sourcePermanent: permanent,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        triggerType: 'token_created',
+        oracleClause: line.effect,
+        effect: line.effect,
+        mandatory: !/^you may\b/i.test(line.effect),
+        perToken: line.condition?.quantity !== 'one_or_more',
+      });
+    }
   }
   return triggers;
 }
@@ -172,7 +208,7 @@ export function queueTokenCreatedTriggers(
   if (!controllerId || tokenIds.length === 0) return [];
   if ((ctx as any).isReplaying) return [];
 
-  const triggers = orderTriggersByAPNAP(ctx, getTokenCreatedTriggers(ctx, controllerId));
+  const triggers = orderTriggersByAPNAP(ctx, getTokenCreatedTriggers(ctx, controllerId, tokenSnapshot));
   if (triggers.length === 0) return [];
 
   const stateAny = ctx.state as any;

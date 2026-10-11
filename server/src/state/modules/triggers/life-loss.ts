@@ -7,6 +7,7 @@ import { uid } from '../../utils.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 import { maybeIncreaseSpeedFromOpponentLifeLoss } from '../statefulPaperKeywords.js';
 
 export interface LifeLossTrigger {
@@ -127,6 +128,38 @@ export function getLifeLossTriggers(ctx: GameContext, losingPlayerId: string): L
           }
           break;
       }
+    }
+
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'loses_life',
+      subjectPermanent: { id: '', typeLine: '', controllerId: losingPlayerId },
+      subjectControllerId: losingPlayerId,
+      sourcePermanent: permanent,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const controller = line.condition?.alternatives[0]?.controller;
+      const triggerType = controller === 'you'
+        ? 'you_lose_life'
+        : controller === 'not_you'
+          ? 'opponent_loses_life'
+          : 'player_loses_life';
+      if (triggerType === 'you_lose_life' && losingPlayerId !== permanentController) continue;
+      if (triggerType === 'opponent_loses_life' && losingPlayerId === permanentController) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: permanentController,
+        triggerType,
+        oracleClause: line.effect,
+        effect: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+      });
     }
   }
 

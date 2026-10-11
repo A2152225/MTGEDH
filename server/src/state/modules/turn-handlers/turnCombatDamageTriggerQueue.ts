@@ -7,6 +7,7 @@
 
 import type { GameContext } from "../../context.js";
 import { detectCombatDamageTriggers } from "../triggered-abilities.js";
+import { collectMatchingParsedEventLines } from "../triggers/triggerConditionFamilyMatch.js";
 import { isInterveningIfSatisfied } from "../triggers/intervening-if.js";
 import { uid } from "../../utils.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
@@ -59,6 +60,26 @@ export function applyDealCombatDamageTriggerQueue(
           if (!attackerPerm?.card) continue;
 
           const triggers = detectCombatDamageTriggers(attackerPerm.card, attackerPerm, state);
+          for (const line of collectMatchingParsedEventLines({
+            ctx,
+            oracleText: String(attackerPerm.card.oracle_text || ''),
+            event: 'deals_combat_damage_to_player',
+            subjectPermanent: attackerPerm,
+            subjectControllerId: String(attackerPerm.controller || ''),
+            sourcePermanent: attackerPerm,
+          })) {
+            if (triggers.some((trigger) => String(trigger.effect || trigger.description || '').toLowerCase().includes(line.effect.toLowerCase().slice(0, 24)))) {
+              continue;
+            }
+            triggers.push({
+              permanentId: String(attackerPerm.id || ''),
+              cardName: String(attackerPerm.card?.name || 'Unknown'),
+              triggerType: 'deals_combat_damage',
+              description: line.effect,
+              effect: line.effect,
+              mandatory: !/\byou may\b/i.test(line.effect),
+            } as any);
+          }
           const perAttackerTriggers = triggers.filter(t =>
             (t.triggerType === 'deals_combat_damage' || t.triggerType === 'deals_damage') && !t.batched
           );

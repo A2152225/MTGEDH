@@ -20,6 +20,7 @@ import {
   appendDetectedDeathWatcherTriggers,
   appendDetectedSelfDeathTriggers,
   appendHauntLeaveDeathTriggers,
+  appendParsedDiesTriggerLines,
   countControlledAurasAttachedTo,
   deathTriggerClauseMatchesDyingCreature,
   dyingCreatureIsEnchanted,
@@ -106,6 +107,7 @@ export function getDeathTriggers(
     dyingCreature,
     dyingCreatureController,
   );
+  appendParsedDiesTriggerLines(ctx, results, permanentsToScan, dyingCreature, dyingCreatureController);
 
   if (!isCreature) {
     appendHauntLeaveDeathTriggers(ctx, results, dyingCreature);
@@ -545,5 +547,7 @@ export function getDeathTriggersForCreature(
     mandatory: true,
     controllerId: result.source.controllerId,
     ...(typeof result.referenceAmount === 'number' ? { value: result.referenceAmount } : null),
+    ...(result.reflexiveWhenYouDo ? { reflexiveWhenYouDo: result.reflexiveWhenYouDo } : null),
+    ...(result.delayedEndStep ? { delayedEndStep: result.delayedEndStep } : null),
   }));
 }

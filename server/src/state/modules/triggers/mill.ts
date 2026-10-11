@@ -2,6 +2,7 @@ import type { GameContext } from '../../context.js';
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 
 import { isInterveningIfSatisfied } from './intervening-if.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 
 export interface MillTrigger {
   permanentId: string;
@@ -149,6 +150,37 @@ export function getMillTriggers(
           }
           break;
       }
+    }
+
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'mills',
+      subjectPermanent: { id: '', typeLine: 'Card', controllerId: millingPlayerId },
+      subjectControllerId: millingPlayerId,
+      sourcePermanent: permanent,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const controller = line.condition?.alternatives[0]?.controller;
+      const triggerType = controller === 'you' ? 'you_mill' : controller === 'not_you' ? 'opponent_mills' : 'player_mills';
+      if (triggerType === 'you_mill' && millingPlayerId !== permController) continue;
+      if (triggerType === 'opponent_mills' && millingPlayerId === permController) continue;
+      const types = (line.condition?.alternatives[0]?.subject.typeGroups || []).flat();
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: permController,
+        triggerType,
+        oracleClause: line.effect,
+        effect: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+        frequency: line.condition?.quantity === 'one_or_more' ? 'per_event' : 'per_card',
+        cardFilter: types.includes('land') ? 'land' : types.includes('creature') ? 'creature' : 'any',
+      });
     }
   }
 

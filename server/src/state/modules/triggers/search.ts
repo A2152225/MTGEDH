@@ -6,6 +6,7 @@ import { uid } from '../../utils.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 
 export interface LibrarySearchTrigger {
   permanentId: string;
@@ -136,6 +137,40 @@ export function getLibrarySearchTriggers(
           }
           break;
       }
+    }
+  }
+
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'searches_library',
+      subjectPermanent: { id: '', controller: searchingPlayerId },
+      subjectControllerId: searchingPlayerId,
+      sourcePermanent: permanent,
+      libraryOwnerId: searchedLibraryOwnerId,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const controller = line.condition?.alternatives[0]?.controller;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        triggerType: controller === 'you'
+          ? 'you_search_library'
+          : controller === 'not_you'
+            ? 'opponent_searches_library'
+            : 'player_searches_library',
+        oracleClause: line.effect,
+        effect: line.effect,
+        mandatory: !/^you may\b/i.test(line.effect),
+        requiresOwnLibrary: false,
+      });
     }
   }
 

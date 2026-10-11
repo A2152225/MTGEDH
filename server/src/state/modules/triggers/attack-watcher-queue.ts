@@ -10,6 +10,9 @@ import { isCreatureTypeWord, permanentHasCreatureType } from "../../../../../sha
 import { getCurrentPowerToughnessForRules } from "../currentPowerToughness.js";
 import type { CombatTriggeredAbility } from "./combat-triggered-ability.js";
 import { isEnchantedByAuraYouControl } from "./enchanted-by-aura.js";
+import { enteringTypePhraseMatches } from "./triggerConditionFamilyMatch.js";
+import { parseAttacksSubjectClause, triggerConditionMatches } from "../../../../../rules-engine/src/triggerCondition/index.js";
+import { hasChangeling } from "../../../../../rules-engine/src/tribalSupport.js";
 
 /** Watcher types that fire from other permanents, not as self-attack abilities. */
 const ATTACK_WATCHER_TRIGGER_TYPES = new Set([
@@ -198,7 +201,35 @@ function attackerMatchesSingleTypeToken(attacker: any, token: string): boolean {
   return permanentHasCreatureType(attacker, typeWord);
 }
 
+function attackerMatchesParsedPhrase(attacker: any, phrase: string): boolean | null {
+  return enteringTypePhraseMatches(String(attacker?.card?.type_line || ''), phrase, isTokenPermanent(attacker));
+}
+
+function attackerMatchesAttackSubject(attacker: any, phrase: string, sourcePermanent: any): boolean | null {
+  const parsed = parseAttacksSubjectClause(phrase);
+  if (!parsed) return null;
+  return triggerConditionMatches(
+    parsed,
+    {
+      id: String(attacker?.id || ''),
+      typeLine: String(attacker?.card?.type_line || ''),
+      controllerId: String(attacker?.controller || ''),
+      isToken: isTokenPermanent(attacker),
+      hasAllCreatureTypes: hasChangeling(
+        String(attacker?.card?.oracle_text || ''),
+        String(attacker?.card?.type_line || ''),
+      ),
+    },
+    {
+      id: String(sourcePermanent?.id || ''),
+      controllerId: String(sourcePermanent?.controller || ''),
+    },
+  );
+}
+
 function attackerMatchesTypePhrase(attacker: any, phrase: string): boolean {
+  const parsed = attackerMatchesParsedPhrase(attacker, phrase);
+  if (parsed !== null) return parsed;
   const parts = String(phrase || '')
     .split(/\s*,\s*|\s+or\s+/i)
     .map((part) => part.trim().replace(/^(?:and\s+)/i, ''))
@@ -236,9 +267,20 @@ export function planAttackWatcherQueue(
 
   switch (triggerType) {
     case 'creature_attacks':
-      return { kind: 'per_attacker', attackers: attackingCreatures.filter(youControl) };
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => (
+          attackerMatchesAttackSubject(attacker, 'a permanent you control', sourcePermanent) ?? youControl(attacker)
+        )),
+      };
     case 'another_creature_attacks':
-      return { kind: 'per_attacker', attackers: attackingCreatures.filter((attacker) => youControl(attacker) && notSource(attacker)) };
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => (
+          attackerMatchesAttackSubject(attacker, 'another permanent you control', sourcePermanent)
+          ?? (youControl(attacker) && notSource(attacker))
+        )),
+      };
     case 'typed_creature_attacks':
     case 'typed_subtype_attacks':
     case 'multi_typed_you_control_attacks':
@@ -262,15 +304,26 @@ export function planAttackWatcherQueue(
     case 'opponent_creature_attacks':
       return {
         kind: 'per_attacker',
-        attackers: attackingCreatures.filter((attacker) => String(attacker?.controller || '') !== sourceController),
+        attackers: attackingCreatures.filter((attacker) => (
+          attackerMatchesAttackSubject(attacker, 'a permanent an opponent controls', sourcePermanent)
+          ?? String(attacker?.controller || '') !== sourceController
+        )),
       };
     case 'any_creature_attacks':
     case 'any_creature_attacks_or_blocks':
-      return { kind: 'per_attacker', attackers: attackingCreatures };
+      return {
+        kind: 'per_attacker',
+        attackers: attackingCreatures.filter((attacker) => (
+          attackerMatchesAttackSubject(attacker, 'a permanent', sourcePermanent) ?? true
+        )),
+      };
     case 'nontoken_creature_attacks':
       return {
         kind: 'per_attacker',
-        attackers: attackingCreatures.filter((attacker) => youControl(attacker) && !isTokenPermanent(attacker)),
+        attackers: attackingCreatures.filter((attacker) => (
+          attackerMatchesAttackSubject(attacker, 'a nontoken permanent you control', sourcePermanent)
+          ?? (youControl(attacker) && !isTokenPermanent(attacker))
+        )),
       };
     case 'equipped_creature_attacks':
     case 'equipped_creature_attacks_or_blocks':

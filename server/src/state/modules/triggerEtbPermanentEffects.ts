@@ -30,6 +30,7 @@ import { permanentIsCommanderCard } from './triggerPermanentUtils.js';
 import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
 import { wouldAutoDeclineOptionalTriggeredAbility } from './stackResolveTriggeredAbilityOptionalUtils.js';
 import { isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
+import { collectMatchingParsedEventLines } from './triggers/triggerConditionFamilyMatch.js';
 
 function pushPendingEtbTriggerIfNotAutoDeclined(
   state: any,
@@ -676,6 +677,48 @@ export function triggerETBEffectsForPermanent(
         pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, typedEtbStackItem);
         debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s typed ETB trigger: ${trigger.description}`);
       }
+    }
+  }
+
+  for (const perm of state.battlefield) {
+    if (!perm?.card || perm.id === permanent.id) continue;
+    const parsedEffects = collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(perm.card.oracle_text || ''),
+      event: 'enters',
+      subjectPermanent: permanent,
+      subjectControllerId: String(controller),
+      sourcePermanent: perm,
+    });
+    for (const line of parsedEffects) {
+      const effect = line.effect;
+      const normalizedEffect = effect.toLowerCase().replace(/\s+/g, ' ').trim();
+      const alreadyQueued = pendingExternalEtbTriggers.some((item) => {
+        if (String(item?.source || '') !== String(perm.id)) return false;
+        const existing = String(item?.effect || item?.description || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        return existing === normalizedEffect
+          || existing.startsWith(normalizedEffect)
+          || normalizedEffect.startsWith(existing);
+      });
+      if (alreadyQueued || !normalizedEffect) continue;
+      pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, {
+        id: uid('trigger'),
+        type: 'triggered_ability',
+        controller: perm.controller || controller,
+        source: perm.id,
+        permanentId: perm.id,
+        sourceName: perm.card?.name,
+        description: effect,
+        triggerType: 'parsed_enters',
+        mandatory: !/\byou may\b/i.test(effect),
+        effect,
+        card: perm.card,
+        ...(line.reflexive ? { reflexiveWhenYouDo: line.reflexive } : {}),
+        ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
+        sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
+        interveningIfSubjectPermanentId: permanent.id,
+        interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
+      } as any);
     }
   }
 

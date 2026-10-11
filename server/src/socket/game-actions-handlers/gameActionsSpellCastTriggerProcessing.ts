@@ -16,7 +16,7 @@ import { inferTriggeredAbilityTargetMetadata, isModalChooseModesEffectText } fro
 import { isOracleIrTriggerPrimaryEnabled } from "../../state/modules/oracleIrFeatureFlags.js";
 import { tryResolveTriggerViaOracleIR } from "../../state/modules/oracleIrTriggerExecution.js";
 import { isTriggerEffectOwnedByOracleIrPrimary } from "../../state/modules/oracleIrTriggerLegacyRouting.js";
-import { getOpponentSpellCastTriggers } from "../../state/modules/triggers/index.js";
+import { getOpponentSpellCastTriggers, spellOrdinalForCaster } from "../../state/modules/triggers/index.js";
 import { isInterveningIfSatisfied } from "../../state/modules/triggers/intervening-if";
 import { orderTriggersByAPNAP } from "../../state/modules/triggers/ordering.js";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../../state/resolution/index.js";
@@ -655,6 +655,7 @@ export function processOpponentSpellCastTriggersForCast(
         allPlayerIds,
         isFirstNoncreatureThisTurn,
         normalizedCastSourceZone,
+        spellOrdinalForCaster(game.state, casterId, spellCard),
       ),
     );
 

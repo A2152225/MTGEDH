@@ -5,6 +5,7 @@ import { debugWarn } from '../../../utils/debug.js';
 import { uid } from '../../utils.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 
 export interface LibraryShuffleTrigger {
   permanentId: string;
@@ -80,6 +81,36 @@ export function getLibraryShuffleTriggers(
       if (trigger.subject === 'you' && controllerId !== playerId) continue;
       if (trigger.subject === 'opponent' && controllerId === playerId) continue;
       triggers.push(trigger);
+    }
+  }
+
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'shuffles_library',
+      subjectPermanent: { id: '', controller: playerId },
+      subjectControllerId: playerId,
+      sourcePermanent: permanent,
+      libraryOwnerId: playerId,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const controller = line.condition?.alternatives[0]?.controller;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        triggerType: 'library_shuffle',
+        subject: controller === 'you' ? 'you' : controller === 'not_you' ? 'opponent' : 'player',
+        oracleClause: line.effect,
+        effect: line.effect,
+        mandatory: !/^you may\b/i.test(line.effect),
+      });
     }
   }
 

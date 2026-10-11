@@ -9,6 +9,7 @@ import {
   hasUnsupportedTargetRequirement,
   inferGenericTriggeredAbilityTargetMetadata,
 } from './target-metadata.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 
 export interface DiscardTrigger {
   permanentId: string;
@@ -157,6 +158,37 @@ export function getDiscardTriggers(
           }
           break;
       }
+    }
+
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'discards',
+      subjectPermanent: { id: '', typeLine: 'Card', controllerId: discardingPlayerId },
+      subjectControllerId: discardingPlayerId,
+      sourcePermanent: permanent,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const controller = line.condition?.alternatives[0]?.controller;
+      const triggerType = controller === 'you' ? 'you_discard' : controller === 'not_you' ? 'opponent_discards' : 'player_discards';
+      if (triggerType === 'you_discard' && discardingPlayerId !== permController) continue;
+      if (triggerType === 'opponent_discards' && discardingPlayerId === permController) continue;
+      const types = (line.condition?.alternatives[0]?.subject.typeGroups || []).flat();
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: permController,
+        triggerType,
+        oracleClause: line.effect,
+        effect: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+        frequency: line.condition?.quantity === 'one_or_more' ? 'per_event' : 'per_card',
+        cardFilter: types.includes('creature') ? 'creature' : types.includes('land') ? 'land' : types.includes('artifact') ? 'artifact' : 'any',
+      });
     }
   }
 

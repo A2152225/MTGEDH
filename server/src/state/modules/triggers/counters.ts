@@ -15,6 +15,7 @@ import {
   recordFirstTimeEachTurnTriggerQueued,
   shouldSkipFirstTimeEachTurnTrigger,
 } from '../triggerDoThisOnlyOnceEachTurn.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 
 export interface CounterPlacedTrigger {
   permanentId: string;
@@ -299,6 +300,40 @@ export function getCounterPlacedTriggers(
     }
   }
 
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'counter_placed',
+      subjectPermanent: targetPermanent,
+      subjectControllerId: targetController,
+      sourcePermanent: permanent,
+    })) {
+      const wanted = line.condition?.placedCounter;
+      if (wanted && wanted !== 'any' && !positiveEntries.some((entry) => (
+        entry.counterType === wanted || entry.counterType === 'plus1plus1' || entry.counterType === '+1/+1'
+      ))) continue;
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        triggerType: 'counters_put_on_permanent_you_control',
+        effect: line.effect,
+        description: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+        counterFilter: wanted && wanted !== 'any' ? wanted : 'any',
+        countersPlaced: positiveEntries.reduce((sum, entry) => sum + entry.amount, 0),
+        placedCounterType: wanted && wanted !== 'any' ? wanted : positiveEntries[0]?.counterType || 'counter',
+      } as any);
+    }
+  }
+
   return triggers;
 }
 
@@ -569,6 +604,44 @@ export function getCounterRemovedTriggers(
         ...trigger,
         countersRemoved,
         removedCounterType: trigger.counterFilter === 'any' ? matchingEntries[0]?.counterType || 'counter' : trigger.counterFilter,
+      });
+    }
+  }
+
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'counter_removed',
+      subjectPermanent: targetPermanent,
+      subjectControllerId: targetController,
+      sourcePermanent: permanent,
+    })) {
+      const wanted = line.condition?.placedCounter;
+      if (wanted && wanted !== 'any' && !positiveEntries.some((entry) => (
+        entry.counterType === wanted || entry.counterType === 'plus1plus1' || entry.counterType === '+1/+1'
+      ))) continue;
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const sourceRelation = line.condition?.alternatives[0]?.source;
+      const subject = line.condition?.alternatives[0]?.subject;
+      const creature = Boolean(subject && !subject.anyObject && subject.typeGroups.some((group) => group.includes('creature')));
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        triggerType: sourceRelation === 'self' ? 'counters_removed_from_self' : 'counters_removed_from_permanent_you_control',
+        oracleClause: line.effect,
+        effect: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+        counterFilter: wanted && wanted !== 'any' ? wanted : 'any',
+        targetFilter: sourceRelation === 'self' ? 'self' : creature ? 'creature' : 'permanent',
+        countersRemoved: positiveEntries.reduce((sum, entry) => sum + entry.amount, 0),
+        removedCounterType: wanted && wanted !== 'any' ? wanted : positiveEntries[0]?.counterType || 'counter',
       });
     }
   }

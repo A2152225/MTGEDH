@@ -8,6 +8,7 @@
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { isInterveningIfSatisfied } from "./intervening-if.js";
+import { collectMatchingParsedEventLines } from "./triggerConditionFamilyMatch.js";
 
 export interface CardDrawTrigger {
   permanentId: string;
@@ -269,6 +270,33 @@ export function getCardDrawTriggers(
           }
           break;
       }
+    }
+
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'draws_card',
+      subjectPermanent: { id: '', typeLine: '', controllerId: drawingPlayerId },
+      subjectControllerId: drawingPlayerId,
+      sourcePermanent: permanent,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const controller = line.condition?.alternatives[0]?.controller;
+      const triggerType = controller === 'you' ? 'you_draw' : controller === 'not_you' ? 'opponent_draws' : 'player_draws';
+      if (triggerType === 'you_draw' && drawingPlayerId !== permController) continue;
+      if (triggerType === 'opponent_draws' && drawingPlayerId === permController) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: permController,
+        triggerType,
+        effect: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+      });
     }
   }
   

@@ -1,3 +1,5 @@
+import { parsePhaseTriggerClause, triggerConditionMatches } from '../../../../../rules-engine/src/triggerCondition/index.js';
+
 /**
  * Whose-turn filters for phase-based triggers.
  *
@@ -60,6 +62,41 @@ export function shouldQueuePhaseTriggerForActivePlayer(params: {
   const active = String(params.activePlayerId || '').trim();
   const controller = String(params.controllerId || '').trim();
   if (!active) return false;
+
+  const phaseClause = params.whose === 'each'
+    ? "at the beginning of each player's upkeep"
+    : params.whose === 'controller'
+      ? 'at the beginning of your upkeep'
+      : params.whose === 'opponent' || params.whose === 'other'
+        ? "at the beginning of each opponent's end step"
+        : params.whose === 'enchanted_player'
+          ? "at the beginning of enchanted player's upkeep"
+          : params.whose === 'monarch'
+            ? "at the beginning of the monarch's end step"
+            : params.whose === 'chosen_player'
+              ? "at the beginning of the chosen player's upkeep"
+              : '';
+  if (phaseClause) {
+    const parsed = parsePhaseTriggerClause(phaseClause);
+    if (parsed) {
+      return triggerConditionMatches(
+        parsed,
+        { id: 'step', typeLine: '', controllerId: controller },
+        { id: 'source', controllerId: controller },
+        {
+          activePlayerId: active,
+          enchantedPlayerId: resolveEnchantedPlayerId(params.sourcePermanent, params.state),
+          monarchPlayerId: String(params.state?.monarch || '').trim(),
+          chosenPlayerId: String(
+            params.sourcePermanent?.chosenPlayer
+            || params.sourcePermanent?.chosenPlayerId
+            || params.sourcePermanent?.card?.chosenPlayer
+            || '',
+          ).trim(),
+        },
+      );
+    }
+  }
 
   switch (params.whose) {
     case 'each':

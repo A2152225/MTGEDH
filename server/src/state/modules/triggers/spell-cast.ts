@@ -1,6 +1,7 @@
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { aOrAnSpellType } from '../../../../../rules-engine/src/indefiniteArticle.js';
+import { spellCastConditionMatches, collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 import type { SpellCastUntapEffect } from "./types.js";
 import { detectSpellCastTriggers } from "./spell-cast-detection.js";
 import { getSpellCastTriggers } from "./spell-cast-get-triggers.js";
@@ -93,9 +94,18 @@ export function getSpellCastUntapEffects(
     const permEffects = detectSpellCastUntapEffects(permanent.card, permanent);
     
     for (const effect of permEffects) {
+      const parsedSpellMatch = spellCastConditionMatches({
+        spellCondition: effect.spellCondition,
+        casterScope: 'you',
+        spellCard,
+        sourceControllerId: String(permanent.controller || casterId || ''),
+        casterId,
+      });
       let shouldTrigger = false;
-      
-      switch (effect.spellCondition) {
+
+      if (parsedSpellMatch !== null) {
+        shouldTrigger = parsedSpellMatch;
+      } else switch (effect.spellCondition) {
         case 'any':
           shouldTrigger = true;
           break;
@@ -246,6 +256,14 @@ export function opponentCastSourceZoneMatches(
   if (requirement === 'not_hand') return zone !== 'hand';
   if (!zone) return true;
   return zone === requirement;
+}
+
+export function spellOrdinalForCaster(state: any, casterId: string, spellCard: any): number {
+  const spells = Array.isArray(state?.spellsCastThisTurn) ? state.spellsCastThisTurn : [];
+  const mine = spells.filter((entry: any) => String(entry?.casterId || '') === String(casterId || ''));
+  const spellId = String(spellCard?.id || '').trim();
+  const includesThis = Boolean(spellId) && mine.some((entry: any) => String(entry?.id || entry?.card?.id || '') === spellId);
+  return includesThis ? Math.max(1, mine.length) : mine.length + 1;
 }
 
 function parseOpponentCastSpellType(rawType: string): Pick<DetectedOpponentSpellCastTrigger, 'spellCondition' | 'triggerType'> {
@@ -643,6 +661,7 @@ export function getOpponentSpellCastTriggers(
   allPlayerIds: string[],
   isFirstNoncreatureThisTurnByCaster: boolean = false,
   castSourceZone?: string,
+  casterSpellOrdinal?: number,
 ): OpponentSpellCastTrigger[] {
   const triggers: OpponentSpellCastTrigger[] = [];
   
@@ -659,9 +678,25 @@ export function getOpponentSpellCastTriggers(
     for (const trigger of permTriggers) {
       if (trigger.casterScope === 'opponent' && casterId === controller) continue;
       if (!opponentCastSourceZoneMatches(trigger.sourceZoneRequirement, castSourceZone)) continue;
+      const parsedSpellMatch = spellCastConditionMatches({
+        spellCondition: trigger.spellCondition,
+        casterScope: trigger.casterScope === 'any_player' ? 'any_player' : 'opponent',
+        spellCard,
+        sourceControllerId: String(controller || ''),
+        casterId,
+        castFromZone: castSourceZone,
+        sourceZoneRequirement: trigger.sourceZoneRequirement,
+        spellOrdinal: trigger.spellCondition === 'first_noncreature'
+          ? (isFirstNoncreatureThisTurnByCaster ? 1 : 2)
+          : trigger.spellCondition === 'first_any'
+            ? casterSpellOrdinal
+            : undefined,
+      });
       let shouldTrigger = false;
-      
-      switch (trigger.spellCondition) {
+
+      if (parsedSpellMatch !== null) {
+        shouldTrigger = parsedSpellMatch;
+      } else switch (trigger.spellCondition) {
         case 'any':
           shouldTrigger = true;
           break;
@@ -712,6 +747,34 @@ export function getOpponentSpellCastTriggers(
           ...(trigger.sourceZoneRequirement ? { sourceZoneRequirement: trigger.sourceZoneRequirement } : {}),
         });
       }
+    }
+
+    for (const line of collectMatchingParsedEventLines({
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'spell_cast',
+      subjectPermanent: spellCard,
+      subjectControllerId: casterId,
+      sourcePermanent: permanent,
+      spellOrdinal: casterSpellOrdinal,
+      castFromZone,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      triggers.push({
+        permanentId: permanent.id,
+        cardName: permanent.card?.name || 'Unknown',
+        controllerId: controller,
+        casterId,
+        description: line.effect,
+        effect: line.effect,
+        triggerType: 'opponent_casts_any',
+        benefitIfNotPaid: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+        ...(castSourceZone ? { sourceZoneRequirement: castSourceZone as OpponentCastSourceZone } : {}),
+      });
     }
   }
   

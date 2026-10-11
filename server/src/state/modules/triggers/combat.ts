@@ -41,6 +41,7 @@ import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.j
 import { parseAnyTargetThatIsntCreatureType } from "./damage-redirect-target-type.js";
 import { detectAttackTriggers } from "./attack-detection.js";
 import { detectBlockTriggers } from "./block-detection.js";
+import { blockingCreatureMatchesWatcher, collectMatchingParsedEventLines, isBlockWatcherTriggerType } from "./triggerConditionFamilyMatch.js";
 import type { BlockTrigger } from "./block-trigger-type.js";
 import { detectCombatDamageTriggers } from "./combat-damage-detection.js";
 import type { CombatTriggeredAbility } from "./combat-triggered-ability.js";
@@ -503,6 +504,33 @@ export function getBeginningOfCombatTriggers(
         triggerCount++;
       }
     }
+
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'beginning_of_combat',
+      subjectPermanent: permanent,
+      subjectControllerId: String(permanent.controller || ''),
+      sourcePermanent: permanent,
+      activePlayerId,
+    })) {
+      if (triggerCount >= MAX_TRIGGERS_PER_STEP) break;
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        description: line.effect,
+        effect: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+        triggerType: 'parsed_beginning_of_combat',
+      });
+      triggerCount++;
+    }
   }
   
   return triggers;
@@ -673,6 +701,74 @@ export function getBlockTriggersForCreatures(
           blockedCreatureId: blocker.blocking?.[0],
         },
       });
+    }
+  }
+
+  const seenBlockWatchers = new Set<string>();
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const trigger of detectBlockTriggers(permanent.card, permanent, ctx.state)) {
+      if (!isBlockWatcherTriggerType(trigger.triggerType)) continue;
+      for (const blocker of blockingCreatures) {
+        if (String(permanent.id || '') === String(blocker?.id || '')) continue;
+        if (!blockingCreatureMatchesWatcher(trigger.triggerType, blocker, permanent)) continue;
+        const watcherKey = [
+          String(trigger.permanentId || permanent.id || ''),
+          String(trigger.triggerType || ''),
+          String(blocker?.id || ''),
+          String(trigger.effect || trigger.description || ''),
+        ].join('|');
+        if (seenBlockWatchers.has(watcherKey)) continue;
+        seenBlockWatchers.add(watcherKey);
+        triggers.push({
+          permanentId: String(trigger.permanentId || permanent.id || ''),
+          cardName: String(trigger.cardName || permanent.card?.name || 'Unknown'),
+          controllerId: String(trigger.controllerId || permanent.controller || ''),
+          triggerType: 'blocks',
+          description: trigger.description,
+          effect: trigger.effect,
+          mandatory: trigger.mandatory,
+          value: {
+            blockedCreatureId: blocker.blocking?.[0],
+          },
+        });
+      }
+    }
+  }
+
+  const seenParsedBlocks = new Set<string>();
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const blocker of blockingCreatures) {
+      if (String(permanent.id || '') === String(blocker?.id || '')) continue;
+      const effects = collectMatchingParsedEventLines({
+        ctx,
+        oracleText: String(permanent.card.oracle_text || ''),
+        event: 'blocks',
+        subjectPermanent: blocker,
+        subjectControllerId: String(blocker?.controller || ''),
+        sourcePermanent: permanent,
+      });
+      for (const line of effects) {
+        const effect = line.effect;
+        const key = `${String(permanent.id || '')}|${String(blocker?.id || '')}|${effect.toLowerCase()}`;
+        if (seenParsedBlocks.has(key) || seenBlockWatchers.has(key)) continue;
+        seenParsedBlocks.add(key);
+        triggers.push({
+          permanentId: String(permanent.id || ''),
+          cardName: String(permanent.card?.name || 'Unknown'),
+          controllerId: String(permanent.controller || ''),
+          triggerType: 'blocks',
+          description: effect,
+          effect,
+          mandatory: !/\byou may\b/i.test(effect),
+          ...(line.reflexive ? { reflexiveWhenYouDo: line.reflexive } : {}),
+          ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
+          value: {
+            blockedCreatureId: blocker.blocking?.[0],
+          },
+        });
+      }
     }
   }
   

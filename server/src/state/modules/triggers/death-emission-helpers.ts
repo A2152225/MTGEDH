@@ -8,6 +8,8 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { parseDiesSubjectClause, triggerConditionMatches } from "../../../../../rules-engine/src/triggerCondition/index.js";
+import { collectMatchingParsedEventLines, permanentToTriggerMatch } from "./triggerConditionFamilyMatch.js";
 import { detectDeathTriggers } from "./death-detection.js";
 import {
   getContinuousGrantedAbilitiesForPermanent,
@@ -36,6 +38,10 @@ export interface DeathTriggerResult {
   sacrificeFrom?: string; // Player ID who must sacrifice
   returnsUnderControl?: boolean; // For Grave Betrayal - return under your control
   dyingCreatureCard?: any; // The card that died, for reanimation effects
+  /** "When you do" rider split off the printed effect. */
+  reflexiveWhenYouDo?: { actor: 'you' | 'they'; effect: string; delayed?: { timing: string; effect: string } };
+  /** Delayed end-step rider on the main effect, not inside "when you do". */
+  delayedEndStep?: { timing: string; effect: string };
   /** Snapshotted "for each" amount (e.g. Auras attached as the creature died). */
   referenceAmount?: number;
   value?: any;
@@ -218,6 +224,27 @@ export function deathTriggerClauseMatchesDyingCreature(
 ): boolean {
   const clause = String(clauseText || '').replace(/[’]/g, "'").toLowerCase();
   if (!clause) return false;
+
+  const parsedDiesSubject = parseDiesSubjectClause(clause);
+  if (parsedDiesSubject && parsedDiesSubject.alternatives.some((alternative) => alternative.source !== 'self')) {
+    return triggerConditionMatches(
+      parsedDiesSubject,
+      {
+        ...permanentToTriggerMatch(dyingCreature, dyingCreatureController),
+        goaded: getCurrentGoaders(dyingCreature, ctx.state?.battlefield || [], ctx.state?.turn).length > 0,
+        attackingOrBlocking: deathTriggerDyingCreatureWasAttackingOrBlocking(dyingCreature),
+      },
+      {
+        id: String(sourcePermanent?.id || '').trim(),
+        controllerId: String(sourcePermanent?.controller || '').trim(),
+        chosenCreatureType: String(sourcePermanent?.chosenCreatureType || '').trim() || undefined,
+      },
+      {
+        dealtDamageBySource: sourceDamagedDyingCreatureThisTurn(ctx, sourcePermanent, dyingCreature),
+        dealtDamageByEquipped: equippedCreatureDamagedDyingCreatureThisTurn(ctx, sourcePermanent, dyingCreature),
+      },
+    );
+  }
 
   const damageMarkedDiesClause = /^a\s+creature\s+dealt\s+damage\s+by\s+this\s+creature\s+this\s+turn$/i.test(clause);
   const equippedDamageMarkedDiesClause = /^a\s+creature\s+dealt\s+damage\s+by\s+equipped\s+creature\s+this\s+turn$/i.test(clause);
@@ -628,6 +655,56 @@ export function appendHauntLeaveDeathTriggers(
           dyingCreature?.card,
         );
       }
+    }
+  }
+}
+
+export function appendParsedDiesTriggerLines(
+  ctx: any,
+  results: DeathTriggerResult[],
+  permanents: readonly any[],
+  dyingCreature: any,
+  dyingCreatureController: string,
+): void {
+  for (const permanent of permanents) {
+    if (!permanent?.card && !permanent?.oracle_text) continue;
+    const sourceId = String(permanent?.id || '').trim();
+    if (!sourceId) continue;
+    const oracleText = getPermanentRulesTextFragments(permanent).join('\n');
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText,
+      event: 'dies',
+      subjectPermanent: dyingCreature,
+      subjectControllerId: dyingCreatureController,
+      sourcePermanent: permanent,
+    })) {
+      const effect = line.effect;
+      const normalizedEffect = effect.toLowerCase().replace(/\s+/g, ' ').trim();
+      const alreadyQueued = results.some((result) => {
+        if (String(result?.source?.permanentId || '') !== sourceId) return false;
+        const existing = String(result?.effect || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        return existing === normalizedEffect
+          || existing.startsWith(normalizedEffect)
+          || normalizedEffect.startsWith(existing);
+      });
+      if (alreadyQueued) continue;
+      pushDetectedDeathTrigger(
+        results,
+        {
+          permanentId: sourceId,
+          cardName: String(permanent?.card?.name || 'Unknown'),
+          effect,
+          description: effect,
+          triggerType: 'parsed_dies',
+        },
+        String(permanent?.controller || ''),
+        dyingCreature?.card,
+        {
+          ...(line.reflexive ? { reflexiveWhenYouDo: line.reflexive } : {}),
+          ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
+        },
+      );
     }
   }
 }

@@ -12,6 +12,7 @@ import type { DeathDetectionState } from "./death-detection-state.js";
 import { appendDeathDetectionEarly } from "./death-detection-early.js";
 import { appendDeathDetectionMid } from "./death-detection-mid.js";
 import { appendDeathDetectionLate } from "./death-detection-late.js";
+import { printedKeywordDeathAbilities } from "../../../../../rules-engine/src/triggerCondition/index.js";
 
 export function collectDeathTriggerEffectText(oracleText: string, match: RegExpMatchArray, effectCaptureIndex: number): string {
   const effect = String(match?.[effectCaptureIndex] || '').trim();
@@ -72,8 +73,8 @@ export function detectDeathTriggers(card: any, permanent: any, gameState?: any):
   
   // ===== DYNAMIC DETECTION (Primary) =====
   
-  // Undying - if no +1/+1 counter, return with one
-  if (lowerOracle.includes("undying")) {
+  const printedDeathKeywords = printedKeywordDeathAbilities(oracleText);
+  if (printedDeathKeywords.includes("undying")) {
     const hasPlusCounter = (counters["+1/+1"] || counters["plus1plus1"] || 0) > 0;
     if (!hasPlusCounter) {
       triggers.push({
@@ -85,9 +86,8 @@ export function detectDeathTriggers(card: any, permanent: any, gameState?: any):
       });
     }
   }
-  
-  // Persist - if no -1/-1 counter, return with one
-  if (lowerOracle.includes("persist")) {
+
+  if (printedDeathKeywords.includes("persist")) {
     const hasMinusCounter = (counters["-1/-1"] || counters["minus1minus1"] || 0) > 0;
     if (!hasMinusCounter) {
       triggers.push({

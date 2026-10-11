@@ -25,6 +25,7 @@ import {
   recordTurnLimitedEtbTriggerQueued,
   shouldSkipTurnLimitedEtbTrigger,
 } from '../triggerDoThisOnlyOnceEachTurn.js';
+import { enteringPermanentMatchesEtbPhrase, enteringTypePhraseMatches } from '../triggers/triggerConditionFamilyMatch.js';
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -103,14 +104,24 @@ export function shouldQueueTypedPermanentEtbTrigger(
   const requiredType = TYPED_PERMANENT_ETB_REQUIRED_TYPE[triggerType];
   if (!requiredType || !enteringPermanent) return false;
 
+  const isToken = Boolean(enteringPermanent?.isToken || enteringPermanent?.card?.isToken);
+  const nontokenOnly = Boolean((trigger as any)?.nontokenOnly);
+  const tokenOnly = Boolean((trigger as any)?.tokenOnly);
+  const controlledOnly = Boolean((trigger as any)?.controlledOnly);
+  const phrase = [
+    nontokenOnly ? 'nontoken' : '',
+    tokenOnly ? 'token' : '',
+    requiredType,
+    controlledOnly ? 'you control' : '',
+  ].filter(Boolean).join(' ');
+  const matched = enteringPermanentMatchesEtbPhrase(phrase, enteringPermanent, enteringController, sourcePermanent);
+  if (matched !== null) return matched;
+
   const typeLine = String(enteringPermanent?.card?.type_line || '').toLowerCase();
   if (!typeLine.includes(requiredType)) return false;
-
-  const isToken = Boolean(enteringPermanent?.isToken || enteringPermanent?.card?.isToken);
-  if ((trigger as any)?.nontokenOnly && isToken) return false;
-  if ((trigger as any)?.tokenOnly && !isToken) return false;
-
-  if ((trigger as any)?.controlledOnly) {
+  if (nontokenOnly && isToken) return false;
+  if (tokenOnly && !isToken) return false;
+  if (controlledOnly) {
     const triggerController = String(sourcePermanent?.controller || enteringController || '');
     if (!triggerController || String(enteringController || '') !== triggerController) {
       return false;
@@ -317,6 +328,9 @@ export function tryBuildTypedPermanentEtbStackItem(
 export function matchesRequiredTypePhrase(typeLine: string, requiredPhrase: string, isToken: boolean): boolean {
   let phrase = String(requiredPhrase || '').toLowerCase().trim();
   if (!phrase) return true;
+
+  const parsedTypeMatch = enteringTypePhraseMatches(typeLine, phrase, isToken);
+  if (parsedTypeMatch !== null) return parsedTypeMatch;
 
   const hasNontoken = /\b(?:nontoken|non-token)\b/i.test(phrase);
   const hasTokenWord = /\btoken\b/i.test(phrase);

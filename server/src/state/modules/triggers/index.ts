@@ -188,6 +188,7 @@ export {
   getStormCount,
   detectOpponentSpellCastTriggers,
   getOpponentSpellCastTriggers,
+  spellOrdinalForCaster,
   type SpellCastTrigger as SpellCastTriggerType,
   type SpellCastUntapEffect as SpellCastUntapEffectType,
   type OpponentSpellCastTrigger as OpponentSpellCastTriggerType,

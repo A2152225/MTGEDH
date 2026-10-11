@@ -7,6 +7,7 @@ import { queueLifeLossTriggers } from './life-loss.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 
 export interface PayLifeTrigger {
   permanentId: string;
@@ -95,6 +96,38 @@ export function getPayLifeTriggers(ctx: GameContext, payingPlayerId: string): Pa
           }
           break;
       }
+    }
+  }
+
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'pays_life',
+      subjectPermanent: { id: '', controller: payingPlayerId },
+      subjectControllerId: payingPlayerId,
+      sourcePermanent: permanent,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const controller = line.condition?.alternatives[0]?.controller;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        triggerType: controller === 'you'
+          ? 'you_pay_life'
+          : controller === 'not_you'
+            ? 'opponent_pays_life'
+            : 'player_pays_life',
+        oracleClause: line.effect,
+        effect: line.effect,
+        mandatory: !/^you may\b/i.test(line.effect),
+      });
     }
   }
 

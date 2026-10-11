@@ -22,6 +22,7 @@ import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import { extractCreatureTypes as extractCreatureTypesFromTypeLine } from '../../../../../shared/src/creatureTypes.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
 import { detectTapTriggers, type TapTrigger } from "./tap-detection.js";
+import { tapPermanentMatchesPhrase, collectMatchingParsedEventLines } from "./triggerConditionFamilyMatch.js";
 import {
   recordFirstTimeEachTurnTriggerQueued,
   shouldSkipFirstTimeEachTurnTrigger,
@@ -59,6 +60,8 @@ export type TapTriggeredStackItem = {
   triggerType: 'tap' | 'untap';
   mandatory: boolean;
   triggeringPermanentId: string;
+  reflexiveWhenYouDo?: { actor: 'you' | 'they'; effect: string; delayed?: { timing: string; effect: string } };
+  delayedEndStep?: { timing: string; effect: string };
   card?: any;
   sourcePermanentSnapshot?: any;
   effectData?: {
@@ -96,6 +99,8 @@ export function buildTapTriggeredStackItem(
     triggeringPermanentId: String(tappedPermanentId || ''),
     ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
     ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+    ...(trigger.reflexiveWhenYouDo ? { reflexiveWhenYouDo: trigger.reflexiveWhenYouDo } : null),
+    ...(trigger.delayedEndStep ? { delayedEndStep: trigger.delayedEndStep } : null),
     effectData: {
       tappedPermanentId: String(tappedPermanentId || ''),
       tappedPermanentName: String(tappedPermanent?.card?.name || ''),
@@ -440,6 +445,49 @@ function isOptionalTapTriggerEffect(effectText: string): boolean {
 /**
  * Get all tap triggers that should fire when a permanent becomes tapped
  */
+function appendParsedTapLines(
+  ctx: GameContext,
+  triggers: TapTrigger[],
+  subjectPermanent: any,
+  event: 'becomes_tapped' | 'becomes_untapped',
+): void {
+  const battlefield = ctx.state?.battlefield || [];
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    const lines = collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event,
+      subjectPermanent,
+      subjectControllerId: String(subjectPermanent?.controller || ''),
+      sourcePermanent: permanent,
+    });
+    for (const line of lines) {
+      const effect = line.effect.toLowerCase();
+      const already = triggers.some((trigger) => (
+        String(trigger.permanentId || '') === String(permanent.id || '')
+        && String(trigger.effect || trigger.description || '').toLowerCase().includes(effect.slice(0, 24))
+      ));
+      if (already) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        description: line.effect,
+        effect: line.effect,
+        triggerCondition: event,
+        affectedType: 'any',
+        mandatory: !/\byou may\b/i.test(line.effect),
+        ...(line.reflexive ? { reflexiveWhenYouDo: line.reflexive } : {}),
+        ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
+      });
+    }
+  }
+}
+
+/**
+ * Get all tap triggers that should fire when a permanent becomes tapped
+ */
 export function getTapTriggers(
   ctx: GameContext,
   tappedPermanent: any,
@@ -466,10 +514,10 @@ export function getTapTriggers(
       
       switch (trigger.affectedType) {
         case 'any':
-          shouldTrigger = true;
+          shouldTrigger = tapPermanentMatchesPhrase('a permanent', tappedPermanent, permanent) ?? true;
           break;
         case 'creature':
-          shouldTrigger = isCreature;
+          shouldTrigger = tapPermanentMatchesPhrase('a creature', tappedPermanent, permanent) ?? isCreature;
           break;
         case 'tribal_type':
           if (trigger.tribalType) {
@@ -484,9 +532,12 @@ export function getTapTriggers(
           shouldTrigger = permanent.id === tappedPermanent.id;
           break;
         case 'equipped_creature':
+          shouldTrigger = tapPermanentMatchesPhrase('equipped creature', tappedPermanent, permanent)
+            ?? (isCreature && String((permanent as any).attachedTo || '') === String(tappedPermanent.id || ''));
+          break;
         case 'enchanted_creature':
-          shouldTrigger = isCreature
-            && String((permanent as any).attachedTo || '') === String(tappedPermanent.id || '');
+          shouldTrigger = tapPermanentMatchesPhrase('enchanted creature', tappedPermanent, permanent)
+            ?? (isCreature && String((permanent as any).attachedTo || '') === String(tappedPermanent.id || ''));
           break;
       }
       
@@ -495,7 +546,8 @@ export function getTapTriggers(
       }
     }
   }
-  
+
+  appendParsedTapLines(ctx, triggers, tappedPermanent, 'becomes_tapped');
   return triggers;
 }
 
@@ -570,10 +622,10 @@ export function getBecomesUntappedTriggers(
       let shouldTrigger = false;
       switch (trigger.affectedType) {
         case 'any':
-          shouldTrigger = true;
+          shouldTrigger = tapPermanentMatchesPhrase('a permanent', untappedPermanent, permanent, 'becomes_untapped') ?? true;
           break;
         case 'creature':
-          shouldTrigger = isCreature;
+          shouldTrigger = tapPermanentMatchesPhrase('a creature', untappedPermanent, permanent, 'becomes_untapped') ?? isCreature;
           break;
         case 'tribal_type':
           if (trigger.tribalType) {
@@ -591,6 +643,7 @@ export function getBecomesUntappedTriggers(
     }
   }
 
+  appendParsedTapLines(ctx, triggers, untappedPermanent, 'becomes_untapped');
   return triggers;
 }
 
@@ -636,6 +689,8 @@ export function queueBecomesUntappedTriggers(
       mandatory: trigger.mandatory !== false,
       ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
       ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
+      ...(trigger.reflexiveWhenYouDo ? { reflexiveWhenYouDo: trigger.reflexiveWhenYouDo } : null),
+      ...(trigger.delayedEndStep ? { delayedEndStep: trigger.delayedEndStep } : null),
       triggeringPermanentId: String(untappedPermanent.id || ''),
       effectData,
     } as any;

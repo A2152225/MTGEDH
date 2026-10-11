@@ -7,6 +7,7 @@ import { uid } from '../../utils.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 
 export interface SacrificeTrigger {
   permanentId: string;
@@ -316,6 +317,40 @@ export function getSacrificeTriggers(
           }
           break;
       }
+    }
+
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'sacrifices',
+      subjectPermanent: sacrificedPermanent,
+      subjectControllerId: sacrificingPlayerId,
+      sourcePermanent: permanent,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const controller = line.condition?.alternatives[0]?.controller;
+      const triggerType = controller === 'you'
+        ? 'you_sacrifice'
+        : controller === 'not_you'
+          ? 'opponent_sacrifices'
+          : 'player_sacrifices';
+      if (triggerType === 'you_sacrifice' && sacrificingPlayerId !== permanentController) continue;
+      if (triggerType === 'opponent_sacrifices' && sacrificingPlayerId === permanentController) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: permanentController,
+        triggerType,
+        oracleClause: line.effect,
+        effect: line.effect,
+        mandatory: !/\byou may\b/i.test(line.effect),
+        sacrificeFilter: 'any',
+        excludesSource: false,
+      });
     }
   }
 
