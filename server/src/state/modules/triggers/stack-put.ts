@@ -12,6 +12,7 @@ import { uid } from '../../utils.js';
 import { uniqueStackTargetIds } from '../../../rules-engine/targeting-handlers/targetingStackObjectSingleTarget.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 
 export interface StackPutTrigger {
@@ -93,6 +94,29 @@ export function queueStackPutTriggers(ctx: GameContext, stackItemId: string): an
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
     detected.push(...detectStackPutTriggers(permanent.card, permanent));
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'put_on_stack',
+      subjectPermanent: causingItem,
+      subjectControllerId: String(causingItem.controller || ''),
+      sourcePermanent: permanent,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (detected.some((existing) => (
+        existing.permanentId === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      detected.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        triggerType: 'stack_put',
+        oracleClause: line.effect,
+        effect: line.effect,
+        mandatory: !/^you may\b/i.test(line.effect),
+      });
+    }
   }
   if (detected.length === 0) return [];
 

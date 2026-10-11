@@ -8,6 +8,7 @@
  * existing filter for null.
  */
 
+import { parseLateTriggerSentence } from './parseLateEvents.js';
 import { normalizeTriggerClause, parseSubjectPhrase } from './parseSubjectPhrase.js';
 import type { TriggerConditionEvent, TriggerConditionIR, TriggerWhoseTurn } from './types.js';
 
@@ -158,6 +159,12 @@ export function parsePhaseTriggerClause(clause: string): TriggerConditionIR | nu
   if (known) {
     return { event: known.event, quantity: 'one', whoseTurn: known.whoseTurn, alternatives: [] };
   }
+  if (/^at the beginning of the upkeep of enchanted (?:creature|land|enchantment|permanent|artifact)'s controller$/.test(text)) {
+    return { event: 'beginning_of_upkeep', quantity: 'one', whoseTurn: 'enchanted_controller', alternatives: [] };
+  }
+  if (/^at the beginning of the upkeep of the exiled card's owner$/.test(text)) {
+    return { event: 'beginning_of_upkeep', quantity: 'one', whoseTurn: 'exiled_card_owner', alternatives: [] };
+  }
   const match = /^(?:at the beginning of )?(your|each player's|each opponent's|each|enchanted player's|the monarch's|the chosen player's) (upkeep|draw step|combat|end step)$/.exec(text);
   if (!match) return null;
   const event = PHASE_EVENT[match[2]];
@@ -194,8 +201,8 @@ function actorController(actor: string): 'you' | 'not_you' | 'any' {
 
 function prepareSubjectPhrase(raw: string): string {
   let text = raw.replace(/\bcards?\b/g, ' ').replace(/\s+/g, ' ').trim();
-  if (text.startsWith('one or more ')) {
-    const rest = text.slice('one or more '.length).trim();
+  if (text === 'one or more' || text.startsWith('one or more ')) {
+    const rest = text.slice('one or more'.length).trim();
     const noun = rest === '' || rest === 'a' || rest === 'an' ? 'permanent' : rest;
     const article = /^(?:a|an|this|another|other)\b/.test(noun) ? noun : `a ${noun}`;
     return `one or more ${article}`;
@@ -216,7 +223,7 @@ function parseActorTrigger(actor: string, verb: string, rest: string): ParsedTri
   const controller = actorController(actor);
   const effectOf = (effect: string): string => effect.trim();
   if (/^search|^shuffle/.test(verb)) {
-    const library = /^(their|your|a|his or her)\s+library,\s*(.+)$/.exec(rest.trim());
+    const library = /^(their|your|a|his or her)\s+library(?: for an? cards?)?,\s*(.+)$/.exec(rest.trim());
     if (!library) return null;
     const event = verb.startsWith('search') ? 'searches_library' : 'shuffles_library';
     const subject = parseSubjectPhrase('a permanent', event);
@@ -237,8 +244,15 @@ function parseActorTrigger(actor: string, verb: string, rest: string): ParsedTri
     return { condition: withController(subject, controller), effect };
   }
   if (/^create/.test(verb)) {
+    const sacrificeOr = /^or sacrifice\s+(.+?),\s*(.+)$/.exec(rest.trim());
+    if (sacrificeOr) {
+      const subject = parseSubjectPhrase(prepareSubjectPhrase(sacrificeOr[1]), 'creates_token');
+      const effect = effectOf(sacrificeOr[2]);
+      if (!subject || !effect) return null;
+      return { condition: { ...withController(subject, controller), pairedEvent: 'sacrifices' }, effect };
+    }
     const created = /^(.+?),\s*(.+)$/.exec(rest.trim());
-    if (!created || /\bor sacrifice\b/.test(created[1])) return null;
+    if (!created) return null;
     const subject = parseSubjectPhrase(prepareSubjectPhrase(created[1]), 'creates_token');
     const effect = effectOf(created[2]);
     if (!subject || !effect) return null;
@@ -375,13 +389,22 @@ export function parseTriggerEventSentence(sentence: string): ParsedTriggerEventS
       const effect = counterRemoved[3].trim();
       if (subject && effect) return { condition: { ...subject, event: 'counter_removed', placedCounter }, effect };
     }
-    const exile = /^(?:whenever|when)\s+(.+?)\s+is exiled(?: from the battlefield)?,\s*(.+)$/.exec(text);
-    if (exile && !/\bis exiled from (?!the battlefield\b)/.test(text)) {
+    const exile = /^(?:whenever|when)\s+(.+?)\s+is exiled(?: from (the battlefield|anywhere|your graveyard|a graveyard|your hand|your library))?,\s*(.+)$/.exec(text);
+    if (exile) {
+      const fromZone = exile[2] === 'anywhere'
+        ? 'anywhere'
+        : exile[2] === 'your graveyard' || exile[2] === 'a graveyard'
+          ? 'graveyard'
+          : exile[2] === 'your hand'
+            ? 'hand'
+            : exile[2] === 'your library'
+              ? 'library'
+              : 'battlefield';
       const subject = parseSubjectPhrase(prepareSubjectPhrase(exile[1]), 'exiled');
-      const effect = exile[2].trim();
-      if (subject && effect) return { condition: { ...subject, event: 'exiled', fromZone: 'battlefield' }, effect };
+      const effect = exile[3].trim();
+      if (subject && effect) return { condition: { ...subject, event: 'exiled', fromZone }, effect };
     }
-    const graveyard = /^(?:whenever|when)\s+(.+?)\s+(?:is|are) put into (your|a|an opponent's) graveyard from (anywhere|the battlefield),\s*(.+)$/.exec(text);
+    const graveyard = /^(?:whenever|when)\s+(.+?)\s+(?:is|are) put into (your|a|an opponent's) graveyard from (anywhere|the battlefield|your library|your hand),\s*(.+)$/.exec(text);
     if (graveyard) {
       const subject = parseSubjectPhrase(prepareSubjectPhrase(graveyard[1]), 'put_into_graveyard');
       const effect = graveyard[4].trim();
@@ -391,7 +414,13 @@ export function parseTriggerEventSentence(sentence: string): ParsedTriggerEventS
         condition: {
           ...subject,
           event: 'put_into_graveyard',
-          fromZone: graveyard[3] === 'the battlefield' ? 'battlefield' : 'anywhere',
+          fromZone: graveyard[3] === 'the battlefield'
+            ? 'battlefield'
+            : graveyard[3] === 'your library'
+              ? 'library'
+              : graveyard[3] === 'your hand'
+                ? 'hand'
+                : 'anywhere',
           zoneOwner,
         },
         effect,
@@ -405,7 +434,7 @@ export function parseTriggerEventSentence(sentence: string): ParsedTriggerEventS
       const zoneOwner = leftGraveyard[2] === 'your' ? 'you' : leftGraveyard[2] === "an opponent's" ? 'not_you' : 'any';
       return { condition: { ...subject, event: 'left_graveyard', zoneOwner }, effect };
     }
-    return null;
+    return parseLateTriggerSentence(text);
   }
   const subject = match[1].trim();
   const eventWord = match[2];

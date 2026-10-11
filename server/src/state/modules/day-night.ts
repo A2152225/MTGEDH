@@ -116,10 +116,10 @@ export function applyDayNightTransforms(state: any): void {
   }
 }
 
-export function setDayNightState(state: any, next: DayNight): void {
-  if (!state) return;
+export function setDayNightState(state: any, next: DayNight): boolean {
+  if (!state) return false;
   const prev = state.dayNight;
-  if (prev === next) return;
+  if (prev === next) return false;
 
   state.dayNight = next;
 
@@ -138,48 +138,44 @@ export function setDayNightState(state: any, next: DayNight): void {
   state.dayNightChangedTo = next;
 
   applyDayNightTransforms(state);
+  return true;
 }
 
-export function applyExplicitDayNightChangeFromText(state: any, rawText: string): void {
-  if (!state || !rawText) return;
+export function applyExplicitDayNightChangeFromText(state: any, rawText: string): boolean {
+  if (!state || !rawText) return false;
   try {
     const text = String(rawText).replace(/\u2019/g, "'").toLowerCase();
 
-    if (text.includes('daybound') || text.includes('nightbound')) return;
+    if (text.includes('daybound') || text.includes('nightbound')) return false;
 
     const toggleNightToDay = /if\s+(?:it'?s|it\s+is)\s+night\s*,\s*it\s+becomes\s+day\b[\s\S]*?otherwise\s*,\s*it\s+becomes\s+night\b/.test(text);
     const toggleDayToNight = /if\s+(?:it'?s|it\s+is)\s+day\s*,\s*it\s+becomes\s+night\b[\s\S]*?otherwise\s*,\s*it\s+becomes\s+day\b/.test(text);
     if (toggleNightToDay) {
-      setDayNightState(state, state.dayNight === 'night' ? 'day' : 'night');
-      return;
+      return setDayNightState(state, state.dayNight === 'night' ? 'day' : 'night');
     }
     if (toggleDayToNight) {
-      setDayNightState(state, state.dayNight === 'day' ? 'night' : 'day');
-      return;
+      return setDayNightState(state, state.dayNight === 'day' ? 'night' : 'day');
     }
 
     const conditionalDayToNight = /\bif\s+(?:it'?s|it\s+is)\s+day\s*,?\s*it\s+becomes\s+night\b/.test(text);
     const conditionalNightToDay = /\bif\s+(?:it'?s|it\s+is)\s+night\s*,?\s*it\s+becomes\s+day\b/.test(text);
     if (conditionalDayToNight) {
-      if (state.dayNight === 'day') setDayNightState(state, 'night');
-      return;
+      return state.dayNight === 'day' ? setDayNightState(state, 'night') : false;
     }
     if (conditionalNightToDay) {
-      if (state.dayNight === 'night') setDayNightState(state, 'day');
-      return;
+      return state.dayNight === 'night' ? setDayNightState(state, 'day') : false;
     }
 
     if (/\bit\s+becomes\s+day\b/.test(text)) {
-      setDayNightState(state, 'day');
-      return;
+      return setDayNightState(state, 'day');
     }
     if (/\bit\s+becomes\s+night\b/.test(text)) {
-      setDayNightState(state, 'night');
-      return;
+      return setDayNightState(state, 'night');
     }
   } catch {
     // best-effort
   }
+  return false;
 }
 
 export function ensureInitialDayNightDesignationFromBattlefield(state: any): void {

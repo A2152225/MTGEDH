@@ -351,6 +351,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
   lifeGainForPlayers: Record<string, number>;
   creaturesDestroyed: string[];
   attackersThatDealtDamage?: Record<string, Set<string>>; // defendingPlayerId -> Set of attacker IDs
+  attackersThatDealtCreatureDamage?: string[];
   attackerDamageToPlayers?: Record<string, Record<string, number>>; // defendingPlayerId -> attackerId -> damage amount
 } {
   debug(2, `${ts()} [COMBAT_DAMAGE] ========== ENTERING dealCombatDamage (firstStrike=${isFirstStrikePhase}) ==========`);
@@ -360,6 +361,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     lifeGainForPlayers: {} as Record<string, number>,
     creaturesDestroyed: [] as string[],
     attackersThatDealtDamage: {} as Record<string, Set<string>>,
+    attackersThatDealtCreatureDamage: [] as string[],
     attackerDamageToPlayers: {} as Record<string, Record<string, number>>,
   };
   

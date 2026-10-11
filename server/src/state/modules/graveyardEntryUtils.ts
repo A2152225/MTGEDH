@@ -86,6 +86,7 @@ export function pushCardToPlayerGraveyardWithReplacements(
   });
   recordCardPutIntoGraveyardThisTurn(ctx, ownerId, card, {
     fromBattlefield: options.fromBattlefield === true,
+    originZone: sourceZone,
     ...(options.controllerId ? { controllerId: options.controllerId } : {}),
   });
   checkGraveyardTrigger(ctx, card, ownerId, sourceZone);

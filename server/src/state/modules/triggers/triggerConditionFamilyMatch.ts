@@ -19,7 +19,8 @@ import {
 } from '../../../../../rules-engine/src/triggerCondition/index.js';
 import type { TriggerConditionEvent } from '../../../../../rules-engine/src/triggerCondition/index.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
-import { resolveEnchantedPlayerId } from './phaseWhoseTurn.js';
+import { resolveEnchantedControllerId, resolveEnchantedPlayerId } from './phaseWhoseTurn.js';
+import { getPermanentPowerMaybe, getPermanentToughnessMaybe } from './intervening-if-permanent-and-player.js';
 
 export function keywordsOnPermanent(permanent: any): string[] {
   const oracleText = String(permanent?.card?.oracle_text || permanent?.oracle_text || '');
@@ -34,9 +35,10 @@ export function keywordsOnPermanent(permanent: any): string[] {
   ));
 }
 
-export function permanentToTriggerMatch(permanent: any, controllerId?: string): TriggerMatchPermanent {
+export function permanentToTriggerMatch(permanent: any, controllerId?: string, state?: any): TriggerMatchPermanent {
   const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '');
   const oracleText = String(permanent?.card?.oracle_text || permanent?.oracle_text || '');
+  const statContext = state ? { state } as any : undefined;
   return {
     id: String(permanent?.id || '').trim(),
     typeLine,
@@ -45,8 +47,8 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string): 
     hasAllCreatureTypes: hasChangeling(oracleText, typeLine),
     keywords: keywordsOnPermanent(permanent),
     counters: permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : undefined,
-    power: finiteNumber(permanent?.power ?? permanent?.card?.power),
-    toughness: finiteNumber(permanent?.toughness ?? permanent?.card?.toughness),
+    power: currentStat(getPermanentPowerMaybe(permanent, statContext)),
+    toughness: currentStat(getPermanentToughnessMaybe(permanent, statContext)),
     faceDown: Boolean(permanent?.faceDown || permanent?.isFaceDown || permanent?.card?.faceDown),
     goaded: permanent?.goaded === true,
     attackingOrBlocking: permanentIsAttackingOrBlocking(permanent),
@@ -56,9 +58,8 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string): 
   };
 }
 
-function finiteNumber(value: unknown): number | undefined {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : undefined;
+function currentStat(value: number | null): number | undefined {
+  return value === null || !Number.isFinite(value) ? undefined : value;
 }
 
 function permanentIsAttackingOrBlocking(permanent: any): boolean {
@@ -287,6 +288,8 @@ export function collectMatchingParsedEventLines(options: {
   libraryOwnerId?: string;
   zoneOwnerId?: string;
   fromZone?: string;
+  action?: string;
+  damageKind?: string;
 }): Array<{ effect: string; interveningIf?: string; condition?: import('../../../../../rules-engine/src/triggerCondition/index.js').TriggerConditionIR; reflexive?: { actor: 'you' | 'they'; effect: string; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }> {
   const text = stripReminderParentheticals(String(options.oracleText || ''));
   const sentences = text.split(/\n+|(?<=\.)\s+/);
@@ -294,7 +297,10 @@ export function collectMatchingParsedEventLines(options: {
   const seen = new Set<string>();
   for (const sentence of sentences) {
     const parsed = parseTriggerClause(sentence);
-    if (!parsed || parsed.condition.event !== options.event || !parsed.effect) continue;
+    if (!parsed || !parsed.effect) continue;
+    const eventMatches = parsed.condition.event === options.event || parsed.condition.pairedEvent === options.event;
+    if (!eventMatches) continue;
+    if (options.action && parsed.condition.action !== options.action) continue;
     if (parsed.interveningIf && options.ctx) {
       const probe = `Whenever a permanent ${options.event}, if ${parsed.interveningIf}, ${parsed.effect}`;
       try {
@@ -314,7 +320,7 @@ export function collectMatchingParsedEventLines(options: {
     if (!key || seen.has(key)) continue;
     const matched = triggerConditionMatches(
       parsed.condition,
-      permanentToTriggerMatch(options.subjectPermanent, options.subjectControllerId),
+      permanentToTriggerMatch(options.subjectPermanent, options.subjectControllerId, options.ctx?.state),
       {
         id: String(options.sourcePermanent?.id || '').trim(),
         controllerId: String(options.sourcePermanent?.controller || '').trim(),
@@ -336,6 +342,14 @@ export function collectMatchingParsedEventLines(options: {
         libraryOwnerId: options.libraryOwnerId,
         zoneOwnerId: options.zoneOwnerId,
         fromZone: options.fromZone,
+        damageKind: options.damageKind,
+        enchantedControllerId: resolveEnchantedControllerId(options.sourcePermanent, options.ctx?.state),
+        exiledCardOwnerId: String(
+          options.sourcePermanent?.exiledCardOwner
+          || options.sourcePermanent?.linkedExileOwner
+          || options.sourcePermanent?.exiledOwner
+          || '',
+        ).trim(),
       },
     );
     if (!matched) continue;

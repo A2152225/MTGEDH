@@ -14,6 +14,7 @@
 
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 
 export interface LandfallTrigger {
   permanentId?: string;
@@ -629,6 +630,32 @@ export function getLandfallTriggers(
       });
     }
   }
-  
+
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'plays_land',
+      subjectPermanent: enteringLand || { id: '', controller: landController, card: { type_line: 'Land' } },
+      subjectControllerId: landController,
+      sourcePermanent: permanent,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => (
+        String(existing.permanentId || '') === String(permanent.id || '')
+        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        effect: line.effect,
+        mandatory: !/^you may\b/i.test(line.effect),
+        triggerType: 'plays_land',
+      });
+    }
+  }
+
   return triggers;
 }

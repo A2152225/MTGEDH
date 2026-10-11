@@ -623,7 +623,7 @@ export function getPutIntoGraveyardTriggers(
   ctx: GameContext,
   graveyardOwnerId: string,
   card: any,
-  options?: { fromBattlefield?: boolean; controllerId?: string },
+  options?: { fromBattlefield?: boolean; controllerId?: string; originZone?: string },
 ): PutIntoGraveyardTrigger[] {
   const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
   const ownerId = String(graveyardOwnerId || '').trim();
@@ -662,7 +662,7 @@ export function getPutIntoGraveyardTriggers(
     'put_into_graveyard',
     card,
     String(options?.controllerId || card?.controller || ownerId),
-    { fromZone: options?.fromBattlefield ? 'battlefield' : undefined, zoneOwnerId: ownerId },
+    { fromZone: options?.originZone || (options?.fromBattlefield ? 'battlefield' : undefined), zoneOwnerId: ownerId },
     (permanent, effect, condition) => {
       const zoneOwner = condition?.zoneOwner;
       const subject = condition?.alternatives[0]?.subject;
@@ -689,7 +689,7 @@ export function queuePutIntoGraveyardTriggers(
   ctx: GameContext,
   graveyardOwnerId: string,
   card: any,
-  options?: { fromBattlefield?: boolean; controllerId?: string },
+  options?: { fromBattlefield?: boolean; controllerId?: string; originZone?: string },
 ): any[] {
   const ownerId = String(graveyardOwnerId || '').trim();
   if (!ownerId || !card) return [];

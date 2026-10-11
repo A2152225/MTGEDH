@@ -145,10 +145,90 @@ export function applyDealCombatDamageTriggerQueue(
 
             pendingCombatDamageTriggerEntries.push({ stackItem, reason: 'per-attacker combat damage' });
           }
+
+          const watcherDamage = Math.max(0, Number(result.attackerDamageToPlayers?.[String(defendingPlayerId)]?.[String(attackerId)] || 0));
+          if (watcherDamage > 0) {
+            for (const watcher of battlefield) {
+              if (!watcher?.card || String(watcher.id) === String(attackerPerm.id)) continue;
+              for (const line of collectMatchingParsedEventLines({
+                ctx,
+                oracleText: String(watcher.card.oracle_text || ''),
+                event: 'deals_combat_damage_to_player',
+                subjectPermanent: attackerPerm,
+                subjectControllerId: String(attackerPerm.controller || ''),
+                sourcePermanent: watcher,
+              })) {
+                pendingCombatDamageTriggerEntries.push({
+                  stackItem: {
+                    id: uid('trigger'),
+                    type: 'triggered_ability',
+                    controller: watcher.controller,
+                    source: watcher.id,
+                    permanentId: watcher.id,
+                    sourceName: watcher.card?.name,
+                    description: line.effect,
+                    effect: line.effect,
+                    triggerType: 'deals_combat_damage',
+                    mandatory: !/\byou may\b/i.test(line.effect),
+                    targetPlayer: String(defendingPlayerId),
+                    damagedPlayerId: String(defendingPlayerId),
+                    damageAmount: watcherDamage,
+                    card: watcher.card,
+                  } as any,
+                  reason: 'combat damage watcher',
+                });
+              }
+            }
+          }
         }
       }
     } catch (err) {
       debugWarn(1, `${ts()} [dealCombatDamage] Failed to queue per-attacker combat damage triggers:`, err);
+    }
+
+    try {
+      const creatureAttackerIds = Array.isArray(result.attackersThatDealtCreatureDamage)
+        ? result.attackersThatDealtCreatureDamage
+        : [];
+      for (const attackerId of creatureAttackerIds) {
+        const attackerPerm = battlefield.find((p: any) => p?.id === attackerId);
+        if (!attackerPerm?.card) continue;
+        const sources = [attackerPerm, ...battlefield.filter((permanent: any) => permanent?.card && String(permanent.id) !== String(attackerPerm.id))];
+        for (const source of sources) {
+          for (const line of collectMatchingParsedEventLines({
+            ctx,
+            oracleText: String(source.card.oracle_text || ''),
+            event: 'deals_combat_damage_to_creature',
+            subjectPermanent: attackerPerm,
+            subjectControllerId: String(attackerPerm.controller || ''),
+            sourcePermanent: source,
+          })) {
+            const normalized = line.effect.toLowerCase();
+            if (pendingCombatDamageTriggerEntries.some((entry) => (
+              String(entry.stackItem?.permanentId || '') === String(source.id || '')
+              && String(entry.stackItem?.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+            ))) continue;
+            pendingCombatDamageTriggerEntries.push({
+              stackItem: {
+                id: uid('trigger'),
+                type: 'triggered_ability',
+                controller: source.controller,
+                source: source.id,
+                permanentId: source.id,
+                sourceName: source.card?.name,
+                description: line.effect,
+                effect: line.effect,
+                triggerType: 'deals_combat_damage_to_creature',
+                mandatory: !/\byou may\b/i.test(line.effect),
+                card: source.card,
+              } as any,
+              reason: 'combat damage to creature',
+            });
+          }
+        }
+      }
+    } catch (err) {
+      debugWarn(1, `${ts()} [dealCombatDamage] Failed to queue creature combat damage triggers:`, err);
     }
 
     // Queue defender-side combat damage triggers for permanents controlled by players who were dealt combat damage.

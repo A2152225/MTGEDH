@@ -23,6 +23,8 @@ import {
   inferGenericTriggeredAbilityTargetMetadata,
 } from './triggers/target-metadata.js';
 import { queueStackPutTriggers } from './triggers/stack-put.js';
+import { collectMatchingParsedEventLines } from './triggers/triggerConditionFamilyMatch.js';
+import type { TriggerConditionEvent } from '../../../../rules-engine/src/triggerCondition/index.js';
 import { primeDerivedContinuousEffectsForScan } from './staticEffectSpec.js';
 
 function snapshotPermanent(permanent: any): any | undefined {
@@ -34,6 +36,94 @@ function snapshotPermanent(permanent: any): any | undefined {
       ? { counters: { ...permanent.counters } }
       : null),
   };
+}
+
+export function queueParsedSubjectEvent(
+  ctx: GameContext,
+  options: {
+    event: TriggerConditionEvent;
+    subjectPermanent: any;
+    subjectControllerId: string;
+    triggerType: string;
+    effectData?: Record<string, unknown>;
+    action?: string;
+    fromZone?: string;
+    zoneOwnerId?: string;
+    damageKind?: string;
+    includeSubject?: boolean;
+  },
+): any[] {
+  const state = (ctx as any).state;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const candidates = options.includeSubject && options.subjectPermanent
+    ? [...battlefield, options.subjectPermanent]
+    : battlefield;
+  const seen = new Set<string>();
+  const queued: any[] = [];
+  const stack = Array.isArray(state?.stack) ? state.stack : [];
+  for (const permanent of candidates) {
+    if (!permanent?.card) continue;
+    const permanentId = String(permanent.id || '');
+    if (!permanentId || seen.has(permanentId)) continue;
+    seen.add(permanentId);
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: options.event,
+      subjectPermanent: options.subjectPermanent,
+      subjectControllerId: options.subjectControllerId,
+      sourcePermanent: permanent,
+      action: options.action,
+      fromZone: options.fromZone,
+      zoneOwnerId: options.zoneOwnerId,
+      damageKind: options.damageKind,
+    })) {
+      let onceKey = '';
+      if (line.condition?.onceEachTurn) {
+        const turn = Number(state?.turnNumber || state?.turn || 0);
+        if (state.parsedOnceEachTurnTurn !== turn) {
+          state.parsedOnceEachTurn = [];
+          state.parsedOnceEachTurnTurn = turn;
+        }
+        onceKey = `${permanentId}:${options.event}`;
+        const ledger = Array.isArray(state.parsedOnceEachTurn) ? state.parsedOnceEachTurn : [];
+        if (ledger.includes(onceKey)) continue;
+      }
+      const normalized = line.effect.toLowerCase();
+      if (stack.some((item: any) => (
+        String(item?.permanentId || '') === permanentId
+        && String(item?.effect || item?.description || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      const item = queueGenericTriggeredAbility(ctx, {
+        permanentId,
+        controllerId: String(permanent.controller || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        effect: line.effect,
+        description: line.effect,
+        mandatory: !/^you may\b/i.test(line.effect),
+      }, options.triggerType, options.effectData);
+      if (item) {
+        if (onceKey) {
+          const ledger = Array.isArray(state.parsedOnceEachTurn) ? state.parsedOnceEachTurn : [];
+          ledger.push(onceKey);
+          state.parsedOnceEachTurn = ledger;
+        }
+        queued.push(item);
+      }
+    }
+  }
+  return queued;
+}
+
+export function queueParsedKeywordAction(ctx: GameContext, actorId: string, action: string): any[] {
+  return queueParsedSubjectEvent(ctx, {
+    event: 'performs',
+    subjectPermanent: { id: '', controller: actorId },
+    subjectControllerId: actorId,
+    triggerType: action,
+    action,
+    effectData: { actorId, action },
+  });
 }
 
 export function queueGenericTriggeredAbility(
@@ -143,8 +233,6 @@ export function processEquippedTriggers(
   if (!equipment?.card || !equipment?.id) return [];
 
   const detected = detectEquippedTriggers(equipment.card, equipment);
-  if (detected.length === 0) return [];
-
   const queued: any[] = [];
   const ordered = orderTriggersByAPNAP(
     ctx,
@@ -166,6 +254,16 @@ export function processEquippedTriggers(
     });
     if (item) queued.push(item);
   }
+  queued.push(...queueParsedSubjectEvent(ctx, {
+    event: 'becomes_attached',
+    subjectPermanent: equipment,
+    subjectControllerId: String(equipment.controller || ''),
+    triggerType: 'equipped_attached',
+    effectData: {
+      equipmentId: String(equipment.id || ''),
+      attachedToId: String(attachedToPermanent?.id || equipment.attachedTo || ''),
+    },
+  }));
   return queued;
 }
 
@@ -258,6 +356,15 @@ export function processReturnedToHandTriggers(
     }
   }
 
+  queued.push(...queueParsedSubjectEvent(ctx, {
+    event: 'returned_to_hand',
+    subjectPermanent: returnedPermanent,
+    subjectControllerId: returnedController,
+    triggerType: 'returned_to_hand',
+    zoneOwnerId: returnedController,
+    includeSubject: true,
+    effectData: { returnedPermanentId: returnedId, returnedController },
+  }));
   return queued;
 }
 
@@ -307,6 +414,13 @@ export function processTransformTriggers(ctx: GameContext, permanent: any): any[
     }
   }
 
+  queued.push(...queueParsedSubjectEvent(ctx, {
+    event: 'transforms',
+    subjectPermanent: permanent,
+    subjectControllerId: String(permanent.controller || ''),
+    triggerType: 'transform',
+    effectData: { transformedPermanentId: String(permanent.id || '') },
+  }));
   return queued;
 }
 
@@ -422,8 +536,6 @@ export function processMonstrousTriggers(ctx: GameContext, permanent: any): any[
   if (!permanent?.card || !permanent?.id) return [];
 
   const detected = detectMonstrousTriggers(permanent.card, permanent);
-  if (detected.length === 0) return [];
-
   const queued: any[] = [];
   const ordered = orderTriggersByAPNAP(
     ctx,
@@ -443,6 +555,13 @@ export function processMonstrousTriggers(ctx: GameContext, permanent: any): any[
     });
     if (item) queued.push(item);
   }
+  queued.push(...queueParsedSubjectEvent(ctx, {
+    event: 'becomes_monstrous',
+    subjectPermanent: permanent,
+    subjectControllerId: String(permanent.controller || ''),
+    triggerType: 'became_monstrous',
+    effectData: { monstrousPermanentId: String(permanent.id || '') },
+  }));
   return queued;
 }
 
@@ -538,6 +657,14 @@ export function processLTBTriggers(
     }
   }
 
+  queued.push(...queueParsedSubjectEvent(ctx, {
+    event: 'leaves_battlefield',
+    subjectPermanent: leftPermanent,
+    subjectControllerId: leftController,
+    triggerType: 'ltb',
+    includeSubject: true,
+    effectData: { leftPermanentId: leftId, leftController, cause },
+  }));
   return queued;
 }
 
@@ -700,6 +827,22 @@ export function processDetectedAbilityActivatedTriggers(
   }
   if (!event.isManaAbility && event.stackItemId) {
     queued.push(...queueStackPutTriggers(ctx, String(event.stackItemId)));
+  }
+  if (!event.isManaAbility && sourcePermanent) {
+    const effectData = {
+      activatedBy: String(event.activatedBy),
+      sourcePermanentId: String(event.sourcePermanentId),
+    };
+    for (const action of ['activate_ability', 'activate_nonmana', ...(event.isExhaustAbility ? ['activate_exhaust'] : [])]) {
+      queued.push(...queueParsedSubjectEvent(ctx, {
+        event: 'performs',
+        subjectPermanent: sourcePermanent,
+        subjectControllerId: String(event.activatedBy),
+        triggerType: 'ability_activated',
+        action,
+        effectData,
+      }));
+    }
   }
   return queued;
 }

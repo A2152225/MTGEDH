@@ -15,6 +15,7 @@ import { uid } from '../../utils.js';
 import { debugWarn } from '../../../utils/debug.js';
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { orderTriggersByAPNAP } from './ordering.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 import {
   hasUnsupportedTargetRequirement,
   inferGenericTriggeredAbilityTargetMetadata,
@@ -109,6 +110,30 @@ function collectCycleTriggers(ctx: GameContext, cyclingPlayerId: string, cycledC
       if (trigger.scope === 'you' && controllerId !== cyclingPlayerId) continue;
       if (trigger.scope === 'opponent' && controllerId === cyclingPlayerId) continue;
       triggers.push(trigger);
+    }
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'cycles',
+      subjectPermanent: { id: '', controller: cyclingPlayerId, card: cycledCard },
+      subjectControllerId: cyclingPlayerId,
+      sourcePermanent: permanent,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (triggers.some((existing) => {
+        if (existing.sourceId !== String(permanent.id || '')) return false;
+        const previous = String(existing.effect || '').toLowerCase();
+        return previous.includes(normalized.slice(0, 24)) || normalized.includes(previous.slice(0, 24));
+      })) continue;
+      const controller = line.condition?.alternatives[0]?.controller;
+      triggers.push({
+        sourceId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId,
+        scope: controller === 'you' ? 'you' : controller === 'not_you' ? 'opponent' : 'any_player',
+        effect: line.effect,
+        mandatory: !/^you may\b/i.test(line.effect),
+      });
     }
   }
   return triggers;

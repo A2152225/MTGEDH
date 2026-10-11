@@ -343,7 +343,8 @@ export function finishPlayLandBattlefieldEntry(
     basePower: baseP,
     baseToughness: baseT,
     summoningSickness: hasSummoningSickness,
-    card: { ...card, zone: 'battlefield' },
+    enteredFromZone: 'hand',
+    card: { ...card, zone: 'battlefield', enteredFromZone: 'hand' },
   } as any);
   stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
   if (!opts.skipLandPlayCountIncrement) {

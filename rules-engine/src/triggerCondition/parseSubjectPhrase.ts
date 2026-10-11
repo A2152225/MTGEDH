@@ -35,6 +35,8 @@ const CARD_TYPE_WORDS: Readonly<Record<string, string>> = {
   aura: 'aura',
   auras: 'aura',
   equipment: 'equipment',
+  vehicle: 'vehicle',
+  vehicles: 'vehicle',
   instant: 'instant',
   instants: 'instant',
   sorcery: 'sorcery',

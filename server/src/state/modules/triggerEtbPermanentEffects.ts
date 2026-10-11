@@ -689,6 +689,13 @@ export function triggerETBEffectsForPermanent(
       subjectPermanent: permanent,
       subjectControllerId: String(controller),
       sourcePermanent: perm,
+      fromZone: String(
+        permanent?.enteredFromZone
+        || permanent?.card?.enteredFromZone
+        || permanent?.castSourceZone
+        || permanent?.card?.castSourceZone
+        || '',
+      ).toLowerCase() || undefined,
     });
     for (const line of parsedEffects) {
       const effect = line.effect;

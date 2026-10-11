@@ -8,6 +8,7 @@
  */
 import type { GameContext } from '../../context.js';
 import { detectDealtDamageTriggers } from './dealt-damage-detection.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
 import { mergeDetectorOracleWithContinuousGrants } from './detectorGrantedOracle.js';
 import { parseAnyTargetThatIsntCreatureType } from './damage-redirect-target-type.js';
 import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
@@ -438,6 +439,35 @@ export function processPermanentDealtDamageWatchers(
       .filter((trigger) => trigger.triggerType === 'dealt_damage');
     for (const trigger of detected) {
       hits.push({ watcher: permanent, trigger });
+    }
+  }
+
+  for (const permanent of candidates) {
+    if (!permanent?.card) continue;
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'dealt_damage',
+      subjectPermanent: damagedPermanent,
+      subjectControllerId: String(damagedPermanent?.controller || ''),
+      sourcePermanent: permanent,
+    })) {
+      const normalized = line.effect.toLowerCase();
+      if (hits.some((hit) => (
+        hit.watcher === permanent
+        && String(hit.trigger?.effect || hit.trigger?.description || '').toLowerCase().includes(normalized.slice(0, 24))
+      ))) continue;
+      hits.push({
+        watcher: permanent,
+        trigger: {
+          effect: line.effect,
+          description: line.effect,
+          triggerType: 'dealt_damage',
+          mandatory: !/^you may\b/i.test(line.effect),
+          permanentId: String(permanent.id || ''),
+          cardName: String(permanent.card?.name || 'Unknown'),
+        },
+      });
     }
   }
 

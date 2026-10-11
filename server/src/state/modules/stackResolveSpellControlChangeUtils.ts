@@ -15,6 +15,7 @@ import {
 import { isExtraTurnSpell } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+import { queueParsedSubjectEvent } from './triggerEmissionFamilyUtils.js';
 
 function buildPermanentTokenCopy(
   sourcePermanent: any,
@@ -114,6 +115,18 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
       permanent.controller = newController;
       syncPreviousController = originalController;
       changed = true;
+      queueParsedSubjectEvent(ctx, {
+        event: 'gains_control',
+        subjectPermanent: permanent,
+        subjectControllerId: newController,
+        triggerType: 'gain_control',
+      });
+      queueParsedSubjectEvent(ctx, {
+        event: 'loses_control',
+        subjectPermanent: { ...permanent, controller: originalController },
+        subjectControllerId: originalController,
+        triggerType: 'lose_control',
+      });
     } else {
       const stateAny = state as any;
       const trackedEffect = (Array.isArray(stateAny.controlChangeEffects) ? stateAny.controlChangeEffects : [])

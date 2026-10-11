@@ -20,6 +20,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/ind
 import { consumeReplayedTriggeredAbilityStackItems } from "../replay-prompt-cleanup.js";
 import { applyBattlefieldPermanentReplayPatch } from "../../effects/battlefieldPermanentReplayPersistence.js";
 import { getOrInitManaPool } from "../../../socket/util.js";
+import { queueParsedKeywordAction, queueParsedSubjectEvent } from "../triggerEmissionFamilyUtils.js";
 
 export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -319,6 +320,13 @@ export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boo
 
           // Intervening-if support fields (best-effort today, but now deterministic when this event exists).
           (vehicle as any).crewedByCreatureCountThisTurn = crewerIds.length;
+          queueParsedSubjectEvent(ctx, {
+            event: 'becomes_crewed',
+            subjectPermanent: vehicle,
+            subjectControllerId: String(vehicle.controller || pid || ''),
+            triggerType: 'becomes_crewed',
+            effectData: { vehicleId },
+          });
           if (crewedTypesLower.length > 0) {
             (vehicle as any).crewedByCreatureTypesThisTurn = Array.from(new Set(crewedTypesLower));
             (vehicle as any).crewedBySubtypesThisTurn = (vehicle as any).crewedByCreatureTypesThisTurn;
@@ -522,6 +530,7 @@ export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boo
 
           (attacker as any).doesntUntapNextTurn = true;
           (attacker as any).exertedThisTurn = true;
+          if (playerId) queueParsedKeywordAction(ctx, playerId, 'exert');
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(exertChoice): failed', err);

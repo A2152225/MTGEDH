@@ -194,11 +194,21 @@ function qualifiersMatch(
     if (condition.whoseTurn === 'enchanted_player' && active !== String(context?.enchantedPlayerId || '').trim()) return false;
     if (condition.whoseTurn === 'monarch' && active !== String(context?.monarchPlayerId || '').trim()) return false;
     if (condition.whoseTurn === 'chosen_player' && active !== String(context?.chosenPlayerId || '').trim()) return false;
+    if (condition.whoseTurn === 'enchanted_controller' && active !== String(context?.enchantedControllerId || '').trim()) return false;
+    if (condition.whoseTurn === 'exiled_card_owner' && active !== String(context?.exiledCardOwnerId || '').trim()) return false;
   }
 
-  if (condition.fromZone === 'battlefield' && String(context?.fromZone || '').trim().toLowerCase() !== 'battlefield') {
-    return false;
+  if (condition.fromZone && condition.fromZone !== 'anywhere') {
+    const fromZone = String(context?.fromZone || '').trim().toLowerCase();
+    if (condition.fromZone === 'not_hand') {
+      if (!fromZone || fromZone === 'hand') return false;
+    } else if (fromZone !== condition.fromZone) {
+      return false;
+    }
   }
+
+  if (condition.damageKind === 'combat' && String(context?.damageKind || '').trim().toLowerCase() !== 'combat') return false;
+  if (condition.damageKind === 'noncombat' && String(context?.damageKind || '').trim().toLowerCase() === 'combat') return false;
 
   if (condition.zoneOwner && condition.zoneOwner !== 'any') {
     const zoneOwnerId = String(context?.zoneOwnerId || '').trim();

@@ -18,6 +18,7 @@ import { parsePT } from "../../utils";
 import { debugWarn } from "../../../utils/debug.js";
 import { pickMutablePlayerLibrary, writePlayerLibrary } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
+import { queueParsedSubjectEvent } from '../triggerEmissionFamilyUtils.js';
 
 export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -243,6 +244,15 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
                 pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, card, destList);
               } else {
                 destList.push({ ...card, zone: toZone });
+                if (toZone === 'exile' && fromZone === 'graveyard') {
+                  queueParsedSubjectEvent(ctx, {
+                    event: 'exiled',
+                    subjectPermanent: { id: String(card.id || ''), controller: fromPlayerId, card },
+                    subjectControllerId: String(fromPlayerId || playerId || ''),
+                    triggerType: 'exiled_from_graveyard',
+                    fromZone: 'graveyard',
+                  });
+                }
               }
               z[`${toZone}Count`] = destList.length;
             }

@@ -115,6 +115,7 @@ export function detectDiscardTriggers(card: any, permanent: any): DiscardTrigger
 export function getDiscardTriggers(
   ctx: GameContext,
   discardingPlayerId: string,
+  options?: { fromCycling?: boolean },
 ): DiscardTrigger[] {
   const triggers: DiscardTrigger[] = [];
   const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
@@ -168,6 +169,7 @@ export function getDiscardTriggers(
       subjectControllerId: discardingPlayerId,
       sourcePermanent: permanent,
     })) {
+      if (options?.fromCycling && line.condition?.event === 'cycles') continue;
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
         String(existing.permanentId || '') === String(permanent.id || '')
@@ -229,6 +231,7 @@ export function queueDiscardTriggeredAbilities(
   ctx: GameContext,
   discardingPlayerId: string,
   discardedCards: any[],
+  options?: { fromCycling?: boolean },
 ): any[] {
   if ((ctx as any)?.isReplaying) return [];
   if (!discardingPlayerId) return [];
@@ -236,7 +239,7 @@ export function queueDiscardTriggeredAbilities(
   const cardsToTrigger = Array.isArray(discardedCards) ? discardedCards.filter((card: any) => card) : [];
   if (cardsToTrigger.length === 0) return [];
 
-  const triggers = orderTriggersByAPNAP(ctx, getDiscardTriggers(ctx, String(discardingPlayerId)));
+  const triggers = orderTriggersByAPNAP(ctx, getDiscardTriggers(ctx, String(discardingPlayerId), options));
   if (triggers.length === 0) return [];
 
   const stateAny = ctx.state as any;

@@ -5,6 +5,7 @@ import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { detectSpellCounteredTriggers } from './triggered-abilities.js';
+import { queueParsedSubjectEvent } from './triggerEmissionFamilyUtils.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
 
 export interface SpellCounteredEvent {
@@ -133,4 +134,20 @@ export function processSpellCounteredTriggers(ctx: GameContext, event: SpellCoun
       pushSpellCounteredTriggerOntoStack(ctx, trigger, event);
     }
   }
+
+  queueParsedSubjectEvent(ctx, {
+    event: 'spell_countered',
+    subjectPermanent: { id: '', controller: counteredControllerId, card: { type_line: 'Instant' } },
+    subjectControllerId: counteredControllerId,
+    triggerType: 'spell_countered',
+    zoneOwnerId: counteredControllerId,
+    effectData: { counteredControllerId, counteringControllerId },
+  });
+  queueParsedSubjectEvent(ctx, {
+    event: 'counters_spell',
+    subjectPermanent: { id: '', controller: counteringControllerId, card: { type_line: 'Instant' } },
+    subjectControllerId: counteringControllerId,
+    triggerType: 'you_countered_spell',
+    effectData: { counteredControllerId, counteringControllerId },
+  });
 }

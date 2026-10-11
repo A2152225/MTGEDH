@@ -53,12 +53,19 @@ describe('deathTriggerClauseMatchesDyingCreature trigger-condition IR', () => {
     )).toBe(true);
   });
 
-  it('leaves a bare this-creature clause on the string matcher and requires flying when the phrase has it', () => {
+  it('matches a bare this-creature dies clause only for that permanent', () => {
     expect(deathTriggerClauseMatchesDyingCreature(
       ctx,
       'this creature',
       source,
       dying({ id: 'watcher' }),
+      'p1',
+    )).toBe(true);
+    expect(deathTriggerClauseMatchesDyingCreature(
+      ctx,
+      'this creature',
+      source,
+      dying({ id: 'other' }),
       'p1',
     )).toBe(false);
 
@@ -77,5 +84,27 @@ describe('deathTriggerClauseMatchesDyingCreature trigger-condition IR', () => {
       dying({ keywords: ['flying'] }),
       'p1',
     )).toBe(true);
+  });
+
+  it('uses effective power and toughness instead of the printed numbers', () => {
+    const pumped = dying({
+      effectivePower: 5,
+      effectiveToughness: 1,
+      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '', power: '2', toughness: '2' },
+    });
+    expect(deathTriggerClauseMatchesDyingCreature(
+      ctx,
+      'a creature with power 4 or greater',
+      source,
+      pumped,
+      'p1',
+    )).toBe(true);
+    expect(deathTriggerClauseMatchesDyingCreature(
+      ctx,
+      'a creature with toughness 2 or greater',
+      source,
+      pumped,
+      'p1',
+    )).toBe(false);
   });
 });

@@ -17,6 +17,7 @@ import { recordCardPutIntoGraveyardThisTurn, recordPermanentPutIntoHandFromBattl
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
 import { pushCardToGraveyardFromLibrary } from "./graveyardEntryUtils.js";
+import { queueParsedKeywordAction } from "./triggerEmissionFamilyUtils.js";
 import { processLinkedExileReturns } from "./triggers/linked-exile.js";
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
 import {
@@ -557,6 +558,7 @@ export function applyScry(ctx: GameContext, playerId: PlayerID, keepTopOrder: st
   zones[playerId]!.libraryCount = lib.length;
   ctx.libraries.set(playerId, lib);
   ctx.bumpSeq();
+  queueParsedKeywordAction(ctx, String(playerId), 'scry');
 }
 
 export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: string[], keepTopOrder: string[]) {
@@ -600,6 +602,7 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
   (z as any).libraryCount = lib.length;
   ctx.libraries.set(playerId, lib);
   ctx.bumpSeq();
+  queueParsedKeywordAction(ctx, String(playerId), 'surveil');
 }
 
 /**
@@ -670,6 +673,7 @@ export function applyExplore(
   (z as any).libraryCount = lib.length;
   ctx.libraries.set(playerId, lib);
   ctx.bumpSeq();
+  queueParsedKeywordAction(ctx, String(playerId), 'explore');
 }
 
 /* ===== search helper ===== */

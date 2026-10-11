@@ -426,7 +426,7 @@ export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: 
     // the stack above the cycling ability; cycling also discards the card (discard triggers).
     const cycledCardSnapshot = { ...card };
     queueCycleTriggeredAbilities(cyclingCtx, String(pid), cycledCardSnapshot, { xValue: cyclingXValue });
-    queueDiscardTriggeredAbilities(cyclingCtx, String(pid), [cycledCardSnapshot]);
+    queueDiscardTriggeredAbilities(cyclingCtx, String(pid), [cycledCardSnapshot], { fromCycling: true });
 
     broadcastGame(io, game, gameId);
     }

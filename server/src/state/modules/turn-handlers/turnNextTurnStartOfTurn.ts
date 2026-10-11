@@ -12,6 +12,7 @@ import { resetConvokeGrantsForNewTurn } from "../casting-modifiers.js";
 import { recalculatePlayerEffects, clearTemporaryLandBonuses } from "../game-state-effects.js";
 import { removeExpiredGoads } from "../goad-effects.js";
 import { ensureInitialDayNightDesignationFromBattlefield, setDayNightState } from "../day-night.js";
+import { queueParsedKeywordAction } from "../triggerEmissionFamilyUtils.js";
 import { resetDurablePermissionUsageForTurn } from "../durable-permissions.js";
 import { resetExhaustAbilityActivations } from '../keywordActivationState.js';
 import { resetSpeedIncreasedThisTurn } from '../statefulPaperKeywords.js';
@@ -654,7 +655,11 @@ export function runNextTurnStartOfTurn(
         let nextDn: 'day' | 'night' | null = null;
         if (dn === 'day' && spellsLastTurn === 0) nextDn = 'night';
         if (dn === 'night' && spellsLastTurn >= 2) nextDn = 'day';
-        if (nextDn && nextDn !== dn) setDayNightState((ctx as any).state, nextDn);
+        if (nextDn && nextDn !== dn) {
+          setDayNightState((ctx as any).state, nextDn);
+          const turnPlayer = String((ctx as any).state?.turnPlayer || (ctx as any).state?.activePlayer || '').trim();
+          if (turnPlayer) queueParsedKeywordAction(ctx, turnPlayer, 'day_night');
+        }
       }
     } catch {}
     

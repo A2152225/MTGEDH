@@ -1,6 +1,7 @@
 import type { GameContext } from '../context.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 import { applyExplicitDayNightChangeFromText } from './day-night.js';
+import { queueParsedKeywordAction } from './triggerEmissionFamilyUtils.js';
 import { hasWouldEnterDiscardLandReplacement, queueWouldEnterDiscardLandChoiceForStackItem } from './land-would-enter-replacement.js';
 import { popStackItem } from './stackPushUtils.js';
 import { resolveStackItemEffectiveCard } from './stackResolveEffectiveCardUtils.js';
@@ -49,7 +50,9 @@ export function tryPrepareResolveTopOfStackContext(ctx: GameContext): ResolveTop
 
   try {
     const resolvedText = `${String((item as any)?.description || '')}\n${String((effectiveCard as any)?.oracle_text || '')}`;
-    applyExplicitDayNightChangeFromText(state as any, resolvedText);
+    if (applyExplicitDayNightChangeFromText(state as any, resolvedText)) {
+      queueParsedKeywordAction(ctx, String(controller), 'day_night');
+    }
   } catch {}
 
   const fallbackOracleText = `${String((item as any)?.activatedAbilityText || '')}\n${String((item as any)?.description || '')}`.trim();

@@ -226,11 +226,21 @@ export function deathTriggerClauseMatchesDyingCreature(
   if (!clause) return false;
 
   const parsedDiesSubject = parseDiesSubjectClause(clause);
-  if (parsedDiesSubject && parsedDiesSubject.alternatives.some((alternative) => alternative.source !== 'self')) {
+  const selfOnly = Boolean(
+    parsedDiesSubject
+    && parsedDiesSubject.alternatives.length > 0
+    && parsedDiesSubject.alternatives.every((alternative) => alternative.source === 'self'),
+  );
+  if (selfOnly) {
+    const sourceId = String(sourcePermanent?.id || '').trim();
+    const dyingId = String(dyingCreature?.id || '').trim();
+    if (!sourceId || sourceId !== dyingId) return false;
+  }
+  if (parsedDiesSubject && (selfOnly || parsedDiesSubject.alternatives.some((alternative) => alternative.source !== 'self'))) {
     return triggerConditionMatches(
       parsedDiesSubject,
       {
-        ...permanentToTriggerMatch(dyingCreature, dyingCreatureController),
+        ...permanentToTriggerMatch(dyingCreature, dyingCreatureController, ctx.state),
         goaded: getCurrentGoaders(dyingCreature, ctx.state?.battlefield || [], ctx.state?.turn).length > 0,
         attackingOrBlocking: deathTriggerDyingCreatureWasAttackingOrBlocking(dyingCreature),
       },

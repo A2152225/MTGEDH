@@ -5,7 +5,7 @@ export function recordCardPutIntoGraveyardThisTurn(
   ctx: GameContext,
   ownerId: string,
   card: any,
-  options?: { fromBattlefield?: boolean; controllerId?: string }
+  options?: { fromBattlefield?: boolean; controllerId?: string; originZone?: string }
 ) {
   try {
     const stateAny = (ctx as any).state as any;

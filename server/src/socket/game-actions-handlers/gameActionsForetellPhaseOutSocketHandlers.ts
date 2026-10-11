@@ -17,6 +17,7 @@ import { appendEvent } from "../../db";
 import { cleanupCardLeavingExile } from "../../state/modules/playable-from-exile.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { broadcastGame, ensureGame, getPlayerName, payGenericManaWithAvailableSources } from "../util";
+import { queueParsedKeywordAction } from "../../state/modules/triggerEmissionFamilyUtils.js";
 import type { EnsureInGameRoom } from "./gameActionsSocketRoomGuard.js";
 
 // ==========================================================================
@@ -111,6 +112,7 @@ export async function handleForetellCardRequest(
     (zones as any).exileCount = (zones.exile as any[]).length;
 
     debug(1, `[foretellCard] ${playerId} foretold ${card.name} (foretell cost: ${foretellCost})`);
+    queueParsedKeywordAction(game as any, String(playerId), 'foretell');
 
     // Persist event for replay
     try {

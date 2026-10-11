@@ -40,7 +40,26 @@ export type TriggerConditionEvent =
   | 'pays_life'
   | 'creates_token'
   | 'exiled'
-  | 'left_graveyard';
+  | 'left_graveyard'
+  | 'leaves_battlefield'
+  | 'gains_control'
+  | 'loses_control'
+  | 'returned_to_hand'
+  | 'spell_countered'
+  | 'counters_spell'
+  | 'put_on_stack'
+  | 'cycles'
+  | 'transforms'
+  | 'mutates'
+  | 'becomes_attached'
+  | 'becomes_unattached'
+  | 'becomes_monstrous'
+  | 'becomes_crewed'
+  | 'becomes_saddled'
+  | 'dealt_damage'
+  | 'plays_land'
+  | 'unlocks_door'
+  | 'performs';
 
 export type TriggerControllerRelation = 'any' | 'you' | 'not_you';
 
@@ -63,6 +82,8 @@ export type TriggerWhoseTurn =
   | 'each_player'
   | 'each_opponent'
   | 'enchanted_player'
+  | 'enchanted_controller'
+  | 'exiled_card_owner'
   | 'monarch'
   | 'chosen_player';
 
@@ -112,7 +133,15 @@ export interface TriggerConditionAlternative {
 
 export interface TriggerConditionIR {
   readonly event: TriggerConditionEvent;
-  readonly fromZone?: 'battlefield' | 'anywhere';
+  readonly fromZone?: 'battlefield' | 'anywhere' | 'library' | 'hand' | 'graveyard' | 'exile' | 'not_hand';
+  /** A second event in "create or sacrifice". The sacrifice emitter also queues it. */
+  readonly pairedEvent?: TriggerConditionEvent;
+  /** "you surveil", "you scry", "you activate an ability". */
+  readonly action?: string;
+  /** "is dealt combat damage" versus any damage. Absent means any damage. */
+  readonly damageKind?: 'any' | 'combat' | 'noncombat';
+  /** "for the first time each turn". */
+  readonly onceEachTurn?: boolean;
   /** "your graveyard" / "an opponent's graveyard". Absent or any is every graveyard. */
   readonly zoneOwner?: 'you' | 'not_you' | 'any';
   /** "your library" is the source's. "their library" is the actor's. */
@@ -180,4 +209,7 @@ export interface TriggerMatchContext {
   readonly zoneOwnerId?: string;
   /** Zone the object came from. "battlefield" is required for from-battlefield clauses. */
   readonly fromZone?: string;
+  readonly damageKind?: string;
+  readonly enchantedControllerId?: string;
+  readonly exiledCardOwnerId?: string;
 }

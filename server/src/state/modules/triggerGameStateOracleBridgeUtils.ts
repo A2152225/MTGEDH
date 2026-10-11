@@ -5,6 +5,7 @@ import type { GameContext } from '../context.js';
 import { transformPermanentToFace } from './day-night.js';
 import { tryResolveThassasOracleWin } from './game-state-effects.js';
 import { queueInitiativeVentureTrigger, resolveVentureProgress } from './triggerVentureUtils.js';
+import { queueParsedKeywordAction } from './triggerEmissionFamilyUtils.js';
 
 function normalizeEffectText(text: string): string {
   return String(text || '').replace(/\u2019/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
@@ -69,8 +70,28 @@ export function bridgeGameStateOracleEffectsAfterOracleIR(
     || '',
   ).trim();
 
+  const actionByStep: Record<string, string> = {
+    connive: 'connive',
+    proliferate: 'proliferate',
+    clash: 'clash',
+    roll_die: 'roll_die',
+    exert: 'exert',
+    ring_tempts_you: 'ring_tempts',
+    vote: 'vote',
+  };
+  const queuedActions = new Set<string>();
+  for (const step of result.appliedSteps || []) {
+    const kind = String((step as any)?.kind || '');
+    const action = actionByStep[kind]
+      || (kind === 'impulse_exile_top' && /until you exile a nonland card with mana value/i.test(String((step as any)?.raw || '')) ? 'discover' : '');
+    if (!action || queuedActions.has(action)) continue;
+    queuedActions.add(action);
+    queueParsedKeywordAction(ctx, String(params.controller), action);
+  }
+
   if (!kinds.has('become_monarch') && (desc.includes('become the monarch') || desc.includes('you become the monarch'))) {
     state.monarch = params.controller;
+    queueParsedKeywordAction(ctx, String(params.controller), 'become_monarch');
   }
 
   const tookInitiative = kinds.has('take_initiative')

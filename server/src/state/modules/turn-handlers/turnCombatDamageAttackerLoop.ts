@@ -37,6 +37,7 @@ export type DealCombatDamageResult = {
   lifeGainForPlayers: Record<string, number>;
   creaturesDestroyed: string[];
   attackersThatDealtDamage?: Record<string, Set<string>>;
+  attackersThatDealtCreatureDamage?: string[];
   attackerDamageToPlayers?: Record<string, Record<string, number>>;
 };
 
@@ -372,6 +373,10 @@ export function applyDealCombatDamageAttackerLoop(
               }
               // Track damage dealt to this permanent this turn (for intervening-if clauses).
               blocker.damageThisTurn = (blocker.damageThisTurn || 0) + damageResult.appliedAmount;
+              result.attackersThatDealtCreatureDamage = result.attackersThatDealtCreatureDamage || [];
+              if (!result.attackersThatDealtCreatureDamage.includes(String(attacker.id))) {
+                result.attackersThatDealtCreatureDamage.push(String(attacker.id));
+              }
               blocker.combatDamageThisTurn = (blocker.combatDamageThisTurn || 0) + damageResult.appliedAmount;
               blocker.tookDamageThisTurn = true;
 

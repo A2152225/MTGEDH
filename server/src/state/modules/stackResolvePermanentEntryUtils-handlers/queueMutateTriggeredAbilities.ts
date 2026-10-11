@@ -17,6 +17,7 @@ import { appendEvent } from '../../../db/index.js';
 import { inferTriggeredAbilityTargetMetadata } from '../inferTriggeredAbilityTargetMetadata.js';
 import { parseTriggeredAbilitiesFromText, TriggerEvent as ParsedTriggerEvent } from '../../../../../rules-engine/src/triggeredAbilities.js';
 import { detectMutateTriggers } from '../triggered-abilities.js';
+import { collectMatchingParsedEventLines } from '../triggers/triggerConditionFamilyMatch.js';
 
 function buildFullTriggeredAbilityText(trigger: any): string {
   const keywordRaw = String(trigger?.keyword || 'when').toLowerCase();
@@ -87,6 +88,28 @@ export function queueMutateTriggeredAbilities(
         event: ParsedTriggerEvent.MUTATES,
         effect,
         optional: extra.mandatory === false,
+        keyword: 'whenever',
+        condition: 'this creature mutates',
+      } as any);
+    }
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText,
+      event: 'mutates',
+      subjectPermanent: permanent,
+      subjectControllerId: controller,
+      sourcePermanent: permanent,
+    })) {
+      const effect = line.effect.trim();
+      const effectKey = effect.toLowerCase();
+      if (!effect || [...seenMutateEffects].some((existing) => (
+        existing.includes(effectKey.slice(0, 24)) || effectKey.includes(existing.slice(0, 24))
+      ))) continue;
+      seenMutateEffects.add(effect.toLowerCase());
+      mutateTriggers.push({
+        event: ParsedTriggerEvent.MUTATES,
+        effect,
+        optional: /^you may\b/i.test(effect),
         keyword: 'whenever',
         condition: 'this creature mutates',
       } as any);
