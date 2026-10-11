@@ -277,6 +277,7 @@ export function runNextTurnStartOfTurn(
 
       if (spells.length === 0 && hasExplicitLastTurnSnapshot) {
         stateAny.spellsCastThisTurn = [];
+        stateAny.manaSpentToCastSpellsThisTurn = {};
         debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
       } else {
 
@@ -314,6 +315,7 @@ export function runNextTurnStartOfTurn(
         }
 
         stateAny.spellsCastThisTurn = [];
+        stateAny.manaSpentToCastSpellsThisTurn = {};
         debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
       }
     } catch {

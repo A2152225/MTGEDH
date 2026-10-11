@@ -79,6 +79,12 @@ export function bridgeGameStateOracleEffectsAfterOracleIR(
     ring_tempts_you: 'ring_tempts',
     vote: 'vote',
   };
+  const pendingCoinWins = Array.isArray(state.pendingCoinFlipWins) ? state.pendingCoinFlipWins.splice(0) : [];
+  for (const winnerId of pendingCoinWins) {
+    const playerId = String(winnerId || '').trim();
+    if (playerId) queueParsedKeywordAction(ctx, playerId, 'win_coin_flip');
+  }
+
   const queuedActions = new Set<string>();
   for (const step of result.appliedSteps || []) {
     const kind = String((step as any)?.kind || '');

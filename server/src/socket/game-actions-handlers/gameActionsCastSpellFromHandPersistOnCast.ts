@@ -17,6 +17,7 @@ import { isOnCastReflexiveCostGateEffect, resolveOnCastSpellTriggerDescriptions 
 import { isInterveningIfSatisfied } from "../../state/modules/triggers/intervening-if";
 import { getOpponentSpellCastTriggers, spellOrdinalForCaster } from "../../state/modules/triggers/index.js";
 import { orderTriggersByAPNAP } from "../../state/modules/triggers/ordering.js";
+import { queueExpendTriggers } from "../../state/modules/triggerEmissionFamilyUtils.js";
 import { uid } from "../../state/utils";
 import { debug, debugWarn } from "../../utils/debug.js";
 import {
@@ -540,6 +541,14 @@ export async function persistAndProcessCastSpellFromHand(
       try {
         // Track spells cast this turn (for Storm and other "cast this turn" checks)
         recordSpellCastThisTurn(game, playerId, cardInHand, castSourceZone);
+        const spent = Math.max(0, Number(manaSpentTotal) || 0);
+        if (spent > 0) {
+          const totals = (game.state as any).manaSpentToCastSpellsThisTurn || {};
+          const previous = Math.max(0, Number(totals[playerId]) || 0);
+          totals[playerId] = previous + spent;
+          (game.state as any).manaSpentToCastSpellsThisTurn = totals;
+          queueExpendTriggers(game, playerId, previous, previous + spent);
+        }
 
         // Track: "no opponent cast a spell since your last turn ended" (best-effort)
         // Only flips `false -> true` for already-known opponent entries to avoid guessing in team games.

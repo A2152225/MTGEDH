@@ -60,6 +60,7 @@ const PERFORM_ACTIONS: ReadonlyArray<{ phrase: string; action: string }> = [
   { phrase: 'activate an ability', action: 'activate_ability' },
   { phrase: 'foretell a card', action: 'foretell' },
   { phrase: 'roll a die', action: 'roll_die' },
+  { phrase: 'roll the planar die', action: 'roll_planar_die' },
   { phrase: 'roll one or more dice', action: 'roll_die' },
   { phrase: 'win a coin flip', action: 'win_coin_flip' },
   { phrase: 'become the monarch', action: 'become_monarch' },
@@ -200,7 +201,11 @@ export function parseLateTriggerSentence(text: string): LateTriggerSentence | nu
         : perform[2];
     const known = PERFORM_ACTIONS.find((entry) => entry.phrase === verb);
     if (known) {
-      const parsed = subjectEvent('performs', 'a permanent', perform[3], { action: known.action });
+      const expendAmount = known.action === 'expend' ? Number(/^expend (\d+)$/.exec(perform[2])?.[1]) : NaN;
+      const parsed = subjectEvent('performs', 'a permanent', perform[3], {
+        action: known.action,
+        ...(Number.isFinite(expendAmount) ? { actionAmount: expendAmount } : {}),
+      });
       return parsed ? { condition: withController(parsed.condition, actorController(perform[1])), effect: parsed.effect } : null;
     }
   }

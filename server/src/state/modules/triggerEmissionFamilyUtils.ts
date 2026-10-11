@@ -126,6 +126,49 @@ export function queueParsedKeywordAction(ctx: GameContext, actorId: string, acti
   });
 }
 
+/** "Whenever you expend N" fires once, when mana spent to cast spells this turn reaches N. */
+export function queueExpendTriggers(
+  ctx: GameContext,
+  playerId: string,
+  previousTotal: number,
+  nextTotal: number,
+): any[] {
+  const previous = Math.max(0, Number(previousTotal) || 0);
+  const next = Math.max(0, Number(nextTotal) || 0);
+  if (next <= previous) return [];
+  const state = (ctx as any).state;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const queued: any[] = [];
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    for (const line of collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'performs',
+      subjectPermanent: { id: '', controller: playerId },
+      subjectControllerId: playerId,
+      sourcePermanent: permanent,
+      action: 'expend',
+    })) {
+      const threshold = line.condition?.actionAmount;
+      const crossed = threshold == null
+        ? true
+        : previous < threshold && next >= threshold;
+      if (!crossed) continue;
+      const item = queueGenericTriggeredAbility(ctx, {
+        permanentId: String(permanent.id || ''),
+        controllerId: String(permanent.controller || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        effect: line.effect,
+        description: line.effect,
+        mandatory: !/^you may\b/i.test(line.effect),
+      }, 'expend', { playerId, previousTotal: previous, nextTotal: next, threshold: threshold ?? next });
+      if (item) queued.push(item);
+    }
+  }
+  return queued;
+}
+
 export function queueGenericTriggeredAbility(
   ctx: GameContext,
   trigger: any,

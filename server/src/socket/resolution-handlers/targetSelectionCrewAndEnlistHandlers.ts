@@ -43,8 +43,10 @@ export async function tryHandleCrewAbilityTargetSelection(
   const selections = response.selections as string[];
   const stepAny = step as any;
 
+  const isSaddleTargetStep = stepAny?.saddleAbility === true;
   const isCrewTargetStep =
-    stepAny?.crewAbility === true
+    isSaddleTargetStep
+    || stepAny?.crewAbility === true
     || (Array.isArray(stepAny?.targetTypes) && stepAny.targetTypes.some((t: any) => String(t).toLowerCase() === 'crew_creature'));
   if (!isCrewTargetStep) return false;
 
@@ -114,7 +116,7 @@ export async function tryHandleCrewAbilityTargetSelection(
   // Apply via applyEvent for determinism (replay uses the same path).
   if (typeof (game as any).applyEvent === 'function') {
     (game as any).applyEvent({
-      type: 'crewVehicle',
+      type: isSaddleTargetStep ? 'saddleMount' : 'crewVehicle',
       playerId: pid,
       resolvedStepId: String(step.id || '').trim(),
       vehicleId,
@@ -124,7 +126,7 @@ export async function tryHandleCrewAbilityTargetSelection(
 
   // Persist for replay.
   try {
-    await appendEvent(gameId, (game as any).seq ?? 0, 'crewVehicle', {
+    await appendEvent(gameId, (game as any).seq ?? 0, isSaddleTargetStep ? 'saddleMount' : 'crewVehicle', {
       playerId: pid,
       resolvedStepId: String(step.id || '').trim(),
       vehicleId,

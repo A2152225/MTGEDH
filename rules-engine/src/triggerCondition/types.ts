@@ -138,6 +138,8 @@ export interface TriggerConditionIR {
   readonly pairedEvent?: TriggerConditionEvent;
   /** "you surveil", "you scry", "you activate an ability". */
   readonly action?: string;
+  /** "you expend 4": the mana total that must be reached. */
+  readonly actionAmount?: number;
   /** "is dealt combat damage" versus any damage. Absent means any damage. */
   readonly damageKind?: 'any' | 'combat' | 'noncombat';
   /** "for the first time each turn". */

@@ -9,6 +9,7 @@ import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { broadcastGame } from '../../socket/util.js';
 import { debugWarn } from '../../utils/debug.js';
+import { queueParsedKeywordAction } from './triggerEmissionFamilyUtils.js';
 
 const MAX_FLIPS = 32;
 
@@ -64,6 +65,7 @@ export function resolveFlipCoinLifeStakesIteration(
   if (won) {
     applyLifeDelta(state, controllerId, stake);
     applyLifeDelta(state, opponentId, -stake);
+    queueParsedKeywordAction(ctx, controllerId, 'win_coin_flip');
   } else {
     applyLifeDelta(state, controllerId, -stake);
     applyLifeDelta(state, opponentId, stake);

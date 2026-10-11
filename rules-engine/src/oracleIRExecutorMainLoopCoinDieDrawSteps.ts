@@ -357,6 +357,11 @@ export function tryApplyMainLoopCoinDieDrawSteps(
           };
           stateAny.lastCoinFlip = flipRecord;
           stateAny.lastCoinFlipByPlayer[playerId] = flipRecord;
+          if (winCount > 0) {
+            const pending = Array.isArray(stateAny.pendingCoinFlipWins) ? stateAny.pendingCoinFlipWins : [];
+            for (let winIndex = 0; winIndex < winCount; winIndex += 1) pending.push(playerId);
+            stateAny.pendingCoinFlipWins = pending;
+          }
           stateAny.coinFlipsThisTurn[playerId] = Array.isArray(stateAny.coinFlipsThisTurn[playerId])
             ? [...stateAny.coinFlipsThisTurn[playerId], flipRecord]
             : [flipRecord];

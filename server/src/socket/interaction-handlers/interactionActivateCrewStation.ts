@@ -150,6 +150,58 @@ export async function tryHandleActivateCrewStation(
     broadcastGame(io, game, gameId);
     return true;
   }
+
+  const isMount = /\bmount\b/i.test(typeLine);
+  const hasExplicitSaddleAbilityId = /-saddle-(\d+)$/i.test(abilityId) || abilityId === 'saddle';
+  const saddleAbilityText = hasExplicitSaddleAbilityId ? oracleText : scopedAbilityFullText;
+  const isSaddleAbility = hasExplicitSaddleAbilityId || (isMount && /\bsaddle\s*\d+/i.test(saddleAbilityText));
+  if (isSaddleAbility) {
+    const saddleMatch = saddleAbilityText.match(/saddle\s*(\d+)/i);
+    const saddlePower = saddleMatch ? parseInt(saddleMatch[1], 10) : 0;
+    const validCrewers = battlefield.filter((perm: any) => {
+      if (!perm || perm.id === permanentId) return false;
+      if (String(perm.controller || '') !== String(pid)) return false;
+      if (perm.tapped) return false;
+      return /\bcreature\b/i.test(String(perm.card?.type_line || ''));
+    });
+    const totalAvailablePower = validCrewers.reduce((sum: number, perm: any) => sum + getEffectivePower(perm, game.state), 0);
+    if (totalAvailablePower < saddlePower) {
+      socket.emit('error', {
+        code: 'INSUFFICIENT_POWER',
+        message: `You need creatures with total power ${saddlePower}+ to saddle ${cardName}. Available: ${totalAvailablePower}`,
+      });
+      return true;
+    }
+    const existingSaddle = ResolutionQueueManager
+      .getStepsForPlayer(gameId, pid as any)
+      .find((s: any) => s?.type === ResolutionStepType.TARGET_SELECTION && s?.saddleAbility === true && String(s?.sourceId) === String(permanentId));
+    if (!existingSaddle) {
+      ResolutionQueueManager.addStep(gameId, {
+        type: ResolutionStepType.TARGET_SELECTION,
+        playerId: pid as PlayerID,
+        sourceId: permanentId,
+        sourceName: cardName,
+        description: `Saddle ${saddlePower} — Tap any number of other untapped creatures you control with total power ${saddlePower} or more.`,
+        mandatory: false,
+        validTargets: validCrewers.map((c: any) => ({
+          id: c.id,
+          label: `${c.card?.name || 'Creature'} (${getEffectivePower(c, game.state)}/${getEffectiveToughness(c, game.state)})`,
+          description: c.card?.type_line || 'Creature',
+        })),
+        targetTypes: ['crew_creature'],
+        minTargets: 1,
+        maxTargets: validCrewers.length,
+        targetDescription: 'creatures you control to saddle',
+        saddleAbility: true,
+        vehicleId: permanentId,
+        crewPower: saddlePower,
+      } as any);
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+    }
+    debug(2, `[activateBattlefieldAbility] Saddle ability on ${cardName}: queued TARGET_SELECTION (need power ${saddlePower})`);
+    broadcastGame(io, game, gameId);
+    return true;
+  }
   
   // Handle Station abilities (Spacecraft / Planet permanents)
   // Station N (Rule 702.184a): "Tap another untapped creature you control: Put a number of 

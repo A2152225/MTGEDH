@@ -21,6 +21,7 @@ import { consumeReplayedTriggeredAbilityStackItems } from "../replay-prompt-clea
 import { applyBattlefieldPermanentReplayPatch } from "../../effects/battlefieldPermanentReplayPersistence.js";
 import { getOrInitManaPool } from "../../../socket/util.js";
 import { queueParsedKeywordAction, queueParsedSubjectEvent } from "../triggerEmissionFamilyUtils.js";
+import { rollPlanarDie } from "../planarDie.js";
 
 export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -565,6 +566,46 @@ export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boo
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(roomDoorChoice): failed', err);
+        }
+        break;
+      }
+
+      case "saddleMount": {
+        try {
+          const pid = String((e as any).playerId || '').trim();
+          const mountId = String((e as any).vehicleId || (e as any).mountId || '').trim();
+          const crewerIds = Array.isArray((e as any).crewerIds) ? (e as any).crewerIds.map((id: any) => String(id)) : [];
+          const battlefield = (ctx.state.battlefield || []) as any[];
+          const mount = battlefield.find((p: any) => p && String(p.id) === mountId);
+          if (!mount) break;
+          for (const crewerId of crewerIds) {
+            const crewer = battlefield.find((p: any) => p && String(p.id) === String(crewerId));
+            if (crewer) crewer.tapped = true;
+          }
+          mount.saddled = true;
+          mount.saddledThisTurn = Number((ctx.state as any).turnNumber || (ctx.state as any).turn || 0);
+          queueParsedSubjectEvent(ctx, {
+            event: 'becomes_saddled',
+            subjectPermanent: mount,
+            subjectControllerId: String(mount.controller || pid || ''),
+            triggerType: 'becomes_saddled',
+            effectData: { mountId },
+          });
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(saddleMount): failed', err);
+        }
+        break;
+      }
+
+      case "rollPlanarDie": {
+        try {
+          const pid = String((e as any).playerId || '').trim();
+          const face = (e as any).face;
+          if (pid) rollPlanarDie(ctx, pid, face);
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(rollPlanarDie): failed', err);
         }
         break;
       }

@@ -244,6 +244,9 @@ describe('parseTriggerEventSentence', () => {
     expect(parseTriggerEventSentence('Whenever this creature becomes saddled for the first time each turn, draw a card.')?.condition.onceEachTurn).toBe(true);
     expect(parseTriggerEventSentence('Whenever you connive, draw a card.')?.condition.action).toBe('connive');
     expect(parseTriggerEventSentence('Whenever you foretell a card, draw a card.')?.condition.action).toBe('foretell');
+    expect(parseTriggerEventSentence('Whenever you expend 4, draw a card.')?.condition.actionAmount).toBe(4);
+    expect(parseTriggerEventSentence('Whenever you win a coin flip, draw a card.')?.condition.action).toBe('win_coin_flip');
+    expect(parseTriggerEventSentence('Whenever you roll the planar die, draw a card.')?.condition.action).toBe('roll_planar_die');
     expect(parseTriggerEventSentence('Whenever you exert a creature, draw a card.')?.condition.action).toBe('exert');
     expect(parseTriggerEventSentence('Whenever you roll a die, draw a card.')?.condition.action).toBe('roll_die');
     expect(parseTriggerEventSentence('Whenever the ring tempts you, draw a card.')?.condition.action).toBe('ring_tempts');
