@@ -24,7 +24,7 @@ import { uid } from "../../utils.js";
 import { orderTriggersByAPNAP } from "./ordering.js";
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
-import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggerConditionFamilyMatch.js';
 
 /**
  * Helper to extract card ID from various card formats in zones
@@ -459,7 +459,7 @@ export function detectLifegainTriggers(
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
         String(existing.permanentId || '') === String(perm.id || '')
-        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+        && parsedEffectDuplicates(existing.effect || '', line)
       ))) continue;
       triggers.push({
         permanentId: perm.id,

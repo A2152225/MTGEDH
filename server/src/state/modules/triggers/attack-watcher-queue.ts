@@ -228,7 +228,11 @@ function attackerMatchesAttackSubject(attacker: any, phrase: string, sourcePerma
 }
 
 function attackerMatchesTypePhrase(attacker: any, phrase: string): boolean {
-  const parsed = attackerMatchesParsedPhrase(attacker, phrase);
+  // The parsed type-line matcher has no colour information ("a white creature"), so colour
+  // phrases go through the token matcher, which checks the attacker's colours.
+  const mentionsColor = String(phrase || '').toLowerCase().split(/[^a-z-]+/)
+    .some((word) => ATTACK_COLOR_NAMES.has(word.replace(/^non-?/, '')));
+  const parsed = mentionsColor ? null : attackerMatchesParsedPhrase(attacker, phrase);
   if (parsed !== null) return parsed;
   const parts = String(phrase || '')
     .split(/\s*,\s*|\s+or\s+/i)

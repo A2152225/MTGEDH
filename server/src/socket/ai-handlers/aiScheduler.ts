@@ -91,6 +91,42 @@ function scheduleAIActionInternal(
     timer,
     runAt,
   });
+
+  if (kind === 'priority' && delayMs > 0) {
+    requestAIFastPassPrecheck(io, gameId, playerId);
+  }
+}
+
+const fastPassPrechecksInFlight = new Set<string>();
+
+/**
+ * Pacing applies only before real actions. If the AI holding priority would just pass, pull its
+ * scheduled priority run forward to 0ms. Runs on setImmediate (never synchronously) so a chain
+ * of AIs passing in a row stays a sequence of short event-loop turns, not a deep call stack.
+ */
+function requestAIFastPassPrecheck(io: Server, gameId: string, playerId: PlayerID): void {
+  const key = getAIActionKey(gameId, playerId);
+  if (fastPassPrechecksInFlight.has(key)) return;
+  fastPassPrechecksInFlight.add(key);
+  setImmediate(() => {
+    void (async () => {
+      try {
+        const pending = aiScheduledActions.get(key);
+        if (!pending || pending.kind !== 'priority' || pending.runAt <= Date.now()) return;
+        if (aiActionsInProgress.has(key) || isGameRestoring(gameId)) return;
+        const { aiPriorityWillPass } = await import("./aiFastPassPrecheck.js");
+        if (!(await aiPriorityWillPass(gameId, playerId))) return;
+        const still = aiScheduledActions.get(key);
+        if (!still || still.kind !== 'priority') return;
+        debug(2, '[AI] fast pass: no action to take, running priority without pacing delay', { gameId, playerId });
+        scheduleAIActionInternal(io, gameId, playerId, 'priority', 0);
+      } catch (err) {
+        debugWarn(2, '[AI] fast-pass precheck errored; keeping normal pacing', err);
+      } finally {
+        fastPassPrechecksInFlight.delete(key);
+      }
+    })();
+  });
 }
 
 export function scheduleAIGameFlow(

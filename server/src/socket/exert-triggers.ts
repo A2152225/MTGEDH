@@ -1,6 +1,7 @@
 import { appendEvent } from '../db/index.js';
 import { inferTriggeredAbilityTargetMetadata } from '../state/modules/inferTriggeredAbilityTargetMetadata.js';
 import { uid } from '../state/utils.js';
+import { queueParsedKeywordAction } from '../state/modules/triggerEmissionFamilyUtils.js';
 import { debugWarn } from '../utils/debug.js';
 
 function cloneExertTriggerPermanentSnapshot(permanent: any): any {
@@ -68,6 +69,7 @@ export function pushWheneverYouExertTriggersOntoStack(
     }
   }
 
+  const handledPermanentIds: string[] = [];
   for (const permanent of battlefield) {
     if (!permanent || String(permanent.controller || '') !== controllerId) {
       continue;
@@ -77,6 +79,7 @@ export function pushWheneverYouExertTriggersOntoStack(
     if (effectTexts.length === 0) {
       continue;
     }
+    handledPermanentIds.push(String(permanent?.id || ''));
 
     const sourceSnapshot = cloneExertTriggerPermanentSnapshot(permanent);
     const sourceName = String(permanent?.card?.name || sourceSnapshot?.card?.name || 'Triggered Ability').trim() || 'Triggered Ability';
@@ -149,5 +152,13 @@ export function pushWheneverYouExertTriggersOntoStack(
         debugWarn(1, '[exert-triggers] Failed to persist whenever-you-exert trigger pushTriggeredAbility:', err);
       }
     }
+  }
+
+  // Parsed trigger-condition sentences the line regex above does not cover
+  // (e.g. "Whenever you exert one or more creatures, ...").
+  try {
+    queueParsedKeywordAction(game as any, controllerId, 'exert', handledPermanentIds);
+  } catch (err) {
+    debugWarn(1, '[exert-triggers] parsed exert watcher emission failed:', err);
   }
 }

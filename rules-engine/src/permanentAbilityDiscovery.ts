@@ -289,7 +289,8 @@ function parseRestrictions(effectText: string): ActivationRestriction[] {
   
   // Sorcery speed restriction
   if (text.includes('activate only as a sorcery') || 
-      text.includes('only any time you could cast a sorcery')) {
+      text.includes('only any time you could cast a sorcery') ||
+      /^\s*level\s+\d+\s*\.?\s*$/.test(text)) {
     restrictions.push({
       type: 'timing',
       description: 'Activate only as a sorcery',

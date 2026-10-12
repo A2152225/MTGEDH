@@ -7,7 +7,7 @@
 
 import type { GameContext } from "../../context.js";
 import { detectCombatDamageTriggers } from "../triggered-abilities.js";
-import { collectMatchingParsedEventLines } from "../triggers/triggerConditionFamilyMatch.js";
+import { collectMatchingParsedEventLines, parsedEffectDuplicates } from "../triggers/triggerConditionFamilyMatch.js";
 import { isInterveningIfSatisfied } from "../triggers/intervening-if.js";
 import { uid } from "../../utils.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
@@ -68,7 +68,7 @@ export function applyDealCombatDamageTriggerQueue(
             subjectControllerId: String(attackerPerm.controller || ''),
             sourcePermanent: attackerPerm,
           })) {
-            if (triggers.some((trigger) => String(trigger.effect || trigger.description || '').toLowerCase().includes(line.effect.toLowerCase().slice(0, 24)))) {
+            if (triggers.some((trigger) => parsedEffectDuplicates(trigger.effect || trigger.description || '', line.effect))) {
               continue;
             }
             triggers.push({
@@ -206,7 +206,7 @@ export function applyDealCombatDamageTriggerQueue(
             const normalized = line.effect.toLowerCase();
             if (pendingCombatDamageTriggerEntries.some((entry) => (
               String(entry.stackItem?.permanentId || '') === String(source.id || '')
-              && String(entry.stackItem?.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+              && parsedEffectDuplicates(entry.stackItem?.effect || '', line)
             ))) continue;
             pendingCombatDamageTriggerEntries.push({
               stackItem: {

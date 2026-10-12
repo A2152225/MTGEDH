@@ -24,6 +24,11 @@ import {
   restoreOracleIrPendingCompoundResumeOnState,
 } from "../oracleIrTransitionPipeline.js";
 import { ensureDeferredOracleIrStackItem } from "../oracleIrDeferredStackFinalize.js";
+import {
+  NO_ATTACKER_COMBAT_SKIP_EVENT_KEY,
+  NO_ATTACKER_COMBAT_SKIP_LIVE_FLAG,
+  NO_ATTACKER_COMBAT_SKIP_REPLAY_FLAG,
+} from "../turn-handlers/turnStepPhaseAdvance.js";
 
 export function applyTurnPhaseTopLibraryEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -40,9 +45,14 @@ export function applyTurnPhaseTopLibraryEvents(ctx: GameContext, e: GameEvent): 
         if (drawnCardIds.length > 0) {
           (ctx.state as any)._replayDrawStepCardIds = drawnCardIds;
         }
+        if ((e as any)[NO_ATTACKER_COMBAT_SKIP_EVENT_KEY] === true) {
+          (ctx.state as any)[NO_ATTACKER_COMBAT_SKIP_REPLAY_FLAG] = true;
+        }
         try {
           nextStep(ctx as any);
         } finally {
+          delete (ctx.state as any)[NO_ATTACKER_COMBAT_SKIP_REPLAY_FLAG];
+          delete (ctx.state as any)[NO_ATTACKER_COMBAT_SKIP_LIVE_FLAG];
           delete (ctx.state as any)._replayDrawStepCardIds;
           delete (ctx.state as any)._lastDrawStepCardIds;
         }

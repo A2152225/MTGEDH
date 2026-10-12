@@ -13,7 +13,7 @@ import { detectSpellCastTriggers } from "./spell-cast-detection.js";
 import { spellSharesCreatureTypeWithSource } from "./spellCastSharedCreatureType.js";
 import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
 import { spellOrdinalForCaster } from "./spell-cast.js";
-import { collectMatchingParsedEventLines, spellCastConditionMatches } from "./triggerConditionFamilyMatch.js";
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource, spellCastConditionMatches } from "./triggerConditionFamilyMatch.js";
 /**
  * Get all spell-cast triggers that should fire when a spell is cast
  */
@@ -54,6 +54,7 @@ export function getSpellCastTriggers(
         sourceControllerId: String(permanent.controller || casterId || ''),
         casterId,
         tribalType: spellDetailForTrigger(trigger, permanent),
+        effectiveSpellColors: getEffectiveColors(spellCard, ctx.state),
       });
       let shouldTrigger = false;
 
@@ -151,8 +152,8 @@ export function getSpellCastTriggers(
     })) {
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates([existing.effect, existing.description], line)
       ))) continue;
       const subject = line.condition?.alternatives[0]?.subject;
       const types = (subject?.typeGroups || []).flat();

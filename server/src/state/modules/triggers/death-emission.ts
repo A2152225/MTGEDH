@@ -295,13 +295,16 @@ export function getDeathTriggers(
     }
 
     else {
-      const genericDiesMatch = oracleText.match(/when(?:ever)?\s+([^.]+?)\s+dies,?\s*([^.]+)/i);
+      // Ignore quoted granted abilities ('gains "When this creature dies, ..."'): they belong to
+      // the creature that received them and fire from its own self-dies scan.
+      const ownOracleText = oracleText.replace(/"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g, '""');
+      const genericDiesMatch = ownOracleText.match(/when(?:ever)?\s+([^.]+?)\s+dies,?\s*([^.]+)/i);
       if (
         genericDiesMatch &&
         deathTriggerClauseMatchesDyingCreature(ctx, genericDiesMatch[1], permanent, dyingCreature, dyingCreatureController) &&
         !results.some(r => r.source.permanentId === permanent.id)
       ) {
-        const effect = collectDeathTriggerEffectText(oracleText, genericDiesMatch, 2);
+        const effect = collectDeathTriggerEffectText(ownOracleText, genericDiesMatch, 2);
         const returnsUnderControl = effect.toLowerCase().includes('return') &&
           effect.toLowerCase().includes('under your control');
         results.push({
@@ -484,7 +487,7 @@ export function getDeathTriggers(
   }
 
   appendHauntLeaveDeathTriggers(ctx, results, dyingCreature);
-  return dedupeDeathTriggerResults(results);
+  return dedupeDeathTriggerResults(results, String(dyingCreature?.id || ''));
 }
 
 function deathEffectsOverlap(left: string, right: string): boolean {
@@ -497,14 +500,25 @@ function deathEffectsOverlap(left: string, right: string): boolean {
   return prefixLen >= 24 && a.slice(0, prefixLen) === b.slice(0, prefixLen);
 }
 
-function dedupeDeathTriggerResults(results: DeathTriggerResult[]): DeathTriggerResult[] {
+function dedupeDeathTriggerResults(results: DeathTriggerResult[], dyingId = ''): DeathTriggerResult[] {
   const deduped: DeathTriggerResult[] = [];
+  // A temporary 'gains "When this creature dies, ..."' grant is tracked twice: as a delayed
+  // WHEN_DIES watcher (sourced from the granting permanent) and as a temporary ability on the
+  // dying creature itself. Both describe one ability, so it must trigger once.
+  const isDelayedGrant = (entry: DeathTriggerResult) => String(entry?.triggerType || '') === 'dealt_damage_this_way_dies';
+  const sameAbilityHolder = (a: DeathTriggerResult, b: DeathTriggerResult): boolean => {
+    const aId = String(a?.source?.permanentId || '');
+    const bId = String(b?.source?.permanentId || '');
+    if (aId === bId) return true;
+    if (!dyingId) return false;
+    return (isDelayedGrant(a) && bId === dyingId) || (isDelayedGrant(b) && aId === dyingId);
+  };
   for (const result of results) {
     const sourceId = String(result?.source?.permanentId || '');
     const effect = String(result?.effect || '');
     if (!sourceId || !effect) continue;
     if (deduped.some((existing) => (
-      String(existing.source.permanentId) === sourceId
+      sameAbilityHolder(existing, result)
       && deathEffectsOverlap(String(existing.effect || ''), effect)
     ))) {
       continue;

@@ -9,7 +9,7 @@
 
 import type { GameContext } from "../../context.js";
 import { parseDiesSubjectClause, triggerConditionMatches } from "../../../../../rules-engine/src/triggerCondition/index.js";
-import { collectMatchingParsedEventLines, permanentToTriggerMatch } from "./triggerConditionFamilyMatch.js";
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, permanentToTriggerMatch } from "./triggerConditionFamilyMatch.js";
 import { detectDeathTriggers } from "./death-detection.js";
 import {
   getContinuousGrantedAbilitiesForPermanent,
@@ -552,7 +552,14 @@ export function appendDetectedDeathWatcherTriggers(
   for (const permanent of permanentsToScan) {
     if (!permanent?.card) continue;
     const controllerId = String(permanent.controller || dyingCreatureController || '');
-    for (const trigger of detectDeathTriggers(permanent.card, permanent, detectState)) {
+    // A one-shot 'gains "When this creature dies, ..."' (Perigee Beckoner) is copied onto the
+    // target's temporaryAbilities and fires from its own self-dies scan; only static
+    // 'have "..."' grants (Vraska-style) should be watched from the granting permanent.
+    const printedOracle = String(permanent.card?.oracle_text || '');
+    const ownOracle = printedOracle.replace(/(\bgains?\s+)(?:"[^"\n]*"|\u201c[^\u201d\n]*\u201d)/gi, '$1""');
+    const scanCard = ownOracle === printedOracle ? permanent.card : { ...permanent.card, oracle_text: ownOracle };
+    const scanPermanent = scanCard === permanent.card ? permanent : { ...permanent, card: scanCard };
+    for (const trigger of detectDeathTriggers(scanCard, scanPermanent, detectState)) {
       if (!shouldQueueDetectedDeathTrigger(detectCtx, trigger, permanent, dyingCreature, dyingCreatureController)) {
         continue;
       }
@@ -676,10 +683,16 @@ export function appendParsedDiesTriggerLines(
   dyingCreature: any,
   dyingCreatureController: string,
 ): void {
+  const dyingId = String(dyingCreature?.id || '').trim();
+  const dyingIsCreature = String(dyingCreature?.card?.type_line || '').toLowerCase().includes('creature');
   for (const permanent of permanents) {
     if (!permanent?.card && !permanent?.oracle_text) continue;
     const sourceId = String(permanent?.id || '').trim();
     if (!sourceId) continue;
+    // A dying creature's own "When this creature dies" lines (printed or granted) are queued by
+    // the live self-dies scan in getDeathTriggers, which keeps reflexive/bound-card metadata.
+    // Pushing the parsed sentence first made that scan drop its richer entry as a duplicate.
+    if (dyingIsCreature && sourceId === dyingId) continue;
     const oracleText = getPermanentRulesTextFragments(permanent).join('\n');
     for (const line of collectMatchingParsedEventLines({
       ctx,
@@ -691,12 +704,13 @@ export function appendParsedDiesTriggerLines(
     })) {
       const effect = line.effect;
       const normalizedEffect = effect.toLowerCase().replace(/\s+/g, ' ').trim();
-      const alreadyQueued = results.some((result) => {
-        if (String(result?.source?.permanentId || '') !== sourceId) return false;
-        const existing = String(result?.effect || '').toLowerCase().replace(/\s+/g, ' ').trim();
-        return existing === normalizedEffect
-          || existing.startsWith(normalizedEffect)
-          || normalizedEffect.startsWith(existing);
+      const alreadyQueued = normalizedEffect !== '' && results.some((result) => {
+        const resultSourceId = String(result?.source?.permanentId || '').trim();
+        const sameSource = resultSourceId
+          ? resultSourceId === sourceId
+          : String(result?.source?.cardName || '').toLowerCase() === String(permanent?.card?.name || '').toLowerCase();
+        if (!sameSource) return false;
+        return parsedEffectDuplicates([(result as any)?.effect, (result as any)?.description], line);
       });
       if (alreadyQueued) continue;
       pushDetectedDeathTrigger(

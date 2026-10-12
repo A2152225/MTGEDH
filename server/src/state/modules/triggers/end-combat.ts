@@ -2,7 +2,7 @@ import type { GameContext } from '../../context.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { collectDelayedEndOfCombatRegistryTriggers } from './delayed-end-combat-watchers.js';
-import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 import {
   inferEndCombatWhoseTurn,
   shouldQueuePhaseTriggerForActivePlayer,
@@ -124,8 +124,8 @@ export function getEndOfCombatTriggers(
       if (triggers.length >= MAX_TRIGGERS_PER_STEP) break;
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates([existing.effect, existing.description], line)
       ))) continue;
       triggers.push({
         permanentId: String(permanent.id || ''),

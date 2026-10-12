@@ -11,6 +11,7 @@
  * Response-window activations that produce no state change are remembered for the current
  * phase/step/stack window so the AI passes instead of retrying tap-cost no-ops.
  */
+import { isClassOrLevelUpActivation } from "../../state/modules/activation-timing.js";
 import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { abilityAllowsAnyPlayerActivation } from "../../../../shared/src/anyPlayerActivatedAbility.js";
@@ -90,6 +91,10 @@ function isAISorcerySpeedBattlefieldAbility(action: any, permanent: any): boolea
   }
 
   if (/-reconfigure-|-equip-|fortify/.test(abilityId)) {
+    return true;
+  }
+  // Class level-ups and level up are sorcery speed even without "Activate only as a sorcery".
+  if (isClassOrLevelUpActivation(String(action?.abilityText || ''))) {
     return true;
   }
   if (/\breconfigure\b/.test(abilityText) || /\bequip\b/.test(abilityText) || /\bfortify\b/.test(abilityText)) {

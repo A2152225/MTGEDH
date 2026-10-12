@@ -8,7 +8,7 @@
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { isInterveningIfSatisfied } from "./intervening-if.js";
-import { collectMatchingParsedEventLines } from "./triggerConditionFamilyMatch.js";
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from "./triggerConditionFamilyMatch.js";
 
 export interface CardDrawTrigger {
   permanentId: string;
@@ -282,8 +282,8 @@ export function getCardDrawTriggers(
     })) {
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates(existing.effect || '', line)
       ))) continue;
       const controller = line.condition?.alternatives[0]?.controller;
       const triggerType = controller === 'you' ? 'you_draw' : controller === 'not_you' ? 'opponent_draws' : 'player_draws';

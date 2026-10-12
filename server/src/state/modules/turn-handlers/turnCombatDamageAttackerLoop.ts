@@ -24,7 +24,7 @@ import {
   modifyCombatDamageToPermanentAmount,
   applyCombatDamageToPlaneswalker,
 } from "./turnCombatDamagePermanentApply.js";
-import { queueDamageReceivedTrigger } from "./turnCombatDamageReceivedQueue.js";
+import { queueDamageReceivedTrigger, runWithCombatDamageReceivedBatch } from "./turnCombatDamageReceivedQueue.js";
 import { trackCommanderDamage, trackCreatureDamageToPlayer } from "./turnCombatDamageTracking.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -46,6 +46,22 @@ export type DealCombatDamageResult = {
  * dealCombatDamage remains the dispatcher and supplies shared locals.
  */
 export function applyDealCombatDamageAttackerLoop(
+  ctx: GameContext,
+  attackers: any[],
+  battlefield: any[],
+  state: any,
+  life: Record<string, number>,
+  startingLife: number,
+  result: DealCombatDamageResult,
+  isFirstStrikePhase?: boolean,
+): void {
+  // One combat damage step is one simultaneous event: sum damage-received triggers per creature.
+  runWithCombatDamageReceivedBatch(ctx, () => dealCombatDamageAttackerLoopUnbatched(
+    ctx, attackers, battlefield, state, life, startingLife, result, isFirstStrikePhase,
+  ));
+}
+
+function dealCombatDamageAttackerLoopUnbatched(
   ctx: GameContext,
   attackers: any[],
   battlefield: any[],

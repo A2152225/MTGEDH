@@ -22,7 +22,7 @@ import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import { extractCreatureTypes as extractCreatureTypesFromTypeLine } from '../../../../../shared/src/creatureTypes.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
 import { detectTapTriggers, type TapTrigger } from "./tap-detection.js";
-import { tapPermanentMatchesPhrase, collectMatchingParsedEventLines } from "./triggerConditionFamilyMatch.js";
+import { tapPermanentMatchesPhrase, collectMatchingParsedEventLines, parsedEffectDuplicates } from "./triggerConditionFamilyMatch.js";
 import {
   recordFirstTimeEachTurnTriggerQueued,
   shouldSkipFirstTimeEachTurnTrigger,
@@ -466,7 +466,7 @@ function appendParsedTapLines(
       const effect = line.effect.toLowerCase();
       const already = triggers.some((trigger) => (
         String(trigger.permanentId || '') === String(permanent.id || '')
-        && String(trigger.effect || trigger.description || '').toLowerCase().includes(effect.slice(0, 24))
+        && parsedEffectDuplicates(trigger.effect || trigger.description || '', effect)
       ));
       if (already) continue;
       triggers.push({

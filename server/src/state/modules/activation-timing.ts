@@ -74,6 +74,19 @@ export function getAbilityTimingSourceText(
 }
 
 /**
+ * Class level-ups ("{W}: Level 2", rule 716.2a: "Gain the next level as a sorcery") and the
+ * level up keyword (rule 702.87a) are sorcery-speed even though the ability line itself carries
+ * no "Activate only as a sorcery" text.
+ */
+export function isClassOrLevelUpActivation(text: string): boolean {
+  const src = String(text || '');
+  if (/^\s*level\s+\d+\s*\.?\s*$/i.test(src)) return true; // effect text alone
+  if (/^\s*(?:\{[^}]+\}\s*,?\s*)+:\s*level\s+\d+\s*\.?\s*$/im.test(src)) return true; // "{W}: Level 2" line
+  if (/^\s*level up\s+(?:\{[^}]+\}\s*)+\s*$/im.test(src)) return true; // "Level up {1}{W}"
+  return false;
+}
+
+/**
  * Detect the most specific activation timing restriction in text.
  * More specific windows (upkeep) win over broader ones (your turn / sorcery).
  */
@@ -95,6 +108,9 @@ export function detectActivationTimingRestriction(text: string): ActivationTimin
     return 'your_turn';
   }
   if (/(?:activate|use)\s+(?:this\s+ability\s+|these\s+abilities\s+)?only\s+(?:as\s+a\s+sorcery|any\s+time\s+you\s+could\s+cast\s+a\s+sorcery)/i.test(src)) {
+    return 'sorcery';
+  }
+  if (isClassOrLevelUpActivation(src)) {
     return 'sorcery';
   }
   return null;

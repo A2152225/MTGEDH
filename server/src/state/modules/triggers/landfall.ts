@@ -14,7 +14,7 @@
 
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
-import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 
 export interface LandfallTrigger {
   permanentId?: string;
@@ -643,8 +643,8 @@ export function getLandfallTriggers(
     })) {
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates(existing.effect || '', line)
       ))) continue;
       triggers.push({
         permanentId: String(permanent.id || ''),

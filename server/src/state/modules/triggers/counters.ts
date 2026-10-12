@@ -15,7 +15,7 @@ import {
   recordFirstTimeEachTurnTriggerQueued,
   shouldSkipFirstTimeEachTurnTrigger,
 } from '../triggerDoThisOnlyOnceEachTurn.js';
-import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 
 export interface CounterPlacedTrigger {
   permanentId: string;
@@ -316,8 +316,8 @@ export function getCounterPlacedTriggers(
       ))) continue;
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates([existing.effect, (existing as any).description], line)
       ))) continue;
       triggers.push({
         permanentId: String(permanent.id || ''),
@@ -624,8 +624,8 @@ export function getCounterRemovedTriggers(
       ))) continue;
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates(existing.effect || '', line)
       ))) continue;
       const sourceRelation = line.condition?.alternatives[0]?.source;
       const subject = line.condition?.alternatives[0]?.subject;

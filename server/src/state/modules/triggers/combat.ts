@@ -41,7 +41,7 @@ import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.j
 import { parseAnyTargetThatIsntCreatureType } from "./damage-redirect-target-type.js";
 import { detectAttackTriggers } from "./attack-detection.js";
 import { detectBlockTriggers } from "./block-detection.js";
-import { blockingCreatureMatchesWatcher, collectMatchingParsedEventLines, isBlockWatcherTriggerType } from "./triggerConditionFamilyMatch.js";
+import { blockingCreatureMatchesWatcher, collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource, isBlockWatcherTriggerType } from "./triggerConditionFamilyMatch.js";
 import type { BlockTrigger } from "./block-trigger-type.js";
 import { detectCombatDamageTriggers } from "./combat-damage-detection.js";
 import type { CombatTriggeredAbility } from "./combat-triggered-ability.js";
@@ -517,8 +517,8 @@ export function getBeginningOfCombatTriggers(
       if (triggerCount >= MAX_TRIGGERS_PER_STEP) break;
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates([existing.effect, existing.description], line)
       ))) continue;
       triggers.push({
         permanentId: String(permanent.id || ''),

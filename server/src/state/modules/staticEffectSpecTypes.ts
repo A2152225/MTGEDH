@@ -135,6 +135,7 @@ export type StaticEffectConditionKind =
   | 'target_is_not_black_creature'
   | 'target_is_not_human_creature'
   | 'target_is_legendary_creature'
+  | 'target_is_nonlegendary_creature'
   | 'source_in_graveyard'
   | 'source_in_graveyard_and_control_land_type'
   | 'target_is_tapped'

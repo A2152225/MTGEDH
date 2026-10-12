@@ -5,7 +5,7 @@ import { debugWarn } from '../../../utils/debug.js';
 import { uid } from '../../utils.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
-import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 
 export interface LibraryShuffleTrigger {
   permanentId: string;
@@ -97,8 +97,8 @@ export function getLibraryShuffleTriggers(
     })) {
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates(existing.effect || '', line)
       ))) continue;
       const controller = line.condition?.alternatives[0]?.controller;
       triggers.push({

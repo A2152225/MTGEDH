@@ -80,6 +80,11 @@ import { playLand } from "./stackPlayLandUtils.js";
 import { nextTurn, nextStep, passPriority } from "./turn.js";
 import { reconcileZonesConsistency } from "./zones.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
+import {
+  NO_ATTACKER_COMBAT_SKIP_EVENT_KEY,
+  NO_ATTACKER_COMBAT_SKIP_LIVE_FLAG,
+  NO_ATTACKER_COMBAT_SKIP_REPLAY_FLAG,
+} from "./turn-handlers/turnStepPhaseAdvance.js";
 
 function applyRecordedLifePayment(ctx: GameContext, playerId: string, rawAmount: unknown): void {
   const paidLife = Number(rawAmount || 0);
@@ -386,7 +391,15 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
       break;
 
     case "nextStep":
-      nextStep(ctx);
+      if ((e as any)[NO_ATTACKER_COMBAT_SKIP_EVENT_KEY] === true) {
+        (ctx.state as any)[NO_ATTACKER_COMBAT_SKIP_REPLAY_FLAG] = true;
+      }
+      try {
+        nextStep(ctx);
+      } finally {
+        delete (ctx.state as any)[NO_ATTACKER_COMBAT_SKIP_REPLAY_FLAG];
+        delete (ctx.state as any)[NO_ATTACKER_COMBAT_SKIP_LIVE_FLAG];
+      }
       break;
 
     case "reorderHand":

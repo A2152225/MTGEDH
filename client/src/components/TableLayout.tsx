@@ -26,6 +26,7 @@ import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayAreaGradientStyle, getBackgroundStyle } from '../utils/appearanceSettings';
 import { battlefieldGridContentHeightForRows } from '../utils/battlefieldGrid';
 import { useMobilePlayLayout } from '../hooks/useMobilePlayLayout';
+import { useDesktopTableFrameHeight } from '../hooks/useDesktopTableFrameHeight';
 import {
   clamp,
   getTotalFloatingMana,
@@ -303,6 +304,8 @@ export function TableLayout(props: {
     BOARD_H,
     propsIgnoredCardIds,
   });
+  // Desktop: fit the frame to the viewport below the chrome above it (see hook).
+  const desktopFrameHeight = useDesktopTableFrameHeight(containerRef, playAreaBottomInset <= 0);
 
   const attachedToSet = useMemo(() => {
     const s = new Set<string>();
@@ -627,7 +630,7 @@ export function TableLayout(props: {
           // and hid zoom +/- under the dock / off-screen.
           height: playAreaBottomInset > 0
             ? '100%'
-            : `calc(100vh - ${PLAY_AREA_TOP_OFFSET}px)`,
+            : (desktopFrameHeight != null ? desktopFrameHeight : `calc(100vh - ${PLAY_AREA_TOP_OFFSET}px)`),
           maxHeight: playAreaBottomInset > 0 ? '100%' : undefined,
           minHeight: playAreaBottomInset > 0 ? 240 : 500,
           flex: playAreaBottomInset > 0 ? '1 1 auto' : undefined,

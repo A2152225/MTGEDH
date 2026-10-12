@@ -23,7 +23,7 @@ import {
   inferGenericTriggeredAbilityTargetMetadata,
 } from './triggers/target-metadata.js';
 import { queueStackPutTriggers } from './triggers/stack-put.js';
-import { collectMatchingParsedEventLines } from './triggers/triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggers/triggerConditionFamilyMatch.js';
 import type { TriggerConditionEvent } from '../../../../rules-engine/src/triggerCondition/index.js';
 import { primeDerivedContinuousEffectsForScan } from './staticEffectSpec.js';
 
@@ -51,8 +51,11 @@ export function queueParsedSubjectEvent(
     zoneOwnerId?: string;
     damageKind?: string;
     includeSubject?: boolean;
+    excludePermanentIds?: readonly string[];
   },
 ): any[] {
+  // Replay re-creates these stack items from their persisted pushTriggeredAbility events.
+  if ((ctx as any)?.isReplaying) return [];
   const state = (ctx as any).state;
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const candidates = options.includeSubject && options.subjectPermanent
@@ -66,6 +69,7 @@ export function queueParsedSubjectEvent(
     const permanentId = String(permanent.id || '');
     if (!permanentId || seen.has(permanentId)) continue;
     seen.add(permanentId);
+    if (options.excludePermanentIds?.includes(permanentId)) continue;
     for (const line of collectMatchingParsedEventLines({
       ctx,
       oracleText: String(permanent.card.oracle_text || ''),
@@ -92,7 +96,7 @@ export function queueParsedSubjectEvent(
       const normalized = line.effect.toLowerCase();
       if (stack.some((item: any) => (
         String(item?.permanentId || '') === permanentId
-        && String(item?.effect || item?.description || '').toLowerCase().includes(normalized.slice(0, 24))
+        && parsedEffectDuplicates([item?.effect, item?.description], line)
       ))) continue;
       const item = queueGenericTriggeredAbility(ctx, {
         permanentId,
@@ -115,8 +119,15 @@ export function queueParsedSubjectEvent(
   return queued;
 }
 
-export function queueParsedKeywordAction(ctx: GameContext, actorId: string, action: string): any[] {
+export function queueParsedKeywordAction(
+  ctx: GameContext,
+  actorId: string,
+  action: string,
+  excludePermanentIds?: readonly string[],
+): any[] {
+  if ((ctx as any)?.isReplaying) return [];
   return queueParsedSubjectEvent(ctx, {
+    ...(excludePermanentIds && excludePermanentIds.length > 0 ? { excludePermanentIds } : {}),
     event: 'performs',
     subjectPermanent: { id: '', controller: actorId },
     subjectControllerId: actorId,
@@ -725,9 +736,11 @@ export function processDetectedAbilityActivatedTriggers(
     stackItemId?: string;
     lifePaidForCost?: number;
     isExhaustAbility?: boolean;
+    handledPermanentIds?: readonly string[];
   },
 ): any[] {
   if ((ctx as any)?.isReplaying) return [];
+  const handled = new Set((event.handledPermanentIds || []).map((id) => String(id)));
   const state = (ctx as any).state;
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const sourcePermanent = battlefield.find(
@@ -738,6 +751,7 @@ export function processDetectedAbilityActivatedTriggers(
   const queued: any[] = [];
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
+    if (handled.has(String(permanent.id || ''))) continue;
     const detected = detectAbilityActivatedTriggers(permanent.card, permanent);
     for (const trigger of detected) {
       const triggerType = String(trigger.triggerType || '');
@@ -884,6 +898,7 @@ export function processDetectedAbilityActivatedTriggers(
         triggerType: 'ability_activated',
         action,
         effectData,
+        excludePermanentIds: [...handled],
       }));
     }
   }

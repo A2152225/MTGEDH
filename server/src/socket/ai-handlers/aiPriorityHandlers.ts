@@ -23,6 +23,7 @@ import { AI_FAST_CONTINUE_MS, AI_REACTION_DELAY_MS } from "./aiConstants.js";
 import { executeAdvanceStep } from "./aiAdvanceAndDecisionExecutors.js";
 import { getPendingBlockerDeclaration } from "./aiGameCleanupHandlers.js";
 import { isAIPlayer } from "./aiPlayerRegistry.js";
+import { consumeAIFastPassDecision } from "./aiFastPassPrecheck.js";
 import {
   executeDeclareAttackers,
   executeDeclareBlockers,
@@ -441,7 +442,8 @@ export async function handleAIPriority(
         }
       }
       
-      if (await tryAIResponseActions(io, gameId, playerId, game)) {
+      // Scheduler's fast-pass precheck already found no response for this exact window.
+      if (!consumeAIFastPassDecision(gameId, playerId, game) && await tryAIResponseActions(io, gameId, playerId, game)) {
         return;
       }
 
@@ -453,7 +455,7 @@ export async function handleAIPriority(
     
     // If there's something on the stack, try player-style responses first.
     if (!stackEmpty) {
-      if (await tryAIResponseActions(io, gameId, playerId, game)) {
+      if (!consumeAIFastPassDecision(gameId, playerId, game) && await tryAIResponseActions(io, gameId, playerId, game)) {
         return;
       }
 

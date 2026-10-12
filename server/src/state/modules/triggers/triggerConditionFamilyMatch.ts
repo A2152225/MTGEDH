@@ -17,7 +17,7 @@ import {
   parseTriggerClause,
   triggerConditionMatches,
 } from '../../../../../rules-engine/src/triggerCondition/index.js';
-import type { TriggerConditionEvent } from '../../../../../rules-engine/src/triggerCondition/index.js';
+import type { TriggerConditionEvent, TriggerConditionIR, TriggerMatchPermanent } from '../../../../../rules-engine/src/triggerCondition/index.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { resolveEnchantedControllerId, resolveEnchantedPlayerId } from './phaseWhoseTurn.js';
 import { getPermanentPowerMaybe, getPermanentToughnessMaybe } from './intervening-if-permanent-and-player.js';
@@ -237,6 +237,8 @@ export function spellCastConditionMatches(options: {
   targetControllerId?: string;
   tribalType?: string;
   spellOrdinal?: number;
+  /** Effective spell colours (Painter's Servant etc.); overrides the printed colours. */
+  effectiveSpellColors?: readonly string[];
 }): boolean | null {
   if ((options.spellCondition === 'first_any' || options.spellCondition === 'tribal_type' || options.spellCondition === 'color' || options.spellCondition === 'chosen_color')
     && !options.tribalType
@@ -255,9 +257,11 @@ export function spellCastConditionMatches(options: {
   const condition: TriggerConditionIR = zone === 'hand' || zone === 'library' || zone === 'exile' || zone === 'graveyard' || zone === 'not_hand'
     ? { ...parsed, castFromZone: zone }
     : parsed;
+  const spellMatch = permanentToTriggerMatch(options.spellCard, options.casterId);
+  const effectiveColors = options.effectiveSpellColors ? colorLetters([...options.effectiveSpellColors]) : undefined;
   return triggerConditionMatches(
     condition,
-    permanentToTriggerMatch(options.spellCard, options.casterId),
+    effectiveColors ? { ...spellMatch, colors: effectiveColors } : spellMatch,
     { id: '', controllerId: String(options.sourceControllerId || '').trim() },
     {
       castFromZone: options.castFromZone,
@@ -265,6 +269,50 @@ export function spellCastConditionMatches(options: {
       spellOrdinal: options.spellOrdinal,
     },
   );
+}
+
+function normalizeEffectForDedupe(text: unknown): string {
+  return String(text || '').toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
+}
+
+/**
+ * True when a parsed sentence is the same trigger a legacy family detector already
+ * recorded. Legacy detectors often keep only a fragment ("you may pay {2}") while the
+ * parsed line holds the full sentence, so containment is checked both ways.
+ */
+export function parsedEffectDuplicates(
+  existingText: unknown,
+  parsedEffect: unknown,
+): boolean {
+  // Accept a parsed line too: "you may pay {1}. If you do, create ..." keeps the follow-up in
+  // line.reflexive, and legacy detectors often record only that follow-up as the effect.
+  // Legacy entries keep a short effect and a fuller description; either may match.
+  if (Array.isArray(existingText)) {
+    return existingText.some((text) => String(text || '').trim() !== '' && parsedEffectDuplicates(text, parsedEffect))
+      || existingText.every((text) => String(text || '').trim() === '') && parsedEffectDuplicates('', parsedEffect);
+  }
+  if (parsedEffect && typeof parsedEffect === 'object') {
+    const line = parsedEffect as { effect?: unknown; reflexive?: { effect?: unknown } };
+    if (parsedEffectDuplicates(existingText, line.effect)) return true;
+    return Boolean(line.reflexive?.effect) && parsedEffectDuplicates(existingText, line.reflexive?.effect);
+  }
+  const existing = normalizeEffectForDedupe(existingText);
+  const parsed = normalizeEffectForDedupe(parsedEffect);
+  if (!parsed) return false;
+  // A legacy entry for the same source with no effect text (structured triggers such as
+  // Emperor Mihail II's optional-payment token) already covers this event.
+  if (!existing) return true;
+  if (existing.includes(parsed.slice(0, 24))) return true;
+  return existing.length >= 8 && parsed.includes(existing.slice(0, 24));
+}
+
+/** Legacy trigger entry belongs to this source (id match, or a structured entry keyed only by card name). */
+export function sameTriggerSource(existing: any, permanent: any): boolean {
+  const existingId = String(existing?.permanentId || existing?.sourceId || existing?.source || '').trim();
+  const permanentId = String(permanent?.id || '').trim();
+  if (existingId) return existingId === permanentId;
+  const existingName = String(existing?.cardName || existing?.sourceName || '').trim().toLowerCase();
+  return Boolean(existingName) && existingName === String(permanent?.card?.name || '').trim().toLowerCase();
 }
 
 function effectKey(effect: string): string {
@@ -290,9 +338,18 @@ export function collectMatchingParsedEventLines(options: {
   fromZone?: string;
   action?: string;
   damageKind?: string;
+  /** Player bound to "that player" in an intervening-if clause (defaults to the active player for phase events). */
+  thatPlayerId?: string;
 }): Array<{ effect: string; interveningIf?: string; condition?: import('../../../../../rules-engine/src/triggerCondition/index.js').TriggerConditionIR; reflexive?: { actor: 'you' | 'they'; effect: string; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }> {
-  const text = stripReminderParentheticals(String(options.oracleText || ''));
-  const sentences = text.split(/\n+|(?<=\.)\s+/);
+  // Quoted text is an ability granted to something else (Perigee Beckoner: gains "When this
+  // creature dies, ..."), never a trigger of the source itself.
+  const text = stripReminderParentheticals(String(options.oracleText || ''))
+    .replace(/"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g, '""');
+  // One ability per line; within a line only split where a new trigger sentence starts so
+  // follow-ups ("If you do, ...", "You may choose new targets ...") stay with their trigger.
+  const sentences = text
+    .split(/\n+/)
+    .flatMap((line) => line.split(/(?<=\.)\s+(?=(?:when|whenever|at)\b)/i));
   const effects = [];
   const seen = new Set<string>();
   for (const sentence of sentences) {
@@ -302,13 +359,26 @@ export function collectMatchingParsedEventLines(options: {
     if (!eventMatches) continue;
     if (options.action && parsed.condition.action !== options.action) continue;
     if (parsed.interveningIf && options.ctx) {
-      const probe = `Whenever a permanent ${options.event}, if ${parsed.interveningIf}, ${parsed.effect}`;
+      // Evaluate the printed sentence so the clause keeps its own header, and bind
+      // "that player" / "their turn" to the active player for beginning-of-phase events
+      // (same refs the legacy upkeep/draw/end-step paths pass).
+      const probe = /\bif\b/i.test(sentence)
+        ? sentence
+        : `Whenever a permanent ${options.event}, if ${parsed.interveningIf}, ${parsed.effect}`;
+      const phaseEvent = String(options.event || '').startsWith('beginning_of_') || options.event === 'each_of_your_main_phases';
+      // Otherwise "that player" is the player who performed the event / controls the subject.
+      const refsPlayer = options.thatPlayerId
+        || (phaseEvent ? options.activePlayerId : String(options.subjectControllerId || '').trim() || undefined);
+      const refs = refsPlayer
+        ? { thatPlayerId: refsPlayer, referencedPlayerId: refsPlayer, theirPlayerId: refsPlayer }
+        : undefined;
       try {
         if (isInterveningIfSatisfied(
           options.ctx,
           String(options.sourcePermanent?.controller || ''),
           probe,
           options.subjectPermanent,
+          refs as any,
         ) === false) {
           continue;
         }

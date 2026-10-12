@@ -28,5 +28,9 @@ export function parseTimingRestrictionFromText(
     || /(?:activate|use)\s+(?:this\s+ability\s+|these\s+abilities\s+)?only\s+(?:as\s+a\s+sorcery|any\s+time\s+you\s+could\s+cast\s+a\s+sorcery)/i.test(src)) {
     return 'sorcery';
   }
+  // Class level-ups ("{W}: Level 2") are sorcery speed (rule 716.2a: "Gain the next level as a sorcery").
+  if (/^\s*level\s+\d+\s*\.?\s*$/i.test(src) || /^\s*(?:\{[^}]+\}\s*,?\s*)+:\s*level\s+\d+\s*\.?\s*$/im.test(src)) {
+    return 'sorcery';
+  }
   return undefined;
 }

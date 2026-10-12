@@ -9,7 +9,7 @@ import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 
 import { detectExiledFromBattlefieldTriggers, type ExiledFromBattlefieldTrigger } from './zone-change-handlers/exileFromBattlefieldDetection.js';
-import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 import type { TriggerConditionEvent, TriggerConditionIR } from '../../../../../rules-engine/src/triggerCondition/index.js';
 export { detectExiledFromBattlefieldTriggers, type ExiledFromBattlefieldTrigger };
 
@@ -37,8 +37,8 @@ function forEachParsedZoneLine(
     })) {
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates(existing.effect || '', line)
       ))) continue;
       push(permanent, line.effect, line.condition);
     }

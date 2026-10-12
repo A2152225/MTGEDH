@@ -673,6 +673,19 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
   }
 }
 
+function replayCleanupDiscardPrecedesTurnAdvance(ctx: GameContext): boolean {
+  const events = (ctx as any)._replayEvents;
+  const index = Number((ctx as any)._replayEventIndex);
+  if (!Array.isArray(events) || !Number.isFinite(index)) return false;
+  const end = Math.min(events.length, index + 8);
+  for (let i = index + 1; i < end; i++) {
+    const type = String(events[i]?.type || '').trim();
+    if (type === 'cleanupDiscard') return true;
+    if (type === 'nextStep' || type === 'nextTurn') return false;
+  }
+  return false;
+}
+
 /**
  * Cleanup-step turn actions from nextStep() when shouldAdvanceTurn is set
  * (Rule 514): discard-to-hand-size, optional Sundial pause, then damage
@@ -683,8 +696,14 @@ export function runTurnStepCleanup(ctx: GameContext, isReplaying: boolean): { sh
       let skipImplicitNextTurnCall = false;
       if (isReplaying) {
         const nextEventType = String(((ctx as any)._replayNextEventType ?? '')).trim();
-        if (nextEventType === 'nextTurn') {
-          debug(2, `${ts()} [nextStep] In replay mode - next event is nextTurn; skipping implicit nextTurn call to avoid double-advance`);
+        // Replay skips the cleanup discard prompt, so this nextStep would otherwise
+        // call nextTurn immediately. When the log still has cleanupDiscard (and a
+        // later nextStep that enters the next turn), that implicit nextTurn shifts
+        // every later step — draw-step card ids land on the wrong advance and the
+        // hand fills with library-top cards.
+        const discardStillAhead = replayCleanupDiscardPrecedesTurnAdvance(ctx);
+        if (nextEventType === 'nextTurn' || discardStillAhead) {
+          debug(2, `${ts()} [nextStep] In replay mode - turn advance is persisted separately; skipping implicit nextTurn call`);
           skipImplicitNextTurnCall = true;
         }
       }

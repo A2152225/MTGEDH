@@ -424,6 +424,8 @@ export function specMatchesStaticCondition(
     }
     case 'target_is_legendary_creature':
       return isLegendaryCreaturePermanent(permanent);
+    case 'target_is_nonlegendary_creature':
+      return isCreaturePermanent(permanent) && !isLegendaryCreaturePermanent(permanent);
     case 'target_is_tapped':
       return permanent.tapped === true;
     case 'target_is_untapped':

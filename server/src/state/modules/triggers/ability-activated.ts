@@ -311,6 +311,11 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
         ? { lifePaidForCost: e.lifePaidForCost }
         : null),
       ...(e.isExhaustAbility ? { isExhaustAbility: true } : null),
+      // Permanents the card-specific branches above already handled must not trigger again
+      // through the generic detector / parsed-sentence paths (Rings of Brighthearth double copy).
+      handledPermanentIds: createdTriggers
+        .map((trigger: any) => String(trigger?.permanentId || trigger?.source || '').trim())
+        .filter(Boolean),
     });
   } catch {
     // best-effort

@@ -1,7 +1,7 @@
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { aOrAnSpellType } from '../../../../../rules-engine/src/indefiniteArticle.js';
-import { spellCastConditionMatches, collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
+import { spellCastConditionMatches, collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 import type { SpellCastUntapEffect } from "./types.js";
 import { detectSpellCastTriggers } from "./spell-cast-detection.js";
 import { getSpellCastTriggers } from "./spell-cast-get-triggers.js";
@@ -749,6 +749,9 @@ export function getOpponentSpellCastTriggers(
       }
     }
 
+    // Spells cast by this permanent's controller are handled by the "you cast" pipeline
+    // (getSpellCastTriggers); scanning them here doubled Shark Typhoon / Vivi-style triggers.
+    if (String(casterId) === String(controller || '')) continue;
     for (const line of collectMatchingParsedEventLines({
       oracleText: String(permanent.card.oracle_text || ''),
       event: 'spell_cast',
@@ -756,12 +759,12 @@ export function getOpponentSpellCastTriggers(
       subjectControllerId: casterId,
       sourcePermanent: permanent,
       spellOrdinal: casterSpellOrdinal,
-      castFromZone,
+      castFromZone: castSourceZone,
     })) {
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates([existing.effect, existing.description], line)
       ))) continue;
       triggers.push({
         permanentId: permanent.id,

@@ -30,7 +30,7 @@ import { permanentIsCommanderCard } from './triggerPermanentUtils.js';
 import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
 import { wouldAutoDeclineOptionalTriggeredAbility } from './stackResolveTriggeredAbilityOptionalUtils.js';
 import { isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
-import { collectMatchingParsedEventLines } from './triggers/triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggers/triggerConditionFamilyMatch.js';
 
 function pushPendingEtbTriggerIfNotAutoDeclined(
   state: any,
@@ -702,10 +702,7 @@ export function triggerETBEffectsForPermanent(
       const normalizedEffect = effect.toLowerCase().replace(/\s+/g, ' ').trim();
       const alreadyQueued = pendingExternalEtbTriggers.some((item) => {
         if (String(item?.source || '') !== String(perm.id)) return false;
-        const existing = String(item?.effect || item?.description || '').toLowerCase().replace(/\s+/g, ' ').trim();
-        return existing === normalizedEffect
-          || existing.startsWith(normalizedEffect)
-          || normalizedEffect.startsWith(existing);
+        return parsedEffectDuplicates([item?.effect, item?.description], line);
       });
       if (alreadyQueued || !normalizedEffect) continue;
       pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, {
@@ -725,6 +722,8 @@ export function triggerETBEffectsForPermanent(
         sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
         interveningIfSubjectPermanentId: permanent.id,
         interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
+        // "that player" in the clause is the entering permanent's controller (re-checked at resolution).
+        triggeringPlayer: String(controller),
       } as any);
     }
   }

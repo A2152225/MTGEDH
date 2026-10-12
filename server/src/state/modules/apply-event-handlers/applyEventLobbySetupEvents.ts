@@ -28,6 +28,7 @@ import { clearOracleIrPendingCompoundResumeOnState } from "../oracleIrTransition
 import { reset, skip, unskip, remove } from "./applyEventLifecycleResetHandlers.js";
 import { removeLeavingPlayerGameObjects } from "../playerLeavingGame.js";
 import { markPlayerOutOfPriority } from "../priorityEligibility.js";
+import { recordedMulliganRedrawFollows } from "./applyEventPriorityMulliganLifeEvents.js";
 
 export function applyLobbySetupEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -512,6 +513,15 @@ export function applyLobbySetupEvents(ctx: GameContext, e: GameEvent): boolean {
         const drawnCardIds = (Array.isArray((e as any).drawnCardIds) ? (e as any).drawnCardIds : [])
           .map((id: unknown) => String(id || '').trim())
           .filter(Boolean);
+        if (
+          drawnCardIds.length > 0
+          && recordedMulliganRedrawFollows(ctx, String(drawPlayerId || ''))
+        ) {
+          const hand = (ctx.state.zones as any)?.[drawPlayerId]?.hand;
+          if (Array.isArray(hand) && hand.length > 0) {
+            moveHandToLibrary(ctx as any, drawPlayerId);
+          }
+        }
         if (drawnCardIds.length > 0) {
           drawCardsByIds(ctx as any, drawPlayerId, drawnCardIds);
         } else {

@@ -1,6 +1,7 @@
 import type { DamagePreventionEffect, GameState, PlayerID } from '../../shared/src';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import { getStackItems } from './stackOperations';
+import { protectionPreventsDamageToPermanent } from './oracleIRDamageProtection';
 
 function getCurrentTurnNumber(state: GameState): number {
   const turnNumber = Number((state as any)?.turnNumber ?? (state as any)?.turn ?? 0);
@@ -20,6 +21,23 @@ function findDamageSourceObject(state: GameState, sourceId: string): any | null 
     (item: any) => String((item as any)?.id || '').trim() === normalizedSourceId
   );
   if (stackMatch) return stackMatch;
+
+  // Resolving spells: ctx.sourceId is often the card id (stack item keyed differently, or the
+  // card already moved to its destination zone while the effect finishes).
+  const stackCardMatch = getStackItems((state as any)?.stack).find(
+    (item: any) => String((item as any)?.card?.id || '').trim() === normalizedSourceId
+  );
+  if (stackCardMatch) return stackCardMatch;
+  const zones = (state as any)?.zones;
+  if (zones && typeof zones === 'object') {
+    for (const zone of Object.values(zones) as any[]) {
+      for (const key of ['graveyard', 'exile', 'hand']) {
+        const list = Array.isArray(zone?.[key]) ? zone[key] : [];
+        const card = list.find((entry: any) => String(entry?.id || '').trim() === normalizedSourceId);
+        if (card) return card;
+      }
+    }
+  }
 
   return null;
 }
@@ -215,6 +233,21 @@ export function previewPreventedDamage(
       remainingDamage: initialAmount,
       log: [],
     };
+  }
+
+  // Protection (rule 702.16e) prevents all damage from sources with the protected quality.
+  if (normalizedTargetPermanentId) {
+    const targetPermanent = (state.battlefield || []).find(
+      (permanent: any) => String((permanent as any)?.id || '').trim() === normalizedTargetPermanentId
+    );
+    const protectionSource = findDamageSourceObject(state, normalizedSourceId);
+    if (targetPermanent && protectionSource && protectionPreventsDamageToPermanent(state, protectionSource, targetPermanent)) {
+      return {
+        prevented: initialAmount,
+        remainingDamage: 0,
+        log: [`Protection prevented ${initialAmount} damage from ${normalizedSourceId || 'the source'} to ${normalizedTargetPermanentId}`],
+      };
+    }
   }
 
   const activeEffects = Array.isArray((state as any)?.damagePreventionEffects)

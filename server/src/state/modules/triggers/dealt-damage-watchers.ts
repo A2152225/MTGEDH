@@ -8,7 +8,7 @@
  */
 import type { GameContext } from '../../context.js';
 import { detectDealtDamageTriggers } from './dealt-damage-detection.js';
-import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggerConditionFamilyMatch.js';
 import { mergeDetectorOracleWithContinuousGrants } from './detectorGrantedOracle.js';
 import { parseAnyTargetThatIsntCreatureType } from './damage-redirect-target-type.js';
 import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
@@ -242,6 +242,12 @@ export function dealtDamageWatcherAppliesToPermanent(
  * Queue self "whenever this is dealt damage" abilities that are not
  * that-much-damage / gain-life redirects (Apex Altisaur Enrage fight, etc.).
  */
+/** True when every subject alternative of a parsed trigger line is the source itself. */
+function isSelfOnlyParsedLine(line: { condition?: { alternatives?: ReadonlyArray<{ source?: string }> } }): boolean {
+  const alternatives = line.condition?.alternatives || [];
+  return alternatives.length > 0 && alternatives.every((alternative) => alternative?.source === 'self');
+}
+
 export function processSelfDealtDamageNonRedirectTriggers(
   ctx: GameContext,
   damagedPermanent: any,
@@ -257,8 +263,30 @@ export function processSelfDealtDamageNonRedirectTriggers(
   );
   if (isThatMuchDamageRedirectOracle(mergedOracle)) return [];
 
-  const detected = detectDealtDamageTriggers(damagedPermanent.card, damagedPermanent, (ctx as any)?.state)
+  const detected: any[] = detectDealtDamageTriggers(damagedPermanent.card, damagedPermanent, (ctx as any)?.state)
     .filter((trigger) => trigger.triggerType === 'dealt_damage');
+  // Generic pass over the printed + granted text: any self-only "is dealt damage" line the
+  // legacy detector missed (granted lines, unusual subjects) still triggers, exactly once.
+  for (const line of collectMatchingParsedEventLines({
+    ctx,
+    oracleText: mergedOracle,
+    event: 'dealt_damage',
+    subjectPermanent: damagedPermanent,
+    subjectControllerId: String(damagedPermanent.controller || ''),
+    sourcePermanent: damagedPermanent,
+  })) {
+    if (!isSelfOnlyParsedLine(line)) continue;
+    if (detected.some((trigger) => parsedEffectDuplicates([trigger.effect, trigger.description], line))) continue;
+    detected.push({
+      effect: line.effect,
+      description: line.effect,
+      triggerType: 'dealt_damage',
+      mandatory: !/^you may\b/i.test(line.effect),
+      permanentId: String(damagedPermanent.id || ''),
+      cardName: String(damagedPermanent.card?.name || 'Unknown'),
+      ...(line.reflexive ? { reflexiveWhenYouDo: line.reflexive } : {}),
+    });
+  }
   if (detected.length === 0) return [];
 
   const ordered = orderTriggersByAPNAP(
@@ -444,6 +472,8 @@ export function processPermanentDealtDamageWatchers(
 
   for (const permanent of candidates) {
     if (!permanent?.card) continue;
+    const isDamagedPermanent = Boolean(damagedPermanent)
+      && String(permanent.id || '') === String(damagedPermanent.id || '');
     for (const line of collectMatchingParsedEventLines({
       ctx,
       oracleText: String(permanent.card.oracle_text || ''),
@@ -452,10 +482,13 @@ export function processPermanentDealtDamageWatchers(
       subjectControllerId: String(damagedPermanent?.controller || ''),
       sourcePermanent: permanent,
     })) {
+      // "Whenever this creature is dealt damage" belongs to the self pipeline
+      // (getDamageReceivedTrigger / processSelfDealtDamageNonRedirectTriggers).
+      if (isDamagedPermanent && isSelfOnlyParsedLine(line)) continue;
       const normalized = line.effect.toLowerCase();
       if (hits.some((hit) => (
         hit.watcher === permanent
-        && String(hit.trigger?.effect || hit.trigger?.description || '').toLowerCase().includes(normalized.slice(0, 24))
+        && parsedEffectDuplicates([hit.trigger?.effect, hit.trigger?.description], line)
       ))) continue;
       hits.push({
         watcher: permanent,

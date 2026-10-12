@@ -23,7 +23,7 @@ import {
   applyTriggerDoublers,
   detectTriggerDoublers,
 } from "./trigger-doublers.js";
-import { collectMatchingParsedEventLines } from "./triggerConditionFamilyMatch.js";
+import { collectMatchingParsedEventLines, parsedEffectDuplicates } from "./triggerConditionFamilyMatch.js";
 
 // ============================================================================
 // Attack Triggers
@@ -244,7 +244,7 @@ export function getAttackTriggersForCreatures(
         if (seenParsedAttacks.has(key)) continue;
         const already = triggers.some((trigger) => (
           String(trigger.permanentId || '') === String(permanent.id || '')
-          && String(trigger.effect || trigger.description || '').toLowerCase().includes(effect.toLowerCase().slice(0, 24))
+          && parsedEffectDuplicates([trigger.effect, trigger.description], line)
         ));
         if (already) continue;
         seenParsedAttacks.add(key);

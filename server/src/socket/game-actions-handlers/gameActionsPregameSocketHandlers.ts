@@ -491,6 +491,15 @@ export async function handleMulliganRequest(
 
     // Shuffle hand back into library and draw new hand
     try {
+      // Persist the hand return before drawCards() appends the replacement hand.
+      // The mulligan marker is written after that draw; replay uses the pair
+      // (drawCards with ids, then mulligan) and must see the old hand leave first.
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, "handIntoLibrary", { playerId });
+      } catch (e) {
+        debugWarn(1, "appendEvent(handIntoLibrary) before mulligan failed:", e);
+      }
+
       // Move hand to library
       if (typeof game.moveHandToLibrary === "function") {
         game.moveHandToLibrary(playerId);

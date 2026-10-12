@@ -3,6 +3,7 @@
 //
 // Cluster: Priority passing, mulligans, life totals, cleanup/discard, mill and draw replacements.
 // Public entry: applyPriorityMulliganLifeEvents(ctx, e) -> true when it handled the event.
+// Also: mulliganRedrawWasAlreadyRecorded, recordedMulliganRedrawFollows (replay pairing).
 //
 // Handles: passPriority, mulligan, keepHand, unkeepHand, mulliganPutToBottom, setLife, adjustLife, cleanupDiscard, increasePlayerSpeed, discardEffect, mill, zursWeirdingDrawReplacementResolve, dredgeDrawReplacementResolve, skipDrawReplacementResolve, opponentLibraryDrawReplacementResolve, playOpeningHandCards, skipOpeningHandActions
 import type { GameContext } from "../../context";
@@ -34,6 +35,38 @@ import {
 } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
+function replayEventAt(ctx: GameContext, offset: number): GameEvent | null {
+  const events = (ctx as any)._replayEvents;
+  const index = (ctx as any)._replayEventIndex;
+  if (!Array.isArray(events) || typeof index !== 'number') return null;
+  const event = events[index + offset];
+  return event && typeof event === 'object' ? event as GameEvent : null;
+}
+
+/**
+ * Live mulligans persist the replacement hand as `drawCards` (with ids) and then
+ * append the `mulligan` marker. Replay must not draw seven more cards for that marker.
+ */
+export function mulliganRedrawWasAlreadyRecorded(ctx: GameContext, playerId: string): boolean {
+  if (!(ctx as any).isReplaying) return false;
+  const previous = replayEventAt(ctx, -1) as any;
+  if (!previous || previous.type !== 'drawCards') return false;
+  if (String(previous.playerId || '') !== playerId) return false;
+  return Array.isArray(previous.drawnCardIds) && previous.drawnCardIds.length > 0;
+}
+
+/**
+ * The hand return that precedes a mulligan redraw is not its own event. When the
+ * next replay event is that player's `mulligan` marker, the current `drawCards`
+ * is the replacement hand and the cards already in hand have to go back first.
+ */
+export function recordedMulliganRedrawFollows(ctx: GameContext, playerId: string): boolean {
+  if (!(ctx as any).isReplaying) return false;
+  const next = replayEventAt(ctx, 1) as any;
+  if (!next || next.type !== 'mulligan') return false;
+  return String(next.playerId || '') === playerId;
+}
+
 export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
 
@@ -47,9 +80,14 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
       }
 
       case "mulligan": {
-        // Mulligan: move hand to library, shuffle, draw 7
+        // Mulligan: move hand to library, shuffle, draw 7.
+        // New logs already persisted that redraw as drawCards + ids immediately
+        // before this marker. Drawing again replaces the real hand with seven
+        // random cards and leaves the previous hand's cards in the library,
+        // so undo replay inflates the hand.
         const pid = (e as any).playerId;
         if (!pid) break;
+        if (mulliganRedrawWasAlreadyRecorded(ctx, pid)) break;
         try {
           moveHandToLibrary(ctx as any, pid);
           shuffleLibrary(ctx as any, pid);

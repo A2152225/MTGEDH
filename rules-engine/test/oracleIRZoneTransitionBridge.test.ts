@@ -118,7 +118,9 @@ describe('oracleIR zone transition bridge', () => {
     expect(haltState.halted).toBe(true);
     expect(haltState.deferred.length).toBeGreaterThan(0);
     expect((result.state as any).battlefield).toHaveLength(1);
-    expect((result.skippedSteps || []).length + (result.automationGaps || []).length).toBeGreaterThan(0);
+    // Since the Oct 9 rule 903.9a change, a commander-only replacement keeps the step applied and
+    // defers the commander's command-zone choice to a prompt (instead of skipping the step).
+    expect(JSON.stringify(haltState.deferred)).toContain('cmd-');
   });
 
   it('still grants Swords-style life while 903.9a commander exile is deferred', () => {

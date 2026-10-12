@@ -10,6 +10,7 @@ import { broadcastGame, ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { cleanupGameAI, handleAIPriority, handleAIResolutionStep, registerAIPlayer } from '../src/socket/ai.js';
 import { AIEngine, AIDecisionType } from '../../rules-engine/src/AIEngine.js';
+import { setAIFastPassPrecheckForTests } from '../src/socket/ai-handlers/aiFastPassPrecheck.js';
 
 function createNoopIo() {
   return {
@@ -40,11 +41,15 @@ describe('AI resolution-step integration', () => {
   });
 
   beforeEach(async () => {
+    // These tests sample intermediate states (stack, completed casts) inside the AI pacing window;
+    // keep the normal pacing so the AI's follow-up pass does not race the assertions.
+    setAIFastPassPrecheckForTests(async () => false);
     cleanupGameAI(gameId);
     await resetGame(gameId);
   });
 
   afterEach(async () => {
+    setAIFastPassPrecheckForTests(null);
     cleanupGameAI(gameId);
     await resetGame(gameId);
   });

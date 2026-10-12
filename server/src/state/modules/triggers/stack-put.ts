@@ -12,7 +12,7 @@ import { uid } from '../../utils.js';
 import { uniqueStackTargetIds } from '../../../rules-engine/targeting-handlers/targetingStackObjectSingleTarget.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
-import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggerConditionFamilyMatch.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 
 export interface StackPutTrigger {
@@ -105,7 +105,7 @@ export function queueStackPutTriggers(ctx: GameContext, stackItemId: string): an
       const normalized = line.effect.toLowerCase();
       if (detected.some((existing) => (
         existing.permanentId === String(permanent.id || '')
-        && String(existing.effect || '').toLowerCase().includes(normalized.slice(0, 24))
+        && parsedEffectDuplicates(existing.effect || '', line)
       ))) continue;
       detected.push({
         permanentId: String(permanent.id || ''),

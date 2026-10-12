@@ -20,7 +20,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/ind
 import { consumeReplayedTriggeredAbilityStackItems } from "../replay-prompt-cleanup.js";
 import { applyBattlefieldPermanentReplayPatch } from "../../effects/battlefieldPermanentReplayPersistence.js";
 import { getOrInitManaPool } from "../../../socket/util.js";
-import { queueParsedKeywordAction, queueParsedSubjectEvent } from "../triggerEmissionFamilyUtils.js";
+import { queueParsedSubjectEvent } from "../triggerEmissionFamilyUtils.js";
 import { rollPlanarDie } from "../planarDie.js";
 
 export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boolean {
@@ -531,7 +531,8 @@ export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boo
 
           (attacker as any).doesntUntapNextTurn = true;
           (attacker as any).exertedThisTurn = true;
-          if (playerId) queueParsedKeywordAction(ctx, playerId, 'exert');
+          // "Whenever you exert" triggers are pushed (and persisted) by the live caller via
+          // pushWheneverYouExertTriggersOntoStack; queuing here duplicated them live and on replay.
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(exertChoice): failed', err);

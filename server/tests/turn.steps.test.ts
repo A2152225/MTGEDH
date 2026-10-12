@@ -94,9 +94,7 @@ describe('Turn step engine basics', () => {
     g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
     g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
     markAttackersDeclaredForTurnPlayer(g);
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
-    g.applyEvent({ type: 'nextStep' }); // DAMAGE
-    g.applyEvent({ type: 'nextStep' }); // END_COMBAT
+    g.applyEvent({ type: 'nextStep' }); // END_COMBAT (no attackers: rule 508.8 skips DECLARE_BLOCKERS and DAMAGE)
     g.applyEvent({ type: 'nextStep' }); // MAIN2
     expect(g.state.phase).toBe(GamePhase.POSTCOMBAT_MAIN);
     expect(g.state.step).toBe(GameStep.MAIN2);
@@ -196,9 +194,7 @@ describe('Turn step engine basics', () => {
     g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
     g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
     markAttackersDeclaredForTurnPlayer(g);
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
-    g.applyEvent({ type: 'nextStep' }); // DAMAGE
-    g.applyEvent({ type: 'nextStep' }); // END_COMBAT
+    g.applyEvent({ type: 'nextStep' }); // END_COMBAT (no attackers: rule 508.8 skips DECLARE_BLOCKERS and DAMAGE)
     g.applyEvent({ type: 'nextStep' }); // MAIN2
     g.applyEvent({ type: 'nextStep' }); // END
 
@@ -258,9 +254,7 @@ describe('Turn step engine basics', () => {
     g.applyEvent({ type: 'nextStep' }); // BEGIN_COMBAT
     g.applyEvent({ type: 'nextStep' }); // DECLARE_ATTACKERS
     markAttackersDeclaredForTurnPlayer(g);
-    g.applyEvent({ type: 'nextStep' }); // DECLARE_BLOCKERS
-    g.applyEvent({ type: 'nextStep' }); // DAMAGE
-    g.applyEvent({ type: 'nextStep' }); // END_COMBAT
+    g.applyEvent({ type: 'nextStep' }); // END_COMBAT (no attackers: rule 508.8 skips DECLARE_BLOCKERS and DAMAGE)
     g.applyEvent({ type: 'nextStep' }); // MAIN2
     g.applyEvent({ type: 'nextStep' }); // END
 

@@ -549,7 +549,26 @@ export function parseStaticEffectSpecsFromOraclePermanent(
     }
   }
 
-  const legendaryMatch = oracle.match(/legendary creatures you control get\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/i);
+  // Flowering of the White Tree: "Nonlegendary creatures you control get +1/+1." (issue #46)
+  const nonlegendaryMatch = oracle.match(/\bnon-?legendary creatures you control get\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/i);
+  if (nonlegendaryMatch) {
+    const buff = parseBuffSegment(nonlegendaryMatch[1]);
+    if (buff) {
+      specs.push(buildSpec(
+        source,
+        'nonlegendary-anthem',
+        { kind: 'creatures_you_control' },
+        {
+          power: buff.power,
+          toughness: buff.toughness,
+          abilities: parseLordAbilitiesFromTail(nonlegendaryMatch[2] || ''),
+        },
+        { kind: 'target_is_nonlegendary_creature' },
+      ));
+    }
+  }
+
+  const legendaryMatch = oracle.match(/(?<![a-z-])legendary creatures you control get\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/i);
   if (legendaryMatch) {
     const buff = parseBuffSegment(legendaryMatch[1]);
     if (buff) {
@@ -567,7 +586,7 @@ export function parseStaticEffectSpecsFromOraclePermanent(
     }
   }
 
-  const legendaryHaveMatch = oracle.match(/legendary creatures you control have\s+([^.]+)/i);
+  const legendaryHaveMatch = oracle.match(/(?<![a-z-])legendary creatures you control have\s+([^.]+)/i);
   if (legendaryHaveMatch) {
     const abilities = parseAbilitiesFromTail(legendaryHaveMatch[1] || '');
     if (abilities.length > 0) {
@@ -626,6 +645,7 @@ export function parseStaticEffectSpecsFromOraclePermanent(
       && !hasOtherTypeLordPattern
       && !legendaryMatch
       && !legendaryHaveMatch
+      && !nonlegendaryMatch
       ? oracle.match(/(?<!other )(?<!nontoken )(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/i)
       : null;
     if (anthemMatch) {

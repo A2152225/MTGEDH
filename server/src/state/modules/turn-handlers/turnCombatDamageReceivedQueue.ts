@@ -22,8 +22,40 @@ function ts() {
  * @param permanent The permanent that was dealt damage
  * @param damageAmount Amount of damage dealt
  */
+const COMBAT_DAMAGE_BATCH_KEY = '__combatDamageReceivedBatch';
+
+type CombatDamageBatch = Map<string, { permanent: any; amount: number }>;
+
+/**
+ * Combat damage is dealt simultaneously (rules 120.3 / 510.2): a creature dealt damage by two
+ * blockers is dealt damage once, for the total. While a batch is open, damage-received
+ * triggers are summed per permanent and fired once when the batch is flushed.
+ */
+export function runWithCombatDamageReceivedBatch<T>(ctx: GameContext, run: () => T): T {
+  const holder = ctx as any;
+  if (holder[COMBAT_DAMAGE_BATCH_KEY]) return run();
+  const batch: CombatDamageBatch = new Map();
+  holder[COMBAT_DAMAGE_BATCH_KEY] = batch;
+  try {
+    return run();
+  } finally {
+    delete holder[COMBAT_DAMAGE_BATCH_KEY];
+    for (const { permanent, amount } of batch.values()) {
+      queueDamageReceivedTrigger(ctx, permanent, amount);
+    }
+  }
+}
+
 export function queueDamageReceivedTrigger(ctx: GameContext, permanent: any, damageAmount: number): void {
   if (!permanent || damageAmount <= 0) return;
+  const batch = (ctx as any)[COMBAT_DAMAGE_BATCH_KEY] as CombatDamageBatch | undefined;
+  const batchKey = String(permanent?.id || '').trim();
+  if (batch && batchKey) {
+    const entry = batch.get(batchKey);
+    if (entry) entry.amount += damageAmount;
+    else batch.set(batchKey, { permanent, amount: damageAmount });
+    return;
+  }
   
   // Use the centralized damage trigger system
   processDamageReceivedTriggers(ctx, permanent, damageAmount, (triggerInfo) => {

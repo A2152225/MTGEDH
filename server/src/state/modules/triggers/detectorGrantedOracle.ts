@@ -13,7 +13,8 @@ const FIRST_TIME_EACH_TURN_RE =
 const DURING_YOUR_TURN_BEFORE_COMMA_RE = /\s+during your turn(?=,)/gi;
 
 export function isAbilityLikeGrantedText(text: string): boolean {
-  return /when(?:ever)?\b|at the |:/.test(String(text || ''));
+  // Case-insensitive: persisted grants keep printed capitalisation ("Whenever ...", "At the ...").
+  return /\bwhen(?:ever)?\b|\bat the |:/i.test(String(text || ''));
 }
 
 /**

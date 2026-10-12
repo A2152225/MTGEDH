@@ -94,6 +94,18 @@ export function computeNextStepPhaseAdvance(
         nextStep = "DECLARE_ATTACKERS";
         (ctx as any).state.attackersDeclaredBy = [];
         debug(2, `${ts()} [nextStep] Entering DECLARE_ATTACKERS, initialized attackersDeclaredBy array`);
+      } else if (
+        (currentStep === "declareAttackers" || currentStep === "DECLARE_ATTACKERS")
+        && shouldSkipBlockersAndDamageWithoutAttackers(ctx)
+      ) {
+        // Rule 508.8: with no attacking creatures, skip the declare blockers and
+        // combat damage steps (no extra priority rounds through every seat).
+        nextStep = "END_COMBAT";
+        if ((ctx as any).state.attackersDeclaredBy) {
+          delete (ctx as any).state.attackersDeclaredBy;
+        }
+        (ctx as any).state[NO_ATTACKER_COMBAT_SKIP_LIVE_FLAG] = true;
+        debug(2, `${ts()} [nextStep] No attackers declared - skipping DECLARE_BLOCKERS and DAMAGE (rule 508.8)`);
       } else if (currentStep === "declareAttackers" || currentStep === "DECLARE_ATTACKERS") {
         nextStep = "DECLARE_BLOCKERS";
         // Initialize blockersDeclaredBy array when entering DECLARE_BLOCKERS step
@@ -255,4 +267,29 @@ export function computeNextStepPhaseAdvance(
       nextStep = "MAIN1";
     }
     return { nextPhase, nextStep, shouldDraw, shouldUntap, shouldAdvanceTurn };
+}
+
+/** Rule 508.8: any creature (or other permanent) currently attacking, incl. ones put onto the battlefield attacking. */
+export function combatHasAttackingPermanent(ctx: GameContext): boolean {
+  const battlefield = (ctx as any)?.state?.battlefield;
+  if (!Array.isArray(battlefield)) return false;
+  return battlefield.some((perm: any) => Boolean(perm && perm.attacking));
+}
+
+/** Set on state by a live nextStep that applied the rule 508.8 skip; step-advance stamps it onto the persisted event. */
+export const NO_ATTACKER_COMBAT_SKIP_LIVE_FLAG = '_lastNextStepSkippedNoAttackerCombat';
+/** Set on state by replay while applying a nextStep event that was stamped with {@link NO_ATTACKER_COMBAT_SKIP_EVENT_KEY}. */
+export const NO_ATTACKER_COMBAT_SKIP_REPLAY_FLAG = '_replayNextStepSkipNoAttackerCombat';
+/** nextStep event payload key recording that the live advance skipped DECLARE_BLOCKERS/DAMAGE. */
+export const NO_ATTACKER_COMBAT_SKIP_EVENT_KEY = 'skippedNoAttackerCombat';
+
+/**
+ * Live: skip whenever nothing is attacking. Replay: only when the persisted event says the
+ * live advance skipped, so event logs recorded before this rule (which contain explicit
+ * DECLARE_BLOCKERS and DAMAGE advances) still replay step-for-step.
+ */
+export function shouldSkipBlockersAndDamageWithoutAttackers(ctx: GameContext): boolean {
+  if (combatHasAttackingPermanent(ctx)) return false;
+  if ((ctx as any)?.isReplaying) return (ctx as any)?.state?.[NO_ATTACKER_COMBAT_SKIP_REPLAY_FLAG] === true;
+  return true;
 }

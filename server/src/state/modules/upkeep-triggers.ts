@@ -26,7 +26,7 @@ import {
 import type { UpkeepTrigger } from "./upkeep-triggers-handlers/upkeepTriggerDetectHelpers.js";
 import { getLastUpkeepMarker } from "./upkeep-triggers-handlers/upkeepMarkerHelpers.js";
 import { detectUpkeepTriggers } from "./upkeep-triggers-handlers/upkeepTriggerDetect.js";
-import { collectMatchingParsedEventLines } from "./triggers/triggerConditionFamilyMatch.js";
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from "./triggers/triggerConditionFamilyMatch.js";
 
 export type { UpkeepTrigger };
 export { detectUpkeepTriggers };
@@ -234,8 +234,8 @@ export function getUpkeepTriggersForPlayer(ctx: GameContext, activePlayerId: str
     })) {
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates([existing.effect, existing.description], line)
       ))) continue;
       const turn = line.condition?.whoseTurn;
       triggers.push({

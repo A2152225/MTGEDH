@@ -630,7 +630,9 @@ export function canActivateAbilityNow(
 
   if (
     oracleText.includes('activate only as a sorcery') ||
-    oracleText.includes('activate this ability only any time you could cast a sorcery')
+    oracleText.includes('activate this ability only any time you could cast a sorcery') ||
+    // Class level-ups ("{W}: Level 2", rule 716.2a) are sorcery speed.
+    /\}\s*:\s*level\s+\d+\b/.test(oracleText)
   ) {
     const phase = String(gameState.phase || '').toLowerCase();
     const isMainPhase = phase.includes('main');

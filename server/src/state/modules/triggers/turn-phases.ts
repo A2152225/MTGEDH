@@ -31,7 +31,7 @@ import { getActivePermanentCardFace } from "./turn-phases-handlers/turnPhaseActi
 import { detectRequiresChoice, detectAffectsAllPlayers } from "./turn-phases-handlers/turnPhaseEffectChoiceHelpers.js";
 import { detectEndStepTriggers } from "./turn-phases-handlers/turnPhaseEndStepTriggers.js";
 import { collectDelayedEndStepRegistryTriggers } from "./delayed-end-step-watchers.js";
-import { collectMatchingParsedEventLines } from "./triggerConditionFamilyMatch.js";
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from "./triggerConditionFamilyMatch.js";
 
 // ============================================================================
 // Type Definitions for Turn Phase Triggers
@@ -254,8 +254,8 @@ function appendParsedPhaseEvents(
       })) {
         const normalized = line.effect.toLowerCase();
         if (triggers.some((existing) => (
-          String(existing.permanentId || '') === String(permanent.id || '')
-          && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+          sameTriggerSource(existing, permanent)
+          && parsedEffectDuplicates([existing.effect, existing.description], line)
         ))) continue;
         triggers.push({
           permanentId: String(permanent.id || ''),
@@ -561,8 +561,8 @@ export function getEndStepTriggers(
     for (const line of parsedPhaseLines) {
       const normalized = line.effect.toLowerCase();
       const already = triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates([existing.effect, existing.description], line)
       ));
       if (already) continue;
       triggers.push({
@@ -837,9 +837,11 @@ export function getDrawStepTriggers(
       activePlayerId,
     })) {
       const normalized = line.effect.toLowerCase();
+      // Additional-draw effects (Howling Mine, Immortal Sun) are applied by calculateAdditionalDraws.
+      if (isAdditionalDrawOnlyEffect(line.effect)) continue;
       if (triggers.some((existing) => (
-        String(existing.permanentId || '') === String(permanent.id || '')
-        && String(existing.effect || existing.description || '').toLowerCase().includes(normalized.slice(0, 24))
+        sameTriggerSource(existing, permanent)
+        && parsedEffectDuplicates([existing.effect, existing.description], line)
       ))) continue;
       triggers.push({
         permanentId: String(permanent.id || ''),
