@@ -335,6 +335,9 @@ function createTokenUnbatched(
     }
   }
 
+  // Tokens from one instruction enter simultaneously: each watcher's ETB trigger list is
+  // detected once per batch instead of once per token (100 Mites = O(n^2) detector scans).
+  const etbTriggerCache = new Map<string, any[]>();
   for (let i = 0; i < Math.max(1, tokensToCreate | 0); i++) {
     const permanentId = uid("tok");
     createdPermanentIds.push(permanentId);
@@ -381,7 +384,7 @@ function createTokenUnbatched(
 
     // Fire ETB triggers (including the token's own ETBs if applicable).
     try {
-      triggerETBEffectsForPermanent(ctx as any, tokenPerm, controller);
+      triggerETBEffectsForPermanent(ctx as any, tokenPerm, controller, true, { etbTriggerCache });
     } catch {
       // Defensive: do not block token creation.
     }
@@ -466,6 +469,9 @@ export function createCopyTokensOfCard(
   const cardForCopy = JSON.parse(JSON.stringify(sourceCard));
   hydrateCardOracleInPlace(cardForCopy);
 
+  // Tokens from one instruction enter simultaneously: each watcher's ETB trigger list is
+  // detected once per batch instead of once per token (100 Mites = O(n^2) detector scans).
+  const etbTriggerCache = new Map<string, any[]>();
   for (let i = 0; i < n; i++) {
     const permanentId = uid('copytok');
     created.push(permanentId);
@@ -526,7 +532,7 @@ export function createCopyTokensOfCard(
 
     // Fire ETB triggers for the copy token.
     try {
-      triggerETBEffectsForPermanent(ctx as any, tokenPerm, controller);
+      triggerETBEffectsForPermanent(ctx as any, tokenPerm, controller, true, { etbTriggerCache });
     } catch {
       // Defensive.
     }

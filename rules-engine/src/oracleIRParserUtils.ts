@@ -46,6 +46,19 @@ export function splitIntoClauses(line: string): string[] {
       inQuotes = false;
       quoteChar = '';
       current += ch;
+      // A quoted ability that ends its sentence (`... can't block." If X is 5 or more, ...`)
+      // also ends the clause when a new If ... sentence follows (e.g. If X is N or more, ...); otherwise the
+      // quoted-grant clause swallows the next sentence (White Sun's Twilight, issue #56).
+      const prev = line[i - 1] ?? '';
+      const next = line[i + 1] ?? '';
+      if ((prev === '.' || prev === '!') && /\s/.test(next)) {
+        let j = i + 1;
+        while (j < line.length && /\s/.test(line[j] ?? '')) j += 1;
+        if (/^If\s/.test(line.slice(j, j + 3))) {
+          pushCurrent();
+          i = j - 1;
+        }
+      }
       continue;
     }
 

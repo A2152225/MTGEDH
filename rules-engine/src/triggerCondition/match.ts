@@ -64,6 +64,10 @@ function subjectFilterMatches(
   for (const word of filter.excludedWords) {
     if (excludedWordPresent(subject, word)) return false;
   }
+  if (filter.excludedColors && filter.excludedColors.length > 0) {
+    const colors = (subject.colors || []).map((color) => String(color || '').toLowerCase());
+    if (filter.excludedColors.some((color) => colors.includes(color))) return false;
+  }
   for (const supertype of filter.supertypes) {
     if (!typeLineHasWord(typeLine, supertype)) return false;
   }
@@ -110,6 +114,14 @@ function subjectFilterMatches(
     if (!ownerId || !sourceController) return false;
     if (filter.owner === 'you' && ownerId !== sourceController) return false;
     if (filter.owner === 'not_you' && ownerId === sourceController) return false;
+  }
+
+  if (filter.groups && filter.groups.length > 0) {
+    return filter.groups.some((group) => {
+      if (group.types.length === 0 && group.subtypes.length === 0) return filter.anyObject;
+      if (!group.types.every((word) => typeLineHasWord(typeLine, word))) return false;
+      return group.subtypes.every((word) => typeLineHasWord(typeLine, word) || Boolean(subject.hasAllCreatureTypes));
+    });
   }
 
   const pairCount = Math.max(filter.typeGroups.length, filter.subtypeGroups.length);
@@ -167,9 +179,14 @@ function qualifiersMatch(
 ): boolean {
   if (condition.castFromZone) {
     const zone = String(context?.castFromZone || '').trim().toLowerCase();
+    // Fail closed: an unknown zone never satisfies "from anywhere other than your hand"
+    // or "from exile/graveyard/library". Only "from your hand" tolerates a missing zone,
+    // because casts default to the hand.
     if (condition.castFromZone === 'not_hand') {
-      if (zone === 'hand') return false;
-    } else if (zone && zone !== condition.castFromZone) {
+      if (!zone || zone === 'hand') return false;
+    } else if (condition.castFromZone === 'hand') {
+      if (zone && zone !== 'hand') return false;
+    } else if (zone !== condition.castFromZone) {
       return false;
     }
   }

@@ -16,6 +16,7 @@ import {
   type ManaPool,
 } from '../utils/manaUtils';
 import { buildSuggestedPaymentItems } from '../utils/manaSourceBuilder';
+import { applyConvokeToCost } from '../utils/convokeCostReduction';
 import { manaPoolToColorRecord, simulateSequentialPaymentPool } from '../utils/manaSuggestedPaymentActivation';
 import { parseAlternateCosts, type AlternateCost } from './CastSpellModal-handlers/castSpellModalParseAlternateCosts';
 
@@ -384,10 +385,19 @@ export function CastSpellModal({
     [availableSources, floatingPaymentSources, manualFloatingManaSelection]
   );
 
+  // Selected convoke creatures pay part of the (already reduced, X-applied) cost; only the
+  // remainder needs mana sources (issue #55).
+  const selectedConvokeDetails = useMemo(
+    () => (convokeOptions?.availableCreatures || []).filter((c) => selectedConvokeCreatures.includes(c.id)),
+    [convokeOptions, selectedConvokeCreatures],
+  );
   const spellCostForPayment = useMemo(() => {
     const costToUse = effectiveManaCost || currentCost?.manaCost || manaCost;
-    return applyXValueToParsedCost(parseManaCost(costToUse), xValue);
-  }, [currentCost, effectiveManaCost, manaCost, xValue]);
+    const withX = applyXValueToParsedCost(parseManaCost(costToUse), xValue);
+    if (selectedConvokeDetails.length === 0) return withX;
+    const { convokeUnused: _unused, ...rest } = applyConvokeToCost(withX, selectedConvokeDetails);
+    return rest;
+  }, [currentCost, effectiveManaCost, manaCost, xValue, selectedConvokeDetails]);
 
   // Calculate how much floating mana will be used
   const floatingManaUsage = useMemo(() => {
@@ -405,15 +415,11 @@ export function CastSpellModal({
   const explicitPaymentSelectionRequired = useMemo(() => {
     if (!manualFloatingManaSelection || skipManaPaymentPicker) return false;
 
-    const costToUse = effectiveManaCost || currentCost?.manaCost || manaCost || '{0}';
-    const parsed = parseManaCost(costToUse);
-    const colorCost = Object.values(parsed.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
-    const hybridCost = Object.values(parsed.hybrids || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
-    const xCost = Math.max(0, Number(parsed.xCount || 0) * Number(xValue || 0));
-    const totalCost = Number(parsed.generic || 0) + colorCost + hybridCost + xCost;
+    const colorCost = Object.values(spellCostForPayment.colors || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
+    const totalCost = Number(spellCostForPayment.generic || 0) + colorCost + spellCostForPayment.hybrids.length;
 
     return totalCost > 0;
-  }, [currentCost, effectiveManaCost, skipManaPaymentPicker, manaCost, manualFloatingManaSelection, xValue]);
+  }, [skipManaPaymentPicker, manualFloatingManaSelection, spellCostForPayment]);
 
   const suggestedPaymentItems = useMemo(() => {
     const colorsToPreserve = computeColorsNeededByOtherCards(otherCardsInHand);

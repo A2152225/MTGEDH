@@ -15,6 +15,7 @@
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
+import { triggerSubjectIRVerdict } from './triggerIRVerdict.js';
 
 export interface LandfallTrigger {
   permanentId?: string;
@@ -540,6 +541,18 @@ function enteringLandMatchesOpponentQualifier(enteringLand: any, requiredLandTyp
   return enteringLandMatchesRequiredType(enteringLand, required);
 }
 
+function landfallIRVerdict(trigger: any, sourcePermanent: any, enteringLand: any, landController: string, ctx: GameContext): boolean | null {
+  return triggerSubjectIRVerdict({
+    oracleText: String(sourcePermanent?.card?.oracle_text || ''),
+    events: ['enters', 'plays_land'],
+    effectTexts: [trigger?.effect, trigger?.description],
+    subjectPermanent: enteringLand,
+    subjectControllerId: String(enteringLand?.controller || landController || ''),
+    sourcePermanent,
+    state: ctx.state,
+  });
+}
+
 export function getLandfallTriggers(
   ctx: GameContext,
   landController: string,
@@ -592,6 +605,12 @@ export function getLandfallTriggers(
         ) {
           continue;
         }
+      }
+
+      // The legacy triggerType drops subject qualifiers ("nontoken land", "a Forest or Island
+      // you control", "land an opponent controls"); the printed sentence's IR keeps them.
+      if (enteringLand && landfallIRVerdict(trigger, permanent, enteringLand, landController, ctx) === false) {
+        continue;
       }
 
       triggers.push({

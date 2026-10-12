@@ -47,6 +47,7 @@ import {
   handlePassPriorityRequest,
   handleResolveAllTriggersRequest,
 } from "./game-actions-handlers/gameActionsPrioritySocketHandlers.js";
+import { handleResolveIdenticalTriggersRequest } from "./game-actions-handlers/gameActionsResolveIdenticalTriggers.js";
 import {
   handleCastForetoldRequest,
   handleForetellCardRequest,
@@ -395,6 +396,10 @@ export function registerGameActions(io: Server, socket: Socket) {
 
   socket.on("resolveAllTriggers", (payload?: { gameId?: unknown }) =>
     handleResolveAllTriggersRequest(io, socket, ensureInGameRoom, payload));
+
+  // "Resolve all identical (xN)": batch a run of identical no-choice triggers.
+  socket.on("resolveIdenticalTriggers", (payload?: { gameId?: unknown; count?: unknown }) =>
+    handleResolveIdenticalTriggersRequest(io, socket, ensureInGameRoom, payload));
 
   // Claim turn (pre-game only) - set yourself as active player when pre-game and turnPlayer is unset.
   socket.on("claimMyTurn", (payload?: { gameId?: unknown }) =>

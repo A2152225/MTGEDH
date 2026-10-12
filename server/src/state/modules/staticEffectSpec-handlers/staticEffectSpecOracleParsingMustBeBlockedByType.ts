@@ -66,6 +66,9 @@ function escapeRegExp(value: string): string {
 
 function keywordFromTypedMustBlockSentence(sentence: string): string | null {
   const lower = String(sentence || '').toLowerCase();
+  // Cheap guard: this runs for every sentence of every permanent on each static recompute,
+  // and building one RegExp per ability word dominated mass-token boards.
+  if (!lower.includes('must be blocked by a creature with')) return null;
   for (const ability of ABILITY_WORDS_LONGEST_FIRST) {
     const pattern = new RegExp(
       `\\bmust be blocked by a creature with ${escapeRegExp(ability)} if able\\b`,

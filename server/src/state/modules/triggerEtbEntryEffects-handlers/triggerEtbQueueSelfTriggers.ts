@@ -20,6 +20,7 @@ import {
   buildTriggerSourcePermanentSnapshot,
 } from '../triggerSourceUtils.js';
 import { inferTriggeredAbilityTargetMetadata, isModalChooseModesEffectText } from '../inferTriggeredAbilityTargetMetadata.js';
+import { triggerSubjectIRVerdict } from '../triggers/triggerIRVerdict.js';
 import { handleRoomDoorStateOnEnter } from '../triggers/room.js';
 import { pushTriggerDoublerCopies } from '../triggers/combat.js';
 import {
@@ -97,8 +98,21 @@ export function queueSelfETBTriggersForPermanent(
         continue;
       }
     }
-    // "Whenever a land you control enters" is landfall, not this creature's ETB
-    // (Emeria Shepherd). Only queue it when the entering permanent is a land.
+    // A watcher clause ("Whenever a land you control enters", "another Elf you control")
+    // only fires for this permanent's own entry when the permanent satisfies the printed
+    // subject (Emeria Shepherd is not a land). The IR covers every enters variant; the
+    // land list below is the fallback when no parsed sentence backs the entry.
+    if (!isExplicitSelfETB && triggerSubjectIRVerdict({
+      oracleText: String(permanent?.card?.oracle_text || ''),
+      events: ['enters'],
+      effectTexts: [(trigger as any)?.effect, (trigger as any)?.description],
+      subjectPermanent: permanent,
+      subjectControllerId: String(controller || permanent?.controller || ''),
+      sourcePermanent: { ...permanent, controller: String(permanent?.controller || controller || '') },
+      state,
+    }) === false) {
+      continue;
+    }
     if (
       triggerType === 'land_you_control_etb'
       || triggerType === 'opponent_land_etb'

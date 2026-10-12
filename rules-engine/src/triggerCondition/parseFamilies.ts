@@ -535,8 +535,11 @@ export function splitTriggerEffectRiders(effect: string): Omit<ParsedTriggerClau
   };
 }
 
+/** "Landfall — Whenever ...": an ability word labels the trigger and is not part of it. */
+const ABILITY_WORD_PREFIX = /^\s*[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
+
 export function parseTriggerClause(sentence: string): ParsedTriggerClause | null {
-  const parsed = parseTriggerEventSentence(sentence);
+  const parsed = parseTriggerEventSentence(String(sentence || '').replace(ABILITY_WORD_PREFIX, ''));
   if (!parsed) return null;
   return { condition: parsed.condition, ...splitTriggerEffectRiders(parsed.effect) };
 }

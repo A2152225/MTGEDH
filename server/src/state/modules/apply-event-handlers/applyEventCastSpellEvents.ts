@@ -33,6 +33,8 @@ import {
   findReplayedStackItemForCastCard,
   stampReplayedGraveyardCastStackFlags,
 } from "../stackReplayUtils.js";
+import { consumeChosenTypeFlashGrantsAfterCast, consumeConvokeGrantsAfterCast } from "../casting-modifiers.js";
+import { consumeNextSpellCostReductionAfterCast } from "../nextSpellCostReduction.js";
 
 export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -263,6 +265,23 @@ export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
               id: (topStackItem as any)?.id
                 || (typeof spellCardData === 'object' ? (spellCardData as any)?.id : spellCardData),
             });
+
+            // "Next spell" grants (Wand of the Worldsoul convoke, next-spell cost reductions,
+            // chosen-type flash) are consumed by the live cast handler; replay/undo/reload must
+            // consume them too or the rebuilt state hands the grant to a later spell (issue #53).
+            try {
+              const casterId = String((e as any).playerId || '').trim() as any;
+              const castCard = (topStackItem as any)?.card
+                || (typeof spellCardData === 'object' ? spellCardData : undefined);
+              const zone = String((e as any).fromZone || '').toLowerCase().trim() || undefined;
+              if (casterId && castCard) {
+                consumeNextSpellCostReductionAfterCast(ctx.state as any, casterId);
+                consumeConvokeGrantsAfterCast(ctx.state, casterId, castCard, zone);
+                consumeChosenTypeFlashGrantsAfterCast(ctx.state, casterId, castCard);
+              }
+            } catch {
+              // best-effort only
+            }
 
             const applyToStackItem = (key: string, value: any) => {
               (topStackItem as any)[key] = value;

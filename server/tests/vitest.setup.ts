@@ -59,14 +59,29 @@ function sweepStaleTestDatabases(): void {
   }
 }
 
+let censusWarned = false;
+function warnIgnoredCensusEnv(censusRun: boolean): void {
+  if (censusRun || censusWarned) return;
+  const stray = ['ORACLE_IR_CENSUS_PRIMARY', 'ORACLE_IR_CENSUS_SPELL_PRIMARY', 'ORACLE_IR_CENSUS_TRIGGER_PRIMARY']
+    .filter((name) => process.env[name] === '1');
+  if (stray.length === 0) return;
+  censusWarned = true;
+  console.warn(`[vitest.setup] Ignoring ${stray.join(', ')} (set ORACLE_IR_CENSUS_RUN=1 for a census run).`);
+}
+
 beforeEach(() => {
   // Default-off in tests so legacy-path suites stay stable; IR-primary tests opt in with =1.
   // P4e: ORACLE_IR_*_LEGACY is ignored — PRIMARY=0 is the only opt-out.
   // Census (`ORACLE_IR_CENSUS_PRIMARY=1` or ORACLE_IR_CENSUS_{SPELL,TRIGGER}_PRIMARY=1)
   // flips the harness to production-on so a failure census can run without editing this file.
-  const censusAll = process.env.ORACLE_IR_CENSUS_PRIMARY === '1';
-  const censusSpell = censusAll || process.env.ORACLE_IR_CENSUS_SPELL_PRIMARY === '1';
-  const censusTrigger = censusAll || process.env.ORACLE_IR_CENSUS_TRIGGER_PRIMARY === '1';
+  // Census flags are honored only inside an explicit census run (ORACLE_IR_CENSUS_RUN=1, set by
+  // scripts/oracle-ir-primary-census.ts). A stray ORACLE_IR_CENSUS_* left in a developer shell
+  // used to flip the whole suite to IR-primary and fail ~70 prompt/payment tests.
+  const censusRun = process.env.ORACLE_IR_CENSUS_RUN === '1';
+  warnIgnoredCensusEnv(censusRun);
+  const censusAll = censusRun && process.env.ORACLE_IR_CENSUS_PRIMARY === '1';
+  const censusSpell = censusAll || (censusRun && process.env.ORACLE_IR_CENSUS_SPELL_PRIMARY === '1');
+  const censusTrigger = censusAll || (censusRun && process.env.ORACLE_IR_CENSUS_TRIGGER_PRIMARY === '1');
   process.env.ORACLE_IR_TRIGGER_PRIMARY = censusTrigger ? '1' : '0';
   delete process.env.ORACLE_IR_TRIGGER_LEGACY;
   process.env.ORACLE_IR_SPELL_PRIMARY = censusSpell ? '1' : '0';

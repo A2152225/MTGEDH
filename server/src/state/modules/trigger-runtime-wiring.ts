@@ -348,7 +348,24 @@ export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
   return ORACLE_IR_FALLBACK_STEP_KINDS.has(step.kind);
 }
 
+// Pure in (effect text, card name); resolution, routing and audits all re-parse the same
+// effect, so a stack of 100 identical triggers parsed it hundreds of times. Callers get a
+// deep copy so step mutation during execution never leaks into the cache.
+const TRIGGER_EFFECT_STEPS_CACHE = new Map<string, OracleEffectStep[]>();
+const TRIGGER_EFFECT_STEPS_CACHE_MAX = 2048;
+
 export function parseTriggerEffectSteps(effectText: string, cardName: string): OracleEffectStep[] {
+  const key = `${cardName}\u0000${effectText}`;
+  let cached = TRIGGER_EFFECT_STEPS_CACHE.get(key);
+  if (!cached) {
+    cached = parseTriggerEffectStepsUncached(effectText, cardName);
+    if (TRIGGER_EFFECT_STEPS_CACHE.size >= TRIGGER_EFFECT_STEPS_CACHE_MAX) TRIGGER_EFFECT_STEPS_CACHE.clear();
+    TRIGGER_EFFECT_STEPS_CACHE.set(key, cached);
+  }
+  return structuredClone(cached);
+}
+
+function parseTriggerEffectStepsUncached(effectText: string, cardName: string): OracleEffectStep[] {
   const rawText = String(effectText || '').trim();
   if (!rawText) return [];
 

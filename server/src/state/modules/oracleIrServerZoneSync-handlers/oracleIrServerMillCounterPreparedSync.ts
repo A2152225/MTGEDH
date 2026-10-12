@@ -19,6 +19,7 @@ import { syncPreparedPermanentAfterControlChange } from '../prepared.js';
 import { evaluateCounterPlacementReplacementEvent, evaluateMillReplacementEvent } from '../replacement-effects.js';
 import { updateCounters } from '../counters_tokens.js';
 import { queueCounterPlacedTriggers } from '../triggers/counters.js';
+import { runWithReplacementSpecScope } from '../replacementEffectSpecScopedCache.js';
 
 export function snapshotBattlefieldControllers(state: any): Map<string, string> {
   const out = new Map<string, string>();
@@ -43,6 +44,16 @@ export function snapshotBattlefieldCounters(state: any): Map<string, Record<stri
 }
 
 export function syncCounterReplacementEffectsAfterOracleIR(
+  ctx: GameContext,
+  state: any,
+  countersBefore: Map<string, Record<string, number>>,
+): void {
+  // One replacement-spec collection for the whole pass ("each creature you control"
+  // placements used to re-scan the battlefield per creature).
+  runWithReplacementSpecScope(() => syncCounterReplacementEffectsAfterOracleIRScoped(ctx, state, countersBefore));
+}
+
+function syncCounterReplacementEffectsAfterOracleIRScoped(
   ctx: GameContext,
   state: any,
   countersBefore: Map<string, Record<string, number>>,

@@ -37,6 +37,7 @@ import { aiEngine } from "./aiScheduler.js";
 import { isTargetPlayerMillText, scoreAIMillTargetPlayer } from "./aiMillTargetChoice.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { getPermanentCombatStats } from "./aiPermanentCombatStats.js";
+import { classifyAuraPolarity, isAuraLikeSourceText } from "./aiAuraPolarity.js";
 
 function getPermanentForTarget(game: any, target: TargetRef): any | null {
   if (target.kind !== 'permanent') return null;
@@ -358,6 +359,7 @@ export function chooseAITargetsForSpell(
     let score = -9999;
     if (target.kind === 'permanent') {
       score = scorePermanentTargetForSpell(game, playerId, card, spellSpec, target, profile, threatAssessment);
+      score += auraPolarityTargetBias(game, playerId, card, target);
     } else if (target.kind === 'player') {
       score = scorePlayerTargetForSpell(game, playerId, card, spellSpec, target, profile, threatAssessment);
     } else if (target.kind === 'stack') {
@@ -454,6 +456,22 @@ function mapChoiceOptionToTargetRef(game: any, option: any): TargetRef | null {
   return null;
 }
 
+/**
+ * +300 for the right side of an Aura (own permanent for a beneficial aura, opponent's for a
+ * harmful one), -300 for the wrong side, 0 when the source isn't an aura or gives no signal.
+ */
+function auraPolarityTargetBias(game: any, playerId: PlayerID, sourceCard: any, target: TargetRef): number {
+  if (target.kind !== 'permanent') return 0;
+  const oracle = String(sourceCard?.oracle_text || '');
+  if (!isAuraLikeSourceText(oracle, sourceCard?.type_line)) return 0;
+  const polarity = classifyAuraPolarity(oracle);
+  if (!polarity) return 0;
+  const permanent = getPermanentForTarget(game, target);
+  if (!permanent) return 0;
+  const isOwn = String(permanent.controller || '') === String(playerId || '');
+  return (polarity === 'beneficial') === isOwn ? 300 : -300;
+}
+
 function scoreChoiceTargetFallback(
   game: any,
   playerId: PlayerID,
@@ -468,6 +486,13 @@ function scoreChoiceTargetFallback(
   if (target.kind === 'permanent') {
     const permanent = getPermanentForTarget(game, target);
     if (!permanent) return -9999;
+
+    // Auras: polarity of what it does to the enchanted object decides the side, not stray
+    // words like umbra armor's "would be destroyed" (issue #54, Bear Umbra).
+    const auraBias = auraPolarityTargetBias(game, playerId, sourceCard, target);
+    if (auraBias !== 0) {
+      return auraBias + getPermanentCombatStats(permanent, game?.state).power * 2;
+    }
 
     const isOwnPermanent = permanent.controller === playerId;
     const analysis = cardAnalyzer.analyzeCard(permanent);

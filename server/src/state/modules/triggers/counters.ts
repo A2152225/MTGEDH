@@ -16,6 +16,7 @@ import {
   shouldSkipFirstTimeEachTurnTrigger,
 } from '../triggerDoThisOnlyOnceEachTurn.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
+import { isOneOrMoreIRBatchDuplicate } from './triggerIRVerdict.js';
 
 export interface CounterPlacedTrigger {
   permanentId: string;
@@ -94,6 +95,9 @@ export function detectCounterPlacedTriggers(card: any, permanent: any, gameState
   const permanentId = String(permanent?.id || '');
   const controllerId = String(permanent?.controller || '');
   const cardName = String(card?.name || 'Unknown');
+  // Every pattern below needs "counter" or "proliferate"; skip the regex battery for
+  // vanilla tokens (this runs per permanent per counter placement).
+  if (!/counter|proliferate/i.test(oracleText)) return triggers;
 
   const proliferateMatch = oracleText.match(/when(?:ever)? you proliferate,?\s*([^.]+)/i);
   if (proliferateMatch) {
@@ -382,6 +386,10 @@ export function queueCounterPlacedTriggers(
     const effect = String(trigger.effect || '').trim();
     const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(effect);
     if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) {
+      continue;
+    }
+    // "one or more <objects>" fires once per simultaneous event, not per object.
+    if (isOneOrMoreIRBatchDuplicate('counter_placed', findBattlefieldPermanentById(ctx, String(trigger.permanentId || '')), [trigger.effect, (trigger as any).description, (trigger as any).oracleClause], ['counter_placed'])) {
       continue;
     }
 
@@ -674,6 +682,10 @@ export function queueCounterRemovedTriggers(
     const effect = String(trigger.effect || '').trim();
     const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(effect);
     if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) {
+      continue;
+    }
+    // "one or more <objects>" fires once per simultaneous event, not per object.
+    if (isOneOrMoreIRBatchDuplicate('counter_removed', findBattlefieldPermanentById(ctx, String(trigger.permanentId || '')), [trigger.effect, (trigger as any).description, (trigger as any).oracleClause], ['counter_removed'])) {
       continue;
     }
 

@@ -441,6 +441,7 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
             priority={safeView.priority}
             onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}
             onResolveAllTriggers={() => safeView && socket.emit("resolveAllTriggers", { gameId: safeView.id })}
+            onResolveIdenticalTriggers={(count) => safeView && socket.emit("resolveIdenticalTriggers" as any, { gameId: safeView.id, count })}
             ignoredTriggerSources={ignoredTriggerSources}
             onIgnoreTriggerSource={handleIgnoreTriggerSourceFromStack}
             onStopIgnoringSource={handleStopIgnoringSource}

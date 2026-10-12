@@ -37,6 +37,7 @@ import {
   getSpellModeAdditionalCost,
 } from "./gameActionsModalCastModeCosts.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
+import { computeSpellCastXUpperBound } from "./spellCastXUpperBound.js";
 import type { RequestCastSpellCandidateZoneArgs } from "./gameActionsRequestCastSpellCandidateZone.js";
 
 export type RequestCastSpellModesArgs = {
@@ -397,7 +398,7 @@ export function tryPromptRequestCastSpellModes(
           sourceName: cardName,
           sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
           minValue: 0,
-          maxValue: 20,
+          maxValue: computeSpellCastXUpperBound(game, String(playerId), cardForCast, manaCost, xCount, castSourceZone),
           xCount,
           spellCastXSelection: true,
           spellCardId: String(cardId),

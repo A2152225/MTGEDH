@@ -49,6 +49,7 @@ export type MobilePlaySheetsProps = MobileToolsHubProps & {
   priority?: PlayerID | null;
   onPassPriority?: () => void;
   onResolveAllTriggers?: () => void;
+  onResolveIdenticalTriggers?: (count: number) => void;
   ignoredTriggerSources?: Map<string, { sourceName: string; count: number; effect: string; imageUrl?: string }>;
   onIgnoreTriggerSource?: (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => void;
   onStopIgnoringSource?: (sourceKey: string) => void;
@@ -101,6 +102,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
     priority,
     onPassPriority,
     onResolveAllTriggers,
+    onResolveIdenticalTriggers,
     ignoredTriggerSources,
     onIgnoreTriggerSource,
     onStopIgnoringSource,
@@ -217,6 +219,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
               priorityPlayer={priority ?? undefined}
               onPass={onPassPriority}
               onResolveAll={onResolveAllTriggers}
+              onResolveIdentical={onResolveIdenticalTriggers}
               ignoredSources={ignoredTriggerSources}
               onIgnoreTriggerSource={onIgnoreTriggerSource}
               onStopIgnoring={onStopIgnoringSource}

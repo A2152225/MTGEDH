@@ -11,7 +11,7 @@
  * The same batch covers "Whenever one or more ... die / are put into a graveyard" via
  * isOneOrMoreBatchDuplicate().
  * Public entry symbols: runWithSimultaneousEntryBatch, filterOneOrMoreEntryDuplicates,
- * isOneOrMoreEntryTriggerItem, isOneOrMoreBatchDuplicate.
+ * isOneOrMoreEntryTriggerItem, isOneOrMoreBatchDuplicate, claimSimultaneousBatchKey.
  */
 
 interface EntryBatch {
@@ -29,6 +29,18 @@ export function runWithSimultaneousEntryBatch<T>(fn: () => T): T {
   } finally {
     batchStack.pop();
   }
+}
+
+/**
+ * Record a caller-built key in the active batch. 'first' the first time, 'duplicate' after,
+ * 'none' outside a batch (nothing is deduplicated then).
+ */
+export function claimSimultaneousBatchKey(key: string): 'first' | 'duplicate' | 'none' {
+  const batch = batchStack[batchStack.length - 1];
+  if (!batch) return 'none';
+  if (batch.fired.has(key)) return 'duplicate';
+  batch.fired.add(key);
+  return 'first';
 }
 
 function norm(text: unknown): string {

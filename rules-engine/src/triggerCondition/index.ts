@@ -14,6 +14,7 @@ export type {
   TriggerOrdinal,
   TriggerSourceRelation,
   TriggerSubjectFilter,
+  TriggerSubjectGroup,
   TriggerTargetRelation,
   TriggerTokenRestriction,
   TriggerWhoseTurn,

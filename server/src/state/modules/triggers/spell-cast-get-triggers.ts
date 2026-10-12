@@ -13,6 +13,7 @@ import { detectSpellCastTriggers } from "./spell-cast-detection.js";
 import { spellSharesCreatureTypeWithSource } from "./spellCastSharedCreatureType.js";
 import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
 import { spellOrdinalForCaster } from "./spell-cast.js";
+import { spellCastTriggerIRVerdict } from "./triggerIRVerdict.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource, spellCastConditionMatches } from "./triggerConditionFamilyMatch.js";
 /**
  * Get all spell-cast triggers that should fire when a spell is cast
@@ -133,6 +134,27 @@ export function getSpellCastTriggers(
       if (shouldTrigger && trigger.requiresSharedCreatureTypeWithSource) {
         shouldTrigger = spellSharesCreatureTypeWithSource(spellCard, permanent);
       }
+
+      // The enum above drops qualifiers ("artifact creature spell" -> creature); the
+      // printed sentence's IR has them.
+      if (shouldTrigger && spellCastTriggerIRVerdict({
+        trigger,
+        sourcePermanent: permanent,
+        spellCard,
+        casterId,
+        effectiveSpellColors: getEffectiveColors(spellCard, ctx.state),
+      }) === false) {
+        shouldTrigger = false;
+      }
+
+      // Same printed sentence emitted twice by the legacy detector under different enums.
+      if (shouldTrigger && triggers.some((existing) => (
+        existing.permanentId === trigger.permanentId
+        && String(existing.description || '') !== ''
+        && existing.description === trigger.description
+      ))) {
+        shouldTrigger = false;
+      }
       
       if (shouldTrigger) {
         triggers.push(trigger);
@@ -182,6 +204,8 @@ export function getSpellCastTriggers(
         ...(subject?.colors?.length === 1 ? { tribalType: subject.colors[0] } : {}),
         mandatory: !/\byou may\b/i.test(line.effect),
         ...(line.condition?.ordinal === 'first' ? { firstSpellThisTurn: true } : {}),
+        // spellCondition above is a display projection; the IR is the matching source.
+        ...(line.condition ? { triggerCondition: line.condition } : {}),
       });
     }
   }

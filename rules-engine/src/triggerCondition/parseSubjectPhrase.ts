@@ -288,6 +288,12 @@ function consumeController(tokens: readonly string[]): { controller: TriggerCont
   return { controller: 'any', owner, rest };
 }
 
+/** "nonblack" / "non-black" -> 'b'. */
+function excludedColor(token: string): string | null {
+  const match = /^non-?(white|blue|black|red|green)$/.exec(token);
+  return match ? COLOR_LETTERS[match[1]] : null;
+}
+
 function excludedWord(token: string): string | null {
   if (NON_CARD_TYPE[token]) return NON_CARD_TYPE[token];
   const hyphen = /^non-([a-z]+)$/.exec(token);
@@ -320,8 +326,13 @@ function splitSubjectAlternatives(clause: string): string[] {
   return parts.map((part) => part.trim()).filter(Boolean);
 }
 
+/**
+ * "an Elf or Warrior creature": the trailing type noun belongs to every subtype-only chunk.
+ * Only a chunk that itself pairs subtypes with types donates them; "a Goblin or artifact"
+ * keeps Goblin and artifact as separate alternatives.
+ */
 function shareCardTypes(chunks: SubjectChunk[]): void {
-  const typed = chunks.filter((chunk) => chunk.types.length > 0);
+  const typed = chunks.filter((chunk) => chunk.types.length > 0 && chunk.subtypes.length > 0);
   const untyped = chunks.filter((chunk) => chunk.types.length === 0 && chunk.subtypes.length > 0);
   if (typed.length === 0 || untyped.length === 0) return;
   const signature = typed[0].types.join('|');
@@ -353,6 +364,7 @@ function parseOneSubject(clause: string, event: TriggerConditionEvent, quantity:
 
   let tokenRestriction: TriggerTokenRestriction = 'any';
   const excludedWords: string[] = [];
+  const excludedColors: string[] = [];
   const supertypes: string[] = [];
   const keywordsWith: string[] = [];
   const keywordsWithout: string[] = [];
@@ -392,6 +404,11 @@ function parseOneSubject(clause: string, event: TriggerConditionEvent, quantity:
       tokenRestriction = 'token';
       continue;
     }
+    const excludedColorLetter = excludedColor(token);
+    if (excludedColorLetter) {
+      excludedColors.push(excludedColorLetter);
+      continue;
+    }
     const excluded = excludedWord(token);
     if (excluded) {
       excludedWords.push(excluded);
@@ -414,20 +431,27 @@ function parseOneSubject(clause: string, event: TriggerConditionEvent, quantity:
 
   if (chunks.some((chunk) => chunk.types.length === 0 && chunk.subtypes.length === 0)) {
     const tokenOnly = tokenRestriction !== 'any';
-    if (!qualifiersAreRestrictive(stripped.qualifiers) && !tokenOnly && excludedWords.length === 0 && supertypes.length === 0) return null;
+    if (!qualifiersAreRestrictive(stripped.qualifiers) && !tokenOnly && excludedWords.length === 0 && excludedColors.length === 0 && supertypes.length === 0) return null;
     chunks.splice(0, chunks.length, { types: ['permanent'], subtypes: [] });
   }
   shareCardTypes(chunks);
 
   const anyObject = chunks.some((chunk) => chunk.types.includes('permanent'));
+  // Each chunk is one OR alternative holding its own types and subtypes.
+  const groups = chunks.map((chunk) => ({
+    types: chunk.types.filter((type) => type !== 'permanent'),
+    subtypes: [...chunk.subtypes],
+  }));
   const subtypeGroups = anyObject
-    ? [chunks.flatMap((chunk) => chunk.subtypes)].filter((group) => group.length > 0)
+    ? chunks.map((chunk) => chunk.subtypes).filter((group) => group.length > 0)
     : chunks.map((chunk) => chunk.subtypes);
   const subject = applyQualifiers({
     anyObject,
     typeGroups: anyObject ? [] : chunks.map((chunk) => chunk.types),
     subtypeGroups,
+    groups,
     excludedWords,
+    ...(excludedColors.length ? { excludedColors } : {}),
     supertypes,
     keywordsWith,
     keywordsWithout,

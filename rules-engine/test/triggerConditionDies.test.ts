@@ -29,6 +29,7 @@ describe('parseDiesSubjectClause', () => {
           supertypes: [],
           token: 'nontoken',
           subtypeGroups: [[], []],
+          groups: [{ types: ['artifact'], subtypes: [] }, { types: ['creature'], subtypes: [] }],
           keywordsWith: [],
           keywordsWithout: [],
         },

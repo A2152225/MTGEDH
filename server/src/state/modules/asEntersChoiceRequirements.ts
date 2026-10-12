@@ -203,7 +203,29 @@ export function getAsEntersChoiceRequirements(card: any): AsEntersChoiceRequirem
   const cardName = String(card.name || 'Card');
 
   // IR is the sole source of truth for as-enters choice derivation (Phase 8).
-  return collectIrAsEntersChoices(oracleText, cardName);
+  // The result is a pure function of (oracle text, name). Entry-prompt scans call this
+  // for every permanent after each Oracle IR resolution, so re-parsing made mass token
+  // turns (Cathars' Crusade + 100 Mites) quadratic. Memoize and hand out copies.
+  const key = `${cardName}\u0000${oracleText}`;
+  let cached = AS_ENTERS_CHOICE_CACHE.get(key);
+  if (!cached) {
+    cached = collectIrAsEntersChoices(oracleText, cardName);
+    if (AS_ENTERS_CHOICE_CACHE.size >= AS_ENTERS_CHOICE_CACHE_MAX) AS_ENTERS_CHOICE_CACHE.clear();
+    AS_ENTERS_CHOICE_CACHE.set(key, cached);
+  }
+  return cached.map(cloneRequirement);
+}
+
+const AS_ENTERS_CHOICE_CACHE_MAX = 4096;
+const AS_ENTERS_CHOICE_CACHE = new Map<string, AsEntersChoiceRequirement[]>();
+
+function cloneRequirement(req: AsEntersChoiceRequirement): AsEntersChoiceRequirement {
+  return {
+    ...req,
+    ...(req.colors ? { colors: [...req.colors] } : {}),
+    ...(req.excludedColors ? { excludedColors: [...req.excludedColors] } : {}),
+    ...(req.excludedCreatureTypes ? { excludedCreatureTypes: [...req.excludedCreatureTypes] } : {}),
+  };
 }
 
 /**

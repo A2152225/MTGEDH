@@ -237,6 +237,8 @@ function main(): void {
         env: {
           ...process.env,
           ORACLE_IR_CENSUS_SPELL_PRIMARY: '1',
+          // vitest.setup.ts only honors census flags inside an explicit census run.
+          ORACLE_IR_CENSUS_RUN: '1',
         },
         stdio: 'inherit',
       },

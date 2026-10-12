@@ -23,6 +23,7 @@ import { persistNamedSpellCastThisGame } from "../../state/modules/namedSpellsCa
 import { consumeNextSpellCostReductionAfterCast } from "../../state/modules/nextSpellCostReduction.js";
 import { detectSpellCastTriggers, type SpellCastTrigger } from "../../state/modules/triggered-abilities";
 import { spellSharesCreatureTypeWithSource } from "../../state/modules/triggers/spellCastSharedCreatureType.js";
+import { spellCastTriggerIRVerdict } from "../../state/modules/triggers/triggerIRVerdict.js";
 import { debugWarn } from "../../utils/debug.js";
 import {
   broadcastGame,
@@ -55,6 +56,24 @@ export function getSpellCastTriggersForCard(game: any, casterId: string, spellCa
     sourcePermanent?: any,
     spellSourceZone = castSourceZone,
   ): boolean => {
+    if (!legacySpellCastTriggerCondition(card, trigger, sourcePermanent, spellSourceZone)) return false;
+    // The legacy enum drops qualifiers ("artifact creature spell" -> creature); the printed
+    // sentence's IR keeps them and can only narrow the match.
+    return spellCastTriggerIRVerdict({
+      trigger,
+      sourcePermanent,
+      spellCard: card,
+      casterId,
+      effectiveSpellColors: getEffectiveColors(card, game.state),
+    }) !== false;
+  };
+
+  const legacySpellCastTriggerCondition = (
+    card: any,
+    trigger: SpellCastTrigger,
+    sourcePermanent?: any,
+    spellSourceZone = castSourceZone,
+  ): boolean => {
     // Cycle triggers share the detector but fire on cycling, never on a spell cast.
     if (trigger.triggerEvent === 'cycle') return false;
     if (trigger.sourceZoneRequirement === 'hand' && spellSourceZone && spellSourceZone !== 'hand') {
@@ -69,7 +88,8 @@ export function getSpellCastTriggersForCard(game: any, casterId: string, spellCa
     if (trigger.sourceZoneRequirement === 'graveyard' && spellSourceZone !== 'graveyard') {
       return false;
     }
-    if (trigger.sourceZoneRequirement === 'not_hand' && spellSourceZone === 'hand') {
+    // Fail closed: an unknown cast zone is not "anywhere other than your hand".
+    if (trigger.sourceZoneRequirement === 'not_hand' && (!spellSourceZone || spellSourceZone === 'hand')) {
       return false;
     }
     if (trigger.requiresSharedCreatureTypeWithSource && !spellSharesCreatureTypeWithSource(card, sourcePermanent)) {
@@ -166,6 +186,16 @@ export function getSpellCastTriggersForCard(game: any, casterId: string, spellCa
         shouldTrigger = activePlayer !== controllerId && spellsCastThisTurnByCaster === 1;
       }
       
+      // The legacy detector can emit the same printed sentence twice under different enums
+      // ("artifact creature spell" as creature and as a bogus tribal type).
+      if (shouldTrigger && triggers.some((existing) => (
+        existing.permanentId === trigger.permanentId
+        && String(existing.description || '') !== ''
+        && existing.description === trigger.description
+      ))) {
+        shouldTrigger = false;
+      }
+
       if (shouldTrigger) {
         triggers.push(trigger);
       }

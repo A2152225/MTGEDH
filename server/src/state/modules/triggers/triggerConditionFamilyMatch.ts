@@ -6,6 +6,7 @@
 
 import { hasChangeling } from '../../../../../rules-engine/src/tribalSupport.js';
 import { oracleTextHasOwnKeyword } from '../../../../../rules-engine/src/oracleOwnKeywordText.js';
+import { permanentHasKeywordAbility } from '../../../../../rules-engine/src/permanentKeywordAbilities.js';
 import { stripReminderParentheticals } from '../../../../../rules-engine/src/oracleReminderText.js';
 import {
   TRIGGER_SUBJECT_KEYWORDS,
@@ -22,17 +23,27 @@ import { isInterveningIfSatisfied } from './intervening-if.js';
 import { resolveEnchantedControllerId, resolveEnchantedPlayerId } from './phaseWhoseTurn.js';
 import { getPermanentPowerMaybe, getPermanentToughnessMaybe } from './intervening-if-permanent-and-player.js';
 
-export function keywordsOnPermanent(permanent: any): string[] {
+/**
+ * Keywords the object has right now. With a battlefield, continuous grants (lords, auras,
+ * equipment, "creatures you control have flying") and removals are honoured as well.
+ */
+export function keywordsOnPermanent(permanent: any, battlefield?: readonly any[]): string[] {
   const oracleText = String(permanent?.card?.oracle_text || permanent?.oracle_text || '');
   const listed: string[] = [];
   for (const list of [permanent?.keywords, permanent?.card?.keywords, permanent?.grantedAbilities]) {
     if (!Array.isArray(list)) continue;
     for (const entry of list) listed.push(String(entry || '').toLowerCase());
   }
-  return TRIGGER_SUBJECT_KEYWORDS.filter((keyword) => (
-    listed.some((entry) => entry === keyword || entry.includes(keyword))
-    || oracleTextHasOwnKeyword(oracleText, keyword)
-  ));
+  return TRIGGER_SUBJECT_KEYWORDS.filter((keyword) => {
+    const stored = listed.some((entry) => entry === keyword || entry.includes(keyword))
+      || oracleTextHasOwnKeyword(oracleText, keyword);
+    if (!Array.isArray(battlefield)) return stored;
+    try {
+      return stored || permanentHasKeywordAbility(permanent, keyword, battlefield);
+    } catch {
+      return stored;
+    }
+  });
 }
 
 export function permanentToTriggerMatch(permanent: any, controllerId?: string, state?: any): TriggerMatchPermanent {
@@ -45,7 +56,7 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string, s
     controllerId: String(controllerId || permanent?.controller || '').trim(),
     isToken: Boolean(permanent?.isToken || permanent?.token || permanent?.card?.isToken || permanent?.card?.token),
     hasAllCreatureTypes: hasChangeling(oracleText, typeLine),
-    keywords: keywordsOnPermanent(permanent),
+    keywords: keywordsOnPermanent(permanent, Array.isArray(state?.battlefield) ? state.battlefield : undefined),
     counters: permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : undefined,
     power: currentStat(getPermanentPowerMaybe(permanent, statContext)),
     toughness: currentStat(getPermanentToughnessMaybe(permanent, statContext)),
@@ -315,6 +326,30 @@ export function sameTriggerSource(existing: any, permanent: any): boolean {
   return Boolean(existingName) && existingName === String(permanent?.card?.name || '').trim().toLowerCase();
 }
 
+type ParsedTriggerSentence = { sentence: string; parsed: ReturnType<typeof parseTriggerClause> };
+// Parsing is a pure function of the oracle text. Every family scan parses every
+// battlefield permanent, so cache by text (mass-token boards hit the same few texts).
+const PARSED_TRIGGER_SENTENCE_CACHE = new Map<string, readonly ParsedTriggerSentence[]>();
+const PARSED_TRIGGER_SENTENCE_CACHE_MAX = 4096;
+
+function parsedTriggerSentencesFor(oracleText: string): readonly ParsedTriggerSentence[] {
+  const cached = PARSED_TRIGGER_SENTENCE_CACHE.get(oracleText);
+  if (cached) return cached;
+  // Quoted text is an ability granted to something else (Perigee Beckoner: gains "When this
+  // creature dies, ..."), never a trigger of the source itself.
+  const text = stripReminderParentheticals(oracleText)
+    .replace(/"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g, '""');
+  // One ability per line; within a line only split where a new trigger sentence starts so
+  // follow-ups ("If you do, ...", "You may choose new targets ...") stay with their trigger.
+  const out = text
+    .split(/\n+/)
+    .flatMap((line) => line.split(/(?<=\.)\s+(?=(?:when|whenever|at)\b)/i))
+    .map((sentence) => ({ sentence, parsed: parseTriggerClause(sentence) }));
+  if (PARSED_TRIGGER_SENTENCE_CACHE.size >= PARSED_TRIGGER_SENTENCE_CACHE_MAX) PARSED_TRIGGER_SENTENCE_CACHE.clear();
+  PARSED_TRIGGER_SENTENCE_CACHE.set(oracleText, out);
+  return out;
+}
+
 function effectKey(effect: string): string {
   return String(effect || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -341,19 +376,9 @@ export function collectMatchingParsedEventLines(options: {
   /** Player bound to "that player" in an intervening-if clause (defaults to the active player for phase events). */
   thatPlayerId?: string;
 }): Array<{ effect: string; interveningIf?: string; condition?: import('../../../../../rules-engine/src/triggerCondition/index.js').TriggerConditionIR; reflexive?: { actor: 'you' | 'they'; effect: string; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }> {
-  // Quoted text is an ability granted to something else (Perigee Beckoner: gains "When this
-  // creature dies, ..."), never a trigger of the source itself.
-  const text = stripReminderParentheticals(String(options.oracleText || ''))
-    .replace(/"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g, '""');
-  // One ability per line; within a line only split where a new trigger sentence starts so
-  // follow-ups ("If you do, ...", "You may choose new targets ...") stay with their trigger.
-  const sentences = text
-    .split(/\n+/)
-    .flatMap((line) => line.split(/(?<=\.)\s+(?=(?:when|whenever|at)\b)/i));
   const effects = [];
   const seen = new Set<string>();
-  for (const sentence of sentences) {
-    const parsed = parseTriggerClause(sentence);
+  for (const { sentence, parsed } of parsedTriggerSentencesFor(String(options.oracleText || ''))) {
     if (!parsed || !parsed.effect) continue;
     const eventMatches = parsed.condition.event === options.event || parsed.condition.pairedEvent === options.event;
     if (!eventMatches) continue;

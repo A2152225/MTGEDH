@@ -540,6 +540,19 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
         debug(2, `[castSpellFromHand] Floating mana available in pool: ${floatingMana}`);
       }
       
+      // Convoke mana is added to the pool only after validation below, so count the
+      // selected creatures' projected contribution now (issue #55).
+      if (!isForceAltCostPaid && Array.isArray(convokeTappedCreatures) && convokeTappedCreatures.length > 0) {
+        const convokeColorKey: Record<string, string> = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' };
+        for (const creatureId of convokeTappedCreatures) {
+          const creature = (game.state?.battlefield || []).find((p: any) => p?.id === creatureId && p?.controller === playerId);
+          if (!creature || (creature as any).tapped) continue;
+          const firstColor = String(((creature as any).card?.colors || [])[0] || '');
+          const key = convokeColorKey[firstColor] || 'colorless';
+          (totalAvailable as any)[key] = Number((totalAvailable as any)[key] || 0) + 1;
+        }
+      }
+
       // Calculate total required cost
       const coloredCostTotal = Object.values(totalColored).reduce((a: number, b: number) => a + b, 0);
       const totalCost = coloredCostTotal + totalGeneric;

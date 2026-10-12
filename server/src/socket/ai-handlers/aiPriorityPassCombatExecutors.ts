@@ -12,6 +12,7 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { isGameReplayLocked } from "../../gameRestoreState.js";
 import { persistAndResolveTopOfStack, ensureGame, broadcastGame } from "../util.js";
 import { runPostResolutionPermanentPromptChecks } from "../game-actions.js";
+import { captureIdenticalTriggerRun, continueCapturedIdenticalTriggerRun } from "../identicalTriggerBulkResolve.js";
 import { advanceStepPersistingEvent } from "../step-advance.js";
 import { executeDeclareAttackers as executeCombatDeclareAttackers } from "../combat.js";
 import {
@@ -79,8 +80,10 @@ export async function executePassPriority(
     // If all players passed priority in succession, resolve the top of the stack
     if (resolvedNow) {
       debug(1, '[AI] All players passed priority, resolving top of stack');
+      const identicalRun = captureIdenticalTriggerRun(game);
       if (persistAndResolveTopOfStack(game, gameId, { playerId })) {
         runPostResolutionPermanentPromptChecks(io, game, gameId);
+        await continueCapturedIdenticalTriggerRun(io, game, gameId, identicalRun);
         debug(2, `[AI] Stack resolved for game ${gameId}`);
       }
     }

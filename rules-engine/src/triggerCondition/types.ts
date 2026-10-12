@@ -89,6 +89,12 @@ export type TriggerWhoseTurn =
 
 export type TriggerTokenRestriction = 'any' | 'token' | 'nontoken';
 
+/** One OR alternative of a subject: every listed card type AND every listed subtype. */
+export interface TriggerSubjectGroup {
+  readonly types: readonly string[];
+  readonly subtypes: readonly string[];
+}
+
 export interface TriggerSubjectFilter {
   /** "a permanent" matches any object. Exclusions and supertypes still apply. */
   readonly anyObject: boolean;
@@ -100,6 +106,13 @@ export interface TriggerSubjectFilter {
   readonly supertypes: readonly string[];
   /** Outer list is OR. Each inner list is AND ("Goblin Warrior"). */
   readonly subtypeGroups: readonly (readonly string[])[];
+  /**
+   * Authoritative OR list when present ("a Goblin or artifact" is [{subtypes:[goblin]}, {types:[artifact]}]).
+   * typeGroups/subtypeGroups are kept as projections for older readers.
+   */
+  readonly groups?: readonly TriggerSubjectGroup[];
+  /** "nonblack", "non-white": colour letters the object must not have. */
+  readonly excludedColors?: readonly string[];
   /** "with flying". */
   readonly keywordsWith: readonly string[];
   /** "without flying". */

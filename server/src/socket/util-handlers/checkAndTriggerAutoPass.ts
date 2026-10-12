@@ -34,6 +34,11 @@ import { kickIdleAutoPassPendingResolutionSteps } from "./autoPassIdleResolution
 import { listAttackersAgainstDefender } from "../combat-handlers/combatMustBeBlockedIfAble.js";
 import { reassignPriorityIfHolderCannotReceive } from "../../state/modules/priorityEligibility.js";
 import { isDisconnectAutoPassGraceBlocking } from "../disconnectAutoPassGrace.js";
+import {
+  captureIdenticalTriggerRun,
+  continueCapturedIdenticalTriggerRun,
+  isIdenticalTriggerBulkActive,
+} from "../identicalTriggerBulkResolve.js";
 
 export type CheckAndTriggerAutoPassDeps = {
   broadcastGame: (io: Server, game: InMemoryGame, gameId: string) => void;
@@ -57,6 +62,11 @@ export function runCheckAndTriggerAutoPass(
 ): void {
   const { broadcastGame, appendGameEvent, persistAndResolveTopOfStack } = deps;
   try {
+    // A bulk identical-trigger run is passing for everyone; it re-broadcasts (and so
+    // re-checks auto-pass) when it ends.
+    if (isIdenticalTriggerBulkActive(gameId)) {
+      return;
+    }
     if (isGameReplayLocked(game, gameId)) {
       return;
     }
@@ -436,8 +446,13 @@ export function runCheckAndTriggerAutoPass(
                 );
               } else {
                 const deferredMox = tryQueueMoxDiamondBeforeStackResolve(game);
+                const identicalRun = captureIdenticalTriggerRun(game);
                 if (!deferredMox && persistAndResolveTopOfStack(game, gameId, { auto: true })) {
                   runPostResolutionPermanentPromptChecks(io, game, gameId);
+                  // Runs in yielding chunks; broadcasts once when the run ends.
+                  void continueCapturedIdenticalTriggerRun(io, game, gameId, identicalRun, () =>
+                    broadcastGame(io, game, gameId),
+                  );
                 }
               }
             }

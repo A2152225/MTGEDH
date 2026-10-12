@@ -19,6 +19,7 @@ import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import type { AICastableCommanderCandidate, AIPlayableLandCandidate } from "./aiActionCandidateTypes.js";
 import { canAIPayAdditionalCost } from "./aiManaCostHelpers.js";
 import { canAIAssembleSpellPaymentPlan } from "./aiSpellPaymentPlanHelpers.js";
+import { classifyAuraPolarity } from "./aiAuraPolarity.js";
 
 function getAIActionContext(game: any): any {
   return getAIHandlerDeps().getAIActionContext(game);
@@ -238,6 +239,8 @@ function findAuraTarget(state: any, playerId: PlayerID, auraCard: any): any | nu
  * Detect if an aura is beneficial (buffs) or detrimental (debuffs/control)
  */
 function detectBeneficialAura(oracleText: string): boolean {
+  const polarity = classifyAuraPolarity(oracleText);
+  if (polarity) return polarity === 'beneficial';
   const text = oracleText.toLowerCase();
   
   // Detrimental indicators (pacifism, control, debuffs)

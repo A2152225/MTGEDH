@@ -8,6 +8,7 @@ import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
+import { isOneOrMoreIRBatchDuplicate } from './triggerIRVerdict.js';
 
 export interface SacrificeTrigger {
   permanentId: string;
@@ -405,6 +406,10 @@ export function queueSacrificeTriggers(
     const effect = String(trigger.effect || '').trim();
     const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(effect);
     if (!effect || hasUnsupportedTargetRequirement(targetMetadata)) {
+      continue;
+    }
+    // "one or more <objects>" fires once per simultaneous event, not per object.
+    if (isOneOrMoreIRBatchDuplicate('sacrifices', findBattlefieldPermanentById(ctx, String(trigger.permanentId || '')), [trigger.effect, (trigger as any).description, (trigger as any).oracleClause], ['sacrifices'])) {
       continue;
     }
 

@@ -2,6 +2,8 @@ import React, { useState, useCallback, useRef } from 'react';
 import type { StackItem, KnownCardRef, PlayerID, BattlefieldPermanent, PlayerRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { openReportIssueMenu } from '../utils/reportIssueStore';
+import { countIdenticalTopTriggerRun } from '../utils/identicalTriggerRun';
+import { IdenticalTriggerBulkProgressBadge } from './IdenticalTriggerBulkProgressBadge';
 
 interface Props {
   stack: StackItem[];
@@ -11,6 +13,8 @@ interface Props {
   priorityPlayer?: PlayerID;
   onPass?: () => void;
   onResolveAll?: () => void; // Batch resolve all triggers with a single pass
+  /** Resolve the run of identical no-choice triggers on top (server checks others' responses). */
+  onResolveIdentical?: (count: number) => void;
   onIgnoreTriggerSource?: (sourceId: string, sourceName: string, effect: string, imageUrl?: string) => void;
   ignoredSources?: Map<string, { sourceName: string; count: number; effect: string; imageUrl?: string }>;
   onStopIgnoring?: (sourceKey: string) => void;
@@ -36,6 +40,7 @@ export function CentralStack({
   priorityPlayer, 
   onPass,
   onResolveAll,
+  onResolveIdentical,
   onIgnoreTriggerSource,
   ignoredSources,
   onStopIgnoring,
@@ -247,6 +252,8 @@ export function CentralStack({
         cursor: embedded ? 'default' : (isDragging ? 'grabbing' : 'default'),
         userSelect: embedded ? 'auto' : (isDragging ? 'none' : 'auto'),
       }}>
+      {/* Bulk identical-trigger progress (non-blocking, hidden when idle) */}
+      <IdenticalTriggerBulkProgressBadge />
       {/* Header - drag handle */}
       <div 
         data-drag-handle
@@ -291,6 +298,28 @@ export function CentralStack({
           </span>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          {onResolveIdentical && priorityPlayer === you && (() => {
+            const identicalCount = countIdenticalTopTriggerRun(stack as any[]);
+            if (identicalCount < 2) return null;
+            return (
+              <button
+                onClick={() => onResolveIdentical(identicalCount)}
+                style={{
+                  fontSize: 12,
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: 'linear-gradient(90deg, #f59e0b, #d97706)',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                }}
+                title="Pass priority for each identical trigger on top of the stack; stops if another player can respond"
+              >
+                Resolve all identical (x{identicalCount})
+              </button>
+            );
+          })()}
           {/* Resolve All button - only show if multiple items and all are your triggers */}
           {onResolveAll && stack.length > 1 && stack.every(it => 
             (it as any).type === 'triggered_ability' && it.controller === you

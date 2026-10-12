@@ -52,6 +52,10 @@ import {
 } from "./gameActionsPermanentEntryPrompts.js";
 import { processOracleIRInteractions } from "./gameActionsSpellCastLock.js";
 import type { EnsureInGameRoom } from "./gameActionsSocketRoomGuard.js";
+import {
+  captureIdenticalTriggerRun,
+  continueCapturedIdenticalTriggerRun,
+} from "../identicalTriggerBulkResolve.js";
 
 // Pass priority
 export async function handlePassPriorityRequest(
@@ -134,6 +138,7 @@ export async function handlePassPriorityRequest(
       }
       
       
+      const identicalRun = captureIdenticalTriggerRun(game);
       // Append-first so as-enters prompts / ETB pushes are logged after resolveTopOfStack.
       if (persistAndResolveTopOfStack(game, gameId)) {
         debug(2, `[passPriority] Stack resolved for game ${gameId}`);
@@ -252,6 +257,11 @@ export async function handlePassPriorityRequest(
       // Process any pending proliferate effects
       processPendingProliferate(io, game, gameId);
       processPendingOracleIrCompoundResume(io, game, gameId);
+
+      // Identical no-choice triggers (Cathars' Crusade x100): keep resolving while every
+      // holder would pass anyway, with one broadcast instead of one per instance.
+      // Chunked + yielding with progress events; awaits the whole run.
+      await continueCapturedIdenticalTriggerRun(io, game, gameId, identicalRun);
       
       // Resume pending phase skip incrementally after intermediate trigger stops resolve.
       tryResumePendingPhaseSkipAfterPass();

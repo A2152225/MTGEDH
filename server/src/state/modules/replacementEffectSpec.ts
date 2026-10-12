@@ -1,4 +1,5 @@
 import type { ReplacementEffect } from './game-state-effects.js';
+import { readScopedReplacementSpecs } from './replacementEffectSpecScopedCache.js';
 import {
   extractOracleCardLookupKeys,
   resolveCompiledOverlayForCard,
@@ -545,6 +546,10 @@ function readOverlayReplacementSpecs(ability: {
 }
 
 export function collectReplacementEffectSpecsFromState(state: unknown): ReplacementEffectSpec[] {
+  return readScopedReplacementSpecs(state, () => collectReplacementEffectSpecsFromStateUncached(state));
+}
+
+function collectReplacementEffectSpecsFromStateUncached(state: unknown): ReplacementEffectSpec[] {
   const specs: ReplacementEffectSpec[] = [];
   const battlefield = Array.isArray((state as any)?.battlefield) ? (state as any).battlefield : [];
   const overlayByLookupKey = new Map<string, ReturnType<typeof resolveCompiledOverlayForCard>>();

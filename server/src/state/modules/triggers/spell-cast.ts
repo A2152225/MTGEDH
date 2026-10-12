@@ -5,6 +5,7 @@ import { spellCastConditionMatches, collectMatchingParsedEventLines, parsedEffec
 import type { SpellCastUntapEffect } from "./types.js";
 import { detectSpellCastTriggers } from "./spell-cast-detection.js";
 import { getSpellCastTriggers } from "./spell-cast-get-triggers.js";
+import { spellCastTriggerIRVerdict } from "./triggerIRVerdict.js";
 import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
 
 export type { SpellCastUntapEffect } from "./types.js";
@@ -253,7 +254,8 @@ export function opponentCastSourceZoneMatches(
 ): boolean {
   if (!requirement) return true;
   const zone = String(castSourceZone || '').trim().toLowerCase();
-  if (requirement === 'not_hand') return zone !== 'hand';
+  // Fail closed: an unknown zone is not "anywhere other than your hand".
+  if (requirement === 'not_hand') return zone !== '' && zone !== 'hand';
   if (!zone) return true;
   return zone === requirement;
 }
@@ -717,6 +719,10 @@ export function getOpponentSpellCastTriggers(
           break;
       }
       
+      if (shouldTrigger && spellCastTriggerIRVerdict({ trigger, sourcePermanent: permanent, spellCard, casterId }) === false) {
+        shouldTrigger = false;
+      }
+
       if (shouldTrigger) {
         // Calculate payment for variable costs (Esper Sentinel)
         let paymentAmount = 1;

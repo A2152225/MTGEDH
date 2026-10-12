@@ -931,6 +931,9 @@ export function TableLayout(props: {
             onResolveAll={() => {
               if (gameId && you) socket.emit('resolveAllTriggers', { gameId });
             }}
+            onResolveIdentical={(count) => {
+              if (gameId && you) socket.emit('resolveIdenticalTriggers' as any, { gameId, count });
+            }}
             ignoredSources={ignoredTriggerSources}
             onIgnoreTriggerSource={onIgnoreTriggerSource}
             onStopIgnoring={onStopIgnoringSource}

@@ -7,6 +7,7 @@ import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../..
 import { recalculatePlayerEffects } from './game-state-effects.js';
 import { getLandfallTriggers } from './triggered-abilities.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
+import { parsedEffectDuplicates } from './triggers/triggerConditionFamilyMatch.js';
 import { cleanupCardLeavingExile, removeCardFromAnyPlayerExile } from './playable-from-exile.js';
 import { getEffectiveBasicLandTypes } from './mana-abilities.js';
 import { detectETBTappedPattern, evaluateConditionalLandETB, getLandSubtypes } from '../../socket/land-helpers.js';
@@ -413,6 +414,17 @@ export function finishPlayLandBattlefieldEntry(
 
         const triggerId = uid('trigger');
         const stackedSourceId = String(trigger.sourceId || trigger.permanentId || '').trim();
+        // The ETB pass above already queued this land's "Whenever a land you control enters"
+        // clause from the parsed trigger IR; landfall must not stack it a second time.
+        const enteredLandId = String(newPermanent?.id || '').trim();
+        if (enteredLandId && state.stack.some((item: any) => (
+          String(item?.source || item?.permanentId || '') === stackedSourceId
+          && String(item?.interveningIfSubjectPermanentId || item?.triggeringLandId || '') === enteredLandId
+          && parsedEffectDuplicates([item?.effect, item?.description], trigger.effect)
+        ))) {
+          debug(2, `[playLand] Landfall already queued by the ETB pass: ${trigger.cardName} - ${trigger.effect}`);
+          continue;
+        }
         state.stack.push({
           id: triggerId,
           type: 'triggered_ability',
