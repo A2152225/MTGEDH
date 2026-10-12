@@ -1,5 +1,5 @@
 import type { BattlefieldPermanent } from '../../shared/src';
-import { getLegalAttackers, getLegalBlockers, getBlockerCapacity, getGoadedAttackers, getGoadedAttackTargets } from './actions/combat';
+import { getLegalAttackers, getLegalBlockers, getGoadedAttackers, getGoadedAttackTargets } from './actions/combat';
 import { canCreatureBlock, createCombatCreature, type CombatCreature } from './combatAutomation';
 import { SynergyArchetype } from './CardAnalyzer';
 import {
@@ -11,6 +11,7 @@ import {
 import { AIStrategy, AIDecisionType, type AIDecision, type AIDecisionContext, type AIPlayerConfig } from './AIEngine';
 import { shouldPreserveInCombat } from './aiEngineValueSupport';
 import { playerIsLegalAttackTarget } from './playerInGameStatus';
+import { planAIBlocks } from './aiEngineBlockPlanning';
 
 type CombatDeckModifiers = { attackBias: number; preserveBias: number };
 type CombatValueEvaluation = { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number };
@@ -109,14 +110,6 @@ export function selectBestDefenderForAttacker(
 
 function isSmallVoluntaryAttacker(attacker: CombatCreature): boolean {
   return attacker.power + attacker.toughness <= 4;
-}
-
-function readDefenderLife(gameState: AIDecisionContext['gameState'], playerId: string): number {
-  const player = gameState.players?.find((entry) => entry.id === playerId);
-  if (typeof player?.life === 'number') return player.life;
-  const fromState = (gameState as any)?.life?.[playerId];
-  if (typeof fromState === 'number') return fromState;
-  return 40;
 }
 
 function isPermanentAttackingDefender(
@@ -519,123 +512,10 @@ export function makeBasicBlockDecision(
     };
   });
 
-  const playerLife = readDefenderLife(context.gameState, context.playerId);
-  const totalAttackerDamage = attackerCreatures.reduce((sum, a) => sum + a.power, 0);
-  let isLethalIfUnblocked = totalAttackerDamage >= playerLife;
+  const { assignments: blockAssignments, deathTriggerBlocks: blockersWithDeathTriggers } =
+    planAIBlocks(context, attackerCreatures, blockerEvaluations);
 
-  const commanderDamage = (context.gameState as any)?.commanderDamage?.[context.playerId] || {};
-  for (const attacker of attackerCreatures) {
-    const isCommander = attacker.permanent.isCommander || (attacker.permanent.card as any)?.zone === 'command';
-    if (!isCommander) continue;
-
-    const commanderKey = `${attacker.controllerId}-${attacker.name}`;
-    const existingDamage = commanderDamage[commanderKey] || 0;
-    const totalCommanderDamage = existingDamage + attacker.power;
-    if (totalCommanderDamage >= 21) {
-      isLethalIfUnblocked = true;
-      break;
-    }
-  }
-
-  const sortedAttackers = [...attackerCreatures].sort((a, b) => {
-    let aThreat = a.power + (a.keywords.trample ? 3 : 0) + (a.keywords.deathtouch ? 4 : 0) + (a.keywords.flying ? 2 : 0);
-    let bThreat = b.power + (b.keywords.trample ? 3 : 0) + (b.keywords.deathtouch ? 4 : 0) + (b.keywords.flying ? 2 : 0);
-
-    const aIsCommander = a.permanent.isCommander || (a.permanent.card as any)?.zone === 'command';
-    const bIsCommander = b.permanent.isCommander || (b.permanent.card as any)?.zone === 'command';
-    if (aIsCommander) aThreat += 10;
-    if (bIsCommander) bThreat += 10;
-
-    if (aIsCommander) {
-      const aCommanderKey = `${a.controllerId}-${a.name}`;
-      const aExistingDamage = commanderDamage[aCommanderKey] || 0;
-      if (aExistingDamage + a.power >= 21) aThreat += 100;
-    }
-    if (bIsCommander) {
-      const bCommanderKey = `${b.controllerId}-${b.name}`;
-      const bExistingDamage = commanderDamage[bCommanderKey] || 0;
-      if (bExistingDamage + b.power >= 21) bThreat += 100;
-    }
-
-    return bThreat - aThreat;
-  });
-
-  const blockAssignments: { blockerId: string; attackerId: string }[] = [];
-  const blockerUsageCount = new Map<string, number>();
-  let blockersWithDeathTriggers = 0;
-
-  for (const attacker of sortedAttackers) {
-    let bestBlocker: (typeof blockerEvaluations)[number] | null = null;
-    let bestScore = -Infinity;
-
-    for (const blockerEval of blockerEvaluations) {
-      const currentAssignments = blockerUsageCount.get(blockerEval.creature.id) || 0;
-      const blockerCapacity = getBlockerCapacity(blockerEval.perm);
-      if (currentAssignments >= blockerCapacity) continue;
-
-      const validation = canCreatureBlock(blockerEval.creature, attacker, []);
-      if (!validation.legal) continue;
-
-      let score = 0;
-      const blockerSurvives = blockerEval.creature.toughness > attacker.power;
-      const attackerDies = attacker.toughness <= blockerEval.creature.power || blockerEval.creature.keywords.deathtouch;
-      const blockerDies = !blockerSurvives;
-
-      if (blockerEval.wantsToGetKilled && blockerDies) {
-        score += 50 + blockerEval.deathBenefit * 5;
-      }
-      if (blockerSurvives && attackerDies) {
-        score += 30;
-      }
-      if (attackerDies && blockerDies && !blockerEval.wantsToGetKilled) {
-        score += 15;
-      }
-      if (attacker.keywords.trample) {
-        score += 20;
-      }
-      if (attacker.keywords.flying && blockerEval.creature.keywords.flying) {
-        score += 10;
-      }
-      if (attacker.keywords.deathtouch) {
-        score += 15;
-      }
-      if (isLethalIfUnblocked || attacker.power >= playerLife) {
-        score += 100;
-      } else if (attacker.power >= 4 && blockerDies && !attackerDies) {
-        score += 10;
-      }
-      if (blockerDies && !blockerEval.wantsToGetKilled && !attackerDies && !isLethalIfUnblocked && attacker.power < playerLife) {
-        score -= blockerEval.baseValue * 2;
-      }
-      if (blockerDies && !isLethalIfUnblocked && attacker.power < playerLife) {
-        score -= blockerEval.preserveBias;
-      }
-      if (!blockerDies && blockerEval.attackBias > 0) {
-        score += Math.min(6, blockerEval.attackBias / 2);
-      }
-
-      if (score > bestScore) {
-        bestScore = score;
-        bestBlocker = blockerEval;
-      }
-    }
-
-    const attackerIsLethal = isLethalIfUnblocked || attacker.power >= playerLife;
-    const minScoreThreshold = attackerIsLethal ? Number.NEGATIVE_INFINITY : 0;
-    if (bestBlocker && bestScore >= minScoreThreshold) {
-      blockAssignments.push({
-        blockerId: bestBlocker.creature.id,
-        attackerId: attacker.id,
-      });
-      blockerUsageCount.set(bestBlocker.creature.id, (blockerUsageCount.get(bestBlocker.creature.id) || 0) + 1);
-
-      if (bestBlocker.wantsToGetKilled) {
-        blockersWithDeathTriggers++;
-      }
-    }
-  }
-
-  let reasoning = `Blocking ${blockAssignments.length}/${sortedAttackers.length} attackers`;
+  let reasoning = `Blocking ${blockAssignments.length}/${attackerCreatures.length} attackers`;
   if (blockersWithDeathTriggers > 0) {
     reasoning += ` (${blockersWithDeathTriggers} with beneficial death triggers!)`;
   }

@@ -114,6 +114,17 @@ export function detectETBTriggers(card: any, permanent?: any, gameState?: any): 
   appendEtbDetectionEarly(state);
   appendEtbDetectionMid(state);
   appendEtbDetectionLate(state);
+  // "This ability triggers only once each turn." rides along at the end of the captured effect
+  // (Caretaker's Talent). Turn it into the oncePerTurn flag the queue paths enforce, and keep the
+  // clause out of the effect that resolves.
+  for (const trigger of triggers as any[]) {
+    const effect = String(trigger?.effect || trigger?.description || '');
+    if (!/this ability triggers only once each turn/i.test(effect)) continue;
+    trigger.oncePerTurn = true;
+    const strip = (text: unknown) => String(text || '').replace(/\s*This ability triggers only once each turn\.?/gi, '').trim();
+    if (trigger.effect) trigger.effect = strip(trigger.effect);
+    if (trigger.description) trigger.description = strip(trigger.description);
+  }
   return triggers;
 }
 

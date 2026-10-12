@@ -537,7 +537,19 @@ export function evaluateActivatedAbilityValue(
     }
   }
 
-  if (lowerText.includes('untap')) {
+  // Target-player mill (Drowner of Secrets): a small plus, but a "tap an untapped <creature>
+  // you control" cost only in a window where those creatures are not needed to attack or block.
+  if (/\btarget (?:player|opponent) (?:mills\b|puts the top (?:\w+ )?cards? of (?:their|his or her) library into)/.test(effectText)) {
+    const costText = lowerText.split(':')[0] || '';
+    const tapsOwnCreatures = /\btap (?:an?|one|two|three|\d+|x) untapped\b/.test(costText) || isTapAbility;
+    const isEndStep = (step.includes('end') && !step.includes('combat')) || phase.includes('ending');
+    const isOwnPostCombat = isOwnTurn && (step.includes('main2') || step.includes('postcombat') || phase.includes('postcombat'));
+    if (!tapsOwnCreatures) value += 3;
+    else if ((!isOwnTurn && isEndStep) || isOwnPostCombat || (isOwnTurn && isEndStep)) value += 4;
+  }
+
+  // "untap", not the "untapped" in a tap-an-untapped-creature cost.
+  if (/\buntap\b/.test(lowerText)) {
     value += 5;
   }
 
@@ -581,7 +593,7 @@ export function evaluateActivatedAbilityValue(
     if (analysis.comboPotential >= 7) {
       value += 8;
     }
-    if (effectText.includes('search your library') || lowerText.includes('untap') || effectText.includes('draw')) {
+    if (effectText.includes('search your library') || /\buntap\b/.test(lowerText) || effectText.includes('draw')) {
       value += 6;
     }
     if (isPureManaAbility && analysis.details.producesMana) {

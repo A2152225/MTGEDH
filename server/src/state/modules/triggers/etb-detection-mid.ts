@@ -493,7 +493,10 @@ export function appendEtbDetectionMid(state: EtbDetectionState): void {
       const isTokenOnly = !isNontokenOnly && /\btoken\b/i.test(requiredTypePhrase);
       // Check if this trigger requires the creature to be controlled by the trigger's controller
       // Pattern: "you control" or "under your control" in the trigger text
-      const hasControlRestriction = /creature(?:s)?\s+you\s+control|under your control/i.test(oracleText);
+      // The subject itself ("tokens you control enter", "a Bear you control enters") counts too.
+      const triggerHeader = String(creatureETBMatch[0] || '').split(/\benters?\b/i)[0] || '';
+      const hasControlRestriction = /creature(?:s)?\s+you\s+control|under your control/i.test(oracleText)
+        || /\byou control\b/i.test(triggerHeader);
       const optionalTrigger = /\byou may\b/i.test(effectText);
       const t: TriggeredAbility = {
         permanentId,

@@ -34,6 +34,7 @@ import {
   scoreHostileGraveyardCardDisruption,
 } from "./aiDeckProfileHandlers.js";
 import { aiEngine } from "./aiScheduler.js";
+import { isTargetPlayerMillText, scoreAIMillTargetPlayer } from "./aiMillTargetChoice.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { getPermanentCombatStats } from "./aiPermanentCombatStats.js";
 
@@ -223,6 +224,13 @@ function scorePlayerTargetForSpell(
   const comboWarning = aiEngine.detectOpponentCombo(game.state as any, playerId);
   let score = 0;
 
+  if (spellSpec.op === 'MILL_TARGET_PLAYER') {
+    return scoreAIMillTargetPlayer(game, playerId, String(player.id), {
+      highestThreatPlayer: threatAssessment.highestThreatPlayer,
+      comboPlayers: comboWarning.comboPlayers,
+    });
+  }
+
   if (isHelpfulSpellOp(spellSpec.op)) {
     score += isSelf ? 80 : -40;
     if (spellSpec.op === 'SURVEIL_TARGET_PLAYER' && !isSelf && profile?.primaryArchetypes.includes(SynergyArchetype.GRAVEYARD)) {
@@ -256,10 +264,6 @@ function scorePlayerTargetForSpell(
       );
       score += 80 + greatestToughness * 5;
     }
-  }
-
-  if (spellSpec.op === 'MILL_TARGET_PLAYER' && profile?.primaryArchetypes.includes(SynergyArchetype.GRAVEYARD) && isSelf) {
-    score += 120;
   }
 
   return score;
@@ -615,6 +619,37 @@ export function chooseAITargetSelectionsForChoiceStep(
   const mappedTargets = validTargets
     .map((option: any) => ({ option, target: mapChoiceOptionToTargetRef(game, option) }))
     .filter((entry: any) => Boolean(entry.target));
+
+  // "Target player mills ..." (Drowner of Secrets): mill an opponent unless self-mill pays off.
+  // Judge the ability being resolved, not the whole card (Jace: "-1: draw" vs "-10: mills").
+  const stepAbilityText = String(
+    step?.abilityText || step?.activatedAbilityText || step?.planeswalkerAbility?.abilityText || step?.abilityDescription || '',
+  ).trim();
+  const stepDescription = String(step?.description || '');
+  const millJudgeText = stepAbilityText
+    || (isTargetPlayerMillText(stepDescription) ? stepDescription : oracleText);
+  if (
+    isTargetPlayerMillText(millJudgeText)
+    && mappedTargets.length > 0
+    && mappedTargets.every((entry: any) => entry.target.kind === 'player')
+  ) {
+    const threat = aiEngine.assessBattlefieldThreats(game.state as any, playerId);
+    const combo = aiEngine.detectOpponentCombo(game.state as any, playerId);
+    const ranked = mappedTargets
+      .map((entry: any) => ({
+        id: String(entry.option?.id || entry.target.id || ''),
+        score: scoreAIMillTargetPlayer(game, playerId, String(entry.target.id), {
+          highestThreatPlayer: threat.highestThreatPlayer,
+          comboPlayers: combo.comboPlayers,
+        }),
+      }))
+      .filter((entry: any) => entry.id)
+      .sort((left: any, right: any) => right.score - left.score);
+    const acceptable = ranked.filter((entry: any) => entry.score > -10000);
+    // A mandatory target with no acceptable choice still has to pick someone.
+    const pool = acceptable.length >= Math.min(minTargets, ranked.length) ? acceptable : ranked;
+    return pool.slice(0, desiredCount).map((entry: any) => entry.id);
+  }
 
   if (spellSpec && mappedTargets.length > 0) {
     const selectedTargets = chooseAITargetsForSpell(

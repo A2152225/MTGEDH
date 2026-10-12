@@ -59,7 +59,7 @@ function isResponseOnlyPriorityWindow(game: any, gameId: string, playerId: Playe
   if (!phase || phase === 'pre_game' || phase === 'pregame' || phase === 'pre-game') return false;
   if (step.includes('cleanup')) return false;
   // Blocker declarations are real choices; keep the pacing there.
-  if (phase === 'combat' && step.includes('blockers')) return false;
+  if (step.includes('blockers')) return false;
 
   if (ResolutionQueueManager.playerHasPendingSteps(gameId, playerId)) return false;
   const pendingCasts = state.pendingSpellCasts || {};

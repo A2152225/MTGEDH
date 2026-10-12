@@ -1,3 +1,4 @@
+import { recordTurnLimitedEtbTriggerQueued, shouldSkipTurnLimitedEtbTrigger } from './triggerDoThisOnlyOnceEachTurn.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
@@ -259,7 +260,14 @@ export function triggerETBEffectsForPermanent(
     }
     for (const trigger of otherTriggers) {
       // creature_etb triggers (Cathars' Crusade, Soul Warden, etc.)
-      if (trigger.triggerType === 'creature_etb' && isCreature) {
+      // "Whenever one or more tokens you control enter" also counts Treasures and other noncreature tokens.
+      const tokenSubjectOnly = isToken
+        && /^(?:a |one or more )?tokens?$/i.test(String((trigger as any).requiredTypePhrase || '').trim());
+      if (trigger.triggerType === 'creature_etb' && (isCreature || tokenSubjectOnly)) {
+        // "This ability triggers only once each turn." (Caretaker's Talent)
+        if (shouldSkipTurnLimitedEtbTrigger(state, trigger, String(perm.id || ''))) {
+          continue;
+        }
         // Check if this trigger requires nontoken creatures (e.g., Guardian Project)
         if ((trigger as any).nontokenOnly && isToken) {
           continue;
@@ -356,6 +364,7 @@ export function triggerETBEffectsForPermanent(
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
         pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
+        recordTurnLimitedEtbTriggerQueued(state, trigger, String(perm.id || ''));
         
         debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }

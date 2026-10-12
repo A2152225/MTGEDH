@@ -21,6 +21,7 @@ import {
 import { pushTriggerDoublerCopies } from '../triggers/combat.js';
 import { persistTriggeredAbilityPush } from './triggerEtbPersistTriggeredAbility.js';
 import { recordBattlefieldEntryTurnTracking } from './triggerEtbBattlefieldEntryTracking.js';
+import { recordTurnLimitedEtbTriggerQueued, shouldSkipTurnLimitedEtbTrigger } from '../triggerDoThisOnlyOnceEachTurn.js';
 import { queueTemporaryEtbTriggersForEntry } from './triggerEtbTemporaryEntryTriggers.js';
 import {
   matchesRequiredTypePhrase,
@@ -55,7 +56,13 @@ export function triggerETBEffectsForToken(
     const otherTriggers = getETBTriggersForPermanent(perm.card, perm, state);
     for (const trigger of otherTriggers) {
       // creature_etb triggers (Cathars' Crusade, Soul Warden, etc.)
-      if (trigger.triggerType === 'creature_etb' && isCreature) {
+      // "Whenever one or more tokens you control enter" also counts Treasures and other noncreature tokens.
+      const tokenSubjectOnly = /^(?:a |one or more )?tokens?$/i.test(String((trigger as any).requiredTypePhrase || '').trim());
+      if (trigger.triggerType === 'creature_etb' && (isCreature || tokenSubjectOnly)) {
+        // "This ability triggers only once each turn."
+        if (shouldSkipTurnLimitedEtbTrigger(state, trigger, String(perm.id || ''))) {
+          continue;
+        }
         // Check if this trigger requires nontoken creatures (e.g., Guardian Project)
         if ((trigger as any).nontokenOnly && isToken) {
           continue; // Skip - this trigger only fires for nontoken creatures
@@ -145,6 +152,7 @@ export function triggerETBEffectsForToken(
           ...(triggeringPlayerForStack ? { triggeringPlayer: triggeringPlayerForStack } : {}),
         } as any;
         pendingExternalEtbTriggers.push(stackItem);
+        recordTurnLimitedEtbTriggerQueued(state, trigger, String(perm.id || ''));
         
         debug(2, `[triggerETBEffectsForToken] âš¡ ${trigger.cardName}'s triggered ability for token: ${trigger.description}`);
       }
