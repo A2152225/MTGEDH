@@ -28,6 +28,7 @@ import { movePermanentToGraveyard } from "./countersTokensMoveToGraveyard.js";
 import { getCountersTokensHandlerDeps } from "./countersTokensHandlerDeps.js";
 import { markPlayerOutOfPriority } from "../priorityEligibility.js";
 import { removeLeavingPlayerGameObjects } from "../playerLeavingGame.js";
+import { runWithSimultaneousEntryBatch } from "../triggers/simultaneousEntryBatch.js";
 
 function updateGodCreatureStatus(ctx: GameContext): void {
   getCountersTokensHandlerDeps().updateGodCreatureStatus(ctx);
@@ -105,7 +106,16 @@ export function resolveLegendRuleChoice(
   return { accepted: true, complete: true, removedIds };
 }
 
+/**
+ * State-based actions are performed simultaneously (CR 704.3): every creature that dies in one
+ * check (lethal combat damage, 0 toughness, deathtouch) is one event, so "Whenever one or more
+ * creatures die" triggers once while per-creature "whenever a creature dies" still fires each.
+ */
 export function runSBA(ctx: GameContext) {
+  return runWithSimultaneousEntryBatch(() => runSBAUnbatched(ctx));
+}
+
+function runSBAUnbatched(ctx: GameContext) {
   const { state, bumpSeq } = ctx;
 
   // A legend-rule choice is itself part of performing state-based actions. Do not

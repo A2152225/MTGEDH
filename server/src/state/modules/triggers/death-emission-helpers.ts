@@ -409,12 +409,13 @@ function pushDetectedDeathTrigger(
 function extractDeathEventSubject(oracleText: string): string | null {
   const text = String(oracleText || '');
   const graveyardMatch = text.match(
-    /when(?:ever)?\s+(.+?)\s+(?:is )?put into (?:a |your |its owner's )?graveyard(?: from (?:the battlefield|anywhere))?/i,
+    /when(?:ever)?\s+(.+?)\s+(?:is |are )?put into (?:a |your |its owner's )?graveyards?(?: from (?:the battlefield|anywhere))?/i,
   );
   if (graveyardMatch?.[1]) {
     return String(graveyardMatch[1]).trim();
   }
-  const diesMatch = text.match(/when(?:ever)?\s+(.+?)\s+dies/i);
+  // "dies" and plural "die" ("Whenever one or more other creatures you control die").
+  const diesMatch = text.match(/when(?:ever)?\s+(.+?)\s+(?:dies|die)\b/i);
   if (diesMatch?.[1]) {
     return String(diesMatch[1]).trim();
   }

@@ -121,7 +121,11 @@ export function getCreatureInfo(perm: BattlefieldPermanent): {
     .join('\n');
   const hasAbility = (keyword: string) => {
     const kw = keyword.replace(/_/g, ' ');
-    return hasCurrentKeyword(perm, kw) || new RegExp(`\\b${kw}\\b`).test(temporaryEffectText);
+    // A temporary "loses flying" effect is a removal, not a grant.
+    const tempGrant = temporaryEffectText
+      .split('\n')
+      .some((line: string) => new RegExp(`\\b${kw}\\b`).test(line) && !/\blos(?:e|es)\b/.test(line));
+    return hasCurrentKeyword(perm, kw) || tempGrant;
   };
   
   // Parse toxic value

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import type { KnownCardRef, CardFace } from '../../../shared/src';
+import { ClassLevelSectionsList, getClassLevelView, type ClassLevelView } from './ClassLevelBadge';
 
 // A lightweight, global, fixed-position overlay that shows a readable
 // card image near a hovered element. It avoids covering the hovered card
@@ -174,6 +175,7 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
     type_line?: string; 
     url?: string;
     faces?: Array<{ name?: string; url: string }>;
+    classView?: ClassLevelView | null;
   } | null>(null);
   const [prefer, setPrefer] = useState<'left' | 'right' | 'above' | 'below' | 'auto'>('above');
   const [anchorPadding, setAnchorPadding] = useState<number>(0);
@@ -333,6 +335,7 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
         type_line: card.type_line, 
         url: url || faces[0]?.url,
         faces: faces.length > 1 ? faces : undefined,
+        classView: getClassLevelView(card),
       });
 
       // Compute immediately for crisp transitions
@@ -489,6 +492,7 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
               }}
             >
               <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta.name}</div>
+              {meta.classView ? <ClassLevelSectionsList view={meta.classView} /> : null}
             </div>
           </>
         )}

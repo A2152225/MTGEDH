@@ -18,6 +18,7 @@ import {
   oracleTextGrantsKeywordOnlyToOthers,
   oracleTextHasOwnKeyword,
 } from '../../../rules-engine/src/oracleOwnKeywordText';
+import { permanentHasKeywordAbility, permanentLosesKeyword } from '../../../rules-engine/src/permanentKeywordAbilities';
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -219,6 +220,9 @@ export function hasCurrentKeyword(
   battlefield?: readonly BattlefieldPermanent[],
 ): boolean {
   const normalizedKeyword = keyword.toLowerCase();
+  // Shared accurate helper (same as server and AI): removal wins, then own/granted keywords.
+  if (permanentLosesKeyword(perm, normalizedKeyword, battlefield)) return false;
+  if (permanentHasKeywordAbility(perm, normalizedKeyword, battlefield)) return true;
   const ownOracle = getOwnOracleText(perm);
   const otherOnlyGrant = oracleTextGrantsKeywordOnlyToOthers(ownOracle, normalizedKeyword);
 

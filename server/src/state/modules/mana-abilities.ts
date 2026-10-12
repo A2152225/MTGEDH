@@ -39,6 +39,7 @@ import {
 } from "./mana-abilities-handlers/manaAbilityLandTypeModifiers.js";
 import {
   getEffectivePowerForMana,
+  getEffectiveToughnessForMana,
   resolvePermanentChosenColorSymbol,
 } from "./mana-abilities-handlers/manaAbilityColorRestrictionUtils.js";
 
@@ -473,8 +474,7 @@ export function getCreatureCountManaAmount(
     
     // "Vhal's toughness" or "[CardName]'s toughness"
     else if (condition.match(/\w+'s\s+toughness/) || condition.includes('its toughness')) {
-      const toughness = permanent?.baseToughness ?? permanent?.card?.toughness ?? 0;
-      amount = typeof toughness === 'string' ? parseInt(toughness, 10) || 0 : toughness;
+      amount = getEffectiveToughnessForMana(permanent, gameState);
     }
     
     // ========== MANA VALUE / CMC BASED ==========
@@ -749,8 +749,7 @@ export function getCreatureCountManaAmount(
           || condition.includes('its toughness')
           || /\w+'s\s+toughness/.test(condition)
         ) {
-          const toughness = permanent?.baseToughness ?? permanent?.card?.toughness ?? 0;
-          amount = typeof toughness === 'string' ? parseInt(toughness, 10) || 0 : Number(toughness) || 0;
+          amount = getEffectiveToughnessForMana(permanent, gameState);
         }
       }
     }
@@ -866,8 +865,7 @@ export function getCreatureCountManaAmount(
       || condition.includes('its toughness')
       || /\w+'s\s+toughness/.test(condition)
     ) {
-      const toughness = permanent?.baseToughness ?? permanent?.card?.toughness ?? 0;
-      amount = typeof toughness === 'string' ? parseInt(toughness, 10) || 0 : Number(toughness) || 0;
+      amount = getEffectiveToughnessForMana(permanent, gameState);
     }
     // "the number of creatures you control" 
     else if (condition.includes('creature') && condition.includes('control')) {

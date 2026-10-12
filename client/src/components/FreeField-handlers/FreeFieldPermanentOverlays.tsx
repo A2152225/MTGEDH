@@ -22,6 +22,7 @@ import {
   getLoyaltyColor,
   getPTColor,
 } from './freeFieldDisplayUtils';
+import { ClassLevelBadge } from '../ClassLevelBadge';
 
 export type FreeFieldPermanentOverlaysProps = {
   scale: number;
@@ -325,6 +326,9 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
                 )}
               </div>
             ) : null}
+
+            {/* Class level badge (the printed image shows every level) */}
+            <ClassLevelBadge card={raw?.card} level={(raw as any)?.level} scale={scale} />
 
             {/* Charge counters — prominent badge for Station planets/spacecraft */}
             {(() => {

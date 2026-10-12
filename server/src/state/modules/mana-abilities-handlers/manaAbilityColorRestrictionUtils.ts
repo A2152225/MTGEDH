@@ -436,6 +436,23 @@ export function getCommanderColorIdentity(gameState: any, playerId: string): Set
  * Calculate effective power for a permanent (including counters, modifiers, etc.)
  * This is a simplified version for use in mana ability calculations
  */
+/** "Add mana equal to its toughness": current toughness (counters, anthems), like power. */
+export function getEffectiveToughnessForMana(permanent: any, gameState?: any): number {
+  if (gameState) {
+    try {
+      const current = getCurrentPowerToughness(permanent, gameState);
+      if (current) return Math.max(0, current.toughness);
+    } catch {
+      // fall back below
+    }
+  }
+  if (typeof permanent?.effectiveToughness === 'number') return Math.max(0, permanent.effectiveToughness);
+  const raw = permanent?.baseToughness ?? permanent?.card?.toughness ?? 0;
+  const base = typeof raw === 'string' ? parseInt(raw, 10) || 0 : Number(raw) || 0;
+  const counters = permanent?.counters || {};
+  return Math.max(0, base + (Number(counters['+1/+1']) || 0) - (Number(counters['-1/-1']) || 0));
+}
+
 export function getEffectivePowerForMana(permanent: any, gameState?: any): number {
   // "Add mana equal to its power": current power (anthems, equipment, pumps, counters),
   // the same number the battlefield shows.

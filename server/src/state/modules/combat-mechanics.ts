@@ -48,6 +48,8 @@ import { getEffectiveColors } from "./effectiveColors.js";
 import { iterAttachments, parseAttachmentGrantedKeywordsFromOracle } from '../../../../shared/src/attachmentKeywordGrants.js';
 import { isCreatureTypeWord, permanentHasCreatureType } from '../../../../shared/src/creatureTypes.js';
 import { hasBlanketCantAttack } from '../../../../rules-engine/src/attackRestrictionText.js';
+import { permanentHasKeywordAbility, permanentLosesKeyword } from "../../../../rules-engine/src/permanentKeywordAbilities.js";
+import { grantedAbilityIsOwnKeyword } from "../../../../rules-engine/src/oracleOwnKeywordText.js";
 
 const COLOR_WORDS = ['white', 'blue', 'black', 'red', 'green'];
 
@@ -363,9 +365,18 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
       }
     }
     
+    // Own keywords via the shared accurate helper (keyword lines, guarded Scryfall keywords,
+    // granted/temporary abilities, counters, attachments, lords); "loses X" removes it.
+    const keywordBattlefield: any[] = Array.isArray(gameState?.battlefield) ? gameState.battlefield : [];
+    const keywordSubject = permanent ? { ...permanent, card: permanent.card || card } : { card };
     const hasKeywordOrGranted = (kw: string) => {
-      return hasKeyword(kw) || grantedKeywords.includes(kw.toLowerCase()) || hasPermanentAbility(kw);
+      const needle = kw.toLowerCase();
+      if (permanentLosesKeyword(keywordSubject, needle, keywordBattlefield)) return false;
+      if (permanentHasKeywordAbility(keywordSubject, needle, keywordBattlefield)) return true;
+      if (oracleTextGrantsOwnKeyword(oracleText, needle)) return true;
+      return grantedKeywords.includes(needle) || permanentAbilityStringsLower.some((entry) => grantedAbilityIsOwnKeyword(entry, needle));
     };
+    void hasKeyword; void hasPermanentAbility;
     
     const result = {
       flying: hasKeywordOrGranted("flying"),

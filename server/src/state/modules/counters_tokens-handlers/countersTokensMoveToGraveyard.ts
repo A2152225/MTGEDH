@@ -27,6 +27,7 @@ import {
   mergeDeathTriggers,
 } from "./countersTokensDeathTriggerKeywords.js";
 import { getCountersTokensHandlerDeps } from "./countersTokensHandlerDeps.js";
+import { isOneOrMoreBatchDuplicate } from '../triggers/simultaneousEntryBatch.js';
 
 function runSBA(ctx: GameContext): void {
   getCountersTokensHandlerDeps().runSBA(ctx);
@@ -217,7 +218,14 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
       const deathTriggers = mergeDeathTriggers(
         getDeathTriggers(ctx, perm, controller),
         getKeywordDeathTriggersForPermanent(perm, controller),
-      );
+      ).filter((trigger: any) => {
+        // "Whenever one or more ... die" fires once per simultaneous event (board wipe).
+        const sourceId = String(trigger?.source?.permanentId || '');
+        const sourcePerm = (state.battlefield || []).find((p: any) => String(p?.id || '') === sourceId)
+          || (sourceId === String(perm.id) ? perm : null);
+        const oracle = String(sourcePerm?.card?.oracle_text || '');
+        return !isOneOrMoreBatchDuplicate('dies', sourceId, String(trigger?.effect || ''), oracle);
+      });
       if (deathTriggers.length > 0) {
         debug(2, `[movePermanentToGraveyard] Found ${deathTriggers.length} death trigger(s) for ${isToken ? 'token ' : ''}${card?.name || perm.id}`);
         const orderedDeathTriggers = orderTriggersByAPNAP(

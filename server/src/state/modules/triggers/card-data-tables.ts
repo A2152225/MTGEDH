@@ -358,18 +358,12 @@ export const KNOWN_ETB_TRIGGERS: Record<string, {
     effect: "As an additional cost, reveal a Merfolk card from your hand or pay {3}",
     triggerOn: 'self',
   },
-  // Equipment with legendary creature triggers
-  "hero's blade": {
-    effect: "Whenever a legendary creature enters the battlefield under your control, you may attach Hero's Blade to it",
-    triggerOn: 'creature',
-  },
+  // Hero's Blade / Marwyn, the Nurturer retired: generic creature_etb detection keeps the
+  // subject filter ("legendary creature", "another Elf") and the "you control" restriction;
+  // the table rows queued an unfiltered creature_etb that fired for every creature.
   "bane of progress": {
     effect: "Destroy all artifacts and enchantments, then put a +1/+1 counter on Bane of Progress for each permanent destroyed this way",
     triggerOn: 'self',
-  },
-  "marwyn, the nurturer": {
-    effect: "Whenever another Elf enters the battlefield under your control, put a +1/+1 counter on Marwyn, the Nurturer",
-    triggerOn: 'creature',
   },
   // P4c: Bojuka Bog retired — generic self-ETB detection sets requiresTarget /
   // targetType from "When this land enters, exile target player's graveyard."

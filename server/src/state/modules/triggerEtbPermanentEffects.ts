@@ -32,6 +32,8 @@ import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
 import { wouldAutoDeclineOptionalTriggeredAbility } from './stackResolveTriggeredAbilityOptionalUtils.js';
 import { isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggers/triggerConditionFamilyMatch.js';
+import { filterOneOrMoreEntryDuplicates } from './triggers/simultaneousEntryBatch.js';
+import { syncClassLevelGating } from './classLevelGating.js';
 
 function pushPendingEtbTriggerIfNotAutoDeclined(
   state: any,
@@ -203,6 +205,8 @@ export function triggerETBEffectsForPermanent(
 ): void {
   const state = (ctx as any).state;
   if (!state?.battlefield) return;
+  // A Class enters at level 1: only its level-1 section may trigger (CR 716).
+  try { syncClassLevelGating(state); } catch { /* best-effort */ }
 
   try {
     hydratePermanentCardOracleInPlace(permanent);
@@ -748,7 +752,7 @@ export function triggerETBEffectsForPermanent(
 
   // During replay, persisted pushTriggeredAbility events restore these triggers.
   if (!(ctx as any).isReplaying) {
-    for (const stackItem of orderedExternalEtbTriggers) {
+    for (const stackItem of filterOneOrMoreEntryDuplicates(orderedExternalEtbTriggers)) {
       state.stack.push(stackItem);
       persistTriggeredAbilityPush(ctx, stackItem);
     }

@@ -36,6 +36,7 @@ import { pushLoseKeywordSpecs } from './staticEffectSpec-handlers/staticEffectSp
 import { pushAttackYouTaxSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingAttackYouTax.js';
 import { pushTypedAndKeywordLordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingTypedAndKeywordLords.js';
 import { pushQuotedNumericAndBasePTLordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingQuotedNumericBasePT.js';
+import { pushConditionalSelfGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalSelfGrants.js';
 
 /** Lightning Greaves / Swiftfoot Boots: grant keywords to the equipped/enchanted host. */
 function pushAttachedHostKeywordGrants(
@@ -439,6 +440,9 @@ export function parseStaticEffectSpecsFromOraclePermanent(
 
   pushDynamicLordSpecs(specs, source, oracle);
   if (specs.length > 0) return specs;
+
+  // "As long as <condition>, this creature has X" - evaluated against current state.
+  pushConditionalSelfGrantSpecs(specs, source, oracle);
 
   const leylineLifeMatch = oracle.match(
     /if you have at least (\w+) life more than your starting life total, creatures you control get (\+\d+\s*\/\s*\+\d+)/i,

@@ -28,6 +28,7 @@ import {
   shouldQueueChosenTypeCreatureEtbTrigger,
   tryBuildTypedPermanentEtbStackItem,
 } from './triggerEtbTypedPermanentMatch.js';
+import { filterOneOrMoreEntryDuplicates } from '../triggers/simultaneousEntryBatch.js';
 
 export function triggerETBEffectsForToken(
   ctx: GameContext,
@@ -456,7 +457,7 @@ export function triggerETBEffectsForToken(
     })),
   ).map((entry: any) => entry.stackItem);
 
-  for (const stackItem of orderedExternalEtbTriggers) {
+  for (const stackItem of filterOneOrMoreEntryDuplicates(orderedExternalEtbTriggers)) {
     state.stack.push(stackItem);
     pushTriggerDoublerCopies(state, stackItem);
     persistTriggeredAbilityPush(ctx, stackItem);

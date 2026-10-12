@@ -45,6 +45,7 @@ import type {
   StaticEffectSpec,
   StaticEffectSublayer,
 } from './staticEffectSpecTypes.js';
+import { syncClassLevelGating } from './classLevelGating.js';
 
 
 function isCreaturePermanent(permanent: BattlefieldPermanent): boolean {
@@ -857,6 +858,12 @@ export function syncDerivedContinuousEffects(state: unknown): ContinuousEffectRe
     // best-effort only
   }
   try {
+    // Class level sections (CR 716): only levels <= current level are active.
+    syncClassLevelGating(state);
+  } catch {
+    // best-effort only
+  }
+  try {
     // "For as long as this artifact remains tapped" style pumps end as soon as their condition stops.
     expireSourceLinkedPtModifiers(state);
   } catch {
@@ -892,6 +899,20 @@ export function syncDerivedContinuousEffects(state: unknown): ContinuousEffectRe
     for (const permanent of battlefield) {
       if (!permanent) continue;
       const id = String(permanent.id || '');
+      // Abilities granted by continuous effects whose conditions hold right now (lords, auras,
+      // "As long as ..., this creature has X"). The shared keyword helper reads this stamp so
+      // conditional grants are never treated as always on.
+      const granted = new Set<string>();
+      for (const a of derived.perPermanent.get(id)?.abilities || []) {
+        const n = String(a || '').trim().toLowerCase();
+        if (n) granted.add(n);
+      }
+      for (const a of derived.permanentAbilities.get(id) || []) {
+        const n = String(a || '').trim().toLowerCase();
+        if (n) granted.add(n);
+      }
+      if (granted.size > 0) (permanent as any).continuousAbilities = [...granted];
+      else if ((permanent as any).continuousAbilities) delete (permanent as any).continuousAbilities;
       const fromDerived = derived.colorAdditions?.get(id) || [];
       if (fromDerived.length > 0) {
         (permanent as any).colorAdditions = [...fromDerived];

@@ -22,7 +22,7 @@ export function wouldDefenderLikelyBlockProfitably(
   defendingPlayerId: string,
   battlefield: readonly BattlefieldPermanent[],
 ): boolean {
-  const attacker = createCombatCreature(attackerPerm);
+  const attacker = createCombatCreature(attackerPerm, battlefield);
   const legalBlockerIds = getLegalBlockers(
     { battlefield } as any,
     defendingPlayerId,
@@ -33,7 +33,7 @@ export function wouldDefenderLikelyBlockProfitably(
     const blockerPerm = battlefield.find((perm) => perm.id === blockerId);
     if (!blockerPerm || blockerPerm.tapped) continue;
 
-    const blocker = createCombatCreature(blockerPerm);
+    const blocker = createCombatCreature(blockerPerm, battlefield);
     const validation = canCreatureBlock(blocker, attacker, []);
     if (!validation.legal) continue;
 
@@ -63,7 +63,7 @@ export function attackerHasOpenLane(
   opponents: ReadonlyArray<{ id: string }>,
   battlefield: readonly BattlefieldPermanent[],
 ): boolean {
-  const attacker = createCombatCreature(attackerPerm);
+  const attacker = createCombatCreature(attackerPerm, battlefield);
   if (!isSmallVoluntaryAttacker(attacker)) return true;
   return opponents.some(
     (opp) => !wouldDefenderLikelyBlockProfitably(attackerPerm, opp.id, battlefield),
@@ -79,7 +79,7 @@ export function selectBestDefenderForAttacker(
 ): string {
   if (opponents.length === 0) return fallbackTarget;
 
-  const attacker = createCombatCreature(attackerPerm);
+  const attacker = createCombatCreature(attackerPerm, battlefield);
   const small = isSmallVoluntaryAttacker(attacker);
   const isCommander = Boolean((attackerPerm as any).isCommander);
 
@@ -483,7 +483,7 @@ export function makeBasicBlockDecision(
   }
 
   const attackingPermanents = listAttackersForBlockDecision(context, globalBattlefield);
-  const attackerCreatures = attackingPermanents.map((perm) => createCombatCreature(perm));
+  const attackerCreatures = attackingPermanents.map((perm) => createCombatCreature(perm, globalBattlefield));
 
   if (attackerCreatures.length === 0) {
     return {
@@ -503,7 +503,7 @@ export function makeBasicBlockDecision(
     const deckModifiers = deps.getCombatDeckModifiers(perm, config);
     return {
       perm,
-      creature: createCombatCreature(perm),
+      creature: createCombatCreature(perm, globalBattlefield),
       wantsToGetKilled: evaluation.wantsToGetKilled,
       deathBenefit: evaluation.deathBenefit,
       baseValue: deps.evaluatePermanentValue(perm),

@@ -15,6 +15,25 @@ import {
   resolveGrantedAbilities,
 } from './staticEffectsScanHelpers.js';
 
+function creatureTypeStem(type: string): string {
+  const t = String(type || '').toLowerCase();
+  if (t.endsWith('f')) return t.slice(0, -1);
+  if (t.endsWith('us')) return t.slice(0, -2);
+  if (t === 'mouse') return 'm';
+  return t;
+}
+
+/** Singular + plural forms of a creature type ("elf|elves", "wolf|wolves", "fungus|fungi"). */
+function creatureTypeWordPattern(type: string): string {
+  const t = String(type || '').toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const forms = new Set<string>([`${t}(?:e?s)?`]);
+  if (t.endsWith('f')) forms.add(`${t.slice(0, -1)}ves`);
+  if (t.endsWith('us')) forms.add(`${t.slice(0, -2)}i`);
+  if (t === 'ox') forms.add('oxen');
+  if (t === 'mouse') forms.add('mice');
+  return `(?:${[...forms].join('|')})\\b`;
+}
+
 export function applyMonumentLordAndSharedTypeEffects(
   state: GameState,
   source: BattlefieldPermanent,
@@ -62,7 +81,9 @@ export function applyMonumentLordAndSharedTypeEffects(
     // First, check for "Other [TYPE]s you control get +X/+Y" pattern
     for (const creatureType of CREATURE_TYPES) {
       if (creatureType === 'zombie' && hasDeathBaronCompound) continue;
-      if (!lowerOracle.includes(creatureType)) continue;
+      // Stem check: "elves" / "wolves" don't contain "elf" / "wolf".
+      if (!lowerOracle.includes(creatureTypeStem(creatureType))) continue;
+      const typeAlt = creatureTypeWordPattern(creatureType);
       // Pattern 1a: "Other [TYPE](s) (creatures) you control get +X/+Y" (controller-only lord)
       // Pattern 1b: "Other [TYPE](s) (creatures) get +X/+Y" (GLOBAL lord - no "you control")
       // 
@@ -76,7 +97,7 @@ export function applyMonumentLordAndSharedTypeEffects(
       //   - Valiant Veteran: "Other Soldiers you control get +1/+1" (controller only)
       
       const otherTypeBuffPattern = new RegExp(
-        `other\\s+${creatureType}s?\\s+(?:creatures?\\s+)?(?:(you\\s+control)\\s+)?get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
+        `other\\s+${typeAlt}\\s+(?:creatures?\\s+)?(?:(you\\s+control)\\s+)?get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
         'i'
       );
       const otherTypeMatch = oracle.match(otherTypeBuffPattern);
@@ -108,7 +129,7 @@ export function applyMonumentLordAndSharedTypeEffects(
       
       // Pattern 2: "[TYPE](s) (creatures) you control get +X/+Y" (affects all including self)
       const typeBuffPattern = new RegExp(
-        `(?<!other\\s+)(?<!non[- ]?)${creatureType}s?\\s+(?:creatures?\\s+)?you\\s+control\\s+get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
+        `(?<!other\\s+)(?<!non[- ]?)(?<![a-z-])${typeAlt}\\s+(?:creatures?\\s+)?you\\s+control\\s+get\\s+(\\+\\d+\\s*/\\s*\\+\\d+)([^.]*)`,
         'i'
       );
       const typeMatch = oracle.match(typeBuffPattern);
@@ -133,7 +154,7 @@ export function applyMonumentLordAndSharedTypeEffects(
       
       // Pattern 3: "Other [TYPE] creatures you control have [ABILITIES]"
       const otherTypeAbilitiesPattern = new RegExp(
-        `other\\s+${creatureType}\\s+creatures?\\s+you\\s+control\\s+have\\s+([^.]+)`,
+        `other\\s+${typeAlt}(?:\\s+creatures?)?\\s+you\\s+control\\s+have\\s+([^.]+)`,
         'i'
       );
       const otherTypeAbilitiesMatch = oracle.match(otherTypeAbilitiesPattern);
@@ -153,7 +174,7 @@ export function applyMonumentLordAndSharedTypeEffects(
       // Pattern 3b: "[TYPE] creatures you control have [ABILITIES]" (includes self)
       // Example: Archon of Sun's Grace — "Pegasus creatures you control have lifelink."
       const typeAbilitiesPattern = new RegExp(
-        `(?<!other\\s+)${creatureType}\\s+creatures?\\s+you\\s+control\\s+have\\s+([^.]+)`,
+        `(?<!other\\s+)(?<![a-z-])${typeAlt}(?:\\s+creatures?)?\\s+you\\s+control\\s+have\\s+([^.]+)`,
         'i'
       );
       const typeAbilitiesMatch = oracle.match(typeAbilitiesPattern);
@@ -173,7 +194,7 @@ export function applyMonumentLordAndSharedTypeEffects(
       // Example: If a card said "Other Soldier creatures have first strike" (affects all players)
       // This pattern should NOT match if "you control" is present
       const otherTypeGlobalAbilitiesPattern = new RegExp(
-        `other\\s+${creatureType}\\s+creatures?\\s+have\\s+([^.]+)`,
+        `other\\s+${typeAlt}(?:\\s+creatures?)?\\s+have\\s+([^.]+)`,
         'i'
       );
       const otherTypeGlobalAbilitiesMatch = oracle.match(otherTypeGlobalAbilitiesPattern);
@@ -181,7 +202,7 @@ export function applyMonumentLordAndSharedTypeEffects(
       // 1. We matched the pattern
       // 2. The "you control" pattern did NOT match (already handled above)
       // 3. The oracle text doesn't contain "you control" for this type (double-check)
-      const hasYouControlAbilities = oracle.match(new RegExp(`other\\s+${creatureType}\\s+creatures?\\s+you\\s+control\\s+have`, 'i'));
+      const hasYouControlAbilities = oracle.match(new RegExp(`other\\s+${typeAlt}(?:\\s+creatures?)?\\s+you\\s+control\\s+have`, 'i'));
       if (otherTypeGlobalAbilitiesMatch && !otherTypeAbilitiesMatch && !hasYouControlAbilities) {
         const abilities = resolveGrantedAbilities(source, otherTypeGlobalAbilitiesMatch[1]);
         for (const perm of state.battlefield) {

@@ -38,6 +38,7 @@ import { copyAsEntersCopiableChoicesFromSource } from "../../../../../shared/src
 import { getCountersTokensHandlerDeps } from "./countersTokensHandlerDeps.js";
 import { applyGraveyardTypeEntryCounterGrants } from "../graveyardTypeEntryCounterBonus.js";
 import { applyBattlefieldTypeEntryCounterGrants } from "../battlefieldTypeEntryCounterBonus.js";
+import { runWithSimultaneousEntryBatch } from '../triggers/simultaneousEntryBatch.js';
 
 function runSBA(ctx: GameContext): void {
   getCountersTokensHandlerDeps().runSBA(ctx);
@@ -176,7 +177,7 @@ function resolveCreateTokenAbilities(
   return mergeUniqueAbilityStrings([...provided, ...catalogAbilities, ...extracted]);
 }
 
-export function createToken(
+function createTokenUnbatched(
   ctx: GameContext,
   controller: PlayerID,
   name: string,
@@ -555,4 +556,24 @@ export function createCopyTokensOfCard(
   bumpSeq();
   runSBA(ctx);
   return created;
+}
+
+/**
+ * Create `count` tokens as ONE simultaneous event: "Whenever one or more tokens you control
+ * enter" fires once for the batch, while per-permanent "Whenever a creature enters" still
+ * fires for each token.
+ */
+export function createToken(
+  ctx: GameContext,
+  controller: PlayerID,
+  name: string,
+  count = 1,
+  basePower?: number,
+  baseToughness?: number,
+  options?: CreateTokenOptions,
+  skipMirrormindReplacement = false
+): string[] {
+  return runWithSimultaneousEntryBatch(() =>
+    createTokenUnbatched(ctx, controller, name, count, basePower, baseToughness, options, skipMirrormindReplacement),
+  );
 }

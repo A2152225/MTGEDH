@@ -65,6 +65,7 @@ import {
   getCombatControl,
   setCombatControl,
 } from "./combat-handlers/combatControlState.js";
+import { permanentHasKeywordAbility } from "../../../rules-engine/src/permanentKeywordAbilities.js";
 
 export type { PendingAttackTriggerManaPayment } from "./combat-handlers/combatDeclareAttackersSupport.js";
 export { resolveAttackTriggerManaPaymentChoice } from "./combat-handlers/combatDeclareAttackersSupport.js";
@@ -618,16 +619,11 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
 
         // Check evasion abilities (flying, shadow, horsemanship)
-        const attackerText = ((attackerCreature as any).card?.oracle_text || "").toLowerCase();
-        const blockerText = ((blockerCreature as any).card?.oracle_text || "").toLowerCase();
         
-        // Flying
-        if (attackerText.includes("flying") || 
-            ((attackerCreature as any).card?.keywords || []).some((k: string) => k.toLowerCase() === 'flying')) {
-          const hasFlying = blockerText.includes("flying") || 
-            ((blockerCreature as any).card?.keywords || []).some((k: string) => k.toLowerCase() === 'flying');
-          const hasReach = blockerText.includes("reach") ||
-            ((blockerCreature as any).card?.keywords || []).some((k: string) => k.toLowerCase() === 'reach');
+        // Flying (accurate keyword helper: grants, equipment, counters, "loses flying")
+        if (permanentHasKeywordAbility(attackerCreature, 'flying', battlefield)) {
+          const hasFlying = permanentHasKeywordAbility(blockerCreature, 'flying', battlefield);
+          const hasReach = permanentHasKeywordAbility(blockerCreature, 'reach', battlefield);
           if (!hasFlying && !hasReach) {
             socket.emit("error", {
               code: "CANT_BLOCK_FLYING",
@@ -638,8 +634,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
         
         // Shadow
-        if (attackerText.includes("shadow")) {
-          if (!blockerText.includes("shadow")) {
+        if (permanentHasKeywordAbility(attackerCreature, 'shadow', battlefield)) {
+          if (!permanentHasKeywordAbility(blockerCreature, 'shadow', battlefield)) {
             socket.emit("error", {
               code: "CANT_BLOCK_SHADOW",
               message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (shadow)`,
@@ -649,8 +645,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         }
         
         // Horsemanship
-        if (attackerText.includes("horsemanship")) {
-          if (!blockerText.includes("horsemanship")) {
+        if (permanentHasKeywordAbility(attackerCreature, 'horsemanship', battlefield)) {
+          if (!permanentHasKeywordAbility(blockerCreature, 'horsemanship', battlefield)) {
             socket.emit("error", {
               code: "CANT_BLOCK_HORSEMANSHIP",
               message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (horsemanship)`,

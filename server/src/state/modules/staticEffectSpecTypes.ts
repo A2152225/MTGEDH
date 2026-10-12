@@ -185,7 +185,13 @@ export type StaticEffectConditionKind =
   | 'target_is_historic'
   | 'target_is_historic_during_source_controller_turn'
   /** Printed or granted tap-for-mana (Raggadragga). */
-  | 'target_has_mana_ability';
+  | 'target_has_mana_ability'
+  /** "As long as you control a/another/N or more <type>" (conditional self statics). */
+  | 'source_controller_controls_matching'
+  /** "As long as you have N or more life". */
+  | 'source_controller_life_at_least'
+  /** "As long as it has a +1/+1 counter on it". */
+  | 'target_has_counter';
 
 export interface StaticEffectCondition {
   kind: StaticEffectConditionKind;
@@ -205,6 +211,14 @@ export interface StaticEffectCondition {
   creatureType?: string;
   /** Card type for target_has_type (artifact / enchantment / land). */
   cardType?: string;
+  /** source_controller_controls_matching: how many, and whether the source is excluded. */
+  count?: number;
+  other?: boolean;
+  creaturesOnly?: boolean;
+  /** source_controller_life_at_least threshold. */
+  amount?: number;
+  /** target_has_counter counter name ("+1/+1"). */
+  counterType?: string;
 }
 
 export interface StaticEffectSpec {

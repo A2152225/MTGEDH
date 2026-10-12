@@ -6,6 +6,7 @@ import {
   consumeOptionalMayAutoDeclined,
   wouldAutoDeclineOptionalTriggeredAbility,
 } from './stackResolveTriggeredAbilityOptionalUtils.js';
+import { runWithSimultaneousEntryBatch } from './triggers/simultaneousEntryBatch.js';
 
 /**
  * Resolve the top of the stack. When Always No / no-until-targets auto-declines
@@ -13,6 +14,12 @@ import {
  * player does not need Resolve All / pass priority for each skipped Aura Shards.
  */
 export function resolveTopOfStack(ctx: GameContext) {
+  // Everything entering during one resolution is one simultaneous event for
+  // "Whenever one or more ... enter" triggers.
+  runWithSimultaneousEntryBatch(() => resolveTopOfStackUnbatched(ctx));
+}
+
+function resolveTopOfStackUnbatched(ctx: GameContext) {
   let guard = 0;
   while (guard++ < 64) {
     const preface = tryPrepareResolveTopOfStackContext(ctx);

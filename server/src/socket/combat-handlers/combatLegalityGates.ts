@@ -33,6 +33,7 @@ import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/s
 import { blockerCantBlockCreaturesYouControl } from "../../state/modules/staticEffectSpecAttackYouTax.js";
 import { getEffectivePower } from "../util.js";
 import { debug } from "../../utils/debug.js";
+import { permanentHasKeywordAbility, permanentLosesKeyword } from "../../../../rules-engine/src/permanentKeywordAbilities.js";
 
 /**
  * Check if a permanent is currently a creature (Rule 302)
@@ -273,17 +274,18 @@ export function hasEffectiveAbility(
   const grantedAbilities = Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [];
   const removedAbilities = Array.isArray(permanent?.removedAbilities) ? permanent.removedAbilities : [];
   
-  // Check if ability is explicitly removed
-  const isRemoved = removedAbilities.some((a: string) => a.toLowerCase() === lowerAbility);
-  
-  // Check if ability is in base keywords or oracle text
-  const hasInKeywords = keywords.some((k: string) => k.toLowerCase() === lowerAbility);
-  const hasInOracleText = oracleText.includes(lowerAbility);
-  const hasBaseAbility = hasInKeywords || hasInOracleText;
-  
-  // Check if ability is granted by effects
-  const isGranted = grantedAbilities.some((a: string) => a.toLowerCase() === lowerAbility);
-  
+  // Keywords come from the shared accurate helper (keyword lines, Scryfall keywords, grants,
+  // counters, equipment/auras, lords, "loses X") - never a substring of the oracle text, so
+  // "Destroy target creature with flying" does not make a ground creature a flyer.
+  const isRemoved = removedAbilities.some((a: string) => String(a).toLowerCase() === lowerAbility)
+    || permanentLosesKeyword(permanent, lowerAbility, battlefield);
+  const hasBaseAbility = permanentHasKeywordAbility(
+    isRemoved ? { ...permanent, removedAbilities: [], removedKeywords: [] } : permanent,
+    lowerAbility,
+    isRemoved ? [] : battlefield,
+  );
+  const isGranted = grantedAbilities.some((a: string) => String(a).toLowerCase() === lowerAbility);
+
   // Check for "as though it had [ability]" effects from other permanents
   let asThough = false;
   if (battlefield.length > 0) {
@@ -310,40 +312,6 @@ export function hasEffectiveAbility(
         }
       }
       
-      // Also check for ability-granting effects: "[Type] creatures have [ability]"
-      // This includes patterns like:
-      // - "creatures you control have flying"
-      // - "creatures you control get +1/+1 and have flying and indestructible" (Eldrazi Monument)
-      // - "Pegasus creatures you control have lifelink"
-      const typedGrantPattern = new RegExp(
-        `(?:^|[.\\n;])\\s*(?!other\\s)([a-z]+)\\s+creatures?\\s+(?:you\\s+control\\s+)?have\\s+${lowerAbility}`,
-        'i',
-      );
-      const typedGrant = permOracle.match(typedGrantPattern);
-      const permTypeLine = (permanent?.card?.type_line || '').toLowerCase();
-      const isCreatureTarget = permTypeLine.includes('creature');
-      if (typedGrant && permController === controllerId && isCreatureTarget) {
-        const qualifier = String(typedGrant[1] || '').toLowerCase();
-        const colorCode = ({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' } as Record<string, string>)[qualifier];
-        if (colorCode) {
-          const colors = (permanent?.card?.colors || []) as unknown[];
-          if (colors.some((entry) => {
-            const value = String(entry || '');
-            return value.toUpperCase() === colorCode || value.toLowerCase() === qualifier;
-          })) {
-            asThough = true;
-          }
-        } else if (isCreatureTypeWord(qualifier) && permanentHasCreatureType(permanent, qualifier)) {
-          asThough = true;
-        }
-      }
-      const grantPattern = new RegExp(`(?<![a-z] )creatures?\\s+(?:you\\s+control\\s+)?have\\s+${lowerAbility}`, 'i');
-      const grantWithBuffPattern = new RegExp(`(?<![a-z] )creatures?\\s+you\\s+control\\s+get\\s+[+\\-]\\d+/[+\\-]\\d+\\s+and\\s+have\\s+[^.]*\\b${lowerAbility}\\b`, 'i');
-      if ((grantPattern.test(permOracle) || grantWithBuffPattern.test(permOracle)) && permController === controllerId) {
-        if (isCreatureTarget) {
-          asThough = true;
-        }
-      }
     }
   }
   
@@ -353,7 +321,7 @@ export function hasEffectiveAbility(
     return { hasAbility: asThough, isGranted: false, isRemoved: true, asThough };
   }
   
-  const hasAbility = hasBaseAbility || isGranted || asThough;
+  const hasAbility = hasBaseAbility || asThough;
   return { hasAbility, isGranted, isRemoved: false, asThough };
 }
 

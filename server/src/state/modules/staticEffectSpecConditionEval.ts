@@ -24,11 +24,11 @@ export type StaticConditionState = {
     ringBearerPermanentId?: string;
     attackedThisTurn?: boolean;
   }[];
-  /** Player-id → attacked this turn (boolean / truthy). */
+  /** Player-id â†’ attacked this turn (boolean / truthy). */
   attackedThisTurn?: Record<string, unknown>;
-  /** Player-id → creatures that attacked this turn. */
+  /** Player-id â†’ creatures that attacked this turn. */
   creaturesAttackedThisTurn?: Record<string, number>;
-  /** Player-id → city's blessing (Ascend). */
+  /** Player-id â†’ city's blessing (Ascend). */
   cityBlessing?: Record<string, unknown>;
 };
 
@@ -43,8 +43,13 @@ type ConditionSpec = {
     power?: number;
     creatureType?: string;
     cardType?: string;
+    count?: number;
+    other?: boolean;
+    creaturesOnly?: boolean;
+    amount?: number;
+    counterType?: string;
   };
-  conditions?: readonly { kind?: string; color?: string; cardType?: string; keyword?: string; keywords?: readonly string[]; power?: number; creatureType?: string; landType?: string; offset?: number }[];
+  conditions?: readonly { kind?: string; color?: string; cardType?: string; keyword?: string; keywords?: readonly string[]; power?: number; creatureType?: string; landType?: string; offset?: number; count?: number; other?: boolean; creaturesOnly?: boolean; amount?: number; counterType?: string }[];
   sourceController?: string;
   sourcePermanentId?: string;
   sourceName?: string;
@@ -196,6 +201,36 @@ function sourceIsInControllerGraveyard(
     const cardName = String(record.name || record.card?.name || '').trim().toLowerCase();
     return cardName.length > 0 && cardName === sourceName;
   });
+}
+
+function sourceControllerControlsMatching(
+  spec: ConditionSpec,
+  condition: { creatureType?: string; cardType?: string; count?: number; other?: boolean; creaturesOnly?: boolean },
+  state: StaticConditionState,
+): boolean {
+  const controller = String(spec.sourceController || '').trim();
+  if (!controller) return false;
+  const sourceId = String((spec as any).sourcePermanentId || '').trim();
+  const wantedType = String(condition.creatureType || '').trim().toLowerCase();
+  const wantedCard = String(condition.cardType || '').trim().toLowerCase();
+  let count = 0;
+  for (const perm of state.battlefield || []) {
+    if (!perm || String((perm as any).controller || '') !== controller) continue;
+    if (condition.other && String((perm as any).id || '') === sourceId) continue;
+    const typeLine = String((perm.card as any)?.type_line || '').toLowerCase();
+    if (wantedCard) {
+      if (wantedCard === 'token') {
+        if ((perm as any).isToken !== true) continue;
+      } else if (!typeLine.includes(wantedCard)) continue;
+    } else if (wantedType) {
+      if (condition.creaturesOnly && !typeLine.includes('creature')) continue;
+      const hasType = new RegExp(`\\b${wantedType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(typeLine)
+        || /\bchangeling\b/i.test(String((perm.card as any)?.oracle_text || ''));
+      if (!hasType) continue;
+    }
+    count += 1;
+  }
+  return count >= Math.max(1, Number(condition.count || 1));
 }
 
 function sourceControllerHasThreshold(spec: ConditionSpec, state: StaticConditionState): boolean {
@@ -409,6 +444,18 @@ export function specMatchesStaticCondition(
       return permanent.isToken !== true;
     case 'during_source_controller_turn':
       return String(state.turnPlayer || '') === String(spec.sourceController || '');
+    case 'source_controller_controls_matching':
+      return sourceControllerControlsMatching(spec, condition, state);
+    case 'source_controller_life_at_least': {
+      const controller = String(spec.sourceController || '');
+      const startingLife = Number(state.startingLife || 40);
+      return Number(state.life?.[controller] ?? startingLife) >= Number(condition.amount || 0);
+    }
+    case 'target_has_counter': {
+      const wanted = String(condition.counterType || '').trim().toLowerCase();
+      const counters = ((permanent as any).counters || {}) as Record<string, unknown>;
+      return Object.entries(counters).some(([key, value]) => String(key).toLowerCase() === wanted && Number(value) > 0);
+    }
     case 'target_is_token_during_source_controller_turn':
       return permanent.isToken === true
         && String(state.turnPlayer || '') === String(spec.sourceController || '');

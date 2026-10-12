@@ -20,6 +20,7 @@ import type { BattlefieldPermanent, PlayerID, KnownCardRef } from '../../shared/
 import { getCombinedPermanentText } from './permanentText';
 import { TriggerEvent } from './triggeredAbilitiesTypes';
 import { parseTriggeredAbilitiesFromText } from './triggeredAbilitiesParsing';
+import { permanentHasKeywordAbility } from './permanentKeywordAbilities.js';
 
 /**
  * Combat keyword abilities
@@ -139,7 +140,12 @@ interface PowerToughnessModifier {
 /**
  * Extract combat keywords from a permanent
  */
-export function extractCombatKeywords(perm: BattlefieldPermanent): CombatKeywords {
+/**
+ * Keywords come from the shared accurate helper (printed keyword lines, Scryfall
+ * keywords, grants, counters, attachments, lords, "loses X"), never from a substring
+ * search of the full oracle text ("target creature with flying" is not flying).
+ */
+export function extractCombatKeywords(perm: BattlefieldPermanent, battlefield?: readonly BattlefieldPermanent[]): CombatKeywords {
   const allText = getCombinedPermanentText(perm);
   
   // Check for protection
@@ -154,24 +160,26 @@ export function extractCombatKeywords(perm: BattlefieldPermanent): CombatKeyword
     if (allText.includes(`protection from ${typeWord}`)) protectionTypes.push(typeWord);
   }
   
+  const has = (keyword: string) => permanentHasKeywordAbility(perm, keyword, battlefield);
+  const doubleStrike = has('double strike');
   return {
-    flying: allText.includes('flying'),
-    reach: allText.includes('reach'),
-    firstStrike: allText.includes('first strike') && !allText.includes('double strike'),
-    doubleStrike: allText.includes('double strike'),
-    deathtouch: allText.includes('deathtouch'),
-    trample: allText.includes('trample'),
-    lifelink: allText.includes('lifelink'),
-    menace: allText.includes('menace'),
-    vigilance: allText.includes('vigilance'),
-    haste: allText.includes('haste'),
-    indestructible: allText.includes('indestructible'),
-    defender: allText.includes('defender'),
-    shadow: allText.includes('shadow'),
-    horsemanship: allText.includes('horsemanship'),
-    skulk: allText.includes('skulk'),
-    fear: allText.includes('fear'),
-    intimidate: allText.includes('intimidate'),
+    flying: has('flying'),
+    reach: has('reach'),
+    firstStrike: has('first strike') && !doubleStrike,
+    doubleStrike,
+    deathtouch: has('deathtouch'),
+    trample: has('trample'),
+    lifelink: has('lifelink'),
+    menace: has('menace'),
+    vigilance: has('vigilance'),
+    haste: has('haste'),
+    indestructible: has('indestructible'),
+    defender: has('defender'),
+    shadow: has('shadow'),
+    horsemanship: has('horsemanship'),
+    skulk: has('skulk'),
+    fear: has('fear'),
+    intimidate: has('intimidate'),
     protectionColors,
     protectionTypes,
   };
@@ -244,7 +252,7 @@ export function getCreatureToughness(perm: BattlefieldPermanent): number {
 /**
  * Create a CombatCreature from a permanent
  */
-export function createCombatCreature(perm: BattlefieldPermanent): CombatCreature {
+export function createCombatCreature(perm: BattlefieldPermanent, battlefield?: readonly BattlefieldPermanent[]): CombatCreature {
   const card = perm.card as KnownCardRef;
   return {
     id: perm.id,
@@ -253,7 +261,7 @@ export function createCombatCreature(perm: BattlefieldPermanent): CombatCreature
     power: getCreaturePower(perm),
     toughness: getCreatureToughness(perm),
     damage: perm.counters?.damage || 0,
-    keywords: extractCombatKeywords(perm),
+    keywords: extractCombatKeywords(perm, battlefield),
     permanent: perm,
   };
 }

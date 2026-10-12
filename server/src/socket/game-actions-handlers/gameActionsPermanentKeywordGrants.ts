@@ -20,6 +20,7 @@ import {
 import { debugWarn } from "../../utils/debug.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/staticEffectSpec.js";
 import { extractCreatureTypes } from "./gameActionsCastCostReduction.js";
+import { permanentHasKeywordAbility, permanentLosesKeyword } from "../../../../rules-engine/src/permanentKeywordAbilities.js";
 
 function cardListsKeyword(card: any, keyword: string): boolean {
   const keywords = Array.isArray(card?.keywords) ? card.keywords : [];
@@ -277,6 +278,11 @@ export function permanentHasKeyword(
     const permOracleText = (permCard.oracle_text || "").toLowerCase();
     
     const otherOnlyGrant = oracleTextGrantsKeywordOnlyToOthers(permOracleText, lowerKeyword);
+
+    // "Loses flying" / "lose all abilities" (auras, statics, temporary effects) wins.
+    if (permanentLosesKeyword(permanent, lowerKeyword, battlefield)) return false;
+    // Shared accurate helper: printed keyword lines, counters, attachments, lords.
+    if (permanentHasKeywordAbility(permanent, lowerKeyword, battlefield)) return true;
 
     // 1. Printed keyword on this permanent — not lord text that grants it to others.
     if (oracleTextHasOwnKeyword(permOracleText, lowerKeyword)) {

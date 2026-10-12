@@ -49,6 +49,12 @@ export function detectETBTriggers(card: any, permanent?: any, gameState?: any): 
       continue;
     }
 
+    // Rows about OTHER permanents entering carry no subject/controller filter. When the oracle
+    // has a "Whenever ... enters" clause, the generic detectors own it (with filters).
+    if (info.triggerOn && info.triggerOn !== 'self' && /\bwhenever\b[^.]*\benters?\b/i.test(oracleText)) {
+      continue;
+    }
+
     let triggerType: TriggeredAbility['triggerType'];
     switch (info.triggerOn) {
       case 'another_permanent':

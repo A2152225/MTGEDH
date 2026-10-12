@@ -19,6 +19,14 @@ import {
 import { isStationPermanentCreatureNow, isStationPermanentTypeLine } from '../../stationPermanentUtils';
 import { getPermanentForGoadAnalysis } from './combatGoadPermanentLookup.js';
 import { getPermanentPower } from './combatPermanentPower.js';
+import { permanentHasKeywordAbility, permanentHasSelfCantBlock } from '../../permanentKeywordAbilities.js';
+
+/** Keyword abilities resolved by the shared accurate helper (not oracle substrings). */
+const ACCURATE_KEYWORDS = new Set<string>([
+  'flying', 'reach', 'menace', 'trample', 'first strike', 'double strike', 'deathtouch',
+  'lifelink', 'indestructible', 'vigilance', 'defender', 'haste', 'hexproof', 'shroud',
+  'shadow', 'horsemanship', 'fear', 'intimidate', 'skulk', 'flash',
+]);
 
 /**
  * Result of checking if a permanent can participate in combat
@@ -506,24 +514,19 @@ export function canPermanentBlock(permanent: any, attacker?: any, battlefield?: 
     }
   }
   
-  // Check oracle text for "can't block" self-restrictions
-  const oracleText = getCombinedPermanentText(analyzedPermanent);
-  if (oracleText.includes("can't block") && !oracleText.includes("can't be blocked")) {
-    // Check if it's a self-restriction (simple cases)
-    // Full implementation would parse the oracle text more carefully
-    if (!oracleText.includes("can't block creatures") && 
-        !oracleText.includes("can't block except")) {
-      return { canParticipate: false, reason: 'This creature cannot block' };
-    }
+  // "Can't block" self-restrictions: only the creature's OWN static text / effects on it
+  // (an activated "target creature can't block" on the card does not stop it blocking).
+  if (permanentHasSelfCantBlock(analyzedPermanent, battlefield)) {
+    return { canParticipate: false, reason: 'This creature cannot block' };
   }
 
+  const oracleText = getCombinedPermanentText(analyzedPermanent);
   if (attacker && oracleText.includes('can block only creatures with flying')) {
-    const attackerText = getCombinedPermanentText(analyzedAttacker);
-    if (!attackerText.includes('flying') && !hasAbility(analyzedAttacker, 'flying', battlefield)) {
+    if (!hasAbility(analyzedAttacker, 'flying', battlefield)) {
       return { canParticipate: false, reason: 'This creature can block only creatures with flying' };
     }
   }
-  
+
   // If an attacker is provided, check evasion abilities (flying, shadow, etc.)
   if (analyzedAttacker) {
     const evasionResult = checkEvasionAbilities(analyzedPermanent, analyzedAttacker, battlefield);
@@ -565,24 +568,24 @@ export function checkEvasionAbilities(blocker: any, attacker: any, battlefield?:
     return { canParticipate: false, reason: landwalkReason };
   }
   
-  // Flying (Rule 702.9) - can only be blocked by creatures with flying or reach
-  if (attackerText.includes('flying') || hasAbility(attacker, 'flying', battlefield)) {
-    if (!attackerText.includes('reach') && !hasAbility(blocker, 'reach', battlefield) &&
-        !blockerText.includes('flying') && !hasAbility(blocker, 'flying', battlefield)) {
+  // Flying (Rule 702.9) - can only be blocked by creatures with flying or reach.
+  // Keywords come from the accurate shared helper, never a substring of the oracle.
+  if (hasAbility(attacker, 'flying', battlefield)) {
+    if (!hasAbility(blocker, 'reach', battlefield) && !hasAbility(blocker, 'flying', battlefield)) {
       return { canParticipate: false, reason: 'Cannot block a creature with flying without flying or reach' };
     }
   }
-  
-  // Shadow (Rule 702.27) - can only be blocked by creatures with shadow
-  if (attackerText.includes('shadow') || hasAbility(attacker, 'shadow', battlefield)) {
-    if (!blockerText.includes('shadow') && !hasAbility(blocker, 'shadow', battlefield)) {
+
+  // Shadow (Rule 702.28) - can only be blocked by creatures with shadow
+  if (hasAbility(attacker, 'shadow', battlefield)) {
+    if (!hasAbility(blocker, 'shadow', battlefield)) {
       return { canParticipate: false, reason: 'Only creatures with shadow can block creatures with shadow' };
     }
   }
-  
-  // Horsemanship (Rule 702.30) - can only be blocked by creatures with horsemanship
-  if (attackerText.includes('horsemanship') || hasAbility(attacker, 'horsemanship', battlefield)) {
-    if (!blockerText.includes('horsemanship') && !hasAbility(blocker, 'horsemanship', battlefield)) {
+
+  // Horsemanship (Rule 702.31) - can only be blocked by creatures with horsemanship
+  if (hasAbility(attacker, 'horsemanship', battlefield)) {
+    if (!hasAbility(blocker, 'horsemanship', battlefield)) {
       return { canParticipate: false, reason: 'Only creatures with horsemanship can block creatures with horsemanship' };
     }
   }
@@ -627,6 +630,9 @@ export function hasAbility(permanent: any, abilityName: string, battlefield?: an
   if (!permanent) return false;
   
   const lowerName = abilityName.toLowerCase();
+  if (ACCURATE_KEYWORDS.has(lowerName)) {
+    return permanentHasKeywordAbility(permanent, lowerName, battlefield);
+  }
   const oracleText = getCombinedPermanentText(permanent);
 
   if (oracleText.includes(lowerName)) {
