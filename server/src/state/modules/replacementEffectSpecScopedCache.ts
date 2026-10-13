@@ -11,7 +11,7 @@
  * length) is unchanged. Outside a scope nothing is cached.
  */
 
-type ScopedEntry<T> = { state: unknown; signature: string; specs: T[] };
+type ScopedEntry<T> = { state: unknown; signature: string; specs: T[]; battlefield: unknown; length: number };
 
 let scopeDepth = 0;
 let scopedEntry: ScopedEntry<any> | null = null;
@@ -44,11 +44,21 @@ function battlefieldSignature(state: unknown): string {
 
 export function readScopedReplacementSpecs<T>(state: unknown, compute: () => T[]): T[] {
   if (scopeDepth === 0) return compute();
+  const battlefield = (state as any)?.battlefield;
+  const length = Array.isArray(battlefield) ? battlefield.length : 0;
+  // Fast path: the same battlefield array with the same length inside one scope. Building
+  // the full signature on every read made a per-permanent loop O(board^2) again
+  // (~120ms per Crusade resolution at 460 creatures).
+  if (scopedEntry && scopedEntry.state === state && scopedEntry.battlefield === battlefield && scopedEntry.length === length) {
+    return [...scopedEntry.specs];
+  }
   const signature = battlefieldSignature(state);
   if (scopedEntry && scopedEntry.state === state && scopedEntry.signature === signature) {
+    scopedEntry.battlefield = battlefield;
+    scopedEntry.length = length;
     return [...scopedEntry.specs];
   }
   const specs = compute();
-  scopedEntry = { state, signature, specs };
+  scopedEntry = { state, signature, specs, battlefield, length };
   return [...specs];
 }

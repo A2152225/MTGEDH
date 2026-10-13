@@ -310,9 +310,14 @@ export function applyUpdateCountersBulk(
   updates: { permanentId: string; deltas: Record<string, number> }[],
   options?: UpdateCountersOptions,
 ) {
-  for (const u of updates) {
-    updateCounters(ctx, u.permanentId, u.deltas, options);
+  // Counters/damage on many permanents are one simultaneous change: SBA once at the end
+  // (CR 704.3), matching live resolution, instead of a full pass per permanent.
+  const list = Array.isArray(updates) ? updates : [];
+  for (const u of list) {
+    if (!u || !u.permanentId) continue;
+    updateCounters(ctx, String(u.permanentId), u.deltas || {}, { ...options, deferRunSBA: true });
   }
+  if (list.length > 0 && !options?.deferRunSBA) runSBA(ctx);
 }
 
 export function trackCountersPlacedThisTurn(

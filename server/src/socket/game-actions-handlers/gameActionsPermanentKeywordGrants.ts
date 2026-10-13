@@ -28,15 +28,45 @@ function cardListsKeyword(card: any, keyword: string): boolean {
   return keywords.some((entry: unknown) => String(entry || '').toLowerCase() === lower);
 }
 
+// These run once per (grantor x checked creature): getAvailableMana checks haste for every
+// summoning-sick creature against the whole battlefield, so 460 fresh tokens meant ~200k
+// RegExp constructions per priority check. Compile once per keyword and memoize results
+// per (keyword, oracle text); both are pure functions of their inputs.
+const GRANT_REGEX_CACHE = new Map<string, { others: RegExp; all: RegExp }>();
+const GRANT_RESULT_CACHE = new Map<string, number>();
+const GRANT_RESULT_CACHE_MAX = 20000;
+
+function grantRegexes(keyword: string): { others: RegExp; all: RegExp } {
+  let entry = GRANT_REGEX_CACHE.get(keyword);
+  if (!entry) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    entry = {
+      others: new RegExp(String.raw`\bother creatures you control have ${escaped}\b`, 'i'),
+      all: new RegExp(String.raw`\bcreatures you control have ${escaped}\b`, 'i'),
+    };
+    GRANT_REGEX_CACHE.set(keyword, entry);
+  }
+  return entry;
+}
+
+/** 1: grants to other creatures you control only; 2: to creatures you control including self; 0: neither. */
+function grantorKeywordScope(oracle: string, keyword: string): number {
+  const key = keyword + '\u0000' + oracle;
+  const cached = GRANT_RESULT_CACHE.get(key);
+  if (cached !== undefined) return cached;
+  const { others, all } = grantRegexes(keyword);
+  const scope = others.test(oracle) ? 1 : (all.test(oracle) ? 2 : 0);
+  if (GRANT_RESULT_CACHE.size >= GRANT_RESULT_CACHE_MAX) GRANT_RESULT_CACHE.clear();
+  GRANT_RESULT_CACHE.set(key, scope);
+  return scope;
+}
+
 function grantorGivesKeywordToOtherCreaturesYouControl(oracle: string, keyword: string): boolean {
-  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(String.raw`\bother creatures you control have ${escaped}\b`, 'i').test(oracle);
+  return grantorKeywordScope(oracle, keyword) === 1;
 }
 
 function grantorGivesKeywordToCreaturesYouControlIncludingSelf(oracle: string, keyword: string): boolean {
-  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (grantorGivesKeywordToOtherCreaturesYouControl(oracle, keyword)) return false;
-  return new RegExp(String.raw`\bcreatures you control have ${escaped}\b`, 'i').test(oracle);
+  return grantorKeywordScope(oracle, keyword) === 2;
 }
 
 /**
@@ -158,7 +188,11 @@ export function creatureHasHaste(permanent: any, battlefield: any[], controller:
     for (const perm of battlefield) {
       if (!perm || !perm.card) continue;
       
-      const grantorOracle = (perm.card.oracle_text || "").toLowerCase();
+      const rawGrantorOracle = String(perm.card.oracle_text || "");
+      // Every grant below needs the word "haste" in the grantor's text; skip the rest
+      // cheaply (this loop runs per checked creature x battlefield).
+      if (!/haste/i.test(rawGrantorOracle)) continue;
+      const grantorOracle = rawGrantorOracle.toLowerCase();
       const grantorController = perm.controller;
       
       // Only check permanents that could grant haste to this creature

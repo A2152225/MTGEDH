@@ -491,6 +491,12 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly serverBridge?: OracleIRServerExecutionBridge;
   /** Mutable halt state for deferred replacement choices (server only). */
   readonly transitionHaltState?: OracleIRTransitionHaltState;
+  /**
+   * Permanent ids whose counter placement already went through applyCounterModifications
+   * (Hardened Scales, Doubling Season, ...) in this execution. The server's post-IR
+   * counter sync must not apply those modifiers a second time.
+   */
+  readonly counterModifiersAppliedTo?: Set<string>;
 }
 
 export interface OracleIRExecutionResult {

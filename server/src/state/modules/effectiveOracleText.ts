@@ -88,6 +88,9 @@ export function getEffectiveOracleText(
     || '',
   );
   if (!state) return printed;
+  // Every overlay only rewrites color words; skip the battlefield scan (O(board) per call,
+  // called per permanent by continuous-effect passes) when there is nothing to rewrite.
+  if (!/\b(?:white|blue|black|red|green)\b/i.test(printed)) return printed;
   const overlays = collectOracleTextRewriteOverlays(state);
   return applyOracleTextRewriteOverlays(printed, overlays);
 }

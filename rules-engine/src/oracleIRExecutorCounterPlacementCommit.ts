@@ -136,6 +136,7 @@ function resolveCounterPlacementDeltas(args: {
     args.targetPermanentId,
     { ...args.deltas },
   );
+  args.ctx?.counterModifiersAppliedTo?.add(String(args.targetPermanentId));
 
   const transition = buildCounterPlacementTransition({
     targetPermanentId: args.targetPermanentId,
@@ -278,25 +279,38 @@ export function applyCounterDeltasToBattlefieldTargets(
   // Controller-scoped modifiers (Doubling Season, Hardened Scales) yield the same
   // effective delta for each creature you control.
   if (resolvedTargets.length > 1) {
-    const sample = resolvedTargets[0];
-    const resolved = resolveCounterPlacementDeltas({
-      state,
-      targetPermanentId: sample.id,
-      targetPermanent: sample.permanent,
-      deltas: baseDeltas,
-      stepIndex: Number(bridgeOptions.stepIndex),
-      stepKind,
-      cause: 'oracle_ir:add_counter',
-      ctx: bridgeOptions.ctx,
-    });
-
-    if (resolved.halted) {
-      return { state, log: logs, halted: true };
+    // One evaluation per distinct (controller, type line, token) class: modifiers such as
+    // Branching Evolution / Corpsejack Menace (creatures only) or "nontoken" wording give
+    // different results across a mixed target set, so a single sample is not enough.
+    const byClass = new Map<string, Record<string, number>>();
+    const placements: Array<readonly [string, Record<string, number>]> = [];
+    let ledgerRecordedViaBridge = false;
+    for (const entry of resolvedTargets) {
+      const p = entry.permanent || {};
+      const classKey = `${p.controller}|${String(p.card?.type_line || p.type_line || '').toLowerCase()}|${p.isToken === true ? 1 : 0}`;
+      let effective = byClass.get(classKey);
+      if (!effective) {
+        const resolved = resolveCounterPlacementDeltas({
+          state,
+          targetPermanentId: entry.id,
+          targetPermanent: entry.permanent,
+          deltas: baseDeltas,
+          stepIndex: Number(bridgeOptions.stepIndex),
+          stepKind,
+          cause: 'oracle_ir:add_counter',
+          ctx: bridgeOptions.ctx,
+        });
+        if (resolved.halted) {
+          return { state, log: logs, halted: true };
+        }
+        effective = resolved.effectiveDeltas;
+        ledgerRecordedViaBridge = ledgerRecordedViaBridge || resolved.ledgerRecordedViaBridge;
+        byClass.set(classKey, effective);
+      }
+      bridgeOptions.ctx?.counterModifiersAppliedTo?.add(entry.id);
+      placements.push([entry.id, effective] as const);
     }
-
-    const placements = resolvedTargets.map(
-      (entry) => [entry.id, resolved.effectiveDeltas] as const,
-    );
+    const resolved = { ledgerRecordedViaBridge };
     const nextState = applyCounterDeltasToManyPermanents(state, placements);
     logs.push(`Added ${amount} ${counterName} counter(s) to ${placements.length} permanent(s)`);
     return {

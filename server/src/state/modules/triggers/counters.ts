@@ -246,6 +246,38 @@ export function detectCounterPlacedTriggers(card: any, permanent: any, gameState
   return applyFirstTimeEachTurnFlags(triggers, annotated);
 }
 
+// Scoped memo: inside runWithCounterPlacedDetectionScope (one resolution's per-permanent
+// counter sync) each permanent's counter-placed triggers are detected once instead of once
+// per counter-receiving permanent (O(board^2) for "each creature you control").
+let counterPlacedDetectionScope: WeakMap<object, CounterPlacedTrigger[]> | null = null;
+/** Inside a scope: permanents (per battlefield array + controller) that have any counter-placed trigger. */
+let counterPlacedWatcherScope: Map<string, { battlefield: unknown; length: number; perms: any[] }> | null = null;
+
+export function runWithCounterPlacedDetectionScope<R>(fn: () => R): R {
+  if (counterPlacedDetectionScope) return fn();
+  counterPlacedDetectionScope = new WeakMap();
+  counterPlacedWatcherScope = new Map();
+  try {
+    return fn();
+  } finally {
+    counterPlacedDetectionScope = null;
+    counterPlacedWatcherScope = null;
+  }
+}
+
+function detectCounterPlacedTriggersScoped(permanent: any, state: any): CounterPlacedTrigger[] {
+  const scope = counterPlacedDetectionScope;
+  if (!scope || !permanent || typeof permanent !== 'object') {
+    return detectCounterPlacedTriggers(permanent.card, permanent, state);
+  }
+  let cached = scope.get(permanent);
+  if (!cached) {
+    cached = detectCounterPlacedTriggers(permanent.card, permanent, state);
+    scope.set(permanent, cached);
+  }
+  return cached;
+}
+
 export function getCounterPlacedTriggers(
   ctx: GameContext,
   targetPermanent: any,
@@ -262,11 +294,25 @@ export function getCounterPlacedTriggers(
     return triggers;
   }
 
-  for (const permanent of battlefield) {
+  let candidates: any[] = battlefield;
+  const watcherScope = counterPlacedWatcherScope;
+  if (watcherScope) {
+    const cached = watcherScope.get(targetController);
+    if (cached && cached.battlefield === battlefield && cached.length === battlefield.length) {
+      candidates = cached.perms;
+    } else {
+      candidates = battlefield.filter((p: any) => p?.card
+        && String(p.controller || '') === targetController
+        && detectCounterPlacedTriggersScoped(p, ctx.state).length > 0);
+      watcherScope.set(targetController, { battlefield, length: battlefield.length, perms: candidates });
+    }
+  }
+
+  for (const permanent of candidates) {
     if (!permanent || !permanent.card) continue;
     if (String(permanent.controller || '') !== targetController) continue;
 
-    const permanentTriggers = detectCounterPlacedTriggers(permanent.card, permanent, ctx.state);
+    const permanentTriggers = detectCounterPlacedTriggersScoped(permanent, ctx.state);
     for (const trigger of permanentTriggers) {
       if (shouldSkipFirstTimeEachTurnTrigger(ctx.state, trigger)) continue;
       if (trigger.triggerType === 'counters_put_on_self') {
@@ -306,6 +352,8 @@ export function getCounterPlacedTriggers(
 
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
+    // A counter_placed event line needs the word "counter" in this oracle text.
+    if (!/counter/i.test(String(permanent.card.oracle_text || ''))) continue;
     for (const line of collectMatchingParsedEventLines({
       ctx,
       oracleText: String(permanent.card.oracle_text || ''),
@@ -618,6 +666,8 @@ export function getCounterRemovedTriggers(
 
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
+    // A counter_placed event line needs the word "counter" in this oracle text.
+    if (!/counter/i.test(String(permanent.card.oracle_text || ''))) continue;
     for (const line of collectMatchingParsedEventLines({
       ctx,
       oracleText: String(permanent.card.oracle_text || ''),

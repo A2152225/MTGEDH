@@ -44,6 +44,7 @@ import { isAiContextuallyIdleForAutoPass } from "./ai-handlers/aiAutoPassContext
 import { isGameReplayLocked } from "../gameRestoreState.js";
 import { debug, debugWarn } from "../utils/debug.js";
 import { createIdenticalTriggerBulkProgress, type IdenticalTriggerBulkStopReason } from "./identicalTriggerBulkProgress.js";
+import { tryCollapseIdenticalCounterRun } from "./identicalTriggerCollapsedCounterRun.js";
 
 /** Runs shorter than this resolve the normal way (no batching benefit). */
 export const IDENTICAL_TRIGGER_BULK_MIN_RUN = 2;
@@ -192,6 +193,48 @@ function resolveOneIdenticalInstance(
   return null;
 }
 
+/** Contiguous run items for `key`, top of the stack first. */
+function runItemsFor(game: InMemoryGame, key: string): any[] {
+  const stack = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack : [];
+  const out: any[] = [];
+  for (let i = stack.length - 1; i >= 0; i -= 1) {
+    if (identicalTriggerBulkKey(stack[i]) !== key) break;
+    out.push(stack[i]);
+  }
+  return out;
+}
+
+/**
+ * Collapse deterministic counter-placement runs into one event when every player
+ * consents (see identicalTriggerCollapsedCounterRun.ts). Returns instances resolved.
+ */
+function collapseIdenticalRunIfPossible(
+  io: Server | null,
+  game: InMemoryGame,
+  gameId: string,
+  key: string,
+  consentingPlayerId: string | undefined,
+  limit: number,
+): number {
+  try {
+    return tryCollapseIdenticalCounterRun(io, game, gameId, {
+      key,
+      limit,
+      runItems: () => runItemsFor(game, key),
+      everyoneConsents: () => {
+        if (hasPendingInteraction(game, gameId)) return false;
+        const players = Array.isArray((game.state as any)?.players) ? (game.state as any).players : [];
+        const active = players.filter((p: any) => p && !p.spectator && !p.hasLost && !p.eliminated);
+        return active.length > 0 && active.every((p: any) => holderWouldPass(game, String(p.id), consentingPlayerId));
+      },
+      resolveOne: () => resolveOneIdenticalInstance(io, game, gameId, key, consentingPlayerId) === null,
+    });
+  } catch (err) {
+    debugWarn(1, "[identicalTriggerBulk] collapse failed; continuing per instance", err);
+    return 0;
+  }
+}
+
 /**
  * Synchronous variant (no yielding, no progress): keep resolving while the top of the
  * stack is the trigger identified by `key` and every priority holder passes.
@@ -209,6 +252,7 @@ export function continueIdenticalTriggerRun(
   let resolved = 0;
   beginSuppressBroadcast(game);
   try {
+    resolved += collapseIdenticalRunIfPossible(io, game, gameId, key, options.consentingPlayerId, limit);
     while (resolved < limit && resolveOneIdenticalInstance(io, game, gameId, key, options.consentingPlayerId) === null) {
       resolved += 1;
     }
@@ -275,6 +319,13 @@ export async function runIdenticalTriggerRunAsync(
   let reason: IdenticalTriggerBulkStopReason = "complete";
   progress.start(already);
   try {
+    beginSuppressBroadcast(game);
+    try {
+      resolved += collapseIdenticalRunIfPossible(io, game, gameId, key, options.consentingPlayerId, limit);
+    } finally {
+      endSuppressBroadcast(game);
+    }
+    if (resolved > 0) progress.update(already + resolved);
     outer: while (resolved < limit) {
       const chunkStart = Date.now();
       let inChunk = 0;
@@ -305,7 +356,8 @@ export async function runIdenticalTriggerRunAsync(
     if (resolved > 0 && typeof (game as any).bumpSeq === "function") (game as any).bumpSeq();
     progress.end(already + resolved, reason);
   }
-  debug(2, `[identicalTriggerBulk] async run resolved ${resolved} instance(s) of ${key} (${reason})`);
+  const holderAtStop = String((game.state as any)?.priority || "");
+  debug(1, `[identicalTriggerBulk] async run resolved ${resolved}/${remaining} of ${key} (${reason}; holder=${holderAtStop || "none"})`);
   return { resolved, reason };
 }
 
@@ -341,6 +393,13 @@ export async function continueCapturedIdenticalTriggerRun(
   gameId: string,
   captured: CapturedIdenticalTriggerRun,
   afterRun?: () => void,
+  /**
+   * A player who just chose to pass on the first instance (the AI executor passes its
+   * own id). Instances are identical and choice-free, so that choice carries over;
+   * without it every instance stopped at the AI (player_can_respond) and waited for
+   * a full AI decision cycle (~20s on a 770-permanent board).
+   */
+  consentingPlayerId?: string,
 ): Promise<number> {
   if (!captured.key || activeRuns.has(gameId)) return 0;
   if (identicalTriggerBulkKey(topItem(game)) !== captured.key) return 0;
@@ -349,6 +408,7 @@ export async function continueCapturedIdenticalTriggerRun(
       key: captured.key,
       sourceName: captured.sourceName,
       alreadyResolved: 1,
+      consentingPlayerId,
     });
     if (resolved > 0) {
       emitIdenticalTriggerRunChat(io, gameId, captured.sourceName, resolved + 1);

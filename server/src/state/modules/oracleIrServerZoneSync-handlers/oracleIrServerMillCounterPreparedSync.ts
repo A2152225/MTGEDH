@@ -18,7 +18,7 @@ import type { GameContext } from '../../context.js';
 import { syncPreparedPermanentAfterControlChange } from '../prepared.js';
 import { evaluateCounterPlacementReplacementEvent, evaluateMillReplacementEvent } from '../replacement-effects.js';
 import { updateCounters } from '../counters_tokens.js';
-import { queueCounterPlacedTriggers } from '../triggers/counters.js';
+import { queueCounterPlacedTriggers, runWithCounterPlacedDetectionScope } from '../triggers/counters.js';
 import { runWithReplacementSpecScope } from '../replacementEffectSpecScopedCache.js';
 
 export function snapshotBattlefieldControllers(state: any): Map<string, string> {
@@ -47,16 +47,20 @@ export function syncCounterReplacementEffectsAfterOracleIR(
   ctx: GameContext,
   state: any,
   countersBefore: Map<string, Record<string, number>>,
+  modifiersAlreadyApplied?: ReadonlySet<string>,
 ): void {
   // One replacement-spec collection for the whole pass ("each creature you control"
   // placements used to re-scan the battlefield per creature).
-  runWithReplacementSpecScope(() => syncCounterReplacementEffectsAfterOracleIRScoped(ctx, state, countersBefore));
+  runWithReplacementSpecScope(() => runWithCounterPlacedDetectionScope(
+    () => syncCounterReplacementEffectsAfterOracleIRScoped(ctx, state, countersBefore, modifiersAlreadyApplied),
+  ));
 }
 
 function syncCounterReplacementEffectsAfterOracleIRScoped(
   ctx: GameContext,
   state: any,
   countersBefore: Map<string, Record<string, number>>,
+  modifiersAlreadyApplied?: ReadonlySet<string>,
 ): void {
   const pendingUpdates: Array<{ permanentId: string; deltas: Record<string, number> }> = [];
 
@@ -75,6 +79,14 @@ function syncCounterReplacementEffectsAfterOracleIRScoped(
       const newCount = Number(newCounters[counterType] || 0);
       const rawDelta = newCount - oldCount;
       if (rawDelta <= 0) continue;
+
+      // The IR commit already ran Hardened Scales / Doubling Season / ... for this
+      // permanent: the observed delta is final. Re-evaluating here added the bonus twice
+      // (Crusade + Hardened Scales put 3 counters instead of 2).
+      if (modifiersAlreadyApplied?.has(permanentId)) {
+        placedDeltas[counterType] = (placedDeltas[counterType] || 0) + rawDelta;
+        continue;
+      }
 
       const replacementResult = evaluateCounterPlacementReplacementEvent({
         state,

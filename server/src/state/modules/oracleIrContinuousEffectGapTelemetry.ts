@@ -121,6 +121,12 @@ function analyzeOverlayPayloadGap(
   return null;
 }
 
+// Lookup keys only read raw ids that look like oracle ids (UUIDs); other ids do not affect them.
+function uuidOrEmpty(value: unknown): string {
+  const id = String(value ?? '');
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : '';
+}
+
 /** Scan battlefield overlays for undeclarative static/replacement gaps (Phase 5 soak signal). */
 export function scanBattlefieldContinuousEffectOverlayGaps(state: unknown): void {
   const battlefield = Array.isArray((state as { battlefield?: unknown[] })?.battlefield)
@@ -132,12 +138,23 @@ export function scanBattlefieldContinuousEffectOverlayGaps(state: unknown): void
     || (state as { gameId?: string })?.gameId
     || '').trim() || undefined;
 
+  // Identical lookup inputs give identical gaps (and gap records are once-only), so scan
+  // each distinct card identity once per pass instead of once per permanent (tokens).
+  const seenLookupInputs = new Set<string>();
   for (const perm of battlefield) {
     if (!perm || typeof perm !== 'object') continue;
     if ((perm as { phasedOut?: boolean }).phasedOut === true) continue;
 
     const card = (perm as { card?: { name?: string } }).card;
     if (!card) continue;
+    const c = card as Record<string, any>;
+    const lookupInputKey = [
+      c.oracle_id, c.oracleId, uuidOrEmpty(c.id), c.name, c.sourceName,
+      c.card?.oracle_id, c.card?.oracleId, uuidOrEmpty(c.card?.id), c.card?.name,
+      (perm as { name?: string }).name,
+    ].map((v) => String(v ?? '')).join('\u0001');
+    if (seenLookupInputs.has(lookupInputKey)) continue;
+    seenLookupInputs.add(lookupInputKey);
 
     const label = String(card.name || (perm as { name?: string }).name || 'Unknown').trim();
     const lookupKeys = extractOracleCardLookupKeys({ card, effectiveCard: card });

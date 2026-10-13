@@ -34,39 +34,87 @@ export function keywordsOnPermanent(permanent: any, battlefield?: readonly any[]
     if (!Array.isArray(list)) continue;
     for (const entry of list) listed.push(String(entry || '').toLowerCase());
   }
+  // One pass narrows the battlefield to the only sources keyword checks can use (grant/removal
+  // statics need "have"/"lose", plus attachments); exact, and avoids a full scan per keyword.
+  const relevant = Array.isArray(battlefield) ? keywordRelevantBattlefield(permanent, battlefield) : undefined;
   return TRIGGER_SUBJECT_KEYWORDS.filter((keyword) => {
     const stored = listed.some((entry) => entry === keyword || entry.includes(keyword))
       || oracleTextHasOwnKeyword(oracleText, keyword);
-    if (!Array.isArray(battlefield)) return stored;
+    if (!relevant) return stored;
     try {
-      return stored || permanentHasKeywordAbility(permanent, keyword, battlefield);
+      return stored || permanentHasKeywordAbility(permanent, keyword, relevant);
     } catch {
       return stored;
     }
   });
 }
 
+const GRANT_OR_REMOVAL_WORD = /\b(?:have|lose)\b/i;
+
+function sourceTextMayGrantOrRemove(source: any): boolean {
+  const card = source?.card;
+  if (GRANT_OR_REMOVAL_WORD.test(String(card?.oracle_text || source?.oracle_text || ''))) return true;
+  const faces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+  return faces.some((face: any) => GRANT_OR_REMOVAL_WORD.test(String(face?.oracle_text || '')));
+}
+
+/** Superset of battlefield objects that can affect permanentHasKeywordAbility for any keyword. */
+function keywordRelevantBattlefield(permanent: any, battlefield: readonly any[]): any[] {
+  const attachedIds = new Set<string>();
+  for (const list of [permanent?.attachedEquipment, permanent?.attachments]) {
+    if (Array.isArray(list)) for (const x of list) attachedIds.add(String(x));
+  }
+  return battlefield.filter((source: any) => source === permanent
+    || (source?.attachedTo !== undefined && source?.attachedTo !== null && String(source.attachedTo) !== '')
+    || attachedIds.has(String(source?.id || ''))
+    || sourceTextMayGrantOrRemove(source));
+}
+
 export function permanentToTriggerMatch(permanent: any, controllerId?: string, state?: any): TriggerMatchPermanent {
   const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '');
   const oracleText = String(permanent?.card?.oracle_text || permanent?.oracle_text || '');
   const statContext = state ? { state } as any : undefined;
-  return {
+  const match: TriggerMatchPermanent = {
     id: String(permanent?.id || '').trim(),
     typeLine,
     controllerId: String(controllerId || permanent?.controller || '').trim(),
     isToken: Boolean(permanent?.isToken || permanent?.token || permanent?.card?.isToken || permanent?.card?.token),
     hasAllCreatureTypes: hasChangeling(oracleText, typeLine),
-    keywords: keywordsOnPermanent(permanent, Array.isArray(state?.battlefield) ? state.battlefield : undefined),
     counters: permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : undefined,
-    power: currentStat(getPermanentPowerMaybe(permanent, statContext)),
-    toughness: currentStat(getPermanentToughnessMaybe(permanent, statContext)),
     faceDown: Boolean(permanent?.faceDown || permanent?.isFaceDown || permanent?.card?.faceDown),
     goaded: permanent?.goaded === true,
     attackingOrBlocking: permanentIsAttackingOrBlocking(permanent),
     isCommander: Boolean(permanent?.isCommander || permanent?.commander || permanent?.card?.isCommander),
     ownerId: String(permanent?.owner || permanent?.card?.owner || '').trim() || undefined,
     colors: colorLetters(permanent?.card?.colors || permanent?.colors),
-  };
+  } as TriggerMatchPermanent;
+  // Keywords (battlefield-wide grant scan) and current P/T are O(board) each and most
+  // conditions never read them ("counters are put on this creature"); compute on first
+  // read only. Values are the same as eager evaluation at match time.
+  defineLazy(match, 'keywords', () => keywordsOnPermanent(permanent, Array.isArray(state?.battlefield) ? state.battlefield : undefined));
+  defineLazy(match, 'power', () => currentStat(getPermanentPowerMaybe(permanent, statContext)));
+  defineLazy(match, 'toughness', () => currentStat(getPermanentToughnessMaybe(permanent, statContext)));
+  return match;
+}
+
+function defineLazy(target: object, key: string, compute: () => unknown): void {
+  let computed = false;
+  let value: unknown;
+  Object.defineProperty(target, key, {
+    enumerable: true,
+    configurable: true,
+    get() {
+      if (!computed) {
+        value = compute();
+        computed = true;
+      }
+      return value;
+    },
+    set(next: unknown) {
+      value = next;
+      computed = true;
+    },
+  });
 }
 
 function currentStat(value: number | null): number | undefined {

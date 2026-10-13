@@ -34,6 +34,31 @@ import {
   resolvePlayerDamage,
 } from "../combat-damage-processing.js";
 
+import { applyResolveIdenticalCounterRun } from "../identicalCounterRunApply.js";
+
+function isReplayCounterMutation(ev: any): boolean {
+  return Boolean(ev) && ev.type === "updateCounters" && ev.oracleIrReplayMutation === true;
+}
+
+/**
+ * Replay only: one resolving effect (Cathars' Crusade on 250 creatures) persists one
+ * updateCounters mutation per permanent. Live resolution checks state-based actions once
+ * after the effect; replaying each mutation with its own full SBA pass made restores
+ * O(events x board). Defer SBA while the next event continues the same source's batch;
+ * the batch's last mutation runs SBA as usual (SBAs never run mid-resolution, CR 704.3).
+ */
+function replayCounterBatchContinues(ctx: GameContext, e: GameEvent): boolean {
+  const c = ctx as any;
+  if (!c?.isReplaying || !isReplayCounterMutation(e)) return false;
+  const sourceId = String((e as any).oracleIrSourceId || "");
+  if (!sourceId) return false;
+  const events = c._replayEvents;
+  const index = c._replayEventIndex;
+  if (!Array.isArray(events) || typeof index !== "number") return false;
+  const next = events[index + 1];
+  return isReplayCounterMutation(next) && String(next.oracleIrSourceId || "") === sourceId;
+}
+
 export function applyCommanderCounterDamageEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
 
@@ -239,10 +264,15 @@ export function applyCommanderCounterDamageEvents(ctx: GameContext, e: GameEvent
           (e as any).deltas || {},
           {
             skipCounterModifications: (e as any).skipCounterModifications === true,
-            deferRunSBA: (e as any).deferRunSBA === true,
+            deferRunSBA: (e as any).deferRunSBA === true || replayCounterBatchContinues(ctx, e),
             skipEventPersistence: true,
           },
         );
+        break;
+      }
+
+      case "resolveIdenticalCounterRun": {
+        applyResolveIdenticalCounterRun(ctx, e);
         break;
       }
 

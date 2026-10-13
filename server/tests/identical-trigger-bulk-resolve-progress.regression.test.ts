@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createGameIfNotExists, deleteGame, initDb, truncateEventsForUndo } from '../src/db/index.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
@@ -11,6 +11,7 @@ import {
   runIdenticalTriggerRunAsync,
 } from '../src/socket/identicalTriggerBulkResolve.js';
 import { createIdenticalTriggerBulkProgress } from '../src/socket/identicalTriggerBulkProgress.js';
+import { setIdenticalCounterCollapseEnabled } from '../src/socket/identicalTriggerCollapsedCounterRun.js';
 
 const gameId = 'test_identical_trigger_bulk_async';
 
@@ -76,7 +77,10 @@ function fakeIo(log: Emit[]): any {
 const progressOf = (log: Emit[]) => log.filter((e) => e.event === 'identicalTriggerBulkProgress').map((e) => e.payload);
 
 describe('identical trigger bulk resolve: async chunks + progress', () => {
-  beforeAll(async () => { await initDb(); });
+  // These cases cover the per-instance chunk / yield mechanics; Crusade runs would
+  // otherwise collapse into one event (identical-counter-run-collapse test).
+  beforeAll(async () => { await initDb(); setIdenticalCounterCollapseEnabled(false); });
+  afterAll(() => { setIdenticalCounterCollapseEnabled(true); });
   afterEach(async () => { await resetGame(); });
 
   it('yields to the event loop between chunks and keeps rules ordering', async () => {

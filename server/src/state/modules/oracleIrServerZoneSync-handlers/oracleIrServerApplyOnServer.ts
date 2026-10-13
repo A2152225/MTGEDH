@@ -236,8 +236,12 @@ export function applyOracleIRStepsOnServer(
       : (Number.isFinite(fromCtx as any) ? Number(fromCtx) : 0);
   }
 
+  // Filled by the IR counter commit for every permanent whose placement already ran
+  // through the counter modifiers, so the post-IR sync does not apply them again.
+  const counterModifiersAppliedTo = new Set<string>();
   const result = applyOracleIRStepsToGameState(state, adjustedSteps, {
     ...irCtx,
+    counterModifiersAppliedTo,
     stepLedger,
     appliedStepKinds,
     transitionHaltState,
@@ -360,7 +364,7 @@ export function applyOracleIRStepsOnServer(
   } catch {
     // best-effort: extra land play / top-of-library caches after IR zone moves
   }
-  syncCounterReplacementEffectsAfterOracleIR(ctx, state, countersBefore);
+  syncCounterReplacementEffectsAfterOracleIR(ctx, state, countersBefore, counterModifiersAppliedTo);
   syncAllOracleIRPlayerZonesAfterResolution(ctx);
   syncImpulseExilePlayPermissionsToState(state);
   bridgeScheduleDelayedFlickerReturnsFromOracleIRResult(ctx, state, result, exileBefore, {

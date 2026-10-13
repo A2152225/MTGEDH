@@ -127,6 +127,18 @@ export async function handleDeclareAttackers(
       return;
     }
 
+    // Rule 508.1: attackers are declared once per combat. A second declaration in the
+    // same step (stale client modal, double submit) re-ran attack triggers
+    // (Myrel + Roaming Throne went on the stack 4 times instead of 2).
+    const declaredBy: unknown = (game.state as any).attackersDeclaredBy;
+    if (Array.isArray(declaredBy) && declaredBy.map(String).includes(String(playerId))) {
+      socket.emit("error", {
+        code: "ATTACKERS_ALREADY_DECLARED",
+        message: "Attackers have already been declared this combat",
+      });
+      return;
+    }
+
     // Validate attackers are valid creatures controlled by the player
     const battlefield = game.state?.battlefield || [];
     let resolvedAttackers;

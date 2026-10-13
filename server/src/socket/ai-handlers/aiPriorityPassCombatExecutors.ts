@@ -83,7 +83,8 @@ export async function executePassPriority(
       const identicalRun = captureIdenticalTriggerRun(game);
       if (persistAndResolveTopOfStack(game, gameId, { playerId })) {
         runPostResolutionPermanentPromptChecks(io, game, gameId);
-        await continueCapturedIdenticalTriggerRun(io, game, gameId, identicalRun);
+        // The AI just chose to pass on this instance; carry that over to the identical rest.
+        await continueCapturedIdenticalTriggerRun(io, game, gameId, identicalRun, undefined, String(playerId));
         debug(2, `[AI] Stack resolved for game ${gameId}`);
       }
     }

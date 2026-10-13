@@ -94,6 +94,13 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
   
   // Add potential mana from untapped permanents
   const battlefield = state.battlefield || [];
+  // creatureHasHaste reads haste only from oracle text on the battlefield (own text,
+  // equipment, auras, lords) plus the creature's own keyword / granted / temporary lists.
+  // When no battlefield text mentions haste, a creature whose lists don't either cannot
+  // have it; skip the per-creature battlefield scan (O(board^2) with 460 fresh tokens).
+  const anyBattlefieldHasteText = battlefield.some((p: any) => /haste/i.test(String(p?.card?.oracle_text || '')));
+  const listsMentionHaste = (p: any): boolean => [p?.card?.keywords, p?.grantedAbilities, p?.tempAbilities, p?.temporaryAbilities]
+    .some((list) => Array.isArray(list) && list.some((entry: any) => /haste/i.test(typeof entry === 'string' ? entry : JSON.stringify(entry ?? ''))));
   for (const permanent of battlefield) {
     if (permanent.controller !== playerId) continue;
     if (permanent.tapped) continue;
@@ -111,7 +118,9 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     
     // Skip creatures with summoning sickness (unless they have haste)
     if (isCreature && !isLand && permanent.summoningSickness) {
-      const hasHaste = creatureHasHaste(permanent, battlefield, playerId);
+      const hasHaste = (anyBattlefieldHasteText || listsMentionHaste(permanent))
+        ? creatureHasHaste(permanent, battlefield, playerId)
+        : false;
       if (!hasHaste) {
         // This creature has summoning sickness and no haste - can't tap for mana
         continue;

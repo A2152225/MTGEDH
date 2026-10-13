@@ -1,6 +1,6 @@
 import type { OracleIRCompilerEnvelope } from '../../../../rules-engine/src/oracleIRCompilerEnvelope.js';
 import { lookupCompiledOracleIROverlaySync } from '../../services/oracleIrCompiledOverlayStore.js';
-import { lookupLocalCardByNameSync } from '../../services/localCardLookup.js';
+import { lookupLocalCardOracleIdByNameSync } from '../../services/localCardLookup.js';
 
 export interface OracleCardLookupKeys {
   readonly cardId?: string;
@@ -84,8 +84,7 @@ export function extractOracleCardLookupKeys(input: {
   }
 
   if (!cardId && cardName) {
-    const localCard = lookupLocalCardByNameSync(cardName);
-    const localOracleId = String(localCard?.oracle_id || localCard?.id || '').trim();
+    const localOracleId = lookupLocalCardOracleIdByNameSync(cardName);
     if (localOracleId && looksLikeOracleCardId(localOracleId)) {
       cardId = localOracleId;
     }

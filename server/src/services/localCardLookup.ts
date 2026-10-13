@@ -268,6 +268,8 @@ function getDatabase(): DB {
     dbFilePath = null;
     lookupVerifiedDb = null;
     cardNameChoiceCache.clear();
+    syncLookupPayloadMemo.clear();
+    syncLookupOracleIdMemo.clear();
   }
 
   if (resolvedDbFile !== ':memory:') {
@@ -673,6 +675,8 @@ async function rebuildLookupIndex(database: DB, options?: LocalCardLookupOptions
 
   debug(1, `[card-lookup] Built lookup table with ${aliasMap.size} aliases`);
   cardNameChoiceCache.clear();
+  syncLookupPayloadMemo.clear();
+  syncLookupOracleIdMemo.clear();
   lookupVerifiedDb = null;
 }
 
@@ -712,6 +716,8 @@ function rebuildLookupIndexSync(database: DB, options?: LocalCardLookupOptions):
 
   debug(1, `[card-lookup] Built lookup table with ${aliasMap.size} aliases`);
   cardNameChoiceCache.clear();
+  syncLookupPayloadMemo.clear();
+  syncLookupOracleIdMemo.clear();
   lookupVerifiedDb = null;
 }
 
@@ -802,28 +808,56 @@ function isUsableLookupCard(card: LocalCardLookupRecord | undefined): boolean {
   return true;
 }
 
+/**
+ * Raw payload (or miss) per lookup db file + normalized name. Continuous-effect passes look
+ * up every permanent's name on every resolution (460 tokens => 460 sqlite reads each time).
+ * Cleared whenever the lookup index is rebuilt or the db handle is reset; callers still get
+ * a freshly parsed object per call.
+ */
+const syncLookupPayloadMemo = new Map<string, string | null>();
+const SYNC_LOOKUP_MEMO_MAX = 20000;
+const syncLookupOracleIdMemo = new Map<string, string>();
+
+/** Oracle id (or '') for a card name, memoized with the payload memo above. */
+export function lookupLocalCardOracleIdByNameSync(name: string): string {
+  const memoKey = `${resolveLookupDbFile()}|${normalizeLookupName(name)}`;
+  const cached = syncLookupOracleIdMemo.get(memoKey);
+  if (cached !== undefined) return cached;
+  const card = lookupLocalCardByNameSync(name);
+  const oracleId = String(card?.oracle_id || card?.id || '').trim();
+  if (syncLookupOracleIdMemo.size >= SYNC_LOOKUP_MEMO_MAX) syncLookupOracleIdMemo.clear();
+  syncLookupOracleIdMemo.set(memoKey, oracleId);
+  return oracleId;
+}
+
 export function lookupLocalCardByNameSync(
   name: string,
   options: LocalCardLookupOptions = {}
 ): LocalCardLookupRecord | undefined {
-  ensureLocalCardLookupIndexSync(options);
-
   const normalizedName = normalizeLookupName(name);
-  if (!normalizedName) {
-    return undefined;
+  const memoKey = `${resolveLookupDbFile()}|${normalizedName}`;
+  let payload = normalizedName ? syncLookupPayloadMemo.get(memoKey) : undefined;
+
+  if (payload === undefined) {
+    ensureLocalCardLookupIndexSync(options);
+    if (!normalizedName) {
+      return undefined;
+    }
+    const database = getDatabase();
+    const row = getLookupByNameStatement(database).get(normalizedName) as
+      | { payload: string }
+      | undefined;
+    payload = row?.payload ? String(row.payload) : null;
+    if (syncLookupPayloadMemo.size >= SYNC_LOOKUP_MEMO_MAX) syncLookupPayloadMemo.clear();
+    syncLookupPayloadMemo.set(memoKey, payload);
   }
 
-  const database = getDatabase();
-  const row = getLookupByNameStatement(database).get(normalizedName) as
-    | { payload: string }
-    | undefined;
-
-  if (!row?.payload) {
+  if (!payload) {
     return undefined;
   }
 
   try {
-    const parsed = JSON.parse(row.payload) as LocalCardLookupRecord;
+    const parsed = JSON.parse(payload) as LocalCardLookupRecord;
     return isUsableLookupCard(parsed) ? parsed : undefined;
   } catch (error) {
     debugWarn(1, `[card-lookup] Failed to parse lookup payload for ${normalizedName}`, error);
@@ -869,6 +903,8 @@ export function resetLocalCardLookupForTests(): void {
   ensurePromise = null;
   lookupVerifiedDb = null;
   cardNameChoiceCache.clear();
+  syncLookupPayloadMemo.clear();
+  syncLookupOracleIdMemo.clear();
   if (db) {
     try {
       (db as any).close?.();

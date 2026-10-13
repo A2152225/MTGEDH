@@ -169,6 +169,7 @@ export function persistCounterDiffsFromOracleIR(
   if ((ctx as any).isReplaying) return;
 
   const mutationPayload = buildReplayMutationPayload(bridge);
+  const updates: Array<{ permanentId: string; deltas: Record<string, number> }> = [];
   for (const perm of state?.battlefield || []) {
     const permanentId = String(perm?.id || '').trim();
     if (!permanentId) continue;
@@ -186,14 +187,25 @@ export function persistCounterDiffsFromOracleIR(
     }
 
     if (Object.keys(deltas).length === 0) continue;
+    updates.push({ permanentId, deltas });
+  }
 
+  if (updates.length === 0) return;
+  if (updates.length === 1) {
     appendMutationEvent(ctx, 'updateCounters', {
-      permanentId,
-      deltas,
+      ...updates[0],
       skipCounterModifications: true,
       ...mutationPayload,
     });
+    return;
   }
+  // One resolution touching many permanents (Cathars' Crusade on 460 creatures) persists
+  // ONE event; replay applies it in one go with a single SBA pass at the end.
+  appendMutationEvent(ctx, 'updateCountersBulk', {
+    updates,
+    skipCounterModifications: true,
+    ...mutationPayload,
+  });
 }
 
 function bridgeToReplayMutationBridge(

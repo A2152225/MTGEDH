@@ -643,6 +643,7 @@ function getEventSummary(event: any): string {
     case "createToken":
       return `Created ${event.count || 1} ${event.name || 'token'}(s)`;
     case "updateCounters":
+    case "updateCountersBulk":
       return "Counter(s) updated";
     case "sacrificePermanent":
       return "Sacrificed permanent";
