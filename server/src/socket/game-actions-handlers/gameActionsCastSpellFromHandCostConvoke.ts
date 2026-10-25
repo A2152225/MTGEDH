@@ -85,6 +85,7 @@ import {
   snapshotCastSpellManaPool,
 } from "./gameActionsCastSpellPaymentSources.js";
 import { appendManaCost } from "./gameActionsModalCastModeCosts.js";
+import { rememberCastSpellPaymentFailure } from "./castSpellPaymentFailure.js";
 
 export type CastSpellCostConvokeFromHandArgs = {
   io: Server;
@@ -447,11 +448,22 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
             },
           );
           if (!resolvedPermanentId || parseFloatingPaymentPermanentId(resolvedPermanentId)) {
-            continue;
+            rememberCastSpellPaymentFailure(game, socket, {
+              code: 'PAYMENT_SOURCE_NOT_FOUND',
+              message: `Payment source ${permanentId} is not on the battlefield.`,
+            });
+            return;
           }
 
           const permanent = globalBattlefield.find((p: any) => p?.id === resolvedPermanentId && p?.controller === playerId);
-          if (permanent) {
+          if (!permanent) {
+            rememberCastSpellPaymentFailure(game, socket, {
+              code: 'PAYMENT_SOURCE_NOT_FOUND',
+              message: `Payment source ${permanentId} is not on the battlefield.`,
+            });
+            return;
+          }
+          {
             const activationCostInfo = getPaymentActivationCostInfo(
               permanent,
               resolvePaymentManaAbilityActivationCost(permanent, String(mana || ''), abilityId)
@@ -460,7 +472,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
             if (activationCostInfo.taps) {
               const tapPermanentId = String(resolvedPermanentId || '');
               if (projectedTapPermanentIds.has(tapPermanentId)) {
-                socket.emit('error', {
+                rememberCastSpellPaymentFailure(game, socket, {
                   code: 'DUPLICATE_PAYMENT_SOURCE',
                   message: `${(permanent as any).card?.name || 'Permanent'} cannot be tapped more than once to pay for this spell.`,
                 });
@@ -469,7 +481,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
               projectedTapPermanentIds.add(tapPermanentId);
             }
             if ((permanent as any).tapped && activationCostInfo.taps) {
-              socket.emit('error', {
+              rememberCastSpellPaymentFailure(game, socket, {
                 code: 'PAYMENT_SOURCE_TAPPED',
                 message: `${(permanent as any).card?.name || 'Permanent'} is already tapped.`,
               });
@@ -498,7 +510,11 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
               spendRestriction &&
               !restrictedManaSpendRestrictionAllowsPurpose(spendRestriction, restrictedManaPurpose)
             ) {
-              continue;
+              rememberCastSpellPaymentFailure(game, socket, {
+                code: 'RESTRICTED_MANA',
+                message: `${(permanent as any).card?.name || 'That permanent'}'s mana can't be spent to cast this spell.`,
+              });
+              return;
             }
 
             if (Array.isArray(producedColors) && producedColors.length > 0) {
@@ -512,7 +528,14 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
             const colorKey = MANA_COLOR_NAMES[mana];
             if (colorKey && manaAmount > 0) {
               totalAvailable[colorKey] = (totalAvailable[colorKey] || 0) + manaAmount;
+              continue;
             }
+
+            rememberCastSpellPaymentFailure(game, socket, {
+              code: 'INSUFFICIENT_MANA',
+              message: `${(permanent as any).card?.name || 'That permanent'} did not produce mana for this payment.`,
+            });
+            return;
           }
         }
 
@@ -523,7 +546,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
           restrictedManaPurpose,
         );
         if (floatingPoolValidationError) {
-          socket.emit('error', {
+          rememberCastSpellPaymentFailure(game, socket, {
             code: 'INSUFFICIENT_MANA',
             message: floatingPoolValidationError,
           });
@@ -568,7 +591,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
       if (totalCost > 0) {
         const validationError = validateManaPayment(manaTotalsForValidation, totalColored, totalGeneric);
         if (validationError) {
-          socket.emit("error", {
+          rememberCastSpellPaymentFailure(game, socket, {
             code: "INSUFFICIENT_MANA",
             message: `Insufficient mana to cast this spell. ${validationError}`,
           });
@@ -586,7 +609,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
             totalGeneric,
           );
           if (preTapValidationError) {
-            socket.emit('error', {
+            rememberCastSpellPaymentFailure(game, socket, {
               code: 'INSUFFICIENT_MANA',
               message: `Insufficient mana to cast this spell. ${preTapValidationError}`,
             });

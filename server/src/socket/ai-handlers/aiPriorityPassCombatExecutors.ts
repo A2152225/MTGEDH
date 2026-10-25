@@ -109,8 +109,9 @@ export async function executePassPriority(
       }
     }
     
-    // Broadcast updated state
-    broadcastGame(io, game, gameId);
+    // Broadcast updated state. forceStateReplace so a client that already
+    // accepted a higher seq still takes the AI pass / stack result.
+    broadcastGame(io, game, gameId, { forceStateReplace: true });
     
     // Check if next player is also AI
     const nextPriority = (game.state as any)?.priority;

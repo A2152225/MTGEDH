@@ -190,7 +190,19 @@ export function resolveLegacyManaAbilityById(
 
   try {
     const abilities = getManaAbilitiesForPermanent(gameState, permanent, playerId);
-    return abilities.find((ability: any) => String(ability?.id || '').trim() === normalizedAbilityId);
+    const exact = abilities.find((ability: any) => String(ability?.id || '').trim() === normalizedAbilityId);
+    if (exact) return exact;
+    // Client payment rows use native_any. Printed lines are native_any_0; continuous
+    // grants are continuous_any_<permanentId>. Either one is the selected ability.
+    if (normalizedAbilityId === 'native_any' || normalizedAbilityId === 'native_commander_any') {
+      const indexedPrefix = normalizedAbilityId === 'native_any' ? 'native_any_' : 'native_commander_any_';
+      return abilities.find((ability: any) => {
+        const id = String(ability?.id || '');
+        if (id.startsWith(indexedPrefix)) return true;
+        return normalizedAbilityId === 'native_any' && id.startsWith('continuous_any_');
+      });
+    }
+    return undefined;
   } catch {
     return undefined;
   }

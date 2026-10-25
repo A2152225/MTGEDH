@@ -29,6 +29,8 @@ import {
 } from "./manaCheckRemoveCounterCost.js";
 import { filterOutCostedTapMatches } from "./manaCheckCostedTapFilter.js";
 import { getOpponentPermanentColors, getControlledPermanentColors } from "./manaCheckPermanentColors.js";
+import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.js";
+import { manaAbilitiesFromContinuousTapGrants } from "../mana-abilities-handlers/manaAbilityContinuousTapGrants.js";
 
 const BASIC_LAND_TYPE_TO_POOL_KEY: Record<string, string> = {
   plains: 'white',
@@ -71,6 +73,57 @@ function addOptimisticLandTypeChoice(
     (pool as any)[markerKey] = Number((pool as any)[markerKey] || 0) + 1;
   }
   return true;
+}
+
+const OPTIMISTIC_SYMBOL_TO_POOL: Record<string, string> = {
+  W: 'white',
+  U: 'blue',
+  B: 'black',
+  R: 'red',
+  G: 'green',
+  C: 'colorless',
+};
+
+/**
+ * Continuous "{T}: Add ..." grants (Cryptolith Rite and similar) are on the
+ * payment UI via the emit view. Count them here too, unless the printed oracle
+ * already produced that mana.
+ */
+function addOptimisticContinuousGrantMana(pool: Record<string, number>, permanent: any, state: any): void {
+  const stamped = Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [];
+  let derived: string[] = [];
+  try {
+    derived = getContinuousGrantedAbilitiesForPermanent(permanent, state);
+  } catch {
+    derived = [];
+  }
+  const grants = [...stamped, ...derived].map((ability) => String(ability || '').trim()).filter(Boolean);
+  if (grants.length === 0) return;
+
+  const oracle = String(permanent?.card?.oracle_text || '').toLowerCase();
+  const abilities = manaAbilitiesFromContinuousTapGrants(grants, String(permanent?.id || ''));
+  for (const ability of abilities) {
+    if (!/\{t\}/i.test(String(ability?.cost || ''))) continue;
+    const produces = Array.isArray(ability.produces)
+      ? ability.produces.map((color: unknown) => String(color || '').toUpperCase())
+      : [];
+    if (produces.length >= 5) {
+      if (/mana of any color|mana of any one color/.test(oracle)) continue;
+      pool.white = (pool.white || 0) + 1;
+      pool.blue = (pool.blue || 0) + 1;
+      pool.black = (pool.black || 0) + 1;
+      pool.red = (pool.red || 0) + 1;
+      pool.green = (pool.green || 0) + 1;
+      pool.anyColor = (pool.anyColor || 0) + 1;
+      continue;
+    }
+    for (const symbol of produces) {
+      const poolKey = OPTIMISTIC_SYMBOL_TO_POOL[symbol];
+      if (!poolKey) continue;
+      if (new RegExp(`add\\s+\\{${symbol}\\}`, 'i').test(oracle)) continue;
+      pool[poolKey] = (pool[poolKey] || 0) + 1;
+    }
+  }
 }
 
 /**
@@ -134,6 +187,8 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     if (!canCountPermanentManaAbilities(state, playerId, permanent.card.oracle_text || '')) {
       continue;
     }
+
+    addOptimisticContinuousGrantMana(pool, permanent, state);
     
     // Special case: Basic lands (Mountain, Island, etc.) and type-setting auras
     // (Spreading Seas). Use granted/override types so Yavimaya / Spreading Seas

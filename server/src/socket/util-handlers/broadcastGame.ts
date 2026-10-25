@@ -23,6 +23,57 @@ import {
   checkAndEmitPlayerElimination,
 } from "./checkAndTriggerAI.js";
 
+/**
+ * `io.to(recordedSocketId)` succeeds even when that socket is gone, which sets
+ * anySent and skips the room fallback. Rejoined players then never see AI
+ * casts, counters, or taps. Send the same per-player view to every connected
+ * socket in this game room that still belongs to the participant.
+ */
+function emitStateToLiveParticipant(
+  io: Server,
+  gameId: string,
+  participant: { socketId?: string; playerId?: string; spectator?: boolean; isSpectator?: boolean },
+  payload: Record<string, unknown>,
+): boolean {
+  const playerId = String(participant.playerId || '');
+  const wantSpectator = Boolean(participant.spectator || participant.isSpectator);
+  const targets = new Set<string>();
+  const recordedSocketId = String(participant.socketId || '');
+
+  try {
+    const room = io.sockets?.adapter?.rooms?.get(String(gameId));
+    if (room && playerId) {
+      for (const socketId of room) {
+        const data = (io.sockets?.sockets?.get(socketId) as { data?: Record<string, unknown> } | undefined)?.data;
+        if (!data || String(data.playerId || '') !== playerId) continue;
+        const isSpectator = Boolean(data.spectator || data.isSpectator);
+        if (isSpectator !== wantSpectator) continue;
+        targets.add(String(socketId));
+      }
+    }
+  } catch {
+    // Fall back to the recorded id below.
+  }
+
+  if (recordedSocketId && (targets.size === 0 || targets.has(recordedSocketId))) {
+    targets.add(recordedSocketId);
+  }
+  if (targets.size === 1) {
+    const [liveSocketId] = targets;
+    if (liveSocketId && liveSocketId !== recordedSocketId) {
+      participant.socketId = liveSocketId;
+    }
+  }
+
+  let sent = false;
+  for (const socketId of targets) {
+    if (!socketId) continue;
+    io.to(socketId).emit("state", payload);
+    sent = true;
+  }
+  return sent;
+}
+
 export type BroadcastGameDeps = {
   scheduleAutomationResume: (
     io: Server,
@@ -107,13 +158,13 @@ export function runBroadcastGame(
 
         logStateDebug("BROADCAST_STATE", gameId, view);
 
-        if (p.socketId) {
-          io.to(p.socketId).emit("state", {
-            gameId,
-            view,
-            seq: (game as any).seq,
-            ...(options.forceStateReplace ? { forceStateReplace: true } : {}),
-          });
+        const payload = {
+          gameId,
+          view,
+          seq: (game as any).seq,
+          ...(options.forceStateReplace ? { forceStateReplace: true } : {}),
+        };
+        if (emitStateToLiveParticipant(io, gameId, p, payload)) {
           anySent = true;
         }
       } catch (err) {

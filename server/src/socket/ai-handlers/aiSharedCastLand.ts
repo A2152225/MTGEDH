@@ -11,7 +11,7 @@ import type { PlayerID } from "../../../../shared/src/types.js";
 import { handlePlayLandRequest, requestCastSpellForSocket } from "../game-actions.js";
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
 import { debugError, debugWarn } from "../../utils/debug.js";
-import { ensureGame } from "../util.js";
+import { broadcastGame, ensureGame } from "../util.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import {
   captureAICastControlFlowSnapshot,
@@ -143,6 +143,11 @@ export async function requestAISharedCast(
         priorityAfter: game.state?.priority,
         aiHasPendingSteps,
       });
+    } else {
+      // The cast path may have emitted before payment, targeting, or stack
+      // settlement finished, and a stale participant socket drops that emit.
+      // Push the settled state and make clients accept it.
+      broadcastGame(io, game, gameId, { forceStateReplace: true });
     }
 
     return progressed;
@@ -221,6 +226,8 @@ export async function requestAISharedLandPlay(
         beforeLandsPlayed,
         afterLandsPlayed,
       });
+    } else {
+      broadcastGame(io, game, gameId, { forceStateReplace: true });
     }
 
     return didPlayLand;
