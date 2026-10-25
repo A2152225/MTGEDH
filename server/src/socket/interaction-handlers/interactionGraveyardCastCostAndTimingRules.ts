@@ -19,6 +19,7 @@
  *   queueSelfEtbForLiveGraveyardEntry.
  */
 
+import { isCastingLimitedToSorceryTiming } from "../../state/modules/opponentSorceryTimingLock.js"; // B31
 import { calculateTotalAvailableMana, getOrInitManaPool, parseManaCost, validateManaPayment } from "../util";
 import { parseSacrificeCost, type SacrificeType } from "../../../../shared/src/textUtils";
 import {
@@ -442,7 +443,7 @@ export function enforceGraveyardSpellCastTiming(params: {
   abilityId: string;
   emitError: (payload: { code: string; message: string }) => void;
 }): boolean {
-  if (cardHasFlashOrInstantForGraveyardCast(params.card)) {
+  if (cardHasFlashOrInstantForGraveyardCast(params.card) && !isCastingLimitedToSorceryTiming(params.game?.state, String(params.playerId))) { // B31 Teferi
     return true;
   }
 

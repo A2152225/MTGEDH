@@ -16,6 +16,7 @@ import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 import { triggerSubjectIRVerdict } from './triggerIRVerdict.js';
+import { dropTriggersFromAbilitylessSources, permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export interface LandfallTrigger {
   permanentId?: string;
@@ -153,7 +154,8 @@ function getControllerGraveyard(ctx: GameContext, controllerId: string): any[] {
  * @param card The card data
  * @param permanent The permanent data
  */
-export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigger[] {
+export function detectLandfallTriggers(card: any, permanent: any, gameState?: any): LandfallTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'landfall' })) return []; // Humility / Torpor Orb gate
   const triggers: LandfallTrigger[] = [];
   const oracleText = String(card?.oracle_text || "");
   const cardName = card?.name || "Unknown";
@@ -171,7 +173,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   // - "Landfall — Whenever a land enters the battlefield under your control, ..." (old style)
   // - "Landfall — Whenever a land enters under your control, ..." (hybrid)
   const landfallMatch = oracleText.match(
-    /landfall\s*[—-]\s*whenever a land (?:you control enters|enters(?: the battlefield)?(?: under your control)?),?\s*([^]*?)(?:\n\n|$)/i
+    /landfall\s*[—-]\s*whenever a (?:nontoken )?land (?:you control enters|enters(?: the battlefield)?(?: under your control)?),?\s*([^]*?)(?:\n\n|$)/i
   );
   if (landfallMatch) {
     const effectText = timingTriggerEffect(oracleText, landfallMatch);
@@ -215,7 +217,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   
   // Land enters from a zone other than hand (The Lost and the Damned, etc.)
   const landEntersNotHandMatch = oracleText.match(
-    /whenever a land you control enters from anywhere other than your hand(?:\s+or\s+you cast\b[^,]*)?,?\s*([^.]+)/i,
+    /whenever a (?:nontoken )?land you control enters from anywhere other than your hand(?:\s+or\s+you cast\b[^,]*)?,?\s*([^.]+)/i,
   );
   if (landEntersNotHandMatch) {
     const effectText = timingTriggerEffect(oracleText, landEntersNotHandMatch);
@@ -235,7 +237,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   // - "Whenever a land enters the battlefield under your control, ..." (old style)
   // - "Whenever a land enters under your control, ..." (hybrid)
   const genericLandfallMatch = oracleText.match(
-    /whenever a land (?:you control enters(?: from anywhere other than your hand)?|enters(?: the battlefield)?(?: under your control)?(?: from anywhere other than your hand)?),?\s*([^]*?)(?:\n\n|$)/i
+    /whenever a (?:nontoken )?land (?:you control enters(?: from anywhere other than your hand)?|enters(?: the battlefield)?(?: under your control)?(?: from anywhere other than your hand)?),?\s*([^]*?)(?:\n\n|$)/i
   );
   const hybridLandEnterMatch = oracleText.match(
     /\bor\s+(?:a |an )?(\w+(?:\s+\w+)*) you control enters(?: from [^,]+)?,?\s*([^.]+)/i,
@@ -256,7 +258,7 @@ export function detectLandfallTriggers(card: any, permanent: any): LandfallTrigg
   }
 
   const whenLandYouControlEntersMatch = oracleText.match(
-    /when a land you control enters,?\s*([^.]+)/i,
+    /when a (?:nontoken )?land you control enters,?\s*([^.]+)/i,
   );
   if (
     whenLandYouControlEntersMatch &&
@@ -564,7 +566,7 @@ export function getLandfallTriggers(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
 
-    const permTriggers = detectLandfallTriggers(permanent.card, permanent);
+    const permTriggers = detectLandfallTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of permTriggers) {
       const triggerType = String((trigger as any).triggerType || '');
       const isOpponentLandTrigger =
@@ -631,7 +633,7 @@ export function getLandfallTriggers(
       controller: landController,
       card,
     };
-    const graveyardTriggers = detectLandfallTriggers(card, pseudoPermanent);
+    const graveyardTriggers = detectLandfallTriggers(card, pseudoPermanent, (ctx as any)?.state);
     for (const trigger of graveyardTriggers) {
       if (
         (trigger as any).triggerType === 'typed_land_enter'
@@ -676,5 +678,5 @@ export function getLandfallTriggers(
     }
   }
 
-  return triggers;
+  return dropTriggersFromAbilitylessSources(triggers, ctx.state, (t: any) => String(t?.permanentId || ''), { event: 'landfall' });
 }

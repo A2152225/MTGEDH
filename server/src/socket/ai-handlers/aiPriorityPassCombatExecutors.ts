@@ -5,6 +5,7 @@
  *
  * Public entry symbols: executePassPriority, executeDeclareAttackers, executeDeclareBlockers.
  */
+import { trimAssignmentsToMaximumBlockers } from "../combat-handlers/combatBatch30BlockLimits.js"; // B31
 import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { appendEvent } from "../../db/index.js";
@@ -198,6 +199,7 @@ export async function executeDeclareBlockers(
     const battlefield = game.state?.battlefield || [];
     const state = game.state as any;
     let assignments = Array.isArray(blockers) ? blockers : [];
+    assignments = trimAssignmentsToMaximumBlockers(battlefield as any[], assignments); // B31 max blockers
     if (findMustBeBlockedIfAbleViolation({
       state,
       defendingPlayerId: playerId,
@@ -286,6 +288,10 @@ export async function executeDeclareBlockers(
     if (!state.blockersDeclaredBy.includes(playerId)) {
       state.blockersDeclaredBy.push(playerId);
       debug(1, `[AI] Marked blockers as declared for ${playerId}`);
+    }
+    {
+      const { queueParsedAttacksUnblockedTriggersOnce } = await import("../../state/modules/triggers/combatBlockedIrTriggers.js");
+      queueParsedAttacksUnblockedTriggersOnce(game as any, String(playerId), gameId);
     }
     
     // Call game method if it exists (for compatibility)

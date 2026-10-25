@@ -7,6 +7,7 @@ import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export interface LibrarySearchTrigger {
   permanentId: string;
@@ -44,7 +45,8 @@ export function recordOwnLibrarySearchThisTurn(
   if (state) state.playersWhoSearchedOwnLibraryThisTurn = ledger;
 }
 
-export function detectLibrarySearchTriggers(card: any, permanent: any): LibrarySearchTrigger[] {
+export function detectLibrarySearchTriggers(card: any, permanent: any, gameState?: any): LibrarySearchTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: LibrarySearchTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
   const permanentId = String(permanent?.id || '');
@@ -102,7 +104,7 @@ export function getLibrarySearchTriggers(
     if (!permanent || !permanent.card) continue;
 
     const permanentController = String(permanent.controller || '');
-    const permanentTriggers = detectLibrarySearchTriggers(permanent.card, permanent);
+    const permanentTriggers = detectLibrarySearchTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of permanentTriggers) {
       if (trigger.requiresOwnLibrary && String(searchingPlayerId) !== String(searchedLibraryOwnerId)) {
         continue;

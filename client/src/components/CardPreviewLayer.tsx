@@ -59,6 +59,8 @@ type ShowDetail = {
   // For 'above', anchorPadding shifts the preview vertically relative to the anchor's top
   // (positive = further up, negative = closer down). 0 means bottom aligns to anchor top.
   anchorPadding?: number;
+  /** Effective type line (displayTypeLine) shown under the name when it differs from the printed one. */
+  typeLine?: string;
 };
 
 type HideDetail = {
@@ -77,7 +79,7 @@ function clamp(v: number, min: number, max: number) {
 export function showCardPreview(
   element: HTMLElement,
   card: CardLike,
-  opts?: { prefer?: 'left' | 'right' | 'above' | 'below' | 'auto'; anchorPadding?: number }
+  opts?: { prefer?: 'left' | 'right' | 'above' | 'below' | 'auto'; anchorPadding?: number; typeLine?: string }
 ) {
   if (!element || !card) return;
   // Check main image_uris
@@ -86,9 +88,15 @@ export function showCardPreview(
   const hasFaceImg = card.card_faces?.some(f => f.image_uris?.normal || f.image_uris?.small || f.image_uris?.art_crop);
   if (!hasMainImg && !hasFaceImg) return;
   const evt = new CustomEvent<ShowDetail>(SHOW_EVT, {
-    detail: { element, card, prefer: opts?.prefer, anchorPadding: opts?.anchorPadding },
+    detail: { element, card, prefer: opts?.prefer, anchorPadding: opts?.anchorPadding, typeLine: opts?.typeLine },
   });
   window.dispatchEvent(evt);
+}
+
+/** Effective type line to show in the preview, only when it differs from the printed type line. */
+export function effectivePreviewTypeLine(printed?: string | null, effective?: string): string | undefined {
+  const e = String(effective || '').trim();
+  return e && e !== String(printed || '').trim() ? e : undefined;
 }
 
 export function hideCardPreview(element?: HTMLElement) {
@@ -170,7 +178,8 @@ export function getCardThumbnailUrl(card: CardLike | null | undefined): string |
 export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' }) {
   const { controlMode = 'floating' } = props;
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const [meta, setMeta] = useState<{ 
+  const [meta, setMeta] = useState<{
+    effectiveTypeLine?: string; 
     name?: string; 
     type_line?: string; 
     url?: string;
@@ -333,6 +342,7 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
       setMeta({ 
         name: card.name, 
         type_line: card.type_line, 
+        effectiveTypeLine: effectivePreviewTypeLine(card.type_line, ce.detail?.typeLine),
         url: url || faces[0]?.url,
         faces: faces.length > 1 ? faces : undefined,
         classView: getClassLevelView(card),
@@ -492,6 +502,7 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
               }}
             >
               <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meta.name}</div>
+              {meta.effectiveTypeLine ? <div data-testid="card-preview-effective-type" style={{ fontSize: 11, opacity: 0.9 }}>{meta.effectiveTypeLine}</div> : null}
               {meta.classView ? <ClassLevelSectionsList view={meta.classView} /> : null}
             </div>
           </>

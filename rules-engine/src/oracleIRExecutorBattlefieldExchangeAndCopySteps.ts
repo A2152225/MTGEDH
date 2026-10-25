@@ -20,6 +20,7 @@ import { getCardTypeLineLower } from './oracleIRExecutorPlayerUtils';
 import { findCardsExiledWithSource } from './oracleIRExecutorZoneOps';
 import { trySpecialCopyPermanentStep } from './oracleIRExecutorSpecialTargetHandlers';
 import { tryApplyMassExchangeControlStep } from './oracleIRExecutorBattlefieldExchangeMassSteps';
+import { registerExchangeControlEffects } from './controlEffectRegistry';
 
 const EXCHANGE_PERMANENT_CARD_TYPES = [
   'artifact',
@@ -165,13 +166,22 @@ export function applyExchangeControlStep(
 
   battlefield[firstIndex] = { ...firstPermanent, controller: secondController, summoningSickness: true } as BattlefieldPermanent;
   battlefield[secondIndex] = { ...secondPermanent, controller: firstController, summoningSickness: true } as BattlefieldPermanent;
+  const nextState: any = {
+    ...(state as any),
+    battlefield,
+    permanentControlEffects: [...(((state as any).permanentControlEffects || []) as any[])],
+  };
+  if (firstController !== secondController) {
+    // Layer 2: one paired, timestamped effect for both halves of the exchange.
+    registerExchangeControlEffects(nextState, [
+      { permanentId: firstPermanentId, originalController: firstController, newController: secondController, duration: 'permanent' },
+      { permanentId: secondPermanentId, originalController: secondController, newController: firstController, duration: 'permanent' },
+    ]);
+  }
 
   return {
     applied: true,
-    state: {
-      ...(state as any),
-      battlefield,
-    } as GameState,
+    state: nextState as GameState,
     log: [`${firstPermanentId} and ${secondPermanentId} exchange control`],
   };
 }

@@ -7,6 +7,7 @@
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
 import { KNOWN_UNTAP_TRIGGERS } from "./card-data-tables.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 /**
  * Detect untap triggers from permanents on the battlefield
  * Used for Bear Umbra, Nature's Will, Sword of Feast and Famine, etc.
@@ -20,7 +21,8 @@ export interface UntapTrigger {
   effect: string;
 }
 
-export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
+export function detectUntapTriggers(card: any, permanent: any, gameState?: any): UntapTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'tap' })) return []; // Humility / Torpor Orb gate
   const triggers: UntapTrigger[] = [];
   const oracleText = (card?.oracle_text || "").toLowerCase();
   const cardName = card?.name || "Unknown";

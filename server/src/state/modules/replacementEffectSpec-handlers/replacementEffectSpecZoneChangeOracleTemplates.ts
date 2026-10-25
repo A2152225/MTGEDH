@@ -7,6 +7,7 @@
 
 import type { ReplacementEffectSpec } from './replacementEffectSpecTypes.js';
 import { normalizeOraclePatternText, readCardOracleText } from './replacementEffectSpecOracleTextUtils.js';
+import { collectDiesExileReplacementSpecsFromState } from './replacementEffectSpecZoneChangeDiesExileTemplates.js';
 
 interface OracleZoneChangeReplacementTemplate {
   templateId: string;
@@ -45,6 +46,32 @@ const ORACLE_ZONE_CHANGE_REPLACEMENT_TEMPLATES: readonly OracleZoneChangeReplace
       reason: 'creature_die_exile_instead',
     },
   },
+  {
+    // Batch 16: Necrodominance / Festival of Embers (only cards and tokens you own)
+    templateId: 'own-graveyard-to-exile-from-anywhere',
+    oracleMustIncludeAll: ['would be put into your graveyard from anywhere', 'exile it instead'],
+    spec: {
+      event: 'zone-change',
+      match: { destinationZone: 'graveyard' },
+      instead: { redirectZone: 'exile' },
+      effectId: 'graveyard-to-exile-replacement',
+      reason: 'own_graveyard_to_exile_replacement',
+      metadata: { objectOwnerIsSourceController: true },
+    },
+  },
+  {
+    // Batch 20: Forbidden Crypt ("exile that card instead" wording)
+    templateId: 'own-graveyard-to-exile-that-card',
+    oracleMustIncludeAll: ['if a card would be put into your graveyard from anywhere', 'exile that card instead'],
+    spec: {
+      event: 'zone-change',
+      match: { destinationZone: 'graveyard' },
+      instead: { redirectZone: 'exile' },
+      effectId: 'graveyard-to-exile-replacement',
+      reason: 'own_graveyard_to_exile_replacement',
+      metadata: { objectOwnerIsSourceController: true },
+    },
+  },
 ];
 
 export function collectOraclePatternZoneChangeReplacementSpecsFromState(state: unknown): ReplacementEffectSpec[] {
@@ -81,5 +108,6 @@ export function collectOraclePatternZoneChangeReplacementSpecsFromState(state: u
     }
   }
 
+  specs.push(...collectDiesExileReplacementSpecsFromState(state));
   return specs;
 }

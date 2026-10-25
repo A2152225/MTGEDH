@@ -7,6 +7,7 @@ import React from 'react';
 import type { BattlefieldPermanent } from '../../../../shared/src';
 import { getBlockerCapacity } from '../../utils/blockerCapacity';
 import { canBlockAttacker } from '../../utils/combatBlocking';
+import { getMaximumBlockers } from '../../utils/combatBlockLimits';
 import {
   AttackTargetBadge,
   getCombatCardPreviewHandlers,
@@ -232,6 +233,11 @@ export function CombatBlockerSelectionPanel({
                           {menaceViolation && (
                             <div style={{ color: '#f59e0b', marginTop: 2, fontSize: 9 }}>
                               ⚠️ {menaceViolation}
+                            </div>
+                          )}
+                          {Number.isFinite(getMaximumBlockers(attacker, battlefieldForBlocking)) && (
+                            <div style={{ color: '#fcd34d', marginTop: 2, fontSize: 9 }}>
+                              Max {getMaximumBlockers(attacker, battlefieldForBlocking)} blocker{getMaximumBlockers(attacker, battlefieldForBlocking) === 1 ? '' : 's'} ({blockersForThis.length} assigned)
                             </div>
                           )}
                           {landwalkReason && (

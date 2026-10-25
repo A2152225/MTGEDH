@@ -7,6 +7,7 @@ import { getMarkedDamage } from '../../shared/src/markedDamage.js';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { BattlefieldStepHandlerResult } from './oracleIRExecutorBattlefieldStepTypes';
+import { hasStaticRegenerateInsteadOfDestroy, staticRegeneratedCopy } from './staticRegenerateInsteadOfDestroy';
 import { resolveDestroyTargets } from './oracleIRExecutorBattlefieldDestroyTargets';
 import {
   buildPermanentCardWithStats,
@@ -117,6 +118,11 @@ export function applyDestroyStep(
     if (step.cantBeRegenerated) {
       removed.push(perm);
       removedIds.add(permanentId);
+      continue;
+    }
+    if (hasStaticRegenerateInsteadOfDestroy(perm)) {
+      regeneratedById.set(permanentId, staticRegeneratedCopy(perm));
+      log.push(`${String((perm as any)?.card?.name || permanentId)} regenerated instead of being destroyed`);
       continue;
     }
     const availableShields = getAvailableShields(permanentId, nextShields as any);

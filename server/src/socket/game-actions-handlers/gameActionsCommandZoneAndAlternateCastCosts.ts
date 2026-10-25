@@ -13,6 +13,8 @@
  * validateLibrarySpellCastAccess.
  */
 import type { PlayerID } from "../../../../shared/src/index.js";
+import { parseEvokeExileColor, EVOKE_EXILE_ALTERNATE_COST_ID } from "../../state/modules/evokeKeyword.js";
+import { FACE_DOWN_CAST_COST, getFaceDownCastKinds } from "../../state/modules/faceDownCasting.js";
 import {
   buildCommanderFreeCastPaymentExtras,
   getExternalWUBRGSource,
@@ -256,6 +258,26 @@ export function buildAlternateCostPaymentExtrasForCast(
       label: 'WUBRG Cost',
       description: 'Pay {W}{U}{B}{R}{G} instead of mana cost',
       rawCost: WUBRG_ALTERNATE_MANA_COST,
+    });
+  }
+
+  for (const faceDownKind of getFaceDownCastKinds(normalizedOracleText)) {
+    const faceDownLabel = faceDownKind === 'megamorph' ? 'Megamorph' : faceDownKind === 'disguise' ? 'Disguise' : 'Morph';
+    handKeywordAlternateCosts.push({
+      id: faceDownKind,
+      label: `${faceDownLabel} (cast face down)`,
+      description: faceDownKind === 'disguise' ? 'Cast face down as a 2/2 creature with ward {2}' : 'Cast face down as a 2/2 creature',
+      rawCost: FACE_DOWN_CAST_COST,
+    });
+  }
+
+  const evokeExileColor = parseEvokeExileColor(normalizedOracleText);
+  if (evokeExileColor) {
+    handKeywordAlternateCosts.push({
+      id: EVOKE_EXILE_ALTERNATE_COST_ID,
+      label: 'Evoke (exile a card)',
+      description: `Exile a ${evokeExileColor.word} card from your hand; sacrifice it when it enters`,
+      rawCost: '{0}',
     });
   }
 

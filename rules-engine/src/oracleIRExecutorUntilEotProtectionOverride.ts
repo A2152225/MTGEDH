@@ -78,8 +78,8 @@ export function tryApplyUntilEotProtectionOverrideGrant(
     };
   }
 
-  const existing = Array.isArray((state as { lastingEffects?: unknown[] }).lastingEffects)
-    ? [...((state as { lastingEffects: unknown[] }).lastingEffects)]
+  const existing = Array.isArray(state.lastingEffects)
+    ? [...state.lastingEffects]
     : [];
   const alreadyStamped = existing.some((entry) => {
     const effect = entry as {
@@ -113,9 +113,9 @@ export function tryApplyUntilEotProtectionOverrideGrant(
   return {
     applied: true,
     state: {
-      ...(state as object),
+      ...state,
       lastingEffects: existing,
-    } as GameState,
+    },
     log: [`Stamped until-EOT protectionKeywordOverride (${modeToken}) for ${abilities.join(', ')}`],
   };
 }

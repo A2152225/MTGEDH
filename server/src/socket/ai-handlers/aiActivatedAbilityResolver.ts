@@ -10,6 +10,7 @@
  * requestAISharedBattlefieldAbilityActivation.
  */
 import type { Server } from "socket.io";
+import { getGrantedVehicleCrewValue, resolveCrewPowerRequirement } from "../crewGrantedVehicleCrew.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import {
   isStationPermanentTypeLine,
@@ -19,6 +20,7 @@ import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueMa
 import { debugError, debugWarn } from "../../utils/debug.js";
 import { ensureGame, getOrInitManaPool } from "../util.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { appendGrantedLoyaltyAbilityLines } from "../../../../shared/src/planeswalkerGrantedLoyaltyAbilities.js";
 import { snapshotAIAbilityActivationState } from "./aiAbilityActivationSnapshot.js";
 import type {
   AIAbilityActivationSnapshot,
@@ -78,7 +80,7 @@ function getAIActivatedAbilityKeywordMatchScore(requestedText: string, candidate
   return score;
 }
 
-export function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedAbilityResolverCandidate[] {
+export function buildAIActivatedAbilityResolverCandidates(permanent: any, battlefield?: readonly any[]): AIActivatedAbilityResolverCandidate[] {
   const card = permanent?.card || {};
   const cardId = String(card?.id || permanent?.id || '').trim();
   const nativeOracleText = String(card?.oracle_text || '').trim();
@@ -96,7 +98,8 @@ export function buildAIActivatedAbilityResolverCandidates(permanent: any): AIAct
     const loyaltyAbilityPattern = /^([+−–—-]?\d+):\s*(.+)/gm;
     let loyaltyMatch: RegExpExecArray | null;
     let loyaltyIndex = 0;
-    while ((loyaltyMatch = loyaltyAbilityPattern.exec(nativeOracleText)) !== null) {
+    const pwOracleText = appendGrantedLoyaltyAbilityLines(nativeOracleText, battlefield, permanent);
+    while ((loyaltyMatch = loyaltyAbilityPattern.exec(pwOracleText)) !== null) {
       const loyaltyCost = String(loyaltyMatch[1] || '').replace(/[−–—]/g, '-').trim();
       const effectText = String(loyaltyMatch[2] || '').trim();
       if (!effectText) continue;
@@ -159,12 +162,15 @@ export function buildAIActivatedAbilityResolverCandidates(permanent: any): AIAct
     });
   }
 
-  const crewMatch = nativeOracleText.match(/crew\s*(\d+)/i);
-  if (crewMatch && typeLine.includes('vehicle')) {
+  // Own "Crew N" or a granted one ("Vehicles you control have crew N"); the cheapest is offered.
+  const hasOwnCrew = /crew\s*\d+/i.test(nativeOracleText);
+  const grantedCrew = Array.isArray(battlefield) ? getGrantedVehicleCrewValue(battlefield, String(permanent?.controller || ''), permanent) : null;
+  if ((hasOwnCrew || grantedCrew !== null) && typeLine.includes('vehicle')) {
+    const crewValue = resolveCrewPowerRequirement(nativeOracleText, Array.isArray(battlefield) ? battlefield : [], String(permanent?.controller || ''), permanent);
     candidates.push({
       id: `${cardId}-crew-0`,
-      text: `Crew ${crewMatch[1]}`,
-      effect: `crew ${crewMatch[1]}`,
+      text: `Crew ${crewValue}`,
+      effect: `crew ${crewValue}`,
     });
   }
 
@@ -234,13 +240,13 @@ export function buildAIActivatedAbilityResolverCandidates(permanent: any): AIAct
   return candidates;
 }
 
-export function resolveAIActivatedAbilityId(action: any, permanent: any): string | undefined {
+export function resolveAIActivatedAbilityId(action: any, permanent: any, battlefield?: readonly any[]): string | undefined {
   const explicitAbilityId = String(action?.abilityId || '').trim();
   if (explicitAbilityId) {
     return explicitAbilityId;
   }
 
-  const candidates = buildAIActivatedAbilityResolverCandidates(permanent);
+  const candidates = buildAIActivatedAbilityResolverCandidates(permanent, battlefield);
   if (candidates.length === 0) {
     return undefined;
   }

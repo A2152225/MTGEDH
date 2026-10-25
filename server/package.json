@@ -28,6 +28,8 @@
     "oracle-ir:legacy-triage": "node --enable-source-maps --import tsx/esm scripts/oracle-ir-legacy-triage.ts",
     "oracle-ir:legacy-triage:soak": "node --enable-source-maps --import tsx/esm scripts/oracle-ir-legacy-triage-soak.ts",
     "oracle-ir:legacy-triage:soak:forced": "node --enable-source-maps --import tsx/esm scripts/oracle-ir-legacy-triage-soak.ts --legacy",
+    "census:statics": "node --enable-source-maps --import tsx/esm scripts/static-replacement-census.ts",
+    "census:triggers": "node --enable-source-maps --import tsx/esm scripts/trigger-ir-census.ts",
     "oracle-ir:primary-census": "node --enable-source-maps --import tsx/esm scripts/oracle-ir-primary-census.ts",
     "oracle-ir:edh-readiness:soak": "node --enable-source-maps --import tsx/esm scripts/soak/oracleIrSmokeCli.ts --suite edh-readiness",
     "oracle-ir:smoke": "node --enable-source-maps --import tsx/esm scripts/soak/oracleIrSmokeCli.ts",

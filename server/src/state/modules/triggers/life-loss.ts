@@ -9,6 +9,7 @@ import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 import { maybeIncreaseSpeedFromOpponentLifeLoss } from '../statefulPaperKeywords.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export interface LifeLossTrigger {
   permanentId: string;
@@ -20,7 +21,8 @@ export interface LifeLossTrigger {
   mandatory: boolean;
 }
 
-export function detectLifeLossTriggers(card: any, permanent: any): LifeLossTrigger[] {
+export function detectLifeLossTriggers(card: any, permanent: any, gameState?: any): LifeLossTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'life' })) return []; // Humility / Torpor Orb gate
   const triggers: LifeLossTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
   const permanentId = String(permanent?.id || '');
@@ -97,7 +99,7 @@ export function getLifeLossTriggers(ctx: GameContext, losingPlayerId: string): L
     if (!permanent || !permanent.card) continue;
 
     const permanentController = String(permanent.controller || '');
-    const permanentTriggers = detectLifeLossTriggers(permanent.card, permanent);
+    const permanentTriggers = detectLifeLossTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of permanentTriggers) {
       const interveningText = String(trigger.oracleClause || trigger.effect || '').trim();
       const ok = isInterveningIfSatisfied(

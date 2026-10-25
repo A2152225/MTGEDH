@@ -1,3 +1,4 @@
+import { recordFaceDownReveal } from '../faceDownRevealLog.js';
 // server/src/state/modules/counters_tokens-handlers/countersTokensMoveToGraveyard.ts
 // Origin parent: server/src/state/modules/counters_tokens.ts
 // Cluster moved: movePermanentToGraveyard.
@@ -72,6 +73,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   const zoneCard = ((perm as any).isFaceDown === true && (perm as any).faceUpCard)
     ? (perm as any).faceUpCard
     : card;
+  try { recordFaceDownReveal(state, perm); } catch { /* best-effort */ }
   const removedPermanentId = String((perm as any).id || permanentId || '').trim();
   const isToken = (perm as any).isToken === true;
   const isCreature = (card?.type_line || '').toLowerCase().includes('creature');

@@ -7,12 +7,16 @@ import { queuePermanentEntersBattlefieldTriggerStackItems } from './stackResolve
 import { applyPermanentSquadTokenCopiesOnEntry } from './stackResolvePermanentSquadUtils.js';
 import { applyAsEntersAutomaticReplacementsForPermanent } from './oracleIrAsEntersAutomaticReplacements.js';
 import type { PermanentSpellPostEntryOptions } from './stackResolveSharedTypes.js';
+import { maybeQueueEvokeTriggerOrderStep } from './evokeTriggerOrdering.js';
 
 export function applyPermanentSpellPostEntrySteps(
   ctx: GameContext,
   options: PermanentSpellPostEntryOptions,
 ): void {
-  const { controller, card, effectiveCard, newPermanent, newPermId, isCreature } = options;
+  const { controller, card, newPermanent, newPermId, isCreature } = options;
+  // Batch 13: a face-down (morph/disguise) permanent has no abilities, so its real card's
+  // as-enters choices and ETB triggers must not fire.
+  const effectiveCard = newPermanent?.isFaceDown === true && newPermanent?.card ? newPermanent.card : options.effectiveCard;
 
   queuePermanentAsEntersBattlefieldChoiceSteps(ctx, {
     controller,
@@ -37,6 +41,8 @@ export function applyPermanentSpellPostEntrySteps(
   } else {
     debug(2, `[resolveTopOfStack] ${effectiveCard.name || 'Permanent'} tribute choice queued before ETB triggers are created`);
   }
+
+  maybeQueueEvokeTriggerOrderStep(ctx, newPermanent, controller);
 
   applyPermanentSquadTokenCopiesOnEntry(ctx, {
     controller,

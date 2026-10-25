@@ -1,3 +1,5 @@
+import { applyCopyEntryExceptions } from './copyEntryExceptions.js';
+
 function readCharacteristicNumber(...values: unknown[]): number | undefined {
   for (const value of values) {
     const parsed = Number.parseInt(String(value ?? ''), 10);
@@ -45,15 +47,19 @@ function applyCopyCardOntoPermanent(
 
   const copiedName = String(targetCard?.name || targetPermanent?.name || '').trim();
   const typeLine = String(targetCard?.type_line || targetPermanent?.type_line || '').trim();
-  const copiedPower = readCharacteristicNumber(
+  // A characteristic-defining */* (Tarmogoyf, Nightmare) is copied as the CDA itself, not its current value.
+  const cdaPower = /\*/.test(String(targetCard?.power ?? ''));
+  const cdaToughness = /\*/.test(String(targetCard?.toughness ?? ''));
+  const copiedPower = cdaPower ? undefined : readCharacteristicNumber(
+    // Copiable values (CR 707.2): printed/copied card values first, not layer-7 results on the permanent.
+    targetCard?.power,
     targetPermanent?.basePower,
     targetPermanent?.power,
-    targetCard?.power,
   );
-  const copiedToughness = readCharacteristicNumber(
+  const copiedToughness = cdaToughness ? undefined : readCharacteristicNumber(
+    targetCard?.toughness,
     targetPermanent?.baseToughness,
     targetPermanent?.toughness,
-    targetCard?.toughness,
   );
 
   const grantedAbilities = Array.isArray(sourcePermanent?.grantedAbilities)
@@ -89,6 +95,8 @@ function applyCopyCardOntoPermanent(
     ...(copiedToughness !== undefined
       ? { toughness: copiedToughness, baseToughness: copiedToughness, effectiveToughness: undefined }
       : {}),
+    ...(cdaPower ? { power: undefined, basePower: undefined, effectivePower: undefined } : {}),
+    ...(cdaToughness ? { toughness: undefined, baseToughness: undefined, effectiveToughness: undefined } : {}),
     ...(grantedAbilities.length > 0 ? { grantedAbilities } : {}),
     ...(targetPermanent?.id
       ? { copiedFromPermanentId: String(targetPermanent.id || '').trim() }
@@ -96,6 +104,8 @@ function applyCopyCardOntoPermanent(
     copiedFromCardId: String(targetCard?.id || '').trim() || undefined,
     card: nextCard,
   });
+  // Layer 1: "enter as a copy of ..., except ..." exceptions are part of the copy effect (CR 707.9b).
+  applyCopyEntryExceptions(sourcePermanent, String(sourcePermanent.preCopyCardSnapshot?.oracle_text || ''));
 
   return {
     applied: true,

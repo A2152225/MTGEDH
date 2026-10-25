@@ -115,7 +115,7 @@ export function appendDeathDetectionEarly(state: DeathDetectionState): void {
   }
 
   const putIntoGraveyardPattern = new RegExp(
-    `when(?:ever)?\\s+(?:${dieSelfAlternatives.join('|')})\\s+${ENTERS_OR_OTHER_EVENT_PREFIX}(?:is )?put into (?:a |your |its owner's )?graveyard from the battlefield,?\\s*([^.]+)`,
+    `when(?:ever)?\\s+(?:${dieSelfAlternatives.join('|')})\\s+${ENTERS_OR_OTHER_EVENT_PREFIX}(?:is )?put into (?:a |your |its owner's )?graveyard(?: from the battlefield|(?=\\s*,)),?\\s*([^.]+)`,
     'i',
   );
   const putIntoGraveyardMatch = oracleText.match(putIntoGraveyardPattern);

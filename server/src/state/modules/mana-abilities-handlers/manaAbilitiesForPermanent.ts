@@ -28,6 +28,7 @@ import {
   resolvePowerThresholdInsteadManaAbility,
 } from "./manaAbilityColorRestrictionUtils.js";
 import { manaAbilitiesFromContinuousTapGrants } from "./manaAbilityContinuousTapGrants.js";
+import { manaAbilitiesFromQuotedTapGrants } from "./manaAbilityQuotedTapGrants.js";
 import { appendTapAddMultiManaAbility } from "./manaAbilitySelfDamage.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.js";
 
@@ -709,10 +710,9 @@ export function getManaAbilitiesForPermanent(
     }
   }
 
-  abilities.push(...manaAbilitiesFromContinuousTapGrants(
-    getContinuousGrantedAbilitiesForPermanent(permanent, gameState),
-    String(permanent?.id || ''),
-  ));
+  const continuousGrants = getContinuousGrantedAbilitiesForPermanent(permanent, gameState);
+  abilities.push(...manaAbilitiesFromContinuousTapGrants(continuousGrants, String(permanent?.id || '')));
+  abilities.push(...manaAbilitiesFromQuotedTapGrants(continuousGrants, String(permanent?.id || ''), parseManaSpendRestrictionFromOracle));
 
   // Apply granted abilities from modifiers
   for (const modifier of modifiers) {
@@ -738,7 +738,7 @@ export function getManaAbilitiesForPermanent(
   const seenProductions = new Set<string>();
   
   for (const ability of abilities) {
-    const key = ability.produces.sort().join(',');
+    const key = ability.produces.sort().join(',') + (Number(ability.amount || 1) > 1 ? `x${ability.amount}` : '') + (ability.producesAllAtOnce ? '&' : '');
     if (!seenProductions.has(key)) {
       seenProductions.add(key);
       uniqueAbilities.push(ability);

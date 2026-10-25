@@ -99,6 +99,7 @@ import {
   controllerGrantsKeywordToCreatures,
   permanentHasAttachmentGrantedKeyword,
 } from '../../../../shared/src/attachmentKeywordGrants.js';
+import { permanentHasTriggeredAbilities } from './triggers/triggeredAbilitySuppression.js';
 export {
   checkEndOfTurnTransforms,
   checkUpkeepTransforms,
@@ -534,7 +535,8 @@ export {
 } from "./triggers/status-event-detection.js";
 
 export { detectReturnedToHandTriggers } from "./triggers/returned-to-hand-detection.js";
-export function detectDiscardTriggers(card: any, permanent: any): TriggeredAbility[] {
+export function detectDiscardTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const oracleText = String(card?.oracle_text || '');
   const cardName = String(card?.name || 'Unknown');
@@ -623,6 +625,7 @@ export function detectDiscardTriggers(card: any, permanent: any): TriggeredAbili
  * Detect becomes-the-target triggers from oracle text.
  */
 export function detectTargetedTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const printedOracle = String(card?.oracle_text || '');
   const annotated = resolveDetectorOracleForPermanent(permanent, printedOracle, gameState);
@@ -736,7 +739,6 @@ export {
   type AttachmentAttackTrigger,
   detectAttachmentAttackTriggers,
   getAttachmentAttackTriggers,
-  getAttachmentCombatDamageTriggers,
   getAttackUntapTriggers,
   getCombatDamageUntapTriggers,
   executeUntapTrigger,

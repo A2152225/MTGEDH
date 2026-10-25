@@ -13,8 +13,10 @@ import {
   applyFirstTimeEachTurnFlags,
   resolveDetectorOracleForPermanent,
 } from "./detectorGrantedOracle.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export function detectBlockTriggers(card: any, permanent: any, gameState?: any): BlockTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'block' })) return []; // Humility / Torpor Orb gate
   const triggers: BlockTrigger[] = [];
   const printedOracle = (card?.oracle_text || "");
   const annotated = resolveDetectorOracleForPermanent(permanent, printedOracle, gameState);
@@ -33,7 +35,8 @@ export function detectBlockTriggers(card: any, permanent: any, gameState?: any):
       oracleText,
       (line) => blockKeywordReminderLinePattern.test(line),
       [
-        new RegExp(`when(?:ever)?\\s+${blockSubjectPattern}\\s+blocks(?:\\s+a\\s+creature)?,?\\s*(.+)$`, 'i'),
+        // "blocks or becomes blocked" belongs to self_blocks_or_becomes_blocked below.
+        new RegExp(`when(?:ever)?\\s+${blockSubjectPattern}\\s+blocks(?!\\s+or\\s+becomes\\s+blocked)(?:\\s+a\\s+creature)?,?\\s*(.+)$`, 'i'),
       ],
     );
   };
@@ -495,13 +498,15 @@ export function detectBlockTriggers(card: any, permanent: any, gameState?: any):
   }
 
   const becomesBlockedPatterns = [
-    /when(?:ever)?\s+(?:~|this creature)\s+becomes blocked(?: this turn)?,?\s*([^.]+)/i,
-    new RegExp(`when(?:ever)?\\s+(?:${blockNameVariants.join('|')})\\s+becomes blocked(?: this turn)?,?\\s*([^.]+)`, 'i'),
+    // "becomes blocked by <filter>" is IR-owned (blockPartner); "by a creature" is listed explicitly.
+    /when(?:ever)?\s+(?:~|this creature)\s+becomes blocked(?!\s+by\b)(?: this turn)?,?\s*([^.]+)/i,
+    new RegExp(`when(?:ever)?\\s+(?:${blockNameVariants.join('|')})\\s+becomes blocked(?!\\s+by\\b)(?: this turn)?,?\\s*([^.]+)`, 'i'),
     /whenever\s+(?:~|this creature)\s+becomes blocked by (?:a |an )?creature,?\s*([^.]+)/i,
     /whenever\s+enchanted\s+creature\s+becomes\s+blocked,?\s*([^.]+)/i,
     /whenever\s+equipped\s+creature\s+becomes\s+blocked,?\s*([^.]+)/i,
     /whenever\s+equipped\s+creature\s+blocks\s+or\s+becomes\s+blocked\s+by\s+(?:a\s+)?creature,?\s*([^.]+)/i,
-    /whenever\s+(?:~|this creature)\s+blocks\s+or\s+becomes\s+blocked,?\s*([^.]+)/i,
+    // "... by <filter>" is IR-owned (blockPartner); legacy would fire it unfiltered.
+    /whenever\s+(?:~|this creature)\s+blocks\s+or\s+becomes\s+blocked(?!\s+by\b),?\s*([^.]+)/i,
     /when\s+that\s+creature\s+becomes\s+blocked(?:\s+this\s+turn)?,?\s*([^.]+)/i,
   ];
   for (const pattern of becomesBlockedPatterns) {

@@ -52,7 +52,7 @@ export async function executeAILegacyActivateAbility(
     // Find the permanent on the battlefield
     const battlefield = game.state?.battlefield || [];
     const permanent = battlefield.find((p: any) => p.id === action.permanentId);
-    const persistedAbilityId = getAIHandlerDeps().resolveAIActivatedAbilityId(action, permanent)
+    const persistedAbilityId = getAIHandlerDeps().resolveAIActivatedAbilityId(action, permanent, battlefield)
       || (typeof action?.abilityId === 'string' && action.abilityId.trim() ? action.abilityId.trim() : undefined);
     
     if (!permanent) {

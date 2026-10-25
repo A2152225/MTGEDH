@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { debug, debugWarn, debugError } from '../../utils/debug.js';
 import { ResolutionStepType } from '../resolution/index.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
+import { queueAmplifyRevealChoice } from './amplifyEntry.js';
 import { listLocalCardNamesForChoiceSyncIfReady, parseCardNameChoiceCriteriaFromOracleText } from '../../services/localCardLookup.js';
 import {
   detectControlChangeEffects,
@@ -256,6 +257,9 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
       }
     }
   }
+
+  // Batch 24: amplify reveal is a player choice (OPTION_CHOICE multi-select, flag amplifyRevealChoice).
+  if (isCreature) queueAmplifyRevealChoice(ctx, { controller: String(controller), newPermanent: options.newPermanent, newPermId: options.newPermId, isReplaying });
 
   const devourMatch = oracleText.match(/devour\s+(\d+)/);
   if (devourMatch && isCreature) {

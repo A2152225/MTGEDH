@@ -53,8 +53,8 @@ import {
 import { shouldAIPreferPaidScalingManaOverColorlessTap } from "./aiManaColorNeedHelpers.js";
 import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
 
-function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedAbilityResolverCandidate[] {
-  return getAIHandlerDeps().buildAIActivatedAbilityResolverCandidates(permanent);
+function buildAIActivatedAbilityResolverCandidates(permanent: any, battlefield?: readonly any[]): AIActivatedAbilityResolverCandidate[] {
+  return getAIHandlerDeps().buildAIActivatedAbilityResolverCandidates(permanent, battlefield);
 }
 
 async function executeAIActivateAbility(
@@ -145,8 +145,8 @@ function getAINonTapManaAbilityCandidates(
       .filter((color) => ['W', 'U', 'B', 'R', 'G', 'C'].includes(color)))];
   }
 
-export function permanentHasAIManaAbilityResolverCandidates(permanent: any): boolean {
-    return buildAIActivatedAbilityResolverCandidates(permanent).some(isAIManaAbilityResolverCandidate);
+export function permanentHasAIManaAbilityResolverCandidates(permanent: any, battlefield?: readonly any[]): boolean {
+    return buildAIActivatedAbilityResolverCandidates(permanent, battlefield).some(isAIManaAbilityResolverCandidate);
   }
 
 export function resolveAIPaymentManaAbilityId(
@@ -157,7 +157,7 @@ export function resolveAIPaymentManaAbilityId(
     restrictedSpendPurpose?: RestrictedManaSpendPurpose,
   ): string | undefined {
     const normalizedManaColor = String(manaColor || '').toUpperCase();
-    const candidates = buildAIActivatedAbilityResolverCandidates(permanent).filter(isAIManaAbilityResolverCandidate);
+    const candidates = buildAIActivatedAbilityResolverCandidates(permanent, game?.state?.battlefield).filter(isAIManaAbilityResolverCandidate);
     if (candidates.length === 0) {
       return undefined;
     }
@@ -249,7 +249,7 @@ export function selectAIManaRetentionActivationAction(
     hasAllRetention: boolean,
     hasColorlessConversion: boolean,
   ): AIResolvedActivatedAbilityAction | null {
-    const candidates = buildAIActivatedAbilityResolverCandidates(permanent).filter(isAIManaAbilityResolverCandidate);
+    const candidates = buildAIActivatedAbilityResolverCandidates(permanent, game?.state?.battlefield).filter(isAIManaAbilityResolverCandidate);
     if (candidates.length === 0) {
       return null;
     }
@@ -334,7 +334,7 @@ export function selectAIManaRetentionActivationAction(
     permanent: any,
     excludedHandCardIds?: string[],
   ): AIActivatedAbilityResolverCandidate[] {
-    return buildAIActivatedAbilityResolverCandidates(permanent)
+    return buildAIActivatedAbilityResolverCandidates(permanent, game?.state?.battlefield)
       .filter(isAIManaAbilityResolverCandidate)
       .filter((candidate) => !/\{[^}]*\bT\b[^}]*\}/i.test(String(candidate?.text || '')))
       .filter((candidate) => {
@@ -794,7 +794,7 @@ export function tryActivateAINonTapManaAbilityForSpellPaymentSimulation(
     return false;
   }
 
-  function getAIManaBatteryChargeCandidate(permanent: any): {
+  function getAIManaBatteryChargeCandidate(permanent: any, battlefield?: readonly any[]): {
     action: AIResolvedActivatedAbilityAction;
     chargeCost: ParsedManaCost;
     counterType: string;
@@ -811,7 +811,7 @@ export function tryActivateAINonTapManaAbilityForSpellPaymentSimulation(
       six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
     };
 
-    for (const candidate of buildAIActivatedAbilityResolverCandidates(permanent)) {
+    for (const candidate of buildAIActivatedAbilityResolverCandidates(permanent, battlefield)) {
       // Charge lines put counters; they are not themselves mana abilities.
       if (isAIManaAbilityResolverCandidate(candidate)) continue;
 
@@ -1007,7 +1007,7 @@ export function tryAIManaBatteryColorFixForSpellPaymentSimulation(
     const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
     for (const permanent of battlefield) {
       if (!permanent || permanent.controller !== playerId) continue;
-      const charge = getAIManaBatteryChargeCandidate(permanent);
+      const charge = getAIManaBatteryChargeCandidate(permanent, battlefield);
       if (!charge) continue;
 
       const simulatedGame = cloneAISpellPaymentSimulationGame(game);
@@ -1038,7 +1038,7 @@ export async function tryAIManaBatteryColorFixForSpellPayment(
     if (!battlefieldPreview.some((permanent: any) => (
       permanent
       && permanent.controller === playerId
-      && getAIManaBatteryChargeCandidate(permanent)
+      && getAIManaBatteryChargeCandidate(permanent, battlefieldPreview)
     ))) {
       return false;
     }
@@ -1053,7 +1053,7 @@ export async function tryAIManaBatteryColorFixForSpellPayment(
 
     for (const permanent of battlefield) {
       if (!permanent || permanent.controller !== playerId) continue;
-      const charge = getAIManaBatteryChargeCandidate(permanent);
+      const charge = getAIManaBatteryChargeCandidate(permanent, battlefield);
       if (!charge) continue;
 
       const probe = cloneAISpellPaymentSimulationGame(game);

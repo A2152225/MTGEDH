@@ -7,6 +7,7 @@ import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.
 import { maybeSacrificeSagaAfterChapterResolve } from './triggerSagaLoreUtils.js';
 import { resolveTriggeredAbilityControllerId } from './triggerSourceUtils.js';
 import { scheduleParsedTriggerRiders } from './parsedTriggerRiderSchedule.js';
+import { tryResolveCaseSolveTrigger } from './caseSolve.js';
 
 export { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
 
@@ -49,6 +50,8 @@ export function resolveTriggeredAbilityStackItem(
     bumpSeq();
     return true;
   }
+
+  if (tryResolveCaseSolveTrigger(ctx, item)) return true;
 
   if (tryDeferTriggeredAbilityBeforeExecution(ctx, item, {
     controller: triggerController as PlayerID,

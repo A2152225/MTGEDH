@@ -6,6 +6,7 @@
  * read oracle text.
  */
 
+import { playerBindingsMatch } from './matchPlayerBindings.js';
 import type {
   TriggerConditionIR,
   TriggerMatchContext,
@@ -82,7 +83,7 @@ function subjectFilterMatches(
     if (counterCount(subject.counters, counter.name) < counter.minimum) return false;
   }
   for (const stat of filter.stats || []) {
-    const actual = stat.stat === 'power' ? subject.power : subject.toughness;
+    const actual = stat.stat === 'power' ? subject.power : stat.stat === 'toughness' ? subject.toughness : subject.manaValue;
     if (actual === undefined || !Number.isFinite(actual)) return false;
     if (stat.op === 'gte' && actual < stat.value) return false;
     if (stat.op === 'lte' && actual > stat.value) return false;
@@ -108,6 +109,14 @@ function subjectFilterMatches(
     const colors = (subject.colors || []).map((color) => String(color || '').toLowerCase());
     if (!filter.colors.some((color) => colors.includes(color))) return false;
   }
+  if (filter.kicked && !subject.kicked) return false;
+  if (filter.colorCount) {
+    if (!Array.isArray(subject.colors)) return false;
+    const count = new Set(subject.colors.map((color) => String(color || '').toLowerCase()).filter(Boolean)).size;
+    if (filter.colorCount === 'colorless' && count !== 0) return false;
+    if (filter.colorCount === 'monocolored' && count !== 1) return false;
+    if (filter.colorCount === 'multicolored' && count < 2) return false;
+  }
   if (filter.owner === 'you' || filter.owner === 'not_you') {
     const ownerId = String(subject.ownerId || '').trim();
     const sourceController = String(source.controllerId || '').trim();
@@ -126,7 +135,7 @@ function subjectFilterMatches(
 
   const pairCount = Math.max(filter.typeGroups.length, filter.subtypeGroups.length);
   if (pairCount === 0) return filter.anyObject || Boolean(
-    filter.commander || filter.historic || (filter.colors && filter.colors.length > 0),
+    filter.commander || filter.historic || (filter.colors && filter.colors.length > 0) || Boolean(filter.colorCount) || Boolean(filter.kicked),
   );
   return Array.from({ length: pairCount }, (_, index) => index).some((index) => {
     const types = filter.typeGroups[index] || [];
@@ -194,12 +203,54 @@ function qualifiersMatch(
   if (condition.ordinal === 'first' && context?.spellOrdinal !== 1) return false;
   if (condition.ordinal === 'second' && context?.spellOrdinal !== 2) return false;
 
-  if (condition.targets) {
+  if (condition.targets === 'self') {
+    const ids = context?.targetPermanentIds;
+    if (!ids || !ids.map(String).includes(String(source.id || ''))) return false;
+  } else if (condition.targets === 'creature' || condition.targets === 'creature_you_control') {
+    const sourceController = String(source.controllerId || '').trim();
+    const hit = (context?.targetPermanents || []).some((t) => /\bcreature\b/i.test(String(t?.typeLine || ''))
+      && (condition.targets === 'creature' || (Boolean(sourceController) && String(t?.controllerId || '') === sourceController)));
+    if (!hit) return false;
+  } else if (condition.targets) {
     const targetController = String(context?.targetControllerId || '').trim();
     const sourceController = String(source.controllerId || '').trim();
     if (!targetController || !sourceController) return false;
     if (condition.targets === 'you' && targetController !== sourceController) return false;
     if (condition.targets === 'opponent' && targetController === sourceController) return false;
+  }
+
+  if (condition.requiresSaddled && !source.saddled) return false;
+  if (condition.requiresUntapped && source.tapped !== false) return false;
+  if (condition.legacyRuntimeOnly) return false;
+  if (condition.playerSubject ? !context?.subjectIsPlayer : context?.subjectIsPlayer) return false;
+  if (condition.event === 'attacks_alone' && Number(context?.attackerCount) !== 1) return false;
+  if (condition.minOtherAttackers != null) {
+    const attackers = Number(context?.attackerCount);
+    if (!Number.isFinite(attackers) || attackers < condition.minOtherAttackers + 1) return false;
+  }
+  if (condition.targetedBy) {
+    const by = String(context?.targetingControllerId || '').trim();
+    const kind = context?.targetingKind;
+    const sourceController = String(source.controllerId || '').trim();
+    if (!by || !kind) return false;
+    if (condition.targetedBy.kind !== 'spell_or_ability' && condition.targetedBy.kind !== kind) return false;
+    if (condition.targetedBy.controller === 'you' && by !== sourceController) return false;
+    if (condition.targetedBy.controller === 'not_you' && by === sourceController) return false;
+  }
+  if (condition.damageRecipient && condition.damageRecipient !== 'any') {
+    const recipientPlayer = String(context?.damageRecipientPlayerId || '').trim();
+    if (condition.damageRecipient === 'creature' && !context?.damageRecipientIsCreature) return false;
+    if (condition.damageRecipient === 'player' && !recipientPlayer) return false;
+    if (condition.damageRecipient === 'opponent' && (!recipientPlayer || recipientPlayer === String(source.controllerId || '').trim())) return false;
+  }
+  if (condition.attackedPlayer === 'you') {
+    const attacked = String(context?.attackedPlayerId || '').trim();
+    if (!attacked || attacked !== String(source.controllerId || '').trim()) return false;
+  }
+  if (condition.classLevel != null && Number(context?.classLevel) !== condition.classLevel) return false;
+  if (condition.blockPartner) {
+    const partner = context?.blockPartner;
+    if (!partner || !subjectFilterMatches(condition.blockPartner, partner, source, context)) return false;
   }
 
   if (condition.whoseTurn) {
@@ -260,6 +311,7 @@ export function triggerConditionMatches(
 ): boolean {
   if (!qualifiersMatch(condition, source, context)) return false;
   if (!libraryOwnerMatches(condition, subject, source, context)) return false;
+  if (!playerBindingsMatch(condition, subject, source, context)) return false;
   if (condition.alternatives.length === 0) return Boolean(condition.whoseTurn);
   return condition.alternatives.some((alternative) => alternativeMatches(alternative, subject, source, context));
 }

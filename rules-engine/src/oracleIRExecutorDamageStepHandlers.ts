@@ -654,6 +654,11 @@ export function applyDealDamageStep(
   ctx: OracleIRExecutionContext,
   runtime?: DamageRuntime
 ): DamageStepHandlerResult {
+  // "any target that isn't a commander" (Lozhan): the restriction is enforced at target selection.
+  const restrictedTargetText = (step.target as any)?.kind === 'raw' ? String((step.target as any).text || '') : '';
+  if (/\s+that (?:isn't|is not|isn\u2019t) a commander$/i.test(restrictedTargetText)) {
+    step = { ...step, target: { ...(step.target as any), text: restrictedTargetText.replace(/\s+that (?:isn't|is not|isn\u2019t) a commander$/i, '') } } as any;
+  }
   const fight = tryApplyFightDealDamageStep(state, step, ctx);
   if (fight) {
     if (fight.applied) {

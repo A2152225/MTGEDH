@@ -8,6 +8,7 @@
  */
 
 import { timingTriggerEffect } from '../timing-effect-extraction.js';
+import { permanentHasTriggeredAbilities } from '../triggeredAbilitySuppression.js';
 
 export interface ExiledFromBattlefieldTrigger {
   permanentId: string;
@@ -23,7 +24,8 @@ export interface ExiledFromBattlefieldTrigger {
   targetFilter: 'creature' | 'permanent';
 }
 
-export function detectExiledFromBattlefieldTriggers(card: any, permanent: any): ExiledFromBattlefieldTrigger[] {
+export function detectExiledFromBattlefieldTriggers(card: any, permanent: any, gameState?: any): ExiledFromBattlefieldTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'ltb' })) return []; // Humility / Torpor Orb gate
   const triggers: ExiledFromBattlefieldTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
   const permanentId = String(permanent?.id || '');

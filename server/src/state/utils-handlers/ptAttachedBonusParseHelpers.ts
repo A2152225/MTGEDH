@@ -246,15 +246,21 @@ function parseSetBasePTFromAttachedAuraOracle(
   const text = String(oracleText || '').toLowerCase();
 
   let match = text.match(
-    /enchanted creature (?:[^.\n]*? )?(?:has|with) base power and toughness (\d+)\/(\d+)/i,
+    /enchanted (?:creature|artifact|permanent|land) (?:[^.\n]*? )?(?:has|with) base power and toughness (\d+)\/(\d+)/i,
   );
   if (match) {
     return { power: parseInt(match[1], 10), toughness: parseInt(match[2], 10) };
   }
 
   match = text.match(
-    /enchanted creature is a [^.]+ with base power and toughness (\d+)\/(\d+)/i,
+    /enchanted (?:creature|artifact|permanent|land) is an? [^.]+ with base power and toughness (\d+)\/(\d+)/i,
   );
+  if (match) {
+    return { power: parseInt(match[1], 10), toughness: parseInt(match[2], 10) };
+  }
+
+  // Zendikon-style animation: "Enchanted land is a 5/3 green Elemental creature. It's still a land."
+  match = text.match(/enchanted (?:artifact|land) is an? (\d+)\/(\d+) [a-z ]*?creature\b[^.]*\.\s*it(?:'|\u2019)s still an? (?:artifact|land)\b/i);
   if (match) {
     return { power: parseInt(match[1], 10), toughness: parseInt(match[2], 10) };
   }
@@ -348,7 +354,11 @@ function parseCompoundAttachedPTBonus(
 export function parseStaticAttachedPTBonusFromOracle(
   oracleText: string,
 ): { power: number; toughness: number } | null {
-  const text = String(oracleText || '').toLowerCase();
+  // Unconditional statics only: "as long as" (Black Scarab), triggered and until-end-of-turn sentences
+  // belong to the conditional spec reader / trigger pipeline.
+  const text = String(oracleText || '').toLowerCase().split(/\n+|(?<=\.)\s+/)
+    .filter((s) => !/as long as|until end of turn|^\s*(?:when|whenever|at the beginning|if)\b/.test(s))
+    .join('\n');
 
   let match = text.match(/equipped creature gets? \+(\d+)\/\+(\d+)(?! for each)/i);
   if (match) {

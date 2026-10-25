@@ -24,6 +24,8 @@ import {
   detectTriggerDoublers,
 } from "./trigger-doublers.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates } from "./triggerConditionFamilyMatch.js";
+import { dropTriggersFromAbilitylessSources } from './triggeredAbilitySuppression.js';
+import { applyParsedGroupAttackTriggers } from './attack-group-ir.js';
 
 // ============================================================================
 // Attack Triggers
@@ -237,13 +239,24 @@ export function getAttackTriggersForCreatures(
         subjectPermanent: attacker,
         subjectControllerId: String(attacker?.controller || ''),
         sourcePermanent: permanent,
+        // "whenever you attack with two or more creatures" (minOtherAttackers).
+        matchContext: {
+          attackerCount: attackingCreatures.length,
+          attackedPlayerId: resolveAttackedPlayerId(attacker),
+          // "attacks you" means the player: a string target must be a player id; no per-creature target means the defending player.
+          attackedTargetIsPlayer: typeof attacker?.attacking === 'string' ? playerIds.includes(String(attacker.attacking)) : Boolean(defendingPlayer),
+        },
       });
       for (const line of effects) {
         const effect = line.effect;
-        const key = `${String(permanent.id || '')}|${String(attacker?.id || '')}|${effect.toLowerCase()}`;
+        // "one or more ... attack" / "a player attacks (you)" fire once per declaration, not per attacker.
+        const batched = (line as any).condition?.quantity === 'one_or_more';
+        const key = `${String(permanent.id || '')}|${batched ? '*' : String(attacker?.id || '')}|${effect.toLowerCase()}`;
         if (seenParsedAttacks.has(key)) continue;
         const already = triggers.some((trigger) => (
           String(trigger.permanentId || '') === String(permanent.id || '')
+          // Earlier IR entries are deduped by seenParsedAttacks (per attacker); only legacy entries block.
+          && String(trigger.triggerType || '') !== 'parsed_attacks'
           && parsedEffectDuplicates([trigger.effect, trigger.description], line)
         ));
         if (already) continue;
@@ -263,6 +276,10 @@ export function getAttackTriggersForCreatures(
     }
   }
 
+  // Attacks alone / battalion: IR owns printed lines and retires their legacy duplicates.
+  applyParsedGroupAttackTriggers(ctx, triggers, attackingCreatures, resolveAttackedPlayerId);
+
+  triggers.splice(0, triggers.length, ...dropTriggersFromAbilitylessSources(triggers, ctx.state, (t) => String(t.permanentId || ''), { event: 'attack' }));
   // ===== Apply trigger doublers (Roaming Throne, Isshin, etc.) =====
   const doublers = detectTriggerDoublers(battlefield, attackingPlayer);
   

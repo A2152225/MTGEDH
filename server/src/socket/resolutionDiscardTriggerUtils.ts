@@ -13,6 +13,7 @@ import {
   hasUnsupportedTargetRequirement,
   inferGenericTriggeredAbilityTargetMetadata,
 } from "../state/modules/triggers/target-metadata.js";
+import { queueSelfDiscardTriggers } from "../state/modules/triggers/eventSpecificLegacyTriggers.js";
 import { uid } from "../state/utils.js";
 import { debugWarn } from "../utils/debug.js";
 import { cloneResolutionPermanentSnapshot } from "./resolutionKeywordChoiceHandlers.js";
@@ -164,10 +165,12 @@ export function queueDiscardTriggeredAbilities(
   gameId: string,
   discardingPlayerId: string,
   discardedCards: any[],
+  causeControllerId?: string,
 ): void {
   if ((game as any)?.isReplaying) return;
+  queueSelfDiscardTriggers(game as any, String(discardingPlayerId), Array.isArray(discardedCards) ? discardedCards : [], { causeControllerId });
 
-  const triggers = orderTriggersByAPNAP(game as any, getDiscardTriggers(game as any, String(discardingPlayerId)));
+  const triggers = orderTriggersByAPNAP(game as any, getDiscardTriggers(game as any, String(discardingPlayerId), { causeControllerId }));
   if (triggers.length === 0) {
     return;
   }

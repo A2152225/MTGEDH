@@ -6,6 +6,7 @@ import { uid } from '../../utils.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export interface LibraryShuffleTrigger {
   permanentId: string;
@@ -29,7 +30,8 @@ function normalizeSubject(subject: string): LibraryShuffleTrigger['subject'] {
   return 'player';
 }
 
-export function detectLibraryShuffleTriggers(card: any, permanent: any): LibraryShuffleTrigger[] {
+export function detectLibraryShuffleTriggers(card: any, permanent: any, gameState?: any): LibraryShuffleTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: LibraryShuffleTrigger[] = [];
   const oracleText = normalizeOracleText(card?.oracle_text || '');
   const permanentId = String(permanent?.id || '');
@@ -77,7 +79,7 @@ export function getLibraryShuffleTriggers(
     const controllerId = String(permanent.controller || '').trim();
     if (!controllerId) continue;
 
-    for (const trigger of detectLibraryShuffleTriggers(permanent.card, permanent)) {
+    for (const trigger of detectLibraryShuffleTriggers(permanent.card, permanent, (ctx as any)?.state)) {
       if (trigger.subject === 'you' && controllerId !== playerId) continue;
       if (trigger.subject === 'opponent' && controllerId === playerId) continue;
       triggers.push(trigger);

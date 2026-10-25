@@ -61,6 +61,19 @@ const ORACLE_TOKEN_REPLACEMENT_TEMPLATES: readonly OracleTokenReplacementTemplat
     },
   },
   {
+    // Batch 16: Xorn / Jolene, the Plunder Queen
+    templateId: 'controller-extra-treasure',
+    oracleMustIncludeAll: ['if you would create one or more treasure tokens', 'plus an additional treasure token'],
+    spec: {
+      event: 'token-creation',
+      match: { creatingPlayerIsSourceController: true },
+      instead: { modify: 'add_flat', value: 1 },
+      effectId: 'controller-extra-treasure',
+      reason: 'controller_extra_treasure',
+      metadata: { tokenNameIs: 'treasure' },
+    },
+  },
+  {
     templateId: 'global-token-double',
     oracleMustIncludeAll: ['tokens would be created', 'twice that many'],
     oracleMustExcludeAny: ['under your control', 'three times'],
@@ -86,7 +99,7 @@ export function collectOraclePatternTokenReplacementSpecsFromState(state: unknow
       controller?: string;
       card?: { name?: string; oracle_text?: string; oracleText?: string };
     };
-    const oracle = normalizeOraclePatternText(readCardOracleText(permRecord.card));
+    const oracle = normalizeOraclePatternText(readCardOracleText(permRecord.card)).toLowerCase();
     if (!oracle) continue;
 
     const sourcePermanentId = String(permRecord.id || '').trim();

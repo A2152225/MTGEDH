@@ -1,4 +1,5 @@
 import { extractCreatureTypes as extractCreatureTypesFromTypeLine } from '../../../shared/src/creatureTypes.js';
+import { parseIntrinsicAlsoCreatureTypes } from './modules/intrinsicAlsoCreatureTypes.js';
 
 function normalizeCreatureType(type: string): string {
   return String(type || '')
@@ -116,6 +117,9 @@ export function isCreatureNow(permanent: any): boolean {
     }
   }
 
+  // Layer 4 type-setting stamp (Opalescence), see modules/layer4TypeSetting.ts.
+  if (Array.isArray(permanent?.layer4AddedTypes) && permanent.layer4AddedTypes.includes('Creature')) return true;
+
   // Loose type-grant tracking used by some effects.
   if (Array.isArray(permanent?.typeAdditions)) {
     if (permanent.typeAdditions.some((t: unknown) => String(t).toLowerCase() === 'creature')) {
@@ -138,16 +142,19 @@ export function getCreatureTypesNow(permanent: any): Set<string> {
     return out;
   }
 
-  if (hasIntrinsicChangeling(permanent) || hasIntrinsicEveryCreatureType(permanent)) {
+  // "is a <type>" layer-4 replacement (Goddric): printed subtypes and changeling are lost.
+  // typeSetOverride: a layer 4 type-setting Aura (Imprisoned in the Moon) replaced every subtype.
+  const replaced = permanent?.continuousCreatureTypesReplaced === true || !!permanent?.typeSetOverride;
+  if (!replaced && (hasIntrinsicChangeling(permanent) || hasIntrinsicEveryCreatureType(permanent))) {
     out.add('*');
     return out;
   }
 
-  const effectiveTypeLine = getEffectiveTypeLine(permanent);
-
-  // Parse subtypes from type line only (ignore oracle text here; it can be conditional).
-  const fromTypeLine = extractCreatureTypesFromTypeLine(effectiveTypeLine, undefined);
-  for (const t of fromTypeLine) out.add(normalizeCreatureType(t));
+  if (!replaced) {
+    // Parse subtypes from type line only (ignore oracle text here; it can be conditional).
+    const fromTypeLine = extractCreatureTypesFromTypeLine(getEffectiveTypeLine(permanent), undefined);
+    for (const t of fromTypeLine) out.add(normalizeCreatureType(t));
+  }
 
   // Some effects track creature types separately.
   for (const t of normalizeCreatureTypeList(permanent?.typeAdditions)) out.add(t);
@@ -188,6 +195,8 @@ export function cardHasCreatureType(card: any, creatureType: string): boolean {
     return true;
   }
 
+  // CDA "<name> is also a Cleric, Rogue..." works in every zone (CR 604.3).
+  if (parseIntrinsicAlsoCreatureTypes(oracleText, card.name).some((t) => normalizeCreatureType(t) === wanted)) return true;
   const typeLine = String(card.type_line || card.typeLine || '');
   const subTypes = (typeLine.split(/\s*[—–-]\s*/)[1] || '').toLowerCase();
   return subTypes.split(/\s+/).some((part) => normalizeCreatureType(part) === wanted);

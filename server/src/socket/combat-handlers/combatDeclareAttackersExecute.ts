@@ -205,6 +205,8 @@ export async function executeDeclareAttackers(
     }
     const ownerRestrictionReason = getOwnerAttackRestrictionReason(creature, defendingPlayerId, {
       targetIsOwnerPlaneswalker: isAttackingOwnerPlaneswalker(creature, attacker, battlefield),
+      battlefield,
+      gameState: game.state,
     });
     if (ownerRestrictionReason) {
       throw Object.assign(

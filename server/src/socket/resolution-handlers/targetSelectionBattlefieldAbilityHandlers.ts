@@ -14,6 +14,8 @@
  * Wired through resolutionHandlerDeps. Must not import resolution.ts.
  */
 
+import { equipLifeCostError, payEquipLifeCost } from "../../state/modules/equipNonManaCosts.js";
+import { handleEquipSacrificeCostStage } from "./targetSelectionEquipSacrificeCost.js"; // UI34
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import { applyPowerUpDiscountsToActivationManaCost } from "../../state/modules/marvelMechanicsHelpers.js";
@@ -45,7 +47,7 @@ export async function handleBattlefieldAbilityTargetSelection(
   const selections = response.selections as string[];
   const stepAny = step as any;
   const targetStepData = stepAny as TargetSelectionStep;
-  const validTargets = targetStepData.validTargets || [];
+  let validTargets: any[] = [...(targetStepData.validTargets || [])];
   const minTargets = targetStepData.minTargets || 0;
   const maxTargets = targetStepData.maxTargets || Infinity;
 
@@ -70,7 +72,7 @@ export async function handleBattlefieldAbilityTargetSelection(
     return;
   }
 
-  const selectedTargetIds = selections.map((value: any) => String(value)).filter(Boolean);
+  let selectedTargetIds = selections.map((value: any) => String(value)).filter(Boolean);
   if (selectedTargetIds.length < minTargets || selectedTargetIds.length > maxTargets) {
     emitToPlayer(io, controllerId as any, 'error', {
       code: 'INVALID_TARGET_COUNT',
@@ -95,7 +97,19 @@ export async function handleBattlefieldAbilityTargetSelection(
       : battlefieldAbilityType === 'fortify'
         ? String(stepAny?.fortifyCost || '').trim()
         : String(stepAny?.reconfigureCost || '').trim();
-    const parsedTargetingCost = targetingCost ? parseManaCost(targetingCost) : undefined;
+    if (battlefieldAbilityType === 'equip') {
+      const sac = handleEquipSacrificeCostStage(io, game, gameId, step, controllerId, permanentId, targetingCost, selectedTargetIds, validTargets);
+      if (sac.done) return;
+      selectedTargetIds = sac.targetIds;
+      validTargets = sac.validTargets;
+    }
+    const b33LifeError = equipLifeCostError(game.state, String(controllerId), targetingCost);
+    if (b33LifeError) {
+      emitToPlayer(io, controllerId as any, 'error', { code: 'CANNOT_PAY_COST', message: b33LifeError });
+      return;
+    }
+    const b33LifePaid = payEquipLifeCost(game.state, String(controllerId), targetingCost);
+    const parsedTargetingCost = targetingCost && !b33LifePaid ? parseManaCost(targetingCost) : undefined;
     const hasTargetingManaCost = Boolean(
       parsedTargetingCost && (
         Number(parsedTargetingCost.generic || 0) > 0 ||

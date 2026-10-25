@@ -17,7 +17,9 @@
  *  - lord/anthem statics on the battlefield ("Creatures you control have flying",
  *    "Other Elves you control have ...", "White creatures you control have ...");
  *  - removals ("loses flying", "lose all abilities") from the permanent itself,
- *    attachments and battlefield statics; removal wins.
+ *    attachments and battlefield statics. Layer 6 timestamp order (CR 613.7): a removal beats every grant
+ *    with an earlier (or unknown) timestamp; a grant stamped after the removal survives
+ *    (abilityEffectTimestamps.ts), e.g. flying granted after Humility.
  *
  * Public entry symbols: permanentHasKeywordAbility, permanentLosesKeyword,
  * battlefieldGrantsKeywordTo, attachmentGrantsKeywordTo, permanentHasSelfCantBlock,
@@ -30,6 +32,8 @@ import {
   isConditionalStaticLine,
   oracleTextHasOwnKeyword,
 } from './oracleOwnKeywordText.js';
+import { readAttachmentTimestamp, readPermanentTimestamp, TIMESTAMP_BASE } from './permanentTimestamps.js';
+import { GRANT_LIST_FIELDS, readAbilityGrantTimestamp, readAbilityLossTimestamp } from './abilityEffectTimestamps.js';
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -206,6 +210,19 @@ function hasCreatureType(perm: any, word: string): boolean {
 }
 
 /** Does the qualifier word list ("white", "elf", "nontoken", "legendary") describe `perm`? */
+/** False only when nothing on the permanent suggests it is (or became) a creature. */
+function mayBeCreature(perm: any): boolean {
+  const typeLine = typeLineOf(perm);
+  if (!typeLine || typeLine.includes('creature') || perm?.isCreature === true) return true;
+  // Any type, animation, modifier or effect field (effectiveTypes, layer4AddedTypes, modifiers, temporaryEffects ...).
+  return Object.keys(perm || {}).some((key) => key !== 'card' && /type|anim|modifier|effect/i.test(key)
+    && perm[key] != null && /creature/i.test(typeof perm[key] === 'string' ? perm[key] : safeJson(perm[key])));
+}
+
+function safeJson(value: unknown): string {
+  try { return JSON.stringify(value) ?? ''; } catch { return 'creature'; }
+}
+
 function qualifierMatches(perm: any, qualifier: string): boolean {
   const words = lower(qualifier).trim().split(/\s+/).filter(Boolean);
   for (const word of words) {
@@ -258,7 +275,8 @@ function parseStaticGrants(text: string, verb: 'have' | 'lose'): StaticGrant[] {
       if (lower(match[7]) !== verb) continue;
       const control = lower(match[5]);
       const hasAll = Boolean(match[2]);
-      if (!control && !hasAll) continue;
+      // "Other Merfolk get +1/+1 and have islandwalk" (Lord of Atlantis) is global like "All ...".
+      if (!control && !hasAll && !match[1]) continue;
       const noun = lower(match[4]);
       if (/^(?:you|it|they|that|this)$/.test(noun)) continue;
       const qualifierWords = lower(match[3]).trim();
@@ -291,6 +309,8 @@ const withKeywordDepth = { value: 0 };
  * "other" / "each other" excludes it.
  */
 function grantApplies(grant: StaticGrant, source: any, perm: any, battlefield?: readonly any[]): boolean {
+  // "All creatures lose all abilities" (Humility) never reaches a non-creature such as Opalescence itself.
+  if (!/\b(?:permanents?|artifacts?|enchantments?|lands?)\b/.test(grant.qualifier) && !mayBeCreature(perm)) return false;
   if (grant.other && String(source?.id || '') === String(perm?.id || '')) return false;
   if (grant.withKeyword) {
     if (withKeywordDepth.value > 2) return false;
@@ -308,17 +328,18 @@ function grantApplies(grant: StaticGrant, source: any, perm: any, battlefield?: 
 }
 
 /** Lord/anthem statics on the battlefield that give `perm` the keyword. */
-export function battlefieldGrantsKeywordTo(perm: any, kw: string, battlefield?: readonly any[]): boolean {
+export function battlefieldGrantsKeywordTo(perm: any, kw: string, battlefield?: readonly any[], includeSelf = true): boolean {
   const kwRe = new RegExp(String.raw`\b${escapeRegExp(kw)}\b`, 'i');
   // The permanent's own lord text applies to itself when it matches, even if the caller passed
   // no battlefield (or a battlefield snapshot without it).
   const sources: any[] = Array.isArray(battlefield) ? [...battlefield] : [];
   const permId = String(perm?.id || '');
-  if (perm?.card && !sources.some((s: any) => s === perm || (permId && String(s?.id || '') === permId))) sources.push(perm);
+  if (includeSelf && perm?.card && !sources.some((s: any) => s === perm || (permId && String(s?.id || '') === permId))) sources.push(perm);
   for (const source of sources) {
     if (!source || !source.card || source.phasedOut) continue;
     const text = ownOracle(source);
     if (!text || !kwRe.test(text)) continue;
+    if (staticSourceAbilitiesRemoved(source, battlefield)) continue;
     for (const grant of parseStaticGrants(text, 'have')) {
       // "all abilities of your choice among ..." (Greymond) / "all activated abilities of ..."
       // are choice/copy grants owned by dedicated paths, not a plain keyword list.
@@ -330,34 +351,90 @@ export function battlefieldGrantsKeywordTo(perm: any, kw: string, battlefield?: 
   return false;
 }
 
-function textRemovesKeyword(text: string, kw: string): boolean {
+function textRemovesKeyword(rawText: string, kw: string): boolean {
+  // Blood Sun: "lose all abilities except mana abilities" keeps mana abilities, so it is not total loss.
+  const text = String(rawText || '').replace(/\ball abilities except mana abilities\b/gi, 'all nonmana abilities');
+  // "loses all other card types and abilities" (Imprisoned in the Moon) removes every keyword the text does not name.
+  if (kw !== 'all abilities' && /\b(?:loses?|lose)\b[^.\n]*?\ball other [a-z ,]*?\babilities\b/i.test(String(text || ''))
+    && !new RegExp(String.raw`\b${escapeRegExp(kw)}\b`, 'i').test(String(text || ''))) return true;
   return new RegExp(
-    String.raw`\b(?:loses?|lose)\b[^.\n]*?(?:\ball abilities\b|(?:^|[\s,])${escapeRegExp(kw)}\b)`,
+    // "loses all other abilities" (Darksteel Mutation) only counts as total loss, not as losing a kept keyword.
+    String.raw`\b(?:loses?|lose)\b[^.\n]*?(?:\ball abilities\b|${kw === 'all abilities' ? String.raw`\ball other [a-z ,]*?\babilities\b|` : ''}(?:^|[\s,])${escapeRegExp(kw)}\b)`,
     'i',
   ).test(String(text || ''));
 }
 
+const abilitylessGateDepth = { value: 0 };
+const loseTextScans = new WeakMap<object, { signature: string; hasLoseText: boolean }>();
+/** Cached per battlefield array: does any permanent's text say "lose(s)"? Keeps mass-token boards O(n). */
+function boardHasLoseText(battlefield?: readonly any[]): boolean {
+  if (!Array.isArray(battlefield) || battlefield.length === 0) return false;
+  const signature = `${battlefield.length}|${String(battlefield[battlefield.length - 1]?.id || '')}`;
+  const cached = loseTextScans.get(battlefield);
+  if (cached && cached.signature === signature) return cached.hasLoseText;
+  const hasLoseText = battlefield.some((p: any) => /\blos(?:e|es)\b/i.test(ownOracle(p)));
+  loseTextScans.set(battlefield, { signature, hasLoseText });
+  return hasLoseText;
+}
+function hasOwnAbilityLossData(perm: any): boolean {
+  return perm?.losesAllAbilities === true || perm?.lostAllAbilities === true
+    || ['removedKeywords', 'lostKeywords', 'lostAbilities', 'removedAbilities', 'temporaryEffects']
+      .some((field) => Array.isArray(perm?.[field]) && perm[field].length > 0);
+}
+/**
+ * CR 613.1f / 613.6: a static source that lost all its abilities (Humility on a lord, Turn to Frog) grants
+ * nothing to others. Sources whose own text removes abilities (Humility under Opalescence) are exempt:
+ * an effect that began applying in an earlier layer keeps applying.
+ */
+export function staticSourceAbilitiesRemoved(source: any, battlefield?: readonly any[]): boolean {
+  if (!source || abilitylessGateDepth.value > 0) return false;
+  if (!hasOwnAbilityLossData(source) && !boardHasLoseText(battlefield)) return false;
+  if (/\blose all abilities\b|\bloses all abilities\b/i.test(ownOracle(source))) return false;
+  abilitylessGateDepth.value += 1;
+  try {
+    return permanentLosesAllAbilities(source, battlefield);
+  } finally {
+    abilitylessGateDepth.value -= 1;
+  }
+}
+
+/** Humility / Turn to Frog style "loses all abilities" (CR 613.1f, layer 6). */
+export function permanentLosesAllAbilities(perm: any, battlefield?: readonly any[]): boolean {
+  return permanentLosesKeyword(perm, 'all abilities', battlefield);
+}
+
 /** "Loses flying" / "loses all abilities" from the permanent, its attachments or battlefield statics. */
 export function permanentLosesKeyword(perm: any, keyword: string, battlefield?: readonly any[]): boolean {
+  return permanentKeywordLossTimestamp(perm, keyword, battlefield) !== undefined;
+}
+
+/**
+ * Latest timestamp of an effect removing `keyword` (or all abilities) from `perm`; Infinity when a removal has
+ * no known timestamp (nothing can be granted after it), undefined when nothing removes it.
+ */
+export function permanentKeywordLossTimestamp(perm: any, keyword: string, battlefield?: readonly any[]): number | undefined {
   const kw = lower(keyword).replace(/_/g, ' ').trim();
-  if (!kw || !perm) return false;
-  if (perm.losesAllAbilities === true || perm.lostAllAbilities === true) return true;
+  if (!kw || !perm) return undefined;
+  let latest: number | undefined;
+  const note = (ts: number | undefined) => { const v = ts ?? Infinity; latest = latest === undefined ? v : Math.max(latest, v); };
+  if (perm.losesAllAbilities === true || perm.lostAllAbilities === true) note(readAbilityLossTimestamp(perm, 'all abilities'));
   const removed = [
     ...stringEntries(perm.removedKeywords),
     ...stringEntries(perm.lostKeywords),
     ...stringEntries(perm.lostAbilities),
     ...stringEntries(perm.removedAbilities),
   ].map(lower);
-  if (removed.includes(kw) || removed.includes('all abilities') || removed.includes('all')) return true;
+  if (removed.includes(kw)) note(readAbilityLossTimestamp(perm, kw));
+  if (removed.includes('all abilities') || removed.includes('all')) note(readAbilityLossTimestamp(perm, 'all abilities'));
   for (const effect of Array.isArray(perm.temporaryEffects) ? perm.temporaryEffects : []) {
     const text = typeof effect === 'string' ? effect : `${effect?.effect || ''} ${effect?.description || ''}`;
-    if (textRemovesKeyword(text, kw)) return true;
-    if (stringEntries(effect?.removedKeywords).map(lower).includes(kw)) return true;
+    const effectTs = typeof effect === 'object' && effect ? finiteStamp(effect.ceTimestamp) : undefined;
+    if (textRemovesKeyword(text, kw) || stringEntries(effect?.removedKeywords).map(lower).includes(kw)) note(effectTs);
   }
   for (const attachment of attachmentsOf(perm, battlefield)) {
     const text = stripQuoted(stripReminders(ownOracle(attachment)));
     const sentence = text.match(/\b(?:equipped|enchanted) (?:creature|permanent)\b[^.\n]*\bloses?\b[^.\n]*/i)?.[0] || '';
-    if (sentence && textRemovesKeyword(sentence, kw)) return true;
+    if (sentence && textRemovesKeyword(sentence, kw)) note(readAttachmentTimestamp(attachment) ?? readPermanentTimestamp(attachment));
   }
   if (Array.isArray(battlefield)) {
     for (const source of battlefield) {
@@ -365,12 +442,45 @@ export function permanentLosesKeyword(perm: any, keyword: string, battlefield?: 
       const text = ownOracle(source);
       if (!/\blose\b/i.test(text)) continue;
       for (const grant of parseStaticGrants(text, 'lose')) {
-        if (!grantListIncludes(grant.abilities, kw) && !/^\s*all abilities\b/.test(grant.abilities)) continue;
-        if (grantApplies(grant, source, perm, battlefield)) return true;
+        // Blood Sun: "all abilities except mana abilities" removes keywords (never mana) but is not total loss.
+        if (/^\s*all abilities except mana abilities\b/i.test(grant.abilities)) { if (kw === 'all abilities') continue; }
+        else if (!grantListIncludes(grant.abilities, kw) && !/^\s*all abilities\b/.test(grant.abilities)) continue;
+        if (grantApplies(grant, source, perm, battlefield)) { note(readPermanentTimestamp(source)); break; }
       }
     }
   }
-  return false;
+  return latest;
+}
+
+function finiteStamp(value: unknown): number | undefined {
+  const n = Number(value);
+  return Number.isFinite(n) && n > TIMESTAMP_BASE ? n : undefined;
+}
+
+/** Timestamp of the effect source as seen by `perm`: attachment stamp for its own Auras/Equipment, else entry stamp. */
+function sourceTimestampFor(source: any, perm: any): number | undefined {
+  if (source?.attachedTo && String(source.attachedTo) === String(perm?.id || '')) return readAttachmentTimestamp(source);
+  return readPermanentTimestamp(source);
+}
+
+/** Grants of `kw` to `perm` whose timestamp is later than `lossTs` (they apply after the removal in layer 6). */
+function keywordGrantedAfter(perm: any, kw: string, lossTs: number, battlefield?: readonly any[]): boolean {
+  if (!Number.isFinite(lossTs)) return false;
+  for (const field of GRANT_LIST_FIELDS) {
+    for (const entry of stringEntries(perm?.[field])) {
+      if (grantedAbilityIsOwnKeyword(entry, kw) && (readAbilityGrantTimestamp(perm, entry) ?? 0) > lossTs) return true;
+    }
+  }
+  for (const mod of Array.isArray(perm?.modifiers) ? perm.modifiers : []) {
+    const type = lower((mod as any)?.type);
+    if ((type === 'abilitygrant' || type === 'ability_grant') && grantedAbilityIsOwnKeyword((mod as any)?.ability, kw)
+      && (finiteStamp((mod as any)?.timestamp) ?? 0) > lossTs) return true;
+  }
+  if (!Array.isArray(battlefield)) return false;
+  const later = battlefield.filter((source: any) => source && source !== perm
+    && String(source.id || '') !== String(perm?.id || '') && (sourceTimestampFor(source, perm) ?? 0) > lossTs);
+  if (later.length === 0) return false;
+  return attachmentGrantsKeywordTo(perm, kw, later) || battlefieldGrantsKeywordTo(perm, kw, later, false);
 }
 
 /**
@@ -384,7 +494,8 @@ export function permanentHasKeywordAbility(
 ): boolean {
   const kw = lower(keyword).replace(/_/g, ' ').trim();
   if (!kw || !perm) return false;
-  if (permanentLosesKeyword(perm, kw, battlefield)) return false;
+  const lossTs = permanentKeywordLossTimestamp(perm, kw, battlefield);
+  if (lossTs !== undefined) return keywordGrantedAfter(perm, kw, lossTs, battlefield);
   if (ownSourcesHaveKeyword(perm, kw)) return true;
   if (attachmentGrantsKeywordTo(perm, kw, battlefield)) return true;
   return battlefieldGrantsKeywordTo(perm, kw, battlefield);

@@ -11,6 +11,7 @@
  */
 
 import type { PlayerID } from "../../../../shared/src/index.js";
+import { graveyardCardsAreUntargetable } from '../../state/modules/graveyardTargetingRestriction.js';
 import { buildCastFromGraveyardCard } from "../../state/modules/graveyard-permissions.js";
 import {
   canPermanentBeTargetedByPlayer,
@@ -292,7 +293,7 @@ function buildGraveyardSpellCastValidTargets(
         for (const ownerId of (targetReqs.graveyardScope === 'any'
           ? players.filter((player: any) => player?.id).map((player: any) => String(player.id))
           : [controllerId])) {
-          const graveyard = Array.isArray(zones?.[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
+          const graveyard = graveyardCardsAreUntargetable(game.state, String(controllerId), String(ownerId)) ? [] : (Array.isArray(zones?.[ownerId]?.graveyard) ? zones[ownerId].graveyard : []);
           validTargets.push(...graveyard
             .filter((card: any) => {
               if (!matchesSharedGraveyardCardTargetType(card, targetType)) {

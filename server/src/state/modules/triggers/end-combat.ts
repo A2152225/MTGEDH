@@ -7,6 +7,7 @@ import {
   inferEndCombatWhoseTurn,
   shouldQueuePhaseTriggerForActivePlayer,
 } from './phaseWhoseTurn.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export interface EndOfCombatTrigger {
   permanentId: string;
@@ -20,7 +21,8 @@ export interface EndOfCombatTrigger {
   stackItem?: Record<string, unknown>;
 }
 
-export function detectEndOfCombatTriggers(card: any, permanent: any): EndOfCombatTrigger[] {
+export function detectEndOfCombatTriggers(card: any, permanent: any, gameState?: any): EndOfCombatTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'step' })) return []; // Humility / Torpor Orb gate
   const triggers: EndOfCombatTrigger[] = [];
   const oracleText = (card?.oracle_text || '');
   const cardName = card?.name || 'Unknown';
@@ -69,7 +71,7 @@ export function getEndOfCombatTriggers(
     if (!permanent || !permanent.card) continue;
     if (triggers.length >= MAX_TRIGGERS_PER_STEP) break;
 
-    const permTriggers = detectEndOfCombatTriggers(permanent.card, permanent);
+    const permTriggers = detectEndOfCombatTriggers(permanent.card, permanent, (ctx as any)?.state);
     const oracleText = String(permanent.card.oracle_text || '');
 
     for (const trigger of permTriggers) {

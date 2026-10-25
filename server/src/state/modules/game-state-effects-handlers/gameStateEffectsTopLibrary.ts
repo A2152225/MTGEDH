@@ -6,6 +6,7 @@
 // recalculatePlayerEffects.
 // Leaf must not import game-state-effects.ts or game-state-effects-handlers/index.ts.
 
+import { zoneCastProhibitionReason } from "../batch31CastLocks.js"; // B31
 import type { GameContext } from "../../context.js";
 import type { PlayerID } from "../../../../../shared/src/index.js";
 import { grantTelepathyForPlayer } from "../telepathy.js";
@@ -304,6 +305,10 @@ export function canCastFromTop(
     }
   }
   
+  const b31LibraryLock = zoneCastProhibitionReason(ctx.state, String(playerId), 'library');
+  if (b31LibraryLock) {
+    return { canCast: false, sources: [], restrictions: [...restrictions, b31LibraryLock], grantsFlash: false, flashSources: [] };
+  }
   return {
     canCast: sources.length > 0,
     sources,

@@ -4,6 +4,8 @@
  * Reference: Magic: The Gathering Comprehensive Rules (November 14, 2025)
  */
 
+import { candidateHasPartner, validatePartnerPair } from './partnerDeckValidation';
+
 // ============================================================================
 // Rule 901: Planechase Variant
 // ============================================================================
@@ -103,6 +105,8 @@ export interface Commander {
   readonly colorIdentity: readonly string[]; // W, U, B, R, G
   readonly canBeCommander: boolean;
   readonly timesCommanderCast: number; // For tax calculation
+  readonly oracleText?: string; // Partner-family abilities are read from this when present
+  readonly typeLine?: string; // Background / Time Lord Doctor pairing targets
 }
 
 /**
@@ -290,17 +294,20 @@ export function checkCommanderDamageWin(damage: CommanderDamage): boolean {
  * Rule 903.3b-c - Validate partner commanders
  */
 export function validatePartners(commander1: Commander, commander2: Commander): boolean {
-  // Both must have partner, or partner with each other
-  return hasPartner(commander1) && hasPartner(commander2);
+  // Without rules text the pairing can't be checked; keep the legacy permissive answer.
+  if (commander1.oracleText === undefined && commander1.typeLine === undefined
+    && commander2.oracleText === undefined && commander2.typeLine === undefined) return true;
+  return validatePartnerPair(commander1, commander2);
 }
 
 /**
  * Check if commander has partner ability
  */
 export function hasPartner(commander: Commander): boolean {
-  // This would check for partner, partner with, friends forever, etc.
-  // Simplified for this implementation
-  return true; // Placeholder
+  // Partner, Partner with, Partner—[text], Friends forever, Choose a Background, Doctor's companion,
+  // or a Background/Doctor that such a commander can pair with.
+  if (commander.oracleText === undefined && commander.typeLine === undefined) return true;
+  return candidateHasPartner(commander);
 }
 
 /**

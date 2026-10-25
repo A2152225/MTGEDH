@@ -10,12 +10,14 @@ import { KNOWN_END_STEP_TRIGGERS } from "../card-data-tables.js";
 import type { EndStepTrigger } from "./turnPhaseTriggerTypes.js";
 import { getActivePermanentCardFace } from "./turnPhaseActivePermanentFace.js";
 import { detectRequiresChoice, detectAffectsAllPlayers } from "./turnPhaseEffectChoiceHelpers.js";
+import { permanentHasTriggeredAbilities } from '../triggeredAbilitySuppression.js';
 
 /**
  * Detect end step triggers from a card's oracle text
  * Uses dynamic regex-based detection to work with any card
  */
-export function detectEndStepTriggers(card: any, permanent: any): EndStepTrigger[] {
+export function detectEndStepTriggers(card: any, permanent: any, gameState?: any): EndStepTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'step' })) return []; // Humility / Torpor Orb gate
   const triggers: EndStepTrigger[] = [];
   const { cardName, oracleText } = getActivePermanentCardFace(card, permanent);
   const lowerName = cardName.toLowerCase();

@@ -331,6 +331,12 @@ export function tryDeferTriggeredAbilityTargetSelection(
               state,
             );
             if (!matchesType) return false;
+            // "any target that isn't a commander" (Lozhan, Dragons' Legacy).
+            if (/\bthat (?:isn't|is not|isn\u2019t) a commander\b/i.test(String((item as any).effect || description || ''))) {
+              const cid = String(permanent.card?.id || '');
+              const cz: any = (state as any).commandZone || {};
+              if (permanent.isCommander === true || (cid && Object.values(cz).some((z: any) => Array.isArray(z?.commanderIds) && z.commanderIds.map(String).includes(cid)))) return false;
+            }
             // Hexproof/shroud (printed, equipment/aura, static and runtime grants).
             if (!canPermanentBeTargetedByPlayer(permanent, state, String(triggerController) as PlayerID)) return false;
             if (String((item as any).targetConstraint || '').toLowerCase() === 'opponent') {

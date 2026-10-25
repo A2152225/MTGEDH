@@ -5,6 +5,7 @@ import { debug } from '../../utils/debug.js';
 import { getEffectivePower } from '../../socket/util.js';
 import { detectSpellLandBonus, applyTemporaryLandBonus } from './game-state-effects.js';
 import { executeSpellEffect } from './executeSpellEffect.js';
+import { setResolvingSpellSource, clearResolvingSpellSource, targetIdsOf } from './replacementResolvingSpellSource.js';
 import { wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
 import { applySupplementalOracleIRForResolvedSpell } from './oracleIrSpellLegacySupplemental.js';
 import { applyInstantSorceryItsControllerCreatesToken } from './stackResolveSpellTargetMetadataUtils.js';
@@ -172,15 +173,25 @@ export function executeInstantSorceryLegacyCategorizedSpell(
 
   const effects = resolveSpell(hydratedSpec as any, targetRefs, state as any, controller as any);
 
-  for (const effect of effects) {
-    executeSpellEffect(
-      ctx,
-      effect,
-      controller,
-      effectiveCard.name || 'spell',
-      String((item as any).source || (item as any).permanentId || ''),
-      String((item as any).id || (card as any)?.id || ''),
-    );
+  setResolvingSpellSource(state, {
+    id: String(Reflect.get(Object(item), 'id') || Reflect.get(Object(card), 'id') || ''),
+    cardId: String(Reflect.get(Object(card), 'id') || ''),
+    card: effectiveCard,
+    targets: targetIdsOf(targets),
+  });
+  try {
+    for (const effect of effects) {
+      executeSpellEffect(
+        ctx,
+        effect,
+        controller,
+        effectiveCard.name || 'spell',
+        String((item as any).source || (item as any).permanentId || ''),
+        String((item as any).id || (card as any)?.id || ''),
+      );
+    }
+  } finally {
+    clearResolvingSpellSource(state);
   }
 
   if (targets.length > 0 && /double (?:another\s+)?(?:up to (?:one|two|three|four|five|\d+) )?target creature(?: you control)?'s power until end of turn\b/i.test(oracleText)) {

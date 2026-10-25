@@ -17,6 +17,8 @@ import {
 } from '../triggerDoThisOnlyOnceEachTurn.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 import { isOneOrMoreIRBatchDuplicate } from './triggerIRVerdict.js';
+import { dropTriggersFromAbilitylessSources, permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
+import { counterTargetSubjectMatches } from './counterTargetSubject.js';
 
 export interface CounterPlacedTrigger {
   permanentId: string;
@@ -88,6 +90,7 @@ function collectCounterRemovedTriggerEffectText(oracleText: string, match: RegEx
 }
 
 export function detectCounterPlacedTriggers(card: any, permanent: any, gameState?: any): CounterPlacedTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'counters' })) return []; // Humility / Torpor Orb gate
   const triggers: CounterPlacedTrigger[] = [];
   const printedOracle = String(card?.oracle_text || '');
   const annotated = resolveDetectorOracleForPermanent(permanent, printedOracle, gameState);
@@ -317,6 +320,8 @@ export function getCounterPlacedTriggers(
       if (shouldSkipFirstTimeEachTurnTrigger(ctx.state, trigger)) continue;
       if (trigger.triggerType === 'counters_put_on_self') {
         if (String(permanent.id || '') !== String(targetPermanent?.id || '')) continue;
+      } else if (trigger.triggerType === 'counters_put_on_target') {
+        if (!counterTargetSubjectMatches(String(trigger.oracleClause || ''), permanent, targetPermanent)) continue;
       } else if (trigger.targetFilter === 'creature' && !targetTypeLine.includes('creature')) {
         continue;
       }
@@ -386,7 +391,7 @@ export function getCounterPlacedTriggers(
     }
   }
 
-  return triggers;
+  return dropTriggersFromAbilitylessSources(triggers, ctx.state, (t: any) => String(t?.permanentId || ''), { event: 'counters' });
 }
 
 function findBattlefieldPermanentById(ctx: GameContext, permanentId: string): any | undefined {
@@ -497,7 +502,8 @@ export function queueCounterPlacedTriggers(
   return queued;
 }
 
-export function detectCounterRemovedTriggers(card: any, permanent: any): CounterRemovedTrigger[] {
+export function detectCounterRemovedTriggers(card: any, permanent: any, gameState?: any): CounterRemovedTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'counters' })) return []; // Humility / Torpor Orb gate
   const triggers: CounterRemovedTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
   const permanentId = String(permanent?.id || '');
@@ -625,7 +631,7 @@ export function getCounterRemovedTriggers(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
 
-    const permanentTriggers = detectCounterRemovedTriggers(permanent.card, permanent);
+    const permanentTriggers = detectCounterRemovedTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of permanentTriggers) {
       if (trigger.targetFilter === 'self' && String(permanent.id || '') !== String(targetPermanent?.id || '')) {
         continue;
@@ -704,7 +710,7 @@ export function getCounterRemovedTriggers(
     }
   }
 
-  return triggers;
+  return dropTriggersFromAbilitylessSources(triggers, ctx.state, (t: any) => String(t?.permanentId || ''), { event: 'counters' });
 }
 
 export function queueCounterRemovedTriggers(

@@ -153,9 +153,10 @@ export function recordGraveyardPermanentTypesCastThisTurn(state: any, playerId: 
   }
 }
 
-export function recordCommittedCrimeThisTurn(state: any, controllerId: string, targets: any[]): void {
+/** Records the crime (if the targets make one) and returns whether these targets commit a crime. */
+export function recordCommittedCrimeThisTurn(state: any, controllerId: string, targets: any[]): boolean {
   const normalizedController = String(controllerId || '').trim();
-  if (!normalizedController || !Array.isArray(targets) || targets.length === 0) return;
+  if (!normalizedController || !Array.isArray(targets) || targets.length === 0) return false;
 
   try {
     const playerIds = new Set(
@@ -208,7 +209,9 @@ export function recordCommittedCrimeThisTurn(state: any, controllerId: string, t
       state.hasCommittedCrimeThisTurn = state.hasCommittedCrimeThisTurn || {};
       state.hasCommittedCrimeThisTurn[normalizedController] = true;
     }
+    return committed;
   } catch {
     // best-effort only
+    return false;
   }
 }

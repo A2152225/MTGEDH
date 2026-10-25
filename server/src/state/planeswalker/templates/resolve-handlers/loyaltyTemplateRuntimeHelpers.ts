@@ -12,6 +12,7 @@
 //   toAvailableCard, getSourcePlaneswalkerColors, predefinedArtifactTokens.
 
 import type { GameContext } from "../../../context.js";
+import { queuePlayerDealtNoncombatDamageIR } from '../../../modules/triggers/player-dealt-damage-ir.js';
 import type { PlayerID } from "../../../../../../shared/src/types.js";
 import { destroyPermanent, movePermanentToExile } from "../../../modules/counters_tokens.js";
 import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from "../../../modules/durable-permissions.js";
@@ -244,6 +245,7 @@ export function applyDamageToPlayer(ctx: GameContext, playerId: PlayerID, amount
     stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
     stateAny.lifeLostThisTurn[String(playerId)] = (stateAny.lifeLostThisTurn[String(playerId)] || 0) + dmg;
   } catch {}
+  queuePlayerDealtNoncombatDamageIR(ctx, { damagedPlayerId: String(playerId), damageAmount: dmg });
 }
 
 export function recordCreatureDealtDamageToPlayerThisTurn(

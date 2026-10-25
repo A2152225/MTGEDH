@@ -12,6 +12,7 @@ import type { GameContext } from '../context.js';
 import { matchesGraveyardCardTargetType } from '../../rules-engine/targeting.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { cardManaValue } from '../utils.js';
+import { graveyardCardsAreUntargetable } from './graveyardTargetingRestriction.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
@@ -56,7 +57,7 @@ function buildTriggeredAbilityGraveyardValidTargets(
 
   const results: Array<{ id: string; name: string; typeLine: string; manaCost?: string; imageUrl?: string; zoneOwnerId: string }> = [];
   for (const ownerId of owners) {
-    const graveyard = Array.isArray(zones[ownerId]?.graveyard) ? zones[ownerId].graveyard : [];
+    const graveyard = graveyardCardsAreUntargetable(state, String(controllerId), String(ownerId)) ? [] : (Array.isArray(zones[ownerId]?.graveyard) ? zones[ownerId].graveyard : []);
     for (const card of graveyard) {
       if (!typeTokens.some((token) => matchesGraveyardCardTargetType(card, token))) continue;
       if (requiredTypeWords.length > 0) {

@@ -16,6 +16,7 @@ import {
 } from '../../../../../rules-engine/src/delayedTriggeredAbilities.js';
 import { inferTriggeredAbilityTargetMetadata } from '../inferTriggeredAbilityTargetMetadata.js';
 import { delayedCleanupStackFieldsFromRegistry } from './delayed-registry-watcher-metadata.js';
+import { resolveDelayedCombatHistorySelector } from './delayedCombatHistorySelectors.js';
 import { detectRequiresChoice } from './turn-phases-handlers/turnPhaseEffectChoiceHelpers.js';
 
 export function collectDelayedEndOfCombatRegistryTriggers(
@@ -51,9 +52,20 @@ export function collectDelayedEndOfCombatRegistryTriggers(
   };
 
   return delayedCheck.triggersToFire.map((delayed) => {
-    const effect = String(delayed.effect || '').trim();
+    let effect = String(delayed.effect || '').trim();
+    const snap: any = (delayed as any).eventDataSnapshot || {};
+    const refIds = [
+      ...(Array.isArray((delayed as any).targets) ? (delayed as any).targets : []),
+      ...(Array.isArray(snap.chosenObjectIds) ? snap.chosenObjectIds : []),
+      ...(snap.targetPermanentId ? [snap.targetPermanentId] : []),
+    ].map(String);
+    const combatSel = resolveDelayedCombatHistorySelector(effect, refIds, state.battlefield || []);
+    const cleanupSource: any = combatSel
+      ? { ...delayed, effect: combatSel.effect, targets: [], eventDataSnapshot: {}, effectData: { ...((delayed as any).effectData || {}), lastAntecedentBattlefieldPermanentIds: combatSel.ids } }
+      : delayed;
+    if (combatSel) effect = combatSel.effect;
     const targetMetadata = inferTriggeredAbilityTargetMetadata(effect);
-    const cleanupFields = delayedCleanupStackFieldsFromRegistry(delayed);
+    const cleanupFields = delayedCleanupStackFieldsFromRegistry(cleanupSource);
     return {
       permanentId: String(delayed.sourceId || ''),
       cardName: String(delayed.sourceName || 'Delayed trigger'),

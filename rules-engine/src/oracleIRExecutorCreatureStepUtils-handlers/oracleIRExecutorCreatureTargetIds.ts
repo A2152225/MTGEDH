@@ -16,7 +16,7 @@ import {
   permanentHasKeyword,
   readPowerForComparison,
   readToughnessForComparison,
-  resolveBlockersOfPermanent,
+  resolveBlockersOfPermanent, resolveCreaturesBlockedByPermanent,
   resolveBlockingCreatureIds,
 } from './oracleIRExecutorCreatureBattlefieldHelpers';
 import {
@@ -104,7 +104,9 @@ export function resolveCreatureTargetIds(
   const battlefield = getProcessedBattlefield(state).filter(permanent => isExecutorCreature(permanent));
   const controllerId = String(ctx.controllerId || '').trim();
 
-  if (targetText === 'that creature' || targetText === 'the creature') {
+  const isVehicleRef = /^(?:that|the) (?:vehicle|mount|mount or vehicle)$/i.test(targetText);
+  if (targetText === 'that creature' || targetText === 'the creature' || isVehicleRef) {
+    const pool = isVehicleRef ? getProcessedBattlefield(state) : battlefield;
     const preferredIds = [
       String(ctx.targetCreatureId || ''),
       String(ctx.targetPermanentId || ''),
@@ -116,7 +118,7 @@ export function resolveCreatureTargetIds(
       .map((id) => String(id || '').trim())
       .filter(Boolean);
     for (const preferredId of preferredIds) {
-      if (battlefield.some((permanent) => String((permanent as any)?.id || '').trim() === preferredId)) {
+      if (pool.some((permanent) => String((permanent as any)?.id || '').trim() === preferredId)) {
         return [preferredId];
       }
     }
@@ -298,6 +300,11 @@ export function resolveCreatureTargetIds(
   ) {
     if (!sourceId) return [];
     return resolveBlockersOfPermanent(state, sourceId);
+  }
+
+  if (/^each creature (?:it|this creature|~) blocked this combat$/.test(targetText)) {
+    if (!sourceId) return [];
+    return resolveCreaturesBlockedByPermanent(state, sourceId);
   }
 
   if (targetText === 'creatures your opponents control' || targetText === 'all creatures your opponents control') {

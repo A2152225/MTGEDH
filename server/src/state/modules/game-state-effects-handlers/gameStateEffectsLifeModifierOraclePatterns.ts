@@ -20,6 +20,7 @@ import {
   getReplacementEffectMode,
   getReplacementEffectPreference,
 } from "./gameStateEffectsReplacementApply.js";
+import { applyLifeGainDrawInstead } from "./gameStateEffectsLifeGainDrawInstead.js";
 
 export interface LifeModifier {
   permanentId: string;
@@ -298,6 +299,8 @@ export function processLifeChange(
   }
 
   const gainResult = applyLifeGainReplacements(ctx, amount, playerId);
+  const drawInstead = applyLifeGainDrawInstead(ctx, playerId, gainResult.finalAmount);
+  if (drawInstead) return drawInstead;
   return { finalAmount: gainResult.finalAmount, prevented: false };
 }
 

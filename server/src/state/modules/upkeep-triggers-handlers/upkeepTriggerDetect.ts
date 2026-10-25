@@ -14,11 +14,13 @@ import {
 } from "./upkeepTriggerDetectHelpers.js";
 import { shouldTriggerEcho } from "./upkeepEchoHelpers.js";
 import { resolveDetectorOracleForPermanent } from "../triggers/detectorGrantedOracle.js";
+import { permanentHasTriggeredAbilities } from '../triggers/triggeredAbilitySuppression.js';
 
 /**
  * Detect upkeep triggers from a card's oracle text
  */
 export function detectUpkeepTriggers(card: any, permanent: any, state?: any): UpkeepTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, state, { event: 'step' })) return []; // Humility / Torpor Orb gate
   const triggers: UpkeepTrigger[] = [];
   const activeFace = getActivePermanentCardFace(card, permanent, state);
   const annotated = resolveDetectorOracleForPermanent(permanent, activeFace.oracleText, state);
@@ -34,7 +36,7 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
   const cumulativeMatch = oracleText.match(/cumulative upkeep[—\-\s]*(\{[^}]+\}(?:\s*\{[^}]+\})*|[^(.\n]+)/i);
   if (cumulativeMatch) {
     const ageCounters = (counters["age"] || 0) + 1;
-    const cost = cumulativeMatch[1].trim();
+    const cost = cumulativeMatch[1].trim().replace(/^pay\s+/i, '');
     
     // Special case: Braid of Fire has "Cumulative upkeep—Add {R}" or similar
     // This ADDS mana instead of requiring payment
@@ -51,8 +53,8 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
         ? `${cost} for each age counter (will be ${ageCounters})`
         : `Pay ${cost} for each age counter (will be ${ageCounters})`,
       counters: ageCounters,
-      mandatory: isAddingMana, // Adding mana is mandatory, payment is optional
-      consequence: isAddingMana ? undefined : `Sacrifice ${cardName}`,
+      mandatory: true, // pay-or-sacrifice choice is made on resolution (cumulativeUpkeepPayment)
+      consequence: `Sacrifice ${cardName}`,
       controllerTrigger: true,
       anyPlayerTrigger: false,
     });

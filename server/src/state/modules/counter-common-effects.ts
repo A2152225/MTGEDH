@@ -1,4 +1,5 @@
 import { getMarkedDamage } from '../../../../shared/src/markedDamage.js';
+import { recordDamageReplacementMessages } from './replacementDamageLog.js';
 import { evaluateDamageReplacementEvent, evaluateLeaveBattlefieldDestinationReplacement } from './replacement-effects.js';
 
 const COMMON_GRANTED_ABILITIES = [
@@ -150,6 +151,7 @@ export function applyDamageToPermanentWithCounterEffects(
   });
 
   if (replacement.effectId === 'shield-counter-prevent-damage' && applyShieldCounterDamagePrevention(permanent)) {
+    recordDamageReplacementMessages(options?.state, [`${String(permanent?.card?.name || permanent?.id || 'permanent')}: shield counter removed, prevented ${normalizedAmount} damage`], normalizedAmount, 0);
     return { prevented: true, appliedAmount: 0 };
   }
 

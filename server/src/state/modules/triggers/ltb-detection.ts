@@ -10,11 +10,13 @@ import { mergeDetectorOracleWithContinuousGrants } from "./detectorGrantedOracle
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import { LTB_STATIC_ALTERNATIVES } from "./etb-detection-helpers.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 /**
  * Detect leaves-the-battlefield triggers from a card's oracle text.
  */
 export function detectLTBTriggers(card: any, permanent?: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'ltb' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   // Detector regexes scan raw oracle text. Remove only recognized keyword
   // reminders first so a reminder's "when/whenever" cannot become a trigger.

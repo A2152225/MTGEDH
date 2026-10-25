@@ -61,7 +61,7 @@ export function processSagaLoreCountersAtPrecombatMain(
 
   for (const permanent of battlefield) {
     if (!permanent?.card || permanent.controller !== playerId) continue;
-    if (!detectSagaLoreCounterTrigger(permanent.card, permanent)) continue;
+    if (!detectSagaLoreCounterTrigger(permanent.card, permanent, (ctx as any)?.state)) continue;
 
     const permanentId = String(permanent.id || '').trim();
     if (!permanentId) continue;

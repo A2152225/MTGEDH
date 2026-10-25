@@ -10,6 +10,8 @@ import {
 } from './oracleIrSpellLegacyTokenUtils.js';
 import { parseNumberWord } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { persistNamedSpellCastThisGame } from './namedSpellsCastThisGame.js';
+import { applyNextCastRiders } from './nextCastDelayedRiders.js';
+import { queueSpellCopiedTriggers } from './triggers/spell-copied.js';
 import { buildResolvedSpellCopySnapshot, wasSpellCastFromGraveyard } from './stackResolveSpellCopyChoiceUtils.js';
 import { buildOracleOverlayCollectOptions } from './oracleIrCompiledOverlayLookup.js';
 import { collectSpellResolutionEffectSteps } from './trigger-runtime-wiring.js';
@@ -159,6 +161,7 @@ export function applyInstantSorceryCopyStackSpellRiders(
             name: copiedSpell?.card?.name || targetStackItem?.card?.name,
             id: copiedSpell?.id,
           });
+          queueSpellCopiedTriggers(ctx, String(copiedSpell?.id || ''));
         }
 
         bumpSeq?.();
@@ -182,37 +185,15 @@ function applyDelayedNextCastInstantOrSorceryCopyRider(
   ctx: GameContext,
   options: InstantSorceryPostCategorizeRiderOptions,
 ): void {
-  const oracleTextLower = options.oracleTextLower;
-  if (!oracleTextLower.includes('when you next cast an instant or sorcery spell this turn, copy that spell. you may choose new targets for the copy.')) {
-    return;
-  }
-
-  const stateAny = (ctx as any).state as any;
-  if (!stateAny) {
-    return;
-  }
-
-  const controller = options.controller;
-  const sourceName = options.effectiveCard?.name || 'Spell copy';
-  stateAny.delayedSpellCopiesThisTurn = Array.isArray(stateAny.delayedSpellCopiesThisTurn)
-    ? stateAny.delayedSpellCopiesThisTurn
-    : [];
-  const alreadyQueued = stateAny.delayedSpellCopiesThisTurn.some((entry: any) => (
-    String(entry?.controllerId || '') === String(controller || '')
-    && String(entry?.sourceName || '') === String(sourceName)
-  ));
-  if (alreadyQueued) {
-    return;
-  }
-
-  stateAny.delayedSpellCopiesThisTurn.push({
-    controllerId: controller,
-    spellType: 'instant_or_sorcery',
-    sourceName,
-    allowRetargeting: true,
+  const added = applyNextCastRiders(ctx, options.oracleText, {
+    controllerId: String(options.controller || ''),
+    sourceName: String(options.effectiveCard?.name || 'Spell copy'),
+    originId: String(options.item?.id || '') || undefined,
+    xValue: Number(options.spellXValue ?? options.item?.xValue) || 0,
   });
-  (ctx as any).delayedSpellCopiesThisTurn = stateAny.delayedSpellCopiesThisTurn;
-  debug(2, `[resolveTopOfStack] ${options.effectiveCard?.name || 'Spell'}: queued next instant/sorcery spell copy for ${controller}`);
+  if (added > 0) {
+    debug(2, `[resolveTopOfStack] ${options.effectiveCard?.name || 'Spell'}: queued ${added} next-cast rider(s) for ${options.controller}`);
+  }
 }
 
 export function applyInstantSorceryFracturedIdentityAndFallbackRiders(

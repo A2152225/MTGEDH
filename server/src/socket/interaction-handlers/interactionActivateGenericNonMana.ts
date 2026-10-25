@@ -8,6 +8,7 @@
  */
 
 import type { PlayerID } from "../../../../shared/src/index.js";
+import { graveyardCardsAreUntargetable } from '../../state/modules/graveyardTargetingRestriction.js';
 import { appendEvent } from "../../db";
 import { movePermanentToGraveyard } from "../../state/modules/counters_tokens.js";
 import { markExhaustAbilityActivated } from "../../state/modules/keywordActivationState.js";
@@ -322,6 +323,7 @@ export async function tryHandleActivateGenericNonMana(
         const graveyard = Array.isArray((game.state as any)?.zones?.[ownerId]?.graveyard)
           ? (game.state as any).zones[ownerId].graveyard
           : [];
+        if (graveyardCardsAreUntargetable(game.state, String(pid), String(ownerId))) return [];
         return graveyard
           .filter((card: any) => {
             if (!parsedGraveyardTargetReqs.targetTypes.some((targetType) => matchesParsedGraveyardCardTargetType(card, String(targetType)))) {

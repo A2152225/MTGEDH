@@ -1,3 +1,4 @@
+import { recordFaceDownReveal } from '../faceDownRevealLog.js';
 // server/src/state/modules/zones-handlers/zonesMoveRemovedPermanentToExile.ts
 // Origin parent: server/src/state/modules/zones.ts
 // Cluster moved: moveRemovedPermanentToExile.
@@ -30,6 +31,7 @@ export function moveRemovedPermanentToExile(
   const zoneCard = ((permanent as any)?.isFaceDown === true && (permanent as any)?.faceUpCard)
     ? (permanent as any).faceUpCard
     : (permanent as any)?.card;
+  try { recordFaceDownReveal(state, permanent); } catch { /* best-effort */ }
   const exileTag = {
     ...(String(options?.exiledWithSourceId || (permanent as any)?.leaveBattlefieldReplacementSourceId || '').trim()
       ? { exiledWithSourceId: String(options?.exiledWithSourceId || (permanent as any)?.leaveBattlefieldReplacementSourceId).trim() }

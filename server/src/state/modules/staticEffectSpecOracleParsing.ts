@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
+import { pushPairedAndGraveyardCountQuotedGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingPairedThresholdQuotedGrants.js';
 import {
   parseAttachmentGrantedKeywordsFromOracle,
   parseAttachmentGrantedTypesFromOracle,
@@ -32,11 +33,21 @@ import { pushMustBeBlockedSpecs } from './staticEffectSpec-handlers/staticEffect
 import { pushMustBeBlockedByTypeSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingMustBeBlockedByType.js';
 import { pushCantAttackBlockSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingCantAttack.js';
 import { pushMassCantAttackBlockSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingMassCantAttack.js';
+import { pushCountedAndAttachedPTSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingCountedPT.js';
+import { pushEnchantedCreatureLordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingEnchantedCreatureLord.js';
+import { pushConditionalAttachedPTSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalAttachedPT.js';
+import { pushAttachedExtraSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingAttachedExtras.js';
+import { pushQualifiedGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingQualifiedGrants.js';
+import { pushAttachedQuotedAbilityGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingAttachedQuotedGrants.js';
 import { pushLoseKeywordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingLoseKeywords.js';
 import { pushAttackYouTaxSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingAttackYouTax.js';
 import { pushTypedAndKeywordLordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingTypedAndKeywordLords.js';
 import { pushQuotedNumericAndBasePTLordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingQuotedNumericBasePT.js';
 import { pushConditionalSelfGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalSelfGrants.js';
+import { pushConditionalScopedGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalScopedGrants.js';
+import { pushGlobalGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingGlobalGrants.js';
+import { pushQualifiedScopeSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingQualifiedScopes.js';
+import { pushPhase5SupplementalSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingPhase5Supplement.js';
 
 /** Lightning Greaves / Swiftfoot Boots: grant keywords to the equipped/enchanted host. */
 function pushAttachedHostKeywordGrants(
@@ -418,6 +429,16 @@ function pushLordSpecs(
 export function parseStaticEffectSpecsFromOraclePermanent(
   perm: BattlefieldPermanent,
 ): StaticEffectSpec[] {
+  return pushPhase5SupplementalSpecs(
+    parseStaticEffectSpecsFromOraclePermanentCore(perm),
+    perm,
+    parseStaticEffectSpecsFromOraclePermanent,
+  );
+}
+
+function parseStaticEffectSpecsFromOraclePermanentCore(
+  perm: BattlefieldPermanent,
+): StaticEffectSpec[] {
   const oracleText = String((perm as any)?.card?.oracle_text || (perm as any)?.oracle_text || '').trim();
   if (!oracleText) return [];
 
@@ -439,10 +460,15 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   ).trim().toLowerCase();
 
   pushDynamicLordSpecs(specs, source, oracle);
-  if (specs.length > 0) return specs;
+  const hasDynamicLord = specs.length > 0;
 
-  // "As long as <condition>, this creature has X" - evaluated against current state.
+  // "As long as <condition>, this creature has X" - evaluated against current state. Runs even
+  // beside a dynamic lord line (Svyelun: conditional self indestructible + Merfolk ward lord).
   pushConditionalSelfGrantSpecs(specs, source, oracle);
+  pushConditionalScopedGrantSpecs(specs, source, oracle);
+  pushGlobalGrantSpecs(specs, source, oracle);
+  pushQualifiedScopeSpecs(specs, source, oracle);
+  if (hasDynamicLord) return specs;
 
   const leylineLifeMatch = oracle.match(
     /if you have at least (\w+) life more than your starting life total, creatures you control get (\+\d+\s*\/\s*\+\d+)/i,
@@ -604,13 +630,13 @@ export function parseStaticEffectSpecsFromOraclePermanent(
     }
   }
 
-  const allCreaturesMatch = oracle.match(/all creatures get (\+\d+\s*\/\s*\+\d+)/i);
+  const allCreaturesMatch = oracle.match(/all creatures get ([+-]\d+\s*\/\s*[+-]\d+)(?![^.\n]*until end of turn)/i);
   // Inside an activated ability ("{2}, {T}: All creatures get +2/+2 for as long as ...", Thran Weaponry) it is a
   // one-shot effect handled by the Oracle IR executor (source-linked modifier), not a permanent anthem.
   const allCreaturesLinePrefix = allCreaturesMatch
     ? oracle.slice(0, allCreaturesMatch.index ?? 0).split('\n').pop() || ''
     : '';
-  if (allCreaturesMatch && !allCreaturesLinePrefix.includes(':')) {
+  if (allCreaturesMatch && !allCreaturesLinePrefix.includes(':') && !/^\s*(?:when|whenever|at|if)\b/i.test(allCreaturesLinePrefix)) {
     const buff = parseBuffSegment(allCreaturesMatch[1]);
     if (buff) {
       specs.push(buildSpec(
@@ -625,7 +651,7 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   const hasOtherTypeLordPattern = /other\s+[a-z]+\s+creatures?\s+you\s+control\s+get/i.test(oracle);
 
   const monumentMatch = oracle.match(
-    /(?<!other )(?<!nontoken )(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/i,
+    /(?:^|[.\n;:,]\s*)creatures you control get (\+\d+\s*\/\s*\+\d+)\s+and have\s+([^.]+)/i,
   );
   if (monumentMatch) {
     const buff = parseBuffSegment(monumentMatch[1]);
@@ -650,11 +676,16 @@ export function parseStaticEffectSpecsFromOraclePermanent(
       && !legendaryMatch
       && !legendaryHaveMatch
       && !nonlegendaryMatch
-      ? oracle.match(/(?<!other )(?<!nontoken )(?<!nonblack )(?<!non[- ]?human )(?<!legendary )creatures you control get (\+\d+\s*\/\s*\+\d+)([^.]*)/i)
+      ? oracle.match(/(?:^|[.\n;:,]\s*)creatures you control get ([+-]\d+\s*\/\s*[+-]\d+)([^.]*)/i)
       : null;
     if (anthemMatch) {
       const buff = parseBuffSegment(anthemMatch[1]);
-      if (buff) {
+      // Penalty anthems (Heartless Summoning -1/-1, Flowstone Surge +1/-1) must be static: no trigger/duration/count tail.
+      const sentenceStart = Math.max(0, oracle.lastIndexOf('\n', anthemMatch.index ?? 0) + 1);
+      const lead = oracle.slice(sentenceStart, anthemMatch.index ?? 0);
+      const penaltyOk = !buff || (buff.power >= 0 && buff.toughness >= 0)
+        || (!/until end of turn|this turn|for each|as long as|where x/i.test(anthemMatch[2] || '') && !/\b(?:when|whenever|at the beginning|if|until)\b/i.test(lead));
+      if (buff && penaltyOk) {
         specs.push(buildSpec(
           source,
           'creatures-anthem',
@@ -683,6 +714,13 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   pushMustBeBlockedByTypeSpecs(specs, source, perm, oracle);
   pushCantAttackBlockSpecs(specs, source, perm, oracle);
   pushMassCantAttackBlockSpecs(specs, source, perm, oracle);
+  pushAttachedQuotedAbilityGrantSpecs(specs, source, perm, oracle);
+  pushCountedAndAttachedPTSpecs(specs, source, perm, oracle);
+  pushEnchantedCreatureLordSpecs(specs, source, perm, oracle);
+  pushConditionalAttachedPTSpecs(specs, source, perm, oracle);
+  pushAttachedExtraSpecs(specs, source, perm, oracle);
+  pushQualifiedGrantSpecs(specs, source, perm, oracle);
+  pushPairedAndGraveyardCountQuotedGrantSpecs(specs, source, perm, oracle);
   pushAttackYouTaxSpecs(specs, source, oracle, perm);
   pushColorAnthemSpecs(specs, source, oracle);
 
@@ -915,23 +953,4 @@ export function parseStaticEffectSpecsFromOraclePermanent(
 export function staticEffectSpecHasPowerToughnessGrant(spec: StaticEffectSpec): boolean {
   const perCount = Number(spec.grant.power || 0) !== 0 || Number(spec.grant.toughness || 0) !== 0;
   return perCount;
-}
-
-export function collectDeclarativeStaticSourcePermanentIds(specs: readonly StaticEffectSpec[]): Set<string> {
-  const sourceIds = new Set<string>();
-  for (const spec of specs) {
-    const sourceId = String(spec.sourcePermanentId || '').trim();
-    if (sourceId) sourceIds.add(sourceId);
-  }
-  return sourceIds;
-}
-
-export function collectDeclarativePtSourcePermanentIds(specs: readonly StaticEffectSpec[]): Set<string> {
-  const sourceIds = new Set<string>();
-  for (const spec of specs) {
-    if (!staticEffectSpecHasPowerToughnessGrant(spec)) continue;
-    const sourceId = String(spec.sourcePermanentId || '').trim();
-    if (sourceId) sourceIds.add(sourceId);
-  }
-  return sourceIds;
 }

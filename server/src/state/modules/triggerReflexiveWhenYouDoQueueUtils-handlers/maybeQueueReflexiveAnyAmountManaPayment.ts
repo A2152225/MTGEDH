@@ -23,6 +23,7 @@ import {
   getAvailableReflexiveManaAmountFromPool,
   parseReflexiveAnyAmountManaPayment,
 } from '../reflexive-triggers.js';
+import { parseReflexiveRepeatCostPayment, withRepeatCostPaymentRider } from '../reflexiveRepeatCostPayment.js';
 
 export function maybeQueueReflexiveAnyAmountManaPayment(
   ctx: GameContext,
@@ -30,9 +31,15 @@ export function maybeQueueReflexiveAnyAmountManaPayment(
   triggerController: PlayerID,
   sourceName: string,
   sourceId: string,
-  description: string,
+  descriptionIn: string,
 ): boolean {
-  const parsed = parseReflexiveAnyAmountManaPayment(description);
+  const description = withRepeatCostPaymentRider(descriptionIn, [
+    item?.sourcePermanentSnapshot?.card?.oracle_text, item?.card?.oracle_text, item?.oracleText,
+    getTriggerSourcePermanent((ctx as any).state, item)?.card?.oracle_text,
+  ]);
+  const repeat = parseReflexiveRepeatCostPayment(description);
+  const parsed: any = parseReflexiveAnyAmountManaPayment(description)
+    || (repeat ? { paymentUnit: repeat.cost, followupText: repeat.followupText, maxTimes: repeat.maxTimes } : null);
   if (!parsed) return false;
 
   if ((ctx as any).isReplaying) {
@@ -40,7 +47,10 @@ export function maybeQueueReflexiveAnyAmountManaPayment(
     return true;
   }
 
-  const maxAmount = getAvailableReflexiveManaAmountFromPool((ctx as any).state, String(triggerController), parsed.paymentUnit);
+  const maxAmount = Math.min(
+    getAvailableReflexiveManaAmountFromPool((ctx as any).state, String(triggerController), parsed.paymentUnit),
+    Number(parsed.maxTimes || Number.MAX_SAFE_INTEGER),
+  );
   if (maxAmount <= 0) {
     debug(2, `[resolveTopOfStack] Reflexive any-amount payment for ${sourceName}: no payable mana available`);
     return true;
@@ -58,7 +68,9 @@ export function maybeQueueReflexiveAnyAmountManaPayment(
     sourceId: promptSourceId || undefined,
     sourceName,
     sourceImage: (item as any)?.card?.image_uris?.small || (item as any)?.card?.image_uris?.normal,
-    description: `${sourceName}: You may pay any amount of ${paymentUnitLabel}.`,
+    description: parsed.maxTimes
+      ? `${sourceName}: You may pay ${paymentUnitLabel} up to ${maxAmount} time(s).`
+      : `${sourceName}: You may pay any amount of ${paymentUnitLabel}.`,
     mandatory: false,
     options: buildReflexivePaymentAmountOptions(maxAmount, parsed.paymentUnit),
     minSelections: 1,
@@ -66,6 +78,7 @@ export function maybeQueueReflexiveAnyAmountManaPayment(
     reflexiveManaPaymentChoice: true,
     reflexiveManaPaymentUnit: parsed.paymentUnit,
     reflexiveManaPaymentMaxAmount: maxAmount,
+    ...(parsed.maxTimes ? { reflexiveManaPaymentMaxTimes: Number(parsed.maxTimes) } : null),
     reflexiveManaPaymentFollowupText: parsed.followupText,
     reflexiveManaPaymentOriginalEffect: description,
     reflexiveManaPaymentController: String(triggerController),

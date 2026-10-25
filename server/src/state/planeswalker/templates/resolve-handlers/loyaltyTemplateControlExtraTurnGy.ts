@@ -14,6 +14,7 @@ import { ResolutionQueueManager } from "../../../resolution/index.js";
 import { ResolutionStepType } from "../../../resolution/types.js";
 import { movePermanentToExile, updateCounters } from "../../../modules/counters_tokens.js";
 import { syncPreparedPermanentAfterControlChange } from "../../../modules/prepared.js";
+import { registerControlEffect } from "../../../modules/continuousEffectRegistry.js";
 import { getOpponents, permanentHasKeyword, applyDamageToPlayer, discardHandCardsToGraveyard, findCreatureOnBattlefieldById, recordCreatureDealtDamageToPlayerThisTurn } from "./loyaltyTemplateRuntimeHelpers.js";
 import { addExtraTurn } from "../../../modules/turn.js";
 import { getCurrentPowerToughnessForRules as currentPT } from "../../../modules/currentPowerToughness.js";
@@ -46,6 +47,7 @@ export function tryLoyaltyTemplateControlExtraTurnGy(
         const previousController = String(perm.controller || '');
         perm.controller = controller;
         syncPreparedPermanentAfterControlChange(ctx.state, perm, previousController);
+        registerControlEffect(ctx.state, { permanentId: String(perm.id), originalController: previousController, newController: String(controller), duration: 'permanent' });
       }
 
       (ctx as any).bumpSeq?.();
@@ -102,13 +104,7 @@ export function tryLoyaltyTemplateControlExtraTurnGy(
       if (originalController !== controller) {
         target.controller = controller;
         syncPreparedPermanentAfterControlChange(ctx.state, target, String(originalController || ''));
-        stateAny.controlChangeEffects.push({
-          permanentId: target.id,
-          originalController,
-          newController: controller,
-          duration: 'eot',
-          appliedAt: Date.now(),
-        });
+        registerControlEffect(ctx.state, { permanentId: String(target.id), originalController: String(originalController || ''), newController: String(controller), duration: 'eot' });
       }
 
       // Untap
@@ -158,13 +154,7 @@ export function tryLoyaltyTemplateControlExtraTurnGy(
       if (originalController !== controller) {
         target.controller = controller;
         syncPreparedPermanentAfterControlChange(ctx.state, target, String(originalController || ''));
-        stateAny.controlChangeEffects.push({
-          permanentId: target.id,
-          originalController,
-          newController: controller,
-          duration: 'eot',
-          appliedAt: Date.now(),
-        });
+        registerControlEffect(ctx.state, { permanentId: String(target.id), originalController: String(originalController || ''), newController: String(controller), duration: 'eot' });
       }
 
       // Untap

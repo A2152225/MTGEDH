@@ -355,6 +355,7 @@ export function useAppPlayStateEarly(p: Record<string, any>) {
     targets: TargetOption[];
     minTargets: number;
     maxTargets: number;
+    costPerTarget?: number;
     targetGroups?: TargetSelectionGroup[];
     perOpponent?: boolean;
     opponents?: Array<{ id: string; name: string }>;

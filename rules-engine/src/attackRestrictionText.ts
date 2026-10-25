@@ -1,3 +1,4 @@
+import { permanentHasMustAttackFromTextExtras } from './attackRequirementTextExtras';
 /**
  * Oracle-pattern combat restrictions that are not the one-shot IR `cant_attack` step.
  *
@@ -161,6 +162,9 @@ export function permanentHasMustAttackRequirement(
   if (parseSelfCombatRestrictions(selfText).mustAttackEachCombat) {
     return true;
   }
+  if (permanentHasMustAttackFromTextExtras(permanent, battlefield)) {
+    return true;
+  }
 
   if (!Array.isArray(battlefield)) {
     return false;
@@ -184,7 +188,7 @@ export function permanentHasMustAttackRequirement(
       sourceController &&
       attackingPlayerId &&
       sourceController !== attackingPlayerId &&
-      /(?:creatures|each creature) you (?:don't|do not) control\s+attacks?\s+each combat if able/i.test(text)
+      /(?:creatures|each creature) (?:you (?:don't|do not) control|your opponents control)\s+attacks?\s+each combat if able/i.test(text)
     ) {
       return true;
     }

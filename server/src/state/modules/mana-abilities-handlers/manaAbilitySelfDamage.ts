@@ -5,6 +5,7 @@
 //   applyManaAbilityLifeEffectToState.
 // Leaf must not import mana-abilities.ts or mana-abilities-handlers/index.ts.
 
+import { notifyNoncombatPlayerDamage } from '../triggers/player-dealt-damage-ir.js';
 import type { ManaAbility } from './manaAbilityLandTypeModifiers.js';
 
 export type ManaAbilityLifeEffect = {
@@ -138,6 +139,8 @@ export function applyManaAbilityLifeEffectToState(
   state: any,
   playerId: string,
   effect: ManaAbilityLifeEffect,
+  /** Game context; replay callers pass theirs so the noncombat damage hook skips. */
+  ctx?: any,
 ): void {
   const finalAmount = Number(effect.amount || 0);
   if (!playerId || finalAmount <= 0) return;
@@ -166,4 +169,5 @@ export function applyManaAbilityLifeEffectToState(
   if (player) {
     player.life = stateAny.life[playerId];
   }
+  if (effect.isDamage) notifyNoncombatPlayerDamage(ctx ?? { state }, String(playerId), finalAmount);
 }

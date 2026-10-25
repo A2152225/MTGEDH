@@ -24,4 +24,3 @@ export {
 export type { EffectAggregate, ContinuousEffectResult } from "./staticEffectsScanHelpers.js";
 
 // Monument / creature-type lord / Coat of Arms / Sliver Legion phase.
-export { applyMonumentLordAndSharedTypeEffects } from "./staticEffectsMonumentLordAndSharedType.js";

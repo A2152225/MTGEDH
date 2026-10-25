@@ -8,6 +8,7 @@ import {
   permanentHasDeathtouchDamageMarked,
 } from '../state/modules/counter-common-effects.js';
 import { calculateAllPTBonuses, calculateVariablePT } from '../state/utils.js';
+import { getCurrentPowerToughness } from '../state/modules/currentPowerToughness.js';
 import { sumActiveTemporaryPTMods } from '../state/modules/temporaryPtMods.js';
 import { sumLongDurationPtModifiers } from '../state/modules/longDurationPtModifiers.js';
 import { applyLayer7bSetBasePowerToughness } from '../state/modules/setBasePtTimestampResolution.js';
@@ -105,6 +106,9 @@ function getEffectiveStatsForSBA(
   state: Readonly<GameState>,
   perm: BattlefieldPermanent
 ): { power?: number; toughness?: number } {
+  // Layer 7 (7a CDA, 7b setters, 7c modifiers, 7d switch) through the shared evaluator.
+  const layer7 = getCurrentPowerToughness(perm, state);
+  if (layer7) return { power: Math.max(0, layer7.power), toughness: layer7.toughness };
   const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
   if (!typeLine.includes('creature')) return {};
 

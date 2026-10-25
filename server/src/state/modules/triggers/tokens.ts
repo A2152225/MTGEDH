@@ -7,6 +7,7 @@ import { uid } from '../../utils.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export interface TokenCreatedTrigger {
   permanentId: string;
@@ -23,7 +24,8 @@ function normalizeOracleText(text: string): string {
   return String(text || '').replace(/[’]/g, "'").replace(/\s+/g, ' ').trim();
 }
 
-export function detectTokenCreatedTriggers(card: any, permanent: any): TokenCreatedTrigger[] {
+export function detectTokenCreatedTriggers(card: any, permanent: any, gameState?: any): TokenCreatedTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: TokenCreatedTrigger[] = [];
   const oracleText = normalizeOracleText(card?.oracle_text || '');
   const permanentId = String(permanent?.id || '');

@@ -15,11 +15,13 @@ import { ETB_STATIC_ALTERNATIVES } from "./etb-detection-helpers.js";
 import { appendEtbDetectionEarly } from "./etb-detection-early.js";
 import { appendEtbDetectionMid } from "./etb-detection-mid.js";
 import { appendEtbDetectionLate } from "./etb-detection-late.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 /**
  * Detect ETB triggers from a card
  */
 export function detectETBTriggers(card: any, permanent?: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState)) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
   const isTransformCard = (card?.layout === 'transform' || card?.layout === 'double_faced_token') && cardFaces.length >= 2;

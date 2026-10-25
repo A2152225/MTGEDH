@@ -24,6 +24,10 @@ export interface DangerIndicators {
   goaded: boolean; // If creature is goaded and must attack
   goadedBy?: string[]; // Player IDs who goaded this creature
   lure: boolean; // If creature must be blocked by all able creatures (Lure effect)
+  mustAttack?: boolean; // "attacks each combat if able"
+  mustBlock?: boolean; // "blocks each combat if able"
+  cantAttack?: boolean; // "can't attack"
+  cantBlock?: boolean; // "can't block"
 }
 
 /**
@@ -148,6 +152,10 @@ export function getCreatureInfo(perm: BattlefieldPermanent): {
     goaded: isPermanentGoaded(perm),
     goadedBy: getPermanentGoaders(perm),
     lure: hasLure,
+    mustAttack: /attacks? each (?:combat|turn) if able/.test(combinedText),
+    mustBlock: /blocks? each (?:combat|turn) if able/.test(combinedText),
+    cantAttack: /\bcan(?:'|\u2019|no)t attack(?! you\b)(?: or block)?\b(?!.*\bunless\b)/.test(combinedText),
+    cantBlock: /\bcan(?:'|\u2019|no)t (?:attack or )?block\b(?!.*\bunless\b)/.test(combinedText),
   };
   
   return { name, pt, effectivePower, effectiveToughness, imageUrl, dangers };

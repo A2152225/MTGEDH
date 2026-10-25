@@ -122,7 +122,8 @@ function precedingToken(text: string, openIndex: number): string {
 }
 
 function isKeywordAnchoredReminder(preceding: string): boolean {
-  return new RegExp(`(?:^|[\\s,.])${KEYWORD_WORD_PATTERN}(?:\\s*\\{[^}]+\\})*\\s*$`, 'i').test(preceding)
+  // "Suspend 4—{1}{U}" / "Awaken 3—{4}{W}": keyword, optional N, dash, then the cost.
+  return new RegExp(`(?:^|[\\s,.])${KEYWORD_WORD_PATTERN}(?:\\s+(?:\\d+|x))?(?:\\s*(?:\u2014|--?)\\s*(?=\\{))?(?:\\s*\\{[^}]+\\})*\\.?\\s*$`, 'i').test(preceding)
     || /\b(?:equip|reconfigure|cycling|kicker|flashback|escape|evoke|eternalize|ward|cleave|overload|splice(?:\s+onto\s+\w+)?)\s*(?:\{[^}]+\})*\s*$/i.test(preceding);
 }
 

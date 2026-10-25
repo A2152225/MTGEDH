@@ -1,3 +1,4 @@
+import { recordFaceDownReveal } from './faceDownRevealLog.js';
 /**
  * zone-manipulation.ts
  * 
@@ -335,6 +336,7 @@ export function shuffleRemovedPermanentIntoOwnerLibrary(
   const zoneCard = ((perm as any)?.isFaceDown === true && (perm as any)?.faceUpCard)
     ? (perm as any).faceUpCard
     : ((perm as any)?.card || perm);
+  try { recordFaceDownReveal((ctx as any).state, perm); } catch { /* best-effort */ }
   const owner = String(ownerId || (perm as any)?.owner || (perm as any)?.controller || '').trim();
   return shuffleCardCopyIntoOwnerLibrary(ctx, zoneCard, owner);
 }

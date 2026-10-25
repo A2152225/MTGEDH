@@ -2,6 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
+import { lifeThresholdInterveningIfFails } from './triggers/lifeThresholdStateTriggers.js';
 
 export function trySkipTriggeredAbilityForUnmetInterveningIf(
   ctx: GameContext,
@@ -15,6 +16,11 @@ export function trySkipTriggeredAbilityForUnmetInterveningIf(
   },
 ): boolean {
   try {
+    if (lifeThresholdInterveningIfFails(ctx, item)) {
+      debug(2, `[resolveTopOfStack] life-threshold intervening-if no longer satisfied; skipping ${options.sourceName}`);
+      options.bumpSeq();
+      return true;
+    }
     const desc = String(options.description || '').trim();
     const triggerType = options.triggerType;
 

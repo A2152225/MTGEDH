@@ -97,6 +97,8 @@ export interface ActivatedAbilityButtonsProps {
   position?: 'left' | 'bottom' | 'loyalty-inline';
   // Filter to show only loyalty abilities (for planeswalkers)
   loyaltyAbilitiesOnly?: boolean;
+  /** Only mana abilities remain activatable (e.g. a lock that exempts mana abilities). */
+  manaAbilitiesOnly?: boolean;
   /** Viewing player; opponent permanents only show any-player-activatable abilities. */
   viewerPlayerId?: string;
 }
@@ -443,6 +445,7 @@ export function ActivatedAbilityButtons({
   maxVisible = 3,
   position = 'left',
   loyaltyAbilitiesOnly = false,
+  manaAbilitiesOnly = false,
   viewerPlayerId,
 }: ActivatedAbilityButtonsProps) {
   const [expanded, setExpanded] = useState(false);
@@ -508,9 +511,9 @@ export function ActivatedAbilityButtons({
   }
   
   // Filter abilities if loyaltyAbilitiesOnly is set
-  const filteredAbilities = loyaltyAbilitiesOnly 
+  const filteredAbilities = (loyaltyAbilitiesOnly 
     ? ownershipFilteredAbilities.filter(a => a.ability.isLoyaltyAbility)
-    : ownershipFilteredAbilities;
+    : ownershipFilteredAbilities).filter(a => !manaAbilitiesOnly || a.ability.isManaAbility);
   
   // Return null if filtering leaves no abilities
   if (filteredAbilities.length === 0) {

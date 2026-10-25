@@ -19,6 +19,7 @@ import {
   applySagaLoreCounterFromTrigger,
 } from './triggerSagaLoreUtils.js';
 import { tryApplyUntapAllYouControlTrigger } from './triggerUntapAllUtils.js';
+import { queueUpkeepPaidUntapFromTrigger } from './upkeepPaidUntapPrompt.js';
 import {
   legacyPrefaceHandled,
   legacyPrefaceNotHandled,
@@ -76,6 +77,10 @@ export function tryApplyTriggerEffectPrefaceHandlers(
     triggerItem,
   })) {
     return legacyPrefaceHandled('applyBoundGraveyardReturnFromTriggerMetadata');
+  }
+
+  if (queueUpkeepPaidUntapFromTrigger(ctx, sourceName, description, triggerItem, state)) {
+    return legacyPrefaceHandled('queueUpkeepPaidUntapFromTrigger');
   }
 
   if (queueUpkeepSacrificeCreatureOrSelfFromTrigger({

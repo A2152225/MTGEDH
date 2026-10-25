@@ -9,6 +9,7 @@ import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
 import { updateCounters, canonicalizeCounterKey, trackPermanentSacrificedThisTurn, movePermanentToExile } from "../counters_tokens";
 import { syncPreparedPermanentAfterControlChange } from "../prepared.js";
+import { registerControlEffect } from "../continuousEffectRegistry.js";
 import {
   clearReplayQueuedSteps,
   clearReplayQueuedStepById,
@@ -440,13 +441,7 @@ export function applyTapSacrificeCounterEvents(ctx: GameContext, e: GameEvent): 
             );
 
             if (!alreadyTracked) {
-              stateAny.controlChangeEffects.push({
-                permanentId,
-                originalController: oldController,
-                newController,
-                duration,
-                appliedAt,
-              });
+              registerControlEffect(ctx.state, { permanentId, originalController: oldController, newController, duration, appliedAt });
             }
           }
 

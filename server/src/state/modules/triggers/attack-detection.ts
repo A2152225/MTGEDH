@@ -17,6 +17,7 @@ import type { AttackDetectionState } from "./attack-detection-state.js";
 import { appendAttackDetectionWatchers } from "./attack-detection-watchers.js";
 import { findFirstRegexMatchAcrossOracleLines, timingTriggerEffect } from "./timing-effect-extraction.js";
 import { escapeCardNameForRegex } from "./types.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 /** Firebending N, or Firebending X with a following "where X is …" clause. */
 const FIREBENDING_INSTANCE_PATTERN = /firebending\s+(\d+|x)(?:,\s*where\s+x\s+is\s+([^.(]+))?/gi;
@@ -91,6 +92,7 @@ function pushFirebendingTrigger(
  * Detect attack triggers from a permanent's abilities
  */
 export function detectAttackTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'attack' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const printedOracle = stripReminderParentheticals(String(card?.oracle_text || ""));
   const { oracleText, grantedAbilities } = mergeDetectorOracleWithContinuousGrants(

@@ -15,6 +15,7 @@
 import type { Server, Socket } from "socket.io";
 import { appendEvent } from "../../db";
 import { syncPreparedPermanentAfterControlChange } from "../../state/modules/prepared.js";
+import { registerControlEffect } from "../../state/modules/continuousEffectRegistry.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { enqueueEdictCreatureSacrificeStep } from "../sacrifice-resolution.js";
@@ -461,16 +462,14 @@ export async function handleChangePermanentControlRequest(
     syncPreparedPermanentAfterControlChange(game.state, permanent, String(oldController || ''));
     
     // Track control change for end-of-turn cleanup if temporary
-    if (duration === 'eot' || duration === 'turn') {
-      game.state.controlChangeEffects = game.state.controlChangeEffects || [];
-      game.state.controlChangeEffects.push({
-        permanentId,
-        originalController: oldController,
-        newController,
-        duration,
-        appliedAt,
-      });
-    }
+    // Layer 2 registry entry stamped now (temporary ones expire at cleanup).
+    registerControlEffect(game.state, {
+      permanentId,
+      originalController: String(oldController || ''),
+      newController,
+      duration: duration === 'eot' || duration === 'turn' ? duration : 'permanent',
+      appliedAt,
+    });
 
     if (typeof (game as any).bumpSeq === 'function') {
       (game as any).bumpSeq();

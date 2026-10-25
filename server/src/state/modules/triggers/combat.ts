@@ -43,8 +43,10 @@ import { detectAttackTriggers } from "./attack-detection.js";
 import { detectBlockTriggers } from "./block-detection.js";
 import { blockingCreatureMatchesWatcher, collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource, isBlockWatcherTriggerType } from "./triggerConditionFamilyMatch.js";
 import type { BlockTrigger } from "./block-trigger-type.js";
+import { findBlockPartner, mergeParsedBecomesBlockedTriggers } from "./combatBlockedIrTriggers.js";
 import { detectCombatDamageTriggers } from "./combat-damage-detection.js";
 import type { CombatTriggeredAbility } from "./combat-triggered-ability.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export { detectAttackTriggers, detectBlockTriggers, detectCombatDamageTriggers };
 export type { BlockTrigger };
@@ -246,7 +248,6 @@ export { getAttackTriggersForCreatures } from "./attack-triggers-for-creatures.j
 export {
   detectAttachmentAttackTriggers,
   getAttachmentAttackTriggers,
-  getAttachmentCombatDamageTriggers,
 } from "./attachment-attack-detection.js";
 
 // ============================================================================
@@ -264,7 +265,8 @@ export {
  * - "At the beginning of combat on your turn, [effect]"
  * - "At the beginning of each combat, [effect]"
  */
-export function detectBeginningOfCombatTriggers(card: any, permanent: any): BeginningOfCombatTrigger[] {
+export function detectBeginningOfCombatTriggers(card: any, permanent: any, gameState?: any): BeginningOfCombatTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'step' })) return []; // Humility / Torpor Orb gate
   const triggers: BeginningOfCombatTrigger[] = [];
   const oracleText = (card?.oracle_text || "");
   const lowerOracle = oracleText.toLowerCase();
@@ -466,7 +468,7 @@ export function getBeginningOfCombatTriggers(
       break;
     }
     
-    const permTriggers = detectBeginningOfCombatTriggers(permanent.card, permanent);
+    const permTriggers = detectBeginningOfCombatTriggers(permanent.card, permanent, (ctx as any)?.state);
     const oracleText = String(permanent.card.oracle_text || '');
     
     for (const trigger of permTriggers) {
@@ -740,7 +742,8 @@ export function getBlockTriggersForCreatures(
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
     for (const blocker of blockingCreatures) {
-      if (String(permanent.id || '') === String(blocker?.id || '')) continue;
+      // Self block lines stay legacy, except blockPartner-filtered ones (legacy has no partner filter).
+      const isSelf = String(permanent.id || '') === String(blocker?.id || '');
       const effects = collectMatchingParsedEventLines({
         ctx,
         oracleText: String(permanent.card.oracle_text || ''),
@@ -748,7 +751,8 @@ export function getBlockTriggersForCreatures(
         subjectPermanent: blocker,
         subjectControllerId: String(blocker?.controller || ''),
         sourcePermanent: permanent,
-      });
+        blockPartnerPermanent: findBlockPartner(battlefield, blocker),
+      }).filter((line) => !isSelf || Boolean(line.condition?.blockPartner));
       for (const line of effects) {
         const effect = line.effect;
         const key = `${String(permanent.id || '')}|${String(blocker?.id || '')}|${effect.toLowerCase()}`;
@@ -907,6 +911,7 @@ export function getBlockedTriggersForCreatures(
     }
   }
 
+  mergeParsedBecomesBlockedTriggers(ctx, blockedCreatures, defendingPlayer, triggers);
   return triggers;
 }
 

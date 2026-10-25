@@ -36,6 +36,7 @@ import {
   isShockLand,
 } from "../land-helpers";
 import { queueShockLandPaymentStep } from "../optional-payment-prompts.js";
+import { enterUntappedOverrideSourceName } from "../../state/modules/landsEnterUntappedOverride.js";
 import {
   LAND_PLAY_AUTOMATION_SUPPRESSION_MS,
   broadcastGame,
@@ -145,8 +146,10 @@ export function finalizePlayedLand(
     debugWarn(1, 'appendEvent(playLand) failed:', e);
   }
 
+  // "Lands you control enter untapped" (Spelunking, The Wandering Minstrel): skip shock/reveal prompts.
+  const enterUntappedOverride = enterUntappedOverrideSourceName(battlefield, playerId, cardInZone);
   const isShockLandCard = isShockLand(cardName, cardOracleText);
-  if (isShockLandCard) {
+  if (isShockLandCard && !enterUntappedOverride) {
     const permanent = battlefield.find((p: any) =>
       p.card?.id === cardId &&
       p.controller === playerId
@@ -162,7 +165,7 @@ export function finalizePlayedLand(
     }
   }
 
-  if (!isShockLandCard && !isBounceLand(cardName)) {
+  if (!isShockLandCard && !isBounceLand(cardName) && !enterUntappedOverride) {
     const oracleText = (cardInZone as any)?.oracle_text || '';
     const etbPattern = detectETBTappedPattern(oracleText);
 

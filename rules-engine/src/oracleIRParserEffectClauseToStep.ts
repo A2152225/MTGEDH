@@ -68,6 +68,22 @@ export function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   }
 
   {
+    // Reflexive "When you discard a [nonland] card this way, E" (CR 603.12): gate E on what the
+    // preceding discard step actually discarded (same evaluator as "if ... discarded this way").
+    const discardThisWay = clause.match(/^when(?:ever)? you discard (?:a|an|one or more) ([a-z' -]*?)\s*cards? this way,?\s*(.+)$/i);
+    if (discardThisWay && String(discardThisWay[2] || '').trim()) {
+      const descriptor = String(discardThisWay[1] || '').trim().toLowerCase();
+      const conditionRaw = descriptor ? 'a ' + descriptor + ' card was discarded this way' : 'you discarded a card this way';
+      return withMeta({
+        kind: 'conditional',
+        condition: { kind: 'if', raw: conditionRaw },
+        steps: [parseEffectClauseToStep(String(discardThisWay[2]).trim())],
+        raw: rawClause,
+      } as OracleEffectStep);
+    }
+  }
+
+  {
     // "Target creature gets +X/+Y for as long as this artifact remains tapped" (source-linked expiry).
     const forAsLongAsPt = tryParseForAsLongAsPtStep(clause, rawClause);
     if (forAsLongAsPt) return withMeta(forAsLongAsPt);

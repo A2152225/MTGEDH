@@ -198,6 +198,7 @@ export function handleReflexiveDiscardWhenYouDo(
       })),
       reflexiveDiscardWhenYouDo: true,
       reflexiveDiscardWhenYouDoStage: 'select_discard',
+      ...(stepData.reflexiveDiscardWhenYouDoTypeFilter ? { reflexiveDiscardWhenYouDoTypeFilter: String(stepData.reflexiveDiscardWhenYouDoTypeFilter) } : null),
       reflexiveDiscardWhenYouDoCount: discardCount,
       reflexiveDiscardWhenYouDoController: controllerId,
       reflexiveDiscardWhenYouDoSourceName: sourceName,

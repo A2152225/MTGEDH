@@ -32,6 +32,9 @@ import { detectRequiresChoice, detectAffectsAllPlayers } from "./turn-phases-han
 import { detectEndStepTriggers } from "./turn-phases-handlers/turnPhaseEndStepTriggers.js";
 import { collectDelayedEndStepRegistryTriggers } from "./delayed-end-step-watchers.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from "./triggerConditionFamilyMatch.js";
+import { dropTriggersFromAbilitylessSources, permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
+import { findStaticSkipDrawStepSource } from '../../../../../rules-engine/src/phaseTransitionTriggers.js';
+import { applyOptionalDrawStepSkipLifeGain } from '../optionalDrawStepSkip.js';
 
 // ============================================================================
 // Type Definitions for Turn Phase Triggers
@@ -74,6 +77,10 @@ export interface DoesntUntapEffect {
   affectedType: 'all_creatures' | 'all_lands' | 'all_permanents' | 'controller_creatures' | 'controller_lands' | 'specific_permanent';
   affectedController: 'all' | 'controller' | 'opponents';
   targetPermanentId?: string;
+  /** Magnetic Mountain: "Blue creatures don't untap ..." only stops creatures of this color. */
+  colorFilter?: string;
+  /** Choke: "Islands don't untap ..." only stops lands with this subtype. */
+  landSubtypeFilter?: string;
   description: string;
 }
 
@@ -84,7 +91,8 @@ export { detectEndStepTriggers };
 /**
  * Detect beginning-of-first-main-phase triggers (parser may omit leading "At").
  */
-export function detectPrecombatMainTriggers(card: any, permanent: any): EndStepTrigger[] {
+export function detectPrecombatMainTriggers(card: any, permanent: any, gameState?: any): EndStepTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'step' })) return []; // Humility / Torpor Orb gate
   const triggers: EndStepTrigger[] = [];
   const { cardName, oracleText } = getActivePermanentCardFace(card, permanent);
   const permanentId = permanent?.id || '';
@@ -253,6 +261,8 @@ function appendParsedPhaseEvents(
         activePlayerId,
       })) {
         const normalized = line.effect.toLowerCase();
+        // Tymna-style "you may pay X life ... dealt combat damage this turn" with X = 0 does nothing.
+        if (shouldSkipNoOpOptionalCombatDamagePayLife(ctx, String(permanent.controller || ''), line.effect)) continue;
         if (triggers.some((existing) => (
           sameTriggerSource(existing, permanent)
           && parsedEffectDuplicates([existing.effect, existing.description], line)
@@ -288,7 +298,7 @@ export function getPrecombatMainTriggers(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
 
-    const permTriggers = detectPrecombatMainTriggers(permanent.card, permanent);
+    const permTriggers = detectPrecombatMainTriggers(permanent.card, permanent, (ctx as any)?.state);
     const { oracleText } = getActivePermanentCardFace(permanent.card, permanent);
     const lowerOracle = oracleText.toLowerCase();
 
@@ -344,7 +354,8 @@ export function getPrecombatMainTriggers(
 /**
  * Detect beginning-of-postcombat-main / second-main-phase triggers.
  */
-export function detectPostcombatMainTriggers(card: any, permanent: any): EndStepTrigger[] {
+export function detectPostcombatMainTriggers(card: any, permanent: any, gameState?: any): EndStepTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'step' })) return []; // Humility / Torpor Orb gate
   const triggers: EndStepTrigger[] = [];
   const { cardName, oracleText } = getActivePermanentCardFace(card, permanent);
   const permanentId = permanent?.id || '';
@@ -493,7 +504,7 @@ export function getEndStepTriggers(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
     
-    const permTriggers = detectEndStepTriggers(permanent.card, permanent);
+    const permTriggers = detectEndStepTriggers(permanent.card, permanent, (ctx as any)?.state);
     const { oracleText } = getActivePermanentCardFace(permanent.card, permanent);
     
     for (const trigger of permTriggers) {
@@ -583,7 +594,7 @@ export function getEndStepTriggers(
 
   triggers.push(...collectDelayedEndStepRegistryTriggers(ctx, activePlayerId));
 
-  return triggers;
+  return dropTriggersFromAbilitylessSources(triggers, ctx.state, (t: any) => String(t?.permanentId || ''), { event: 'step' });
 }
 
 // ============================================================================
@@ -669,7 +680,8 @@ export function collectAdditionalDrawOnlyDrawStepTriggers(
   return triggers;
 }
 
-export function detectDrawStepTriggers(card: any, permanent: any): DrawStepTrigger[] {
+export function detectDrawStepTriggers(card: any, permanent: any, gameState?: any): DrawStepTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'step' })) return []; // Humility / Torpor Orb gate
   const triggers: DrawStepTrigger[] = [];
   const oracleText = (card?.oracle_text || "");
   const permanentId = permanent?.id || "";
@@ -775,12 +787,19 @@ export function getDrawStepTriggers(
   activePlayerId: string
 ): DrawStepTrigger[] {
   const triggers: DrawStepTrigger[] = [];
+  // A skipped draw step (Necropotence, Yawgmoth's Bargain) never begins, so its
+  // "beginning of draw step" triggers never fire (rule 500.11).
+  if (ctx.state && findStaticSkipDrawStepSource(ctx.state as any, activePlayerId)) {
+    // Fasting-style optional skip: "If you do, you gain N life" (idempotent per turn).
+    applyOptionalDrawStepSkipLifeGain(ctx, activePlayerId);
+    return triggers;
+  }
   const battlefield = ctx.state?.battlefield || [];
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
     
-    const permTriggers = detectDrawStepTriggers(permanent.card, permanent);
+    const permTriggers = detectDrawStepTriggers(permanent.card, permanent, (ctx as any)?.state);
     
     for (const trigger of permTriggers) {
       // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
@@ -854,7 +873,7 @@ export function getDrawStepTriggers(
     }
   }
   
-  return triggers;
+  return dropTriggersFromAbilitylessSources(triggers, ctx.state, (t: any) => String(t?.permanentId || ''), { event: 'step' });
 }
 
 // ============================================================================
@@ -916,6 +935,7 @@ export function detectDoesntUntapEffects(card: any, permanent: any): DoesntUntap
       controllerId,
       affectedType: 'all_creatures',
       affectedController: 'all',
+      ...(() => { const c = oracleText.match(/\b(white|blue|black|red|green)\s+creatures\s+don't untap/); return c ? { colorFilter: c[1] } : {}; })(),
       description: "Creatures don't untap during their controllers' untap steps",
     });
   }
@@ -928,6 +948,7 @@ export function detectDoesntUntapEffects(card: any, permanent: any): DoesntUntap
       controllerId,
       affectedType: 'all_lands',
       affectedController: 'all',
+      ...(() => { const l = oracleText.match(/\b(plains|island|swamp|mountain|forest)s?\s+don't untap/); return l ? { landSubtypeFilter: l[1] } : {}; })(),
       description: "Lands don't untap during their controllers' untap steps",
     });
   }
@@ -985,9 +1006,11 @@ export function isPermanentPreventedFromUntapping(
       // Check type restriction
       switch (effect.affectedType) {
         case 'all_creatures':
+          if (effect.colorFilter && !permanentHasColorName(permanentToUntap, effect.colorFilter)) break;
           if (isCreature) return true;
           break;
         case 'all_lands':
+          if (effect.landSubtypeFilter && !new RegExp('\\b' + effect.landSubtypeFilter + '\\b').test(permTypeLine)) break;
           if (isLand) return true;
           break;
         case 'all_permanents':
@@ -1009,6 +1032,12 @@ export function isPermanentPreventedFromUntapping(
   }
   
   return false;
+}
+
+function permanentHasColorName(perm: any, color: string): boolean {
+  const letter = ({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' } as Record<string, string>)[color];
+  const colors = perm?.colors ?? perm?.card?.colors ?? [];
+  return Array.isArray(colors) && colors.some((c: any) => String(c).toUpperCase() === letter || String(c).toLowerCase() === color);
 }
 
 export { shouldSkipUntapStepForPlayer } from "../skipUntapStepUtils.js";

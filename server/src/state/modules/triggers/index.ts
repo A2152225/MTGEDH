@@ -152,7 +152,6 @@ export {
   type AttachmentAttackTrigger,
   detectAttachmentAttackTriggers,
   getAttachmentAttackTriggers,
-  getAttachmentCombatDamageTriggers,
   getAttackUntapTriggers,
   getCombatDamageUntapTriggers,
   executeUntapTrigger,

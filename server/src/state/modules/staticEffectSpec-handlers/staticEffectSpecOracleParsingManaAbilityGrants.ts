@@ -29,15 +29,22 @@ export function pushManaAbilityGrantSpecs(
     /as long as (?:this card|this creature) is in your graveyard,?\s*lands you control have ([^.]+)/i,
   );
   const landsHaveMatch = gyLandsHaveMatch
-    || oracle.match(/lands you control have ([^.]+)/i);
+    || oracle.match(/lands you control have ((?:"[^"]+"(?:,? (?:and )?)?)+|[^.]+)/i);
   if (landsHaveMatch) {
-    const abilities = parseAbilitiesFromTail(landsHaveMatch[1] || '');
-    if (grantHasManaAbility(abilities)) {
+    const tail = landsHaveMatch[1] || '';
+    const quoted = [...tail.matchAll(/"([^"]+)"/g)].map((q) => q[1].trim()).filter(Boolean);
+    const tokens = parseAbilitiesFromTail(tail.replace(/"/g, '')).filter((ability) => ability.startsWith('tap_for_'));
+    // Quoted grants the tap_for_* tokens cannot express keep their text: {C}{C} amounts, "N mana of any
+    // one color", spend restrictions (Resonating Lute), and non-mana abilities (Bootleggers' Stash).
+    const keepQuoted = quoted.length > 0 && (tokens.length === 0
+      || quoted.some((q) => /\{[wubrgc]\}\{[wubrgc]\}|mana of any one color|spend this mana/i.test(q)));
+    const abilities = keepQuoted ? quoted : tokens;
+    if (abilities.length > 0) {
       specs.push(buildSpec(
         source,
         gyLandsHaveMatch ? 'gy-lands-mana-ability-grant' : 'lands-mana-ability-grant',
         { kind: 'lands_you_control' },
-        { abilities: abilities.filter((ability) => ability.startsWith('tap_for_')) },
+        { abilities },
         gyLandsHaveMatch ? { kind: 'source_in_graveyard' } : undefined,
       ));
     }

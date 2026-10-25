@@ -29,6 +29,9 @@ import { getResolutionHandlerDeps } from "../resolutionHandlerDeps.js";
 import { broadcastGame } from "../util.js";
 import { emitPendingCastPaymentIfNeeded } from "./resolutionPendingCastPaymentPrompt.js";
 import { BLIGHT_TARGET_SELECTION_STAGES } from "./targetSelectionBlightKeywordHandlers.js";
+import { handleUpkeepPaidUntapSelection } from "./upkeepPaidUntapSelectionHandler.js";
+import { violatesFlagbearerRequirement } from "../../state/modules/flagbearerTargeting.js"; // B29
+import { handleUntapCapChoiceSelection } from "./untapCapChoiceSelectionHandler.js";
 
 /** TARGET_SELECTION: validate selections then dispatch to the specialized branch. */
 export async function handleTargetSelectionResponse(
@@ -89,6 +92,19 @@ export async function handleTargetSelectionResponse(
   const normalizedSelections = selections.map((id: any) => String(id));
   if (!normalizedSelections.every(id => validTargetIds.has(id))) {
     debugWarn(1, `[Resolution] Invalid target selection: one or more targets not in valid targets list (got=${JSON.stringify(selections)})`);
+    return;
+  }
+  if (violatesFlagbearerRequirement(game.state, String(pid), step, normalizedSelections)) {
+    debugWarn(1, `[Resolution] Invalid target selection: must choose at least one Flagbearer (got=${JSON.stringify(selections)})`);
+    io.to(gameId).emit("chat", { id: `m_${Date.now()}`, gameId, from: "system", message: "You must choose at least one Flagbearer as a target if able.", ts: Date.now() });
+    return;
+  }
+  if ((step as any)?.upkeepPaidUntapSelection === true) {
+    handleUpkeepPaidUntapSelection(io, game, gameId, step, String(pid), normalizedSelections);
+    return;
+  }
+  if ((step as any)?.untapCapChoice === true) {
+    handleUntapCapChoiceSelection(io, game, gameId, step, String(pid), normalizedSelections);
     return;
   }
   const targetGrouping = (step as any)?.targetGrouping;

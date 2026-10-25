@@ -481,10 +481,16 @@ export function findStaticSkipDrawStepSource(
   const normalizedActivePlayerId = String(activePlayerId || '').trim();
   if (!normalizedActivePlayerId) return undefined;
 
+  const turn = Number(Reflect.get(state, 'turnNumber') ?? Reflect.get(state, 'turn') ?? 0) || 0;
   const matchingPermanent = battlefield.find((permanent: any) => {
     const controllerId = String(permanent?.controller || permanent?.controllerId || '').trim();
     if (controllerId !== normalizedActivePlayerId) return false;
-    return /\b(?:you\s+)?skip your draw step\b/i.test(getCombinedPermanentText(permanent));
+    const text = getCombinedPermanentText(permanent).replace(/\u2019/g, "'");
+    if (/\b(?:you\s+)?skip your draw step\b/i.test(text)) return true;
+    // Fasting: "If you would begin your draw step, you may skip that step instead" - only when the controller
+    // chose to skip this turn (server OPTION_CHOICE optionalDrawStepSkipChoice stamps optionalDrawStepSkipTurn).
+    return /\bif you would begin your draw step, you may skip that step instead\b/i.test(text)
+      && Number(permanent?.optionalDrawStepSkipTurn) === turn;
   });
 
   if (!matchingPermanent) return undefined;

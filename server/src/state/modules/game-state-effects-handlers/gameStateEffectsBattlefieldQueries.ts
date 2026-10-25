@@ -6,6 +6,7 @@
 // Leaf must not import game-state-effects.ts or game-state-effects-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
+import { countDevotionAmongPermanents } from "../../../../../shared/src/devotionCount.js";
 
 /**
  * Check if a permanent is phased out (and should be ignored)
@@ -46,19 +47,5 @@ export function countCreatures(ctx: GameContext, playerId?: string): number {
  * Calculate devotion to a color (excluding phased out permanents)
  */
 export function calculateDevotion(ctx: GameContext, playerId: string, color: string): number {
-  const permanents = getActiveControlledPermanents(ctx, playerId);
-  let devotion = 0;
-  
-  const colorSymbol = color.toUpperCase();
-  
-  for (const perm of permanents) {
-    const manaCost = perm.card?.mana_cost || "";
-    // Count occurrences of the color symbol
-    const matches = manaCost.match(new RegExp(`\\{${colorSymbol}\\}`, 'g'));
-    if (matches) {
-      devotion += matches.length;
-    }
-  }
-  
-  return devotion;
+  return countDevotionAmongPermanents(getActiveControlledPermanents(ctx, playerId), playerId, [color]);
 }

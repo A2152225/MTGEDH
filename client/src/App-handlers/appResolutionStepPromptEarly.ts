@@ -531,9 +531,9 @@ export function handleAppResolutionStepPromptEarly(
           ? rawTargets.map((t: any) => ({
               id: String(t?.id || ''),
               name: String(t?.name || 'Unknown'),
-              typeLine: t?.typeLine,
-              manaCost: t?.manaCost,
-              imageUrl: t?.imageUrl,
+              typeLine: t?.typeLine ?? t?.type_line,
+              manaCost: t?.manaCost ?? t?.mana_cost,
+              imageUrl: t?.imageUrl ?? t?.image_uris?.small ?? t?.image_uris?.normal,
             }))
           : [];
 

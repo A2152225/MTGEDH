@@ -11,10 +11,13 @@ import { buildOpponentMayPayRecordedOutcome } from './opponent-may-pay-utils.js'
 import { applyTriggeredReanimationEntryRiders } from './triggerReanimationRiders.js';
 import { applyBattlefieldReturnCharacteristicMetadata } from './triggerDelayedEffectUtils.js';
 import { markEchoPaid, sacrificePermanent } from './upkeep-triggers.js';
+import { maybeResolveEvokeSacrificeTrigger } from './evokeKeyword.js';
+import { maybeQueueCumulativeUpkeepTriggeredAbility } from './cumulativeUpkeepPayment.js';
 import type { ReflexiveTriggerEffectRunner } from './triggerReflexiveWhenYouDoQueueUtils.js';
 import { tryDeferTriggeredAbilityTargetSelection } from './stackResolveTriggeredAbilityTargetPromptUtils.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
+import { applyNextCastRiders } from './nextCastDelayedRiders.js';
 
 const OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES = new Set([
   'rhystic_study',
@@ -26,6 +29,7 @@ const OPPONENT_MAY_PAY_SPELL_CAST_TRIGGER_TYPES = new Set([
   'opponent_casts_any',
   'opponent_casts_noncreature',
   'opponent_casts_first_noncreature',
+  'opponent_casts_creature',
   'any_player_casts_any',
   'any_player_casts_noncreature',
 ]);
@@ -410,6 +414,13 @@ function maybeQueueControllerMayPayTriggeredAbility(
         return;
       }
 
+      // Najal: "you may pay {2}. If you do, when you next cast ... this turn, copy it."
+      applyNextCastRiders(ctx, paidEffect, {
+        controllerId: String(triggerController),
+        sourceName,
+        sourceId: String((item as any).source || sourceId || '').trim() || undefined,
+        originId: `${String((item as any).id || sourceName)}:paid`,
+      });
       executeTriggerEffect(ctx, triggerController, sourceName, paidEffect, {
         ...resolvedTriggerItem,
       });
@@ -536,6 +547,14 @@ export function tryDeferOptionalTriggerPaymentPrompts(
   trimmedDescription: string,
   executeTriggerEffect: ReflexiveTriggerEffectRunner,
 ): boolean {
+  if (maybeResolveEvokeSacrificeTrigger(ctx, item)) {
+    debug(2, `[resolveTopOfStack] Evoke sacrifice resolved for ${sourceName} (${triggerController})`);
+    return true;
+  }
+  if (maybeQueueCumulativeUpkeepTriggeredAbility(ctx, item, triggerController, sourceName, sourceId, trimmedDescription)) {
+    debug(2, `[resolveTopOfStack] Deferred cumulative upkeep payment for ${sourceName} (${triggerController})`);
+    return true;
+  }
   if (maybeQueueEchoTriggeredAbility(ctx, item, triggerController, sourceName, sourceId, trimmedDescription)) {
     debug(2, `[resolveTopOfStack] Deferred echo payment trigger for ${sourceName} (${triggerController})`);
     return true;

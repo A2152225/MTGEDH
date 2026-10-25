@@ -29,6 +29,7 @@ import {
   tryBuildTypedPermanentEtbStackItem,
 } from './triggerEtbTypedPermanentMatch.js';
 import { filterOneOrMoreEntryDuplicates } from '../triggers/simultaneousEntryBatch.js';
+import { permanentHasTriggeredAbilities } from '../triggers/triggeredAbilitySuppression.js';
 
 export function triggerETBEffectsForToken(
   ctx: GameContext,
@@ -53,6 +54,7 @@ export function triggerETBEffectsForToken(
   // Check all other permanents for triggers that fire when creatures/permanents enter
   for (const perm of state.battlefield) {
     if (!perm || perm.id === token.id) continue;
+    if (!permanentHasTriggeredAbilities(perm, state, { event: 'etb', eventSubject: token })) continue;
     
     const otherTriggers = getETBTriggersForPermanent(perm.card, perm, state);
     for (const trigger of otherTriggers) {

@@ -103,7 +103,7 @@ export function processSpellCounteredTriggers(ctx: GameContext, event: SpellCoun
 
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
-    const detected = detectSpellCounteredTriggers(permanent.card, permanent);
+    const detected = detectSpellCounteredTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of detected) {
       const perspective = String((trigger as any).counterPerspective || 'controlled_spell_countered');
       if (perspective === 'you_countered_spell') {

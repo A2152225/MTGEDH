@@ -34,6 +34,7 @@ import {
   shouldQueueNamedOrAnotherTypedEtbTrigger,
   shouldQueueTypedPermanentEtbTrigger,
 } from './triggerEtbTypedPermanentMatch.js';
+import { permanentHasTriggeredAbilities } from '../triggers/triggeredAbilitySuppression.js';
 
 export function queueSelfETBTriggersForPermanent(
   ctx: GameContext,
@@ -66,7 +67,8 @@ export function queueSelfETBTriggersForPermanent(
     'etb_counter',
     'hideaway_etb',
   ]);
-  const allTriggers = getETBTriggersForPermanent(permanent.card, permanent, state);
+  const allTriggers = permanentHasTriggeredAbilities(permanent, state, { event: 'etb', eventSubject: permanent })
+    ? getETBTriggersForPermanent(permanent.card, permanent, state) : [];
   // Suppress duplicate self-ETB stack items that describe the same clause
   // (e.g. legacy this_equipment_etb + generic etb for Living Weapon / Job Select /
   // Midnight Angel Armor "create … token, then attach").

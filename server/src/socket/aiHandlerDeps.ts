@@ -47,10 +47,10 @@ export type AIHandlerDeps = {
   chooseAIAdditionalCostCardIds: (game: any, playerId: PlayerID, step: any, amount: number) => string[];
   chooseAISpellPaymentSelections: (...args: any[]) => Promise<any>;
   getAIManaLifeEffect: (card: any, producesColoredMana: boolean) => { amount: number; isDamage: boolean };
-  resolveAIActivatedAbilityId: (action: any, permanent: any) => string | undefined;
+  resolveAIActivatedAbilityId: (action: any, permanent: any, battlefield?: readonly any[]) => string | undefined;
   chooseAISacrificePermanentForManaAbility: (game: any, playerId: PlayerID, permanent: any, costSection: string) => any;
   chooseAIReturnToHandPermanentForManaAbility: (game: any, playerId: PlayerID, permanent: any, costSection: string) => any;
-  buildAIActivatedAbilityResolverCandidates: (permanent: any) => Array<{ id: string; text: string; effect?: string }>;
+  buildAIActivatedAbilityResolverCandidates: (permanent: any, battlefield?: readonly any[]) => Array<{ id: string; text: string; effect?: string }>;
   executeAIActivateAbility: (
     io: Server,
     gameId: string,

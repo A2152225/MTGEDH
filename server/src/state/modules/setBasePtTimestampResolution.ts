@@ -9,7 +9,7 @@
 // Timestamps are REAL when available (rules-engine/src/permanentTimestamps.ts): an Aura uses the timestamp of
 // when it became attached (`attachedTimestamp`), a static source uses its entry `timestamp`, an Oracle IR setter
 // its `timestamp` (drawn from the same game-wide counter, `globalTimestamp`). Real timestamps are all above
-// TIMESTAMP_BASE and therefore always newer than the legacy scale below.
+// REAL_TIMESTAMP_FLOOR and therefore always newer than the legacy scale below.
 //
 // Legacy scale (permanents/setters without real timestamps, old saves, unsynced tests): Auras and static sources
 // use their battlefield index. An Oracle IR setter records the battlefield length when it was created, so it sits
@@ -21,10 +21,11 @@
 // Public entry symbols: applyLayer7bSetBasePowerToughness.
 
 import { resolveSetBasePTFromAttachedAuras } from "../utils-handlers/ptAttachedBonusParseHelpers.js";
-import { collectSetBasePTEntriesFromStaticSpecs, resolveSetBasePTFromStaticSpecs } from "./staticEffectSpec.js";
+import { collectSetBasePTEntriesFromStaticSpecs, getStaticEffectSourceTimestamp, resolveSetBasePTFromStaticSpecs } from "./staticEffectSpec.js";
+import { layer4BasePowerToughnessEntriesFor } from "./layer4TypeSetting.js";
 import { listOracleIrSetPowerToughnessSetters } from "./oracleIrSetPowerToughness.js";
 import {
-  TIMESTAMP_BASE,
+  isRealTimestamp,
   readAttachmentTimestamp,
   readPermanentTimestamp,
   stampMissingPermanentTimestamps,
@@ -55,7 +56,7 @@ function setterKey(setter: any, battlefield: readonly any[]): number {
 }
 
 function isRealSetterTimestamp(setter: any): boolean {
-  return setter?.globalTimestamp === true && Number.isFinite(setter.timestamp) && setter.timestamp > TIMESTAMP_BASE;
+  return setter?.globalTimestamp === true && isRealTimestamp(setter.timestamp);
 }
 
 function hasRealAuraOrStaticTimestamp(perm: any, battlefield: readonly any[], state: any): boolean {
@@ -63,7 +64,7 @@ function hasRealAuraOrStaticTimestamp(perm: any, battlefield: readonly any[], st
     candidate && String(candidate.attachedTo || '') === String(perm?.id || '') && readAttachmentTimestamp(candidate) !== undefined,
   );
   if (anyRealAura) return true;
-  return collectSetBasePTEntriesFromStaticSpecs(perm, state).some((entry) => entry.timestamp > TIMESTAMP_BASE);
+  return collectSetBasePTEntriesFromStaticSpecs(perm, state).some((entry) => isRealTimestamp(entry.timestamp));
 }
 
 export function applyLayer7bSetBasePowerToughness(
@@ -82,7 +83,8 @@ export function applyLayer7bSetBasePowerToughness(
     }
   }
 
-  if (setters.length === 0 && !hasRealAuraOrStaticTimestamp(perm, battlefield, state)) {
+  const layer4Entries = layer4BasePowerToughnessEntriesFor(perm, state);
+  if (setters.length === 0 && layer4Entries.length === 0 && !hasRealAuraOrStaticTimestamp(perm, battlefield, state)) {
     // Legacy ordering: Aura set-base, then static set-base.
     let result = { ...base };
     const auraBase = resolveSetBasePTFromAttachedAuras(perm, battlefield as any[]);
@@ -110,6 +112,16 @@ export function applyLayer7bSetBasePowerToughness(
   });
   for (const entry of collectSetBasePTEntriesFromStaticSpecs(perm, state, { forceIndexProxy: proxyScale })) {
     entries.push({ power: entry.power, toughness: entry.toughness, key: entry.timestamp, tie: 1 });
+  }
+
+  // Layer 4 paired base P/T (Opalescence): the type-setting source's own timestamp (CR 613.7a).
+  for (const entry of layer4Entries) {
+    entries.push({
+      power: entry.power,
+      toughness: entry.toughness,
+      key: getStaticEffectSourceTimestamp(state, entry.sourceId, { forceIndexProxy: proxyScale }),
+      tie: 1,
+    });
   }
 
   // Oracle IR setters: real ones sort by their global timestamp; legacy ones keep the battlefield-position proxy

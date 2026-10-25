@@ -11,6 +11,7 @@ import { cardHasCreatureType } from "../../creatureTypeNow.js";
 import { getEffectiveColors } from "../effectiveColors.js";
 import { detectSpellCastTriggers } from "./spell-cast-detection.js";
 import { spellSharesCreatureTypeWithSource } from "./spellCastSharedCreatureType.js";
+import { castFaceSpellView, refineSpellCastQualifierTriggers } from "./spellCastQualifierTriggers.js";
 import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
 import { spellOrdinalForCaster } from "./spell-cast.js";
 import { spellCastTriggerIRVerdict } from "./triggerIRVerdict.js";
@@ -23,6 +24,7 @@ export function getSpellCastTriggers(
   casterId: string,
   spellCard: any
 ): SpellCastTrigger[] {
+  spellCard = castFaceSpellView(spellCard);
   const triggers: SpellCastTrigger[] = [];
   const battlefield = ctx.state?.battlefield || [];
   
@@ -210,7 +212,7 @@ export function getSpellCastTriggers(
     }
   }
   
-  return triggers;
+  return refineSpellCastQualifierTriggers(battlefield, casterId, spellCard, triggers);
 }
 
 /**

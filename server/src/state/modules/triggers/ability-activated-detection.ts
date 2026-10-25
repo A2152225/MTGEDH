@@ -7,8 +7,10 @@
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
-export function detectAbilityActivatedTriggers(card: any, permanent?: any): TriggeredAbility[] {
+export function detectAbilityActivatedTriggers(card: any, permanent?: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const oracleText = String(card?.oracle_text || '');
   const cardName = String(card?.name || 'Unknown');

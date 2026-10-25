@@ -191,8 +191,10 @@ describe('attack emitter — detector watchers fire for generic attack templates
       toughness: '2',
     }, { attacking: 'p2' });
 
-    expect(collect([watcher, bear], [bear]).some((trigger) => trigger.triggerType === 'creature_attacks_alone')).toBe(true);
-    expect(collect([watcher, bear, extra], [bear, extra]).some((trigger) => trigger.triggerType === 'creature_attacks_alone')).toBe(false);
+    // Attacks-alone is IR-owned (parsed_attacks); the legacy duplicate is retired, so exactly one fires.
+    const fromWatcher = (list: any[]) => list.filter((trigger: any) => trigger.permanentId === 'banner_1');
+    expect(fromWatcher(collect([watcher, bear], [bear]))).toHaveLength(1);
+    expect(fromWatcher(collect([watcher, bear, extra], [bear, extra]))).toHaveLength(0);
   });
 
   it('queues +1/+1-counter attack watchers only for creatures with those counters', () => {

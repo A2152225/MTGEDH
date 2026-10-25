@@ -17,6 +17,7 @@ export interface AlternateCost {
   manaCost: string;
   additionalCost?: string; // e.g., "Discard a card", "Sacrifice a creature"
   isDefault?: boolean;
+  hideManaCost?: boolean; // non-mana alternate cost (e.g. evoke by exiling a card)
 }
 
 /**
@@ -129,6 +130,20 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
     });
   }
   
+  // Evoke by exiling a card of a colour (MH2 elementals): no mana cost
+    const evokeExileMatch = String(oracleText || '').match(/evoke\s*[\u2014\u2013-]\s*exile an? (white|blue|black|red|green) card from your hand/i);
+    if (evokeExileMatch) {
+      const colorWord = evokeExileMatch[1].toLowerCase();
+      costs.push({
+        id: 'evoke_exile',
+        label: 'Evoke (Exile a Card)',
+        description: `Exile a ${colorWord} card from your hand. ETB triggers, then sacrifice`,
+        manaCost: '{0}',
+        hideManaCost: true,
+        additionalCost: `Exile a ${colorWord} card from your hand; sacrifice when it enters`,
+      });
+    }
+
   // Madness - cast for madness cost when discarded
   const madnessMatch = text.match(/madness\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
   if (madnessMatch) {
@@ -498,6 +513,23 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
     });
   }
   
+  // Morph / megamorph / disguise: cast face down as a 2/2 for {3} (server ids match these)
+  const faceDownKinds: Array<[string, RegExp, string]> = [
+    ['megamorph', /\bmegamorph\b/i, 'Megamorph'],
+    ['morph', /(^|[^a-z])morph\s*(\{|[\u2014\u2013-])/i, 'Morph'],
+    ['disguise', /\bdisguise\s*(\{|[\u2014\u2013-])/i, 'Disguise'],
+  ];
+  for (const [id, re, word] of faceDownKinds) {
+    if (!re.test(text)) continue;
+    if (id === 'morph' && costs.some(c => c.id === 'megamorph')) continue;
+    costs.push({
+      id,
+      label: `${word} (cast face down)`,
+      description: id === 'disguise' ? 'Cast face down as a 2/2 creature with ward {2}' : 'Cast face down as a 2/2 creature',
+      manaCost: '{3}',
+    });
+  }
+
   return costs;
 }
 

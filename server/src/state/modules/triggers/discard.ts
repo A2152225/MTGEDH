@@ -10,12 +10,16 @@ import {
   inferGenericTriggeredAbilityTargetMetadata,
 } from './target-metadata.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
+import { queueSelfDiscardTriggers } from './eventSpecificLegacyTriggers.js';
 
 export interface DiscardTrigger {
   permanentId: string;
   cardName: string;
   controllerId: string;
-  triggerType: 'opponent_discards' | 'player_discards' | 'you_discard';
+  triggerType: 'opponent_discards' | 'player_discards' | 'you_discard' | 'forced_discard';
+  /** forced_discard only: whose spell or ability must cause the discard. */
+  causeScope?: 'opponent' | 'any';
   oracleClause: string;
   effect: string;
   mandatory: boolean;
@@ -74,7 +78,8 @@ function parseDiscardCondition(
   }
 }
 
-export function detectDiscardTriggers(card: any, permanent: any): DiscardTrigger[] {
+export function detectDiscardTriggers(card: any, permanent: any, gameState?: any): DiscardTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: DiscardTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
   const cardName = String(card?.name || 'Unknown');
@@ -109,14 +114,33 @@ export function detectDiscardTriggers(card: any, permanent: any): DiscardTrigger
     });
   }
 
+  // "Whenever a spell or ability [an opponent controls] causes you to discard a card" (Spiritual Focus).
+  for (const match of oracleText.matchAll(/whenever a spell or ability (an opponent controls )?causes you to discard (a card|one or more cards),\s*([^.]+)/gi)) {
+    const effect = timingTriggerEffect(oracleText, match, 3);
+    if (!effect) continue;
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      triggerType: 'forced_discard',
+      causeScope: match[1] ? 'opponent' : 'any',
+      oracleClause: String(match[0] || '').trim(),
+      effect,
+      mandatory: !/^you may\b/i.test(effect),
+      frequency: /one or more/i.test(String(match[2] || '')) ? 'per_event' : 'per_card',
+      cardFilter: 'any',
+    });
+  }
+
   return triggers;
 }
 
 export function getDiscardTriggers(
   ctx: GameContext,
   discardingPlayerId: string,
-  options?: { fromCycling?: boolean },
+  options?: { fromCycling?: boolean; causeControllerId?: string },
 ): DiscardTrigger[] {
+  const cause = String(options?.causeControllerId || '').trim();
   const triggers: DiscardTrigger[] = [];
   const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
 
@@ -124,7 +148,7 @@ export function getDiscardTriggers(
     if (!permanent || !permanent.card) continue;
 
     const permController = String(permanent.controller || '');
-    const permTriggers = detectDiscardTriggers(permanent.card, permanent);
+    const permTriggers = detectDiscardTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of permTriggers) {
       const interveningText = String(trigger.oracleClause || trigger.effect || '').trim();
 
@@ -155,6 +179,13 @@ export function getDiscardTriggers(
           break;
         case 'you_discard':
           if (discardingPlayerId === permController) {
+            triggers.push({ ...trigger, controllerId: permController });
+          }
+          break;
+        case 'forced_discard':
+          // Only discards caused by a spell or ability (cause known); opponent scope excludes your own.
+          if (discardingPlayerId === permController && cause && !options?.fromCycling
+            && (trigger.causeScope !== 'opponent' || cause !== permController)) {
             triggers.push({ ...trigger, controllerId: permController });
           }
           break;
@@ -189,7 +220,8 @@ export function getDiscardTriggers(
         effect: line.effect,
         mandatory: !/\byou may\b/i.test(line.effect),
         frequency: line.condition?.quantity === 'one_or_more' ? 'per_event' : 'per_card',
-        cardFilter: types.includes('creature') ? 'creature' : types.includes('land') ? 'land' : types.includes('artifact') ? 'artifact' : 'any',
+        cardFilter: types.includes('creature') ? 'creature' : types.includes('land') ? 'land' : types.includes('artifact') ? 'artifact'
+          : (line.condition?.alternatives[0]?.subject.excludedWords || []).includes('land') ? 'nonland' : 'any',
       });
     }
   }
@@ -231,7 +263,7 @@ export function queueDiscardTriggeredAbilities(
   ctx: GameContext,
   discardingPlayerId: string,
   discardedCards: any[],
-  options?: { fromCycling?: boolean },
+  options?: { fromCycling?: boolean; causeControllerId?: string },
 ): any[] {
   if ((ctx as any)?.isReplaying) return [];
   if (!discardingPlayerId) return [];
@@ -239,13 +271,14 @@ export function queueDiscardTriggeredAbilities(
   const cardsToTrigger = Array.isArray(discardedCards) ? discardedCards.filter((card: any) => card) : [];
   if (cardsToTrigger.length === 0) return [];
 
+  const selfDiscardQueued = queueSelfDiscardTriggers(ctx, String(discardingPlayerId), cardsToTrigger, { causeControllerId: options?.causeControllerId, fromCycling: options?.fromCycling });
   const triggers = orderTriggersByAPNAP(ctx, getDiscardTriggers(ctx, String(discardingPlayerId), options));
-  if (triggers.length === 0) return [];
+  if (triggers.length === 0) return selfDiscardQueued;
 
   const stateAny = ctx.state as any;
   stateAny.stack = Array.isArray(stateAny.stack) ? stateAny.stack : [];
   const gameId = String((ctx as any).gameId || '').trim();
-  const queued: any[] = [];
+  const queued: any[] = [...selfDiscardQueued];
 
   const pushDiscardTrigger = (trigger: any, matchingCards: any[]) => {
     if (matchingCards.length === 0) return;

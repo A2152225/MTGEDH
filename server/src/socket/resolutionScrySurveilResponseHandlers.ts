@@ -6,6 +6,7 @@
  */
 
 import type { Server } from "socket.io";
+import { notifyNoncombatPlayerDamage } from "../state/modules/triggers/player-dealt-damage-ir.js";
 import { appendEvent } from "../db/index.js";
 import { maybeResumeDeferredOracleIrStackSpellOnGame } from "../state/modules/oracleIrDeferredStackFinalize.js";
 import {
@@ -166,6 +167,7 @@ export function handleScryResponse(
         (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
         (game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] =
           ((game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] || 0) + dmg;
+        notifyNoncombatPlayerDamage(game as any, String(targetPlayerId), dmg);
       } catch {}
       try {
         (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};

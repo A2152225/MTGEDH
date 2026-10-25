@@ -257,6 +257,7 @@ function maybeQueueReflexiveDiscardWhenYouDo(
     reflexiveDiscardWhenYouDo: true,
     reflexiveDiscardWhenYouDoStage: 'ask',
     reflexiveDiscardWhenYouDoCount: parsed.discardCount,
+    ...(parsed.typeFilter ? { reflexiveDiscardWhenYouDoTypeFilter: parsed.typeFilter } : null),
     reflexiveDiscardWhenYouDoController: String(triggerController),
     reflexiveDiscardWhenYouDoSourceName: sourceName,
     reflexiveDiscardWhenYouDoSourcePermanentId: sourcePermanentId || undefined,

@@ -279,6 +279,7 @@ export type OracleEffectStepC =
         | 'your_next_end_step'
         | 'next_upkeep'
         | 'your_next_upkeep'
+        | 'next_end_of_combat'
         | 'on_event'
         | 'when_dealt_damage';
       readonly effect: string;

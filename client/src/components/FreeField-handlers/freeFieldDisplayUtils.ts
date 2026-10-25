@@ -86,10 +86,20 @@ function buildPTTooltip(params: {
   ptSources?: { name: string; power: number; toughness: number }[];
   damageMarked?: number;
   effectiveToughness?: number;
+  /** Pre-formatted conditional bonus lines (active/inactive), from conditionalPtBonusLines. */
+  conditionalLines?: string[];
+  /** Variable base lines (devotion, graveyard counts), from variablePtLines. */
+  variableLines?: string[];
 }): string | undefined {
-  const { baseP, baseT, plusCounters, minusCounters, ptSources, damageMarked, effectiveToughness } = params;
+  const { baseP, baseT, plusCounters, minusCounters, damageMarked, effectiveToughness } = params;
+  const conditionalLines = params.conditionalLines || [];
+  // Active conditional bonuses are listed under "Conditional:"; drop their duplicate source line.
+  const variableLines = params.variableLines || [];
+  // Counter-scaled lines ("Name: +1/+0 \u00d7 3 ... = +3/+0") also replace that source's per-source line.
+  const activeConditional = conditionalLines.filter((l) => l.endsWith('(active)') || (l.includes(' \u00d7 ') && l.includes(' = ')));
+  const ptSources = params.ptSources?.filter((s) => !activeConditional.some((l) => l.startsWith(`${s.name}: `)));
   
-  const hasModifiers = plusCounters > 0 || minusCounters > 0 || (ptSources && ptSources.length > 0);
+  const hasModifiers = plusCounters > 0 || minusCounters > 0 || (ptSources && ptSources.length > 0) || conditionalLines.length > 0 || variableLines.length > 0;
   const hasDamage = (damageMarked ?? 0) > 0;
   
   if (!hasModifiers && !hasDamage) {
@@ -118,6 +128,15 @@ function buildPTTooltip(params: {
       const tStr = source.toughness >= 0 ? `+${source.toughness}` : `${source.toughness}`;
       lines.push(`${source.name}: ${pStr}/${tStr}`);
     }
+  }
+  
+  if (variableLines.length > 0) {
+    lines.push('Variable:');
+    for (const l of variableLines) lines.push(`  ${l}`);
+  }
+  if (conditionalLines.length > 0) {
+    lines.push('Conditional:');
+    for (const l of conditionalLines) lines.push(`  ${l}`);
   }
   
   // Damage

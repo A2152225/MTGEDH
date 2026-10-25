@@ -30,6 +30,7 @@ import {
 } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 import { markEchoPaid, sacrificePermanent } from "../upkeep-triggers";
+import { replayCumulativeUpkeepChoice } from "../cumulativeUpkeepPayment.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { applyEffectProgramChoiceBindingOnReplay } from "../../effects/effectProgramReplayRestore.js";
 import { ensureDeferredOracleIrStackItem } from "../oracleIrDeferredStackFinalize.js";
@@ -509,7 +510,10 @@ export function applyStackPromptEvents(ctx: GameContext, e: GameEvent): boolean 
             if (echoChoice && sourceId) {
               markEchoPaid({ ...(ctx as any), zones: ctx.state?.zones } as any, sourceId);
             }
-          } else if (echoChoice && sourceId) {
+          }
+          if ((e as any).cumulativeUpkeepChoice === true) {
+            replayCumulativeUpkeepChoice(ctx as any, e, paid);
+          } else if (!paid && echoChoice && sourceId) {
             const playerId = String((e as any).playerId || '').trim();
             if (playerId) {
               sacrificePermanent({ ...(ctx as any), zones: ctx.state?.zones } as any, sourceId, playerId);

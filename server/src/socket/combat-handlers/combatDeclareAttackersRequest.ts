@@ -309,6 +309,8 @@ export async function handleDeclareAttackers(
       }
       const ownerRestrictionReason = getOwnerAttackRestrictionReason(creature, defendingPlayerId, {
         targetIsOwnerPlaneswalker: isAttackingOwnerPlaneswalker(creature, attacker, battlefield),
+        battlefield,
+        gameState: game.state,
       });
       if (ownerRestrictionReason) {
         socket.emit("error", {

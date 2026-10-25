@@ -1,4 +1,5 @@
 import { debugWarn } from '../../utils/debug.js';
+import { computeStaticMaxHandSize } from './handSizeStaticModifiers.js';
 
 /**
  * True when this card's oracle grants no maximum hand size (Reliquary Tower,
@@ -57,7 +58,7 @@ export function getMaxHandSizeForPlayer(gameState: any, playerId: string): numbe
       }
     }
 
-    return 7;
+    return computeStaticMaxHandSize(battlefield, playerId, 7);
   } catch (err) {
     debugWarn(1, `[getMaxHandSizeForPlayer] failed:`, err);
     return 7;

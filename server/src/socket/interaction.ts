@@ -1,9 +1,13 @@
+import { opponentActivationProhibitionReason } from "../state/modules/opponentActivationLocks.js";
 import type { Server, Socket } from "socket.io";
 import type { PlayerID, BattlefieldPermanent } from "../../../shared/src/index.js";
 import crypto from "crypto";
 import { ensureGame, appendGameEvent, broadcastGame, getPlayerName, emitToPlayer, broadcastManaPoolUpdate, getEffectivePower, getEffectiveToughness, parseManaCost, getOrInitManaPool, calculateTotalAvailableMana, validateManaPayment, consumeManaFromPool, calculateManaProduction, recordTreasureManaProduced, recordCreatureSpellHasteManaProduced, recordManaProducedByPermanentSource, validateAndConsumeManaCostFromPool, clearHumanAutoPassPauseOnAction, resolveClientStyleManaAbilityById, addRestrictedManaToPool } from "./util";
 import { syncDerivedContinuousEffects } from "../state/modules/staticEffectSpec.js";
-import { permanentCannotActivateTapAbilities } from "../state/modules/staticEffectSpecActivationLocks.js";
+import { resolveGrantedActivatedAbilityLine } from "../state/modules/grantedActivatedAbilityResolution.js";
+import { permanentCannotActivateTapAbilities, permanentLostPrintedActivatedAbility } from "../state/modules/staticEffectSpecActivationLocks.js";
+import { permanentActivatedAbilitiesLockedByAttachment } from "../state/modules/staticActivationLockFromAttachments.js";
+import { isLikelyManaActivation } from "../state/modules/activationManaAbilityClassifier.js";
 import { appendEvent } from "../db";
 import { games } from "./socket.js";
 import { 
@@ -399,7 +403,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
           allGranted.push(entry);
         }
       }
-      const grantedLine = String(allGranted[grantedIndex] || '').trim();
+      // Same ordering as the client buttons (persisted + continuous spec grants, then attachments).
+      const grantedLine = resolveGrantedActivatedAbilityLine(permanent, game.state, grantedIndex)
+        || String(allGranted[grantedIndex] || '').trim();
       scopedAbilityText = grantedLine.includes(':')
         ? grantedLine.slice(grantedLine.indexOf(':') + 1).trim()
         : grantedLine;
@@ -446,6 +452,21 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       scopedAbilityFullText,
       isGenericActivatedAbilityId,
     };
+
+    // Locks stop every handler below (equip, crew, loyalty, ...); a mana-ability exemption
+    // only applies when this request is itself a mana ability.
+    const activationLock = permanentActivatedAbilitiesLockedByAttachment(permanent, game.state, isLikelyManaActivation(abilityId, scopedAbilityFullText));
+    if (activationLock.locked) {
+      socket.emit('error', { code: 'CANNOT_ACTIVATE_LOCKED', message: `${cardName}'s activated abilities can't be activated${activationLock.sourceName ? ` (${activationLock.sourceName})` : ''}.`, sourceName: activationLock.sourceName });
+      return;
+    }
+
+    // B32: "During your turn, your opponents can't ... activate abilities of artifacts, creatures, ..." (Grand Abolisher, Myrel).
+    const b32ActivationLock = opponentActivationProhibitionReason(game.state, String(pid), permanent, isLikelyManaActivation(abilityId, scopedAbilityFullText)); // b33ManaAware
+    if (b32ActivationLock) {
+      socket.emit('error', { code: 'CANNOT_ACTIVATE_LOCKED', message: b32ActivationLock });
+      return;
+    }
 
     const { isAbilityActivationProhibitedByChosenName } = await import('../state/modules/chosen-name-restrictions.js');
     
@@ -653,11 +674,22 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       return;
     }
 
+    if (permanentLostPrintedActivatedAbility(permanent, game.state, abilityText)) {
+      socket.emit('error', { code: 'ABILITY_LOST', message: `${cardName} has lost all abilities.` });
+      return;
+    }
+
     if (requiresTap && permanentCannotActivateTapAbilities(permanent, game.state)) {
       socket.emit('error', {
         code: 'CANNOT_ACTIVATE_TAP_ABILITY',
         message: `${cardName}'s activated abilities with {T} in their costs can't be activated.`,
       });
+      return;
+    }
+
+    const activationLockTap = permanentActivatedAbilitiesLockedByAttachment(permanent, game.state, isManaAbility);
+    if (activationLockTap.locked) {
+      socket.emit('error', { code: 'CANNOT_ACTIVATE_LOCKED', message: `${cardName}'s activated abilities can't be activated${activationLockTap.sourceName ? ` (${activationLockTap.sourceName})` : ''}.`, sourceName: activationLockTap.sourceName });
       return;
     }
 

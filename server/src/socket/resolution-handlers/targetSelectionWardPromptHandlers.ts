@@ -1,3 +1,4 @@
+import { getPermanentWardCost } from '../../state/modules/faceDownWardKeyword.js';
 /**
  * socket/resolution-handlers/targetSelectionWardPromptHandlers.ts
  *
@@ -107,7 +108,7 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
       continue;
     }
 
-    const wardCost = getWardCost(targetPerm.card);
+    const wardCost = getPermanentWardCost(targetPerm);
     if (!wardCost) continue;
 
     const normalizedWardCost = String(wardCost || '').trim().replace(/[\s\t]+/g, ' ').replace(/[.;,]+$/g, '').trim();

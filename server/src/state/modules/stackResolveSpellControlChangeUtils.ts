@@ -15,6 +15,9 @@ import {
 import { isExtraTurnSpell } from './oracleIrSpellLegacySpellShapeUtils.js';
 import { skipRetiredSpellLegacyHandler } from './oracleIrSpellLegacyRouting.js';
 import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+import { registerControlEffect, syncControlFromRegistry } from './continuousEffectRegistry.js';
+import { parseMassGainControl, parseTargetedGainControl } from './gainControlOraclePatterns.js';
+import { getCurrentPowerToughnessForRules } from './currentPowerToughness.js';
 import { queueParsedSubjectEvent } from './triggerEmissionFamilyUtils.js';
 
 function buildPermanentTokenCopy(
@@ -112,7 +115,16 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
     let syncPreviousController = originalController;
     let changed = false;
     if (originalController !== newController) {
-      permanent.controller = newController;
+      // Layer 2 (CR 613.7): register a timestamped control effect; the controller is derived from it.
+      registerControlEffect(state, {
+        permanentId: String(permanent.id || ''),
+        originalController,
+        newController,
+        duration: options?.temporary ? 'eot' : 'permanent',
+        sourceId: String((item as any)?.id || (item as any)?.sourceId || '') || undefined,
+      });
+      syncControlFromRegistry(state);
+      if (String(permanent.controller || '') !== newController) permanent.controller = newController;
       syncPreviousController = originalController;
       changed = true;
       queueParsedSubjectEvent(ctx, {
@@ -185,13 +197,7 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
       && ['eot', 'turn', 'until_end_of_turn'].includes(String(entry?.duration || '').trim().toLowerCase())
     );
     if (!alreadyTracked) {
-      stateAny.controlChangeEffects.push({
-        permanentId,
-        originalController,
-        newController,
-        duration: 'eot',
-        appliedAt,
-      });
+      registerControlEffect(state, { permanentId, originalController, newController, duration: 'eot', appliedAt });
     }
 
     // Controller mutation and its cleanup tracker must be durable. Previously
@@ -233,12 +239,17 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
   );
   const exchangeTargetsMustShareCardType = hasExchangeTargetPermanentsEffect
     && controlChangeResolutionTexts.some((text: string) => selectionRequiresSharedCardType(text));
-  const hasTemporaryGainControlEffect = controlChangeResolutionTexts.some((text: string) =>
-    text.includes('gain control of target creature') && text.includes('until end of turn')
-  );
-  const hasPermanentGainControlEffect = !hasTemporaryGainControlEffect && controlChangeResolutionTexts.some((text: string) =>
-    text.includes('gain control of target creature')
-  );
+  // Generic wording: Act of Treason, Threaten ("... gain control of it until end of turn"), Traitorous Instinct, Besmirch.
+  const targetedGainControl = controlChangeResolutionTexts
+    .map((text: string) => parseTargetedGainControl(text))
+    .find((parsed): parsed is NonNullable<typeof parsed> => parsed !== null);
+  const hasTemporaryGainControlEffect = targetedGainControl?.temporary === true;
+  const hasPermanentGainControlEffect = targetedGainControl !== undefined && !hasTemporaryGainControlEffect;
+  const massGainControl = targetedGainControl
+    ? undefined
+    : controlChangeResolutionTexts
+      .map((text: string) => parseMassGainControl(text))
+      .find((parsed): parsed is NonNullable<typeof parsed> => parsed !== null);
 
   if (hasExchangeCreaturesEffect && targets.length > 0) {
     const targetOpponentId = String(typeof targets[0] === 'string' ? targets[0] : targets[0]?.id || '').trim();
@@ -421,7 +432,8 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
 
     if (targetPermanent) {
       const typeLine = String(targetPermanent.card?.type_line || '').toLowerCase();
-      if (typeLine.includes('creature')) {
+      const requiredNoun = targetedGainControl?.noun || 'creature';
+      if (requiredNoun === 'permanent' || typeLine.includes(requiredNoun)) {
         const newController = String(controller || '');
         const shouldUntap = controlChangeResolutionTexts.some((text: string) => text.includes('untap'));
         const shouldGrantHaste = controlChangeResolutionTexts.some((text: string) => text.includes('gains haste') || text.includes('gain haste'));
@@ -441,6 +453,29 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
     }
   }
   
+  // Mass steals: Mob Rule ("all creatures with power 4 or greater"), Insurrection ("all creatures ... them").
+  if (massGainControl && String(controller || '')) {
+    const newController = String(controller || '');
+    const shouldUntap = controlChangeResolutionTexts.some((text: string) => text.includes('untap'));
+    const shouldGrantHaste = controlChangeResolutionTexts.some((text: string) => text.includes('gain haste') || text.includes('gains haste'));
+    const affected = (Array.isArray(state.battlefield) ? state.battlefield : []).filter((perm: any) => {
+      if (!perm || !String(perm.card?.type_line || '').toLowerCase().includes('creature')) return false;
+      if (massGainControl.minPower === undefined && massGainControl.maxPower === undefined) return true;
+      const power = getCurrentPowerToughnessForRules(perm, state).power;
+      if (massGainControl.minPower !== undefined && power < massGainControl.minPower) return false;
+      if (massGainControl.maxPower !== undefined && power > massGainControl.maxPower) return false;
+      return true;
+    });
+    for (const perm of affected) {
+      applyControllerChange(perm, newController, { temporary: massGainControl.temporary });
+      if (shouldUntap) perm.tapped = false;
+      if (shouldGrantHaste) grantTemporaryHaste(perm);
+    }
+    if (affected.length > 0) {
+      debug(2, `[resolveTopOfStack] ${effectiveCard.name}: gained control of ${affected.length} creature(s)`);
+    }
+  }
+
   // Handle mass bounce spells (Evacuation, Cyclonic Rift overloaded, Aetherize, etc.)
   // Multiple patterns to handle different mass bounce effects:
   // - "Return all creatures to their owners' hands" (Evacuation)

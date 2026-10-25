@@ -7,12 +7,14 @@ import type { GameContext } from '../context.js';
 import type { OracleIRExecutionResult } from '../../../../rules-engine/src/oracleIRExecutor.js';
 import { queueLifegainTriggers } from './triggers/lifegain.js';
 import { queueLifeLossTriggers } from './triggers/life-loss.js';
+import { queuePlayerDealtNoncombatDamageIR } from './triggers/player-dealt-damage-ir.js';
 import { queueSacrificeTriggers } from './triggers/sacrifice.js';
 import { queueLibrarySearchTriggers } from './triggers/search.js';
 import { queueLibraryShuffleTriggers } from './triggers/shuffle.js';
 import { queueDiscardTriggeredAbilities } from './triggers/discard.js';
 import { queueBecomesUntappedTriggers } from './triggers/tap-untap.js';
 import { queueTapTriggersForTappedPermanentsOnContext } from './tap-trigger-queue.js';
+import { queueYouTapOpponentCreatureTriggers } from './triggers/youTapOpponentCreature.js';
 import {
   processDamageReceivedTriggers,
   dispatchDamageReceivedTrigger,
@@ -24,6 +26,8 @@ import {
 } from './triggerDiscoverUtils.js';
 import { debugWarn } from '../../utils/debug.js';
 import { queueDealsDamageToPlayerTriggersFromPermanent } from './triggerLifeDamageUtils.js';
+import { emitNoncombatDamageEvent, queueNoncombatDealsDamageTriggers } from './triggers/noncombat-deals-damage.js';
+import { detectCombatDamageTriggers } from './triggers/index.js';
 import { processMillTriggers } from './zones.js';
 import { checkGraveyardTrigger } from './zone-manipulation.js';
 
@@ -133,6 +137,8 @@ export function emitTriggersAfterOracleIRApply(
     const kinds = appliedKinds(result);
     const irController = String(options?.controller || '').trim();
     const sourcePermanentId = String(options?.sourcePermanentId || '').trim();
+    const noncombatDamagedPlayerIds: string[] = [];
+    const noncombatDamagedPermanentIds: string[] = [];
 
     // Life gain / loss
     const playerIds = new Set<string>([
@@ -158,6 +164,8 @@ export function emitTriggersAfterOracleIRApply(
           if (sourcePermanentId) {
             queueDealsDamageToPlayerTriggersFromPermanent(ctx, sourcePermanentId, playerId, lost);
           }
+          noncombatDamagedPlayerIds.push(playerId);
+          queuePlayerDealtNoncombatDamageIR(ctx, { damagedPlayerId: playerId, damageAmount: lost });
         }
       }
     }
@@ -189,6 +197,7 @@ export function emitTriggersAfterOracleIRApply(
         }
         if (nowDamage > prev.damage) {
           const amount = nowDamage - prev.damage;
+          if (kinds.has('deal_damage')) noncombatDamagedPermanentIds.push(id);
           processDamageReceivedTriggers(ctx, perm, amount, (triggerInfo) => {
             if (dispatchDamageReceivedTrigger(ctx, triggerInfo)) return;
             const stateAny = state as any;
@@ -215,6 +224,34 @@ export function emitTriggersAfterOracleIRApply(
       }
     }
 
+    // Noncombat "deals damage" (IR deals_damage) once per damage event, all recipients.
+    const anyNoncombatDamage = kinds.has('deal_damage') && (noncombatDamagedPlayerIds.length > 0 || noncombatDamagedPermanentIds.length > 0);
+    const damageSourceOnBattlefield = sourcePermanentId
+      ? battlefield.some((p: any) => String(p?.id || '') === sourcePermanentId)
+      : false;
+    if (anyNoncombatDamage && !damageSourceOnBattlefield && irController) {
+      // Resolving spell (not a permanent): "a source you control deals noncombat damage".
+      emitNoncombatDamageEvent(ctx, {
+        sourceId: sourcePermanentId,
+        controller: irController,
+        playerIds: noncombatDamagedPlayerIds,
+        permanentIds: noncombatDamagedPermanentIds,
+      });
+    }
+    if (sourcePermanentId && damageSourceOnBattlefield && anyNoncombatDamage) {
+      const damageSource = battlefield.find((p: any) => String(p?.id || '') === sourcePermanentId);
+      const legacyEffects = damageSource?.card
+        ? detectCombatDamageTriggers(damageSource.card, damageSource, state)
+          .filter((t: any) => t?.triggerType === 'deals_damage' && !t?.batched)
+          .map((t: any) => String(t.description || t.effect || ''))
+        : [];
+      queueNoncombatDealsDamageTriggers(ctx, sourcePermanentId, {
+        playerIds: noncombatDamagedPlayerIds,
+        permanentIds: noncombatDamagedPermanentIds,
+        legacyEffects,
+      });
+    }
+
     if (newlyTappedIds.length > 0) {
       const tappedBy = String(
         (state as any)?.activePlayer
@@ -229,6 +266,7 @@ export function emitTriggersAfterOracleIRApply(
         newlyTappedIds,
         String(firstTapped?.controller || tappedBy),
       );
+      if (irController) queueYouTapOpponentCreatureTriggers(ctx, newlyTappedIds, irController);
     }
 
     // Sacrifice — permanents removed while a sacrifice step applied.
@@ -288,7 +326,7 @@ export function emitTriggersAfterOracleIRApply(
           return cardId && beforeHand.has(cardId) && !afterHand.has(cardId) && !beforeGy.has(cardId);
         });
         if (discardedCards.length > 0) {
-          queueDiscardTriggeredAbilities(ctx, playerId, discardedCards);
+          queueDiscardTriggeredAbilities(ctx, playerId, discardedCards, irController ? { causeControllerId: irController } : undefined);
         }
       }
     }

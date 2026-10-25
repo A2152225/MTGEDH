@@ -7,6 +7,7 @@
  */
 
 import { getContinuousGrantedAbilitiesForPermanent } from '../staticEffectSpec.js';
+import { persistedGrantedAbilitiesSurvivingLoss } from '../persistedGrantedAbilityLoss.js';
 
 const FIRST_TIME_EACH_TURN_RE =
   /\s+for the first time(?: each turn| during each of your turns)/gi;
@@ -34,9 +35,10 @@ export function mergeDetectorOracleWithContinuousGrants(
   const continuousGranted = gameState
     ? getContinuousGrantedAbilitiesForPermanent(permanent, gameState)
     : [];
-  const persisted = Array.isArray(permanent?.grantedAbilities)
-    ? permanent.grantedAbilities.map((entry: unknown) => String(entry || ''))
-    : [];
+  const persistedRaw = gameState
+    ? persistedGrantedAbilitiesSurvivingLoss(permanent, gameState.battlefield)
+    : (Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : []);
+  const persisted = persistedRaw.map((entry: unknown) => String(entry || ''));
   const grantedAbilities = [...persisted, ...continuousGranted];
   const printedLower = printed.toLowerCase();
   const extra = grantedAbilities.filter((line) => {

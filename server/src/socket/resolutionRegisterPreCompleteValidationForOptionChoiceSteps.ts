@@ -300,6 +300,11 @@ export async function validateOptionChoicePayCostPromptsBeforeComplete(
     const amount = parseReflexivePaymentChoiceAmount(choiceId);
     const paymentUnit = (String(stepAny?.reflexiveManaPaymentUnit || 'mana').trim() || 'mana') as any;
     const available = getAvailableReflexiveManaAmountFromPool(game.state, String(pid), paymentUnit);
+    const maxTimes = Math.floor(Number(stepAny?.reflexiveManaPaymentMaxTimes || 0));
+    if (maxTimes > 0 && amount > maxTimes) {
+      socket.emit('error', { code: 'INVALID_CHOICE', message: `You may pay at most ${maxTimes} time(s).` });
+      return false;
+    }
     if (amount <= 0 || amount > available) {
       socket.emit('error', {
         code: 'INSUFFICIENT_MANA',

@@ -20,6 +20,7 @@ import {
   spellWasCastWithDashPaid,
 } from './keywordCastDelayedEffects.js';
 import { applySneakPermanentBattlefieldEntry } from './sneakCastUtils.js';
+import { buildFaceDownCardStub, resolveFaceDownEntryInfo } from './faceDownCasting.js';
 import { selfLeaveBattlefieldReplacementDestination } from './leaveBattlefieldReplacementHint.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
 import {
@@ -32,6 +33,7 @@ import { applyMetallicMimicEntryBonus } from './triggerChosenTypeSpellUtils.js';
 import { applyGraveyardTypeEntryCounterGrants } from './graveyardTypeEntryCounterBonus.js';
 import { applyBattlefieldTypeEntryCounterGrants } from './battlefieldTypeEntryCounterBonus.js';
 import { cardEntersPrepared, setPermanentPrepared } from './prepared.js';
+import { propagateCastMetadataToEnteringPermanent } from './stackResolvePermanentCastMetadata.js';
 import { hydratePermanentCardOracleInPlace, hydrateCardOracleInPlace } from './cardOracleHydration.js';
 import { inferLeaveBattlefieldExileReplacement, applyLeaveBattlefieldExileReplacementStamp } from './leaveBattlefieldReplacementStamp.js';
 import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
@@ -136,8 +138,9 @@ export function resolvePermanentSpellBattlefieldEntry(
   const isPlaneswalker = /\bplaneswalker\b/.test(tl);
   
   // Check if this was cast with morph (face-down)
-  const wasCastWithMorph = (item as any).wasCastWithMorph || false;
-  const morphCost = wasCastWithMorph ? (item as any).morphCost : undefined;
+  const faceDownEntry = resolveFaceDownEntryInfo(item, effectiveCard);
+  const wasCastWithMorph = faceDownEntry.wasCastFaceDown;
+  const morphCost = wasCastWithMorph ? faceDownEntry.morphCost : undefined;
   
   let baseP: number | undefined;
   let baseT: number | undefined;
@@ -295,15 +298,8 @@ export function resolvePermanentSpellBattlefieldEntry(
     basePower: baseP,
     baseToughness: baseT,
     summoningSickness: hasSummoningSickness,
-    ...(isCreature ? { enteredThisTurn: true } : {}),
-    card: wasCastWithMorph ? { 
-      // Face-down card - show generic 2/2 colorless creature
-      name: "Face-down Creature",
-      type_line: "Creature",
-      zone: "battlefield",
-      power: "2",
-      toughness: "2",
-    } : (() => {
+    ...(!/\bland\b/.test(tl) ? { enteredThisTurn: true } : {}),
+    card: wasCastWithMorph ? buildFaceDownCardStub(faceDownEntry.kind, String(newPermId)) : (() => {
       const nextCard: any = { ...effectiveCard, zone: "battlefield" };
       if ('counters' in nextCard) delete nextCard.counters;
       return nextCard;
@@ -355,104 +351,7 @@ export function resolvePermanentSpellBattlefieldEntry(
     }
   }
 
-  // Propagate relevant cast metadata from the stack item onto the permanent/card.
-  // This enables ETB intervening-if clauses like "if {R} was spent to cast it".
-  if ((item as any).manaColorsSpent && Array.isArray((item as any).manaColorsSpent) && !wasCastWithMorph) {
-    (newPermanent as any).manaColorsSpent = (item as any).manaColorsSpent;
-    (newPermanent.card as any).manaColorsSpent = (item as any).manaColorsSpent;
-  }
-
-  if (typeof (item as any).manaSpentTotal === 'number' && !Number.isNaN((item as any).manaSpentTotal) && !wasCastWithMorph) {
-    (newPermanent as any).manaSpentTotal = (item as any).manaSpentTotal;
-    (newPermanent.card as any).manaSpentTotal = (item as any).manaSpentTotal;
-  }
-
-  if ((item as any).manaSpentBreakdown && typeof (item as any).manaSpentBreakdown === 'object' && !wasCastWithMorph) {
-    (newPermanent as any).manaSpentBreakdown = (item as any).manaSpentBreakdown;
-    (newPermanent.card as any).manaSpentBreakdown = (item as any).manaSpentBreakdown;
-  }
-
-  // Alternate-cost id (e.g., surge/spectacle/madness/prowl) for intervening-if and other templates.
-  if (typeof (item as any).alternateCostId === 'string' && (item as any).alternateCostId.length > 0 && !wasCastWithMorph) {
-    (newPermanent as any).alternateCostId = (item as any).alternateCostId;
-    (newPermanent.card as any).alternateCostId = (item as any).alternateCostId;
-  }
-
-  // Convoke-derived metadata: how many creatures contributed mana.
-  if (typeof (item as any).manaFromCreaturesSpent === 'number' && !Number.isNaN((item as any).manaFromCreaturesSpent) && !wasCastWithMorph) {
-    (newPermanent as any).manaFromCreaturesSpent = (item as any).manaFromCreaturesSpent;
-    (newPermanent.card as any).manaFromCreaturesSpent = (item as any).manaFromCreaturesSpent;
-  }
-  if (Array.isArray((item as any).convokeTappedCreatures) && !wasCastWithMorph) {
-    (newPermanent as any).convokeTappedCreatures = (item as any).convokeTappedCreatures;
-    (newPermanent.card as any).convokeTappedCreatures = (item as any).convokeTappedCreatures;
-  }
-
-  // Track cast origin (best-effort) for intervening-if clauses like "if you cast it" / "if you cast it from your hand".
-  // Only set these on permanents created from resolving a stack item.
-  (newPermanent as any).enteredFromCast = true;
-  (newPermanent.card as any).enteredFromCast = true;
-  // Propagate as-enters choices already chosen on the stack/card (replay restore + spell-time choices).
-  const chosenCreatureType = String(
-    (item as any)?.chosenCreatureType
-    || (effectiveCard as any)?.chosenCreatureType
-    || (item as any)?.card?.chosenCreatureType
-    || '',
-  ).trim();
-  if (chosenCreatureType) {
-    (newPermanent as any).chosenCreatureType = chosenCreatureType;
-    if (newPermanent.card && typeof newPermanent.card === 'object') {
-      (newPermanent.card as any).chosenCreatureType = chosenCreatureType;
-    }
-  }
-  const chosenColor = String(
-    (item as any)?.chosenColor
-    || (effectiveCard as any)?.chosenColor
-    || (item as any)?.card?.chosenColor
-    || '',
-  ).trim();
-  if (chosenColor) {
-    (newPermanent as any).chosenColor = chosenColor;
-    if (newPermanent.card && typeof newPermanent.card === 'object') {
-      (newPermanent.card as any).chosenColor = chosenColor;
-    }
-  }
-  const chosenCardName = String(
-    (item as any)?.chosenCardName
-    || (effectiveCard as any)?.chosenCardName
-    || (item as any)?.card?.chosenCardName
-    || '',
-  ).trim();
-  if (chosenCardName) {
-    (newPermanent as any).chosenCardName = chosenCardName;
-    if (newPermanent.card && typeof newPermanent.card === 'object') {
-      (newPermanent.card as any).chosenCardName = chosenCardName;
-    }
-  }
-  const chosenPlayer = String(
-    (item as any)?.chosenPlayer
-    || (effectiveCard as any)?.chosenPlayer
-    || (item as any)?.card?.chosenPlayer
-    || '',
-  ).trim();
-  if (chosenPlayer) {
-    (newPermanent as any).chosenPlayer = chosenPlayer;
-    if (newPermanent.card && typeof newPermanent.card === 'object') {
-      (newPermanent.card as any).chosenPlayer = chosenPlayer;
-    }
-  }
-  if (typeof (item as any).castFromHand === 'boolean') {
-    (newPermanent as any).castFromHand = (item as any).castFromHand;
-    (newPermanent.card as any).castFromHand = (item as any).castFromHand;
-  }
-  if (typeof (item as any).source === 'string' && (item as any).source.length > 0) {
-    (newPermanent as any).castSourceZone = (item as any).source;
-    (newPermanent.card as any).castSourceZone = (item as any).source;
-  }
-  if (String((effectiveCard as any)?.castWithAbility || (item as any)?.card?.castWithAbility || '').trim().toLowerCase() === 'escape') {
-    (newPermanent as any).escapedFrom = 'graveyard';
-    (newPermanent.card as any).escapedFrom = 'graveyard';
-  }
+  propagateCastMetadataToEnteringPermanent(item, effectiveCard, newPermanent, wasCastWithMorph);
   if (gainsHasteUntilEndOfTurnFromManaSpent) {
     (newPermanent as any).temporaryAbilities = Array.isArray((newPermanent as any).temporaryAbilities)
       ? (newPermanent as any).temporaryAbilities
@@ -469,7 +368,7 @@ export function resolvePermanentSpellBattlefieldEntry(
   // Store face-down information
   if (wasCastWithMorph) {
     newPermanent.isFaceDown = true;
-    newPermanent.faceDownType = 'morph';
+    newPermanent.faceDownType = faceDownEntry.kind || 'morph';
     newPermanent.faceUpCard = effectiveCard; // Store the actual card hidden
     newPermanent.morphCost = morphCost;
   }

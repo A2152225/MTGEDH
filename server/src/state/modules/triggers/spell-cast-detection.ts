@@ -18,6 +18,7 @@ import { appendSpellCastDetectionMid } from "./spell-cast-detection-mid.js";
 import type { SpellCastDetectionState } from "./spell-cast-detection-state.js";
 import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 /**
  * Detect spell-cast triggered abilities from a card's oracle text
  * Handles cards like:
@@ -28,6 +29,7 @@ import { timingTriggerEffect } from "./timing-effect-extraction.js";
  * - Harmonic Prodigy: "If an ability of a Shaman or Wizard you control triggers, that ability triggers an additional time"
  */
 export function detectSpellCastTriggers(card: any, permanent: any, state?: unknown): SpellCastTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, state, { event: 'cast' })) return []; // Humility / Torpor Orb gate
   const triggers: SpellCastTrigger[] = [];
   const face = getActivePermanentCardFace(card, permanent, state);
   const annotated = resolveDetectorOracleForPermanent(permanent, face.oracleText, state);
@@ -71,35 +73,8 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
     });
   }
 
-  const anyPlayerCrimeMatch = oracleText.match(/whenever a player commits a crime,?\s*([^.]+)/i);
-  if (anyPlayerCrimeMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('commits a crime'))) {
-    const effectText = timingTriggerEffect(oracleText, anyPlayerCrimeMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: `Whenever a player commits a crime, ${effectText}`,
-      effect: effectText,
-      spellCondition: 'any',
-      tribalType: 'commit_a_crime',
-      mandatory: !effectText.toLowerCase().includes('you may'),
-    });
-  }
-
-  const commitCrimeMatch = oracleText.match(/whenever you commit a crime,?\s*([^.]+)/i);
-  if (commitCrimeMatch && !triggers.some((t) => String(t.description || '').toLowerCase().includes('commit a crime'))) {
-    const effectText = timingTriggerEffect(oracleText, commitCrimeMatch);
-    triggers.push({
-      permanentId,
-      cardName,
-      controllerId,
-      description: `Whenever you commit a crime, ${effectText}`,
-      effect: effectText,
-      spellCondition: 'any',
-      tribalType: 'commit_a_crime',
-      mandatory: !effectText.toLowerCase().includes('you may'),
-    });
-  }
+  // "Whenever you / a player commits a crime" is Oracle IR commits_crime (crime-triggers.ts),
+  // emitted for spells, activated and triggered abilities once they are on the stack.
 
   const nonSliverCreatureSpellCastMatch = oracleText.match(
     /whenever you cast a non-Sliver creature spell,?\s*([^.]+)/i,
@@ -131,6 +106,8 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
       description: `Whenever you copy a spell, ${effectText}`,
       effect: effectText,
       spellCondition: 'any',
+      // Fires from the spell_copied emitter (triggers/spell-copied.ts), never on a cast.
+      triggerEvent: 'copy',
       mandatory: !effectText.toLowerCase().includes('you may'),
     });
   }
@@ -241,6 +218,23 @@ export function detectSpellCastTriggers(card: any, permanent: any, state?: unkno
     });
   }
   
+  // Round 28: "When you spend this mana to cast a Dragon creature spell, X" (Scaled Nurturer, Orbs of Dragonkind).
+  const spendThisManaMatch = oracleText.match(/when you spend this mana to cast an? ([a-z]+) creature spell,?\s*([^.]+)/i);
+  if (spendThisManaMatch && !triggers.some((t) => t.requiresManaFromPermanentId === permanentId && t.spellCondition === 'tribal_type')) {
+    const effectText = String(spendThisManaMatch[2] || '').trim();
+    triggers.push({
+      permanentId,
+      cardName,
+      controllerId,
+      description: `When you spend this mana to cast a ${spendThisManaMatch[1]} creature spell, ${effectText}`,
+      effect: effectText,
+      spellCondition: 'tribal_type',
+      tribalType: String(spendThisManaMatch[1]).toLowerCase(),
+      requiresManaFromPermanentId: permanentId,
+      mandatory: !/\byou may\b/i.test(effectText),
+    });
+  }
+
   const creatureSpellMinPowerMatch = oracleText.match(
     /(?:when|whenever) you cast a creature spell with power (\d+) or greater,?\s*([^.]+)/i,
   );

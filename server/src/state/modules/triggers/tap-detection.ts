@@ -11,6 +11,7 @@ import {
   applyFirstTimeEachTurnFlags,
   resolveDetectorOracleForPermanent,
 } from "./detectorGrantedOracle.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 function isOptionalTapTriggerEffect(effectText: string): boolean {
   const normalized = String(effectText || '').trim();
@@ -66,6 +67,7 @@ export interface TapTrigger {
  * - Opposition: Tap creatures to tap opponent's permanents
  */
 export function detectTapTriggers(card: any, permanent: any, gameState?: any): TapTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'tap' })) return []; // Humility / Torpor Orb gate
   const triggers: TapTrigger[] = [];
   const printedOracle = (card?.oracle_text || "");
   const annotated = resolveDetectorOracleForPermanent(permanent, printedOracle, gameState);
@@ -99,15 +101,17 @@ export function detectTapTriggers(card: any, permanent: any, gameState?: any): T
   }
 
   const youTapOpponentCreatureMatch = oracleText.match(
-    /(?:when you (?:do, )?tap|you tap) (?:target |an )?(?:untapped )?creature an opponent controls/i,
+    /whenever you tap an untapped creature an opponent controls,?\s*([^\n]+)/i,
   );
   if (youTapOpponentCreatureMatch && !triggers.some((t) => (t as any).affectedType === 'you_tap_opponent_creature')) {
+    // Runtime: queueYouTapOpponentCreatureTriggers (needs the tapping player); getTapTriggers skips this affectedType.
+    const youTapEffect = String(youTapOpponentCreatureMatch[1] || '').trim();
     triggers.push({
       permanentId,
       cardName,
       controllerId,
-      description: 'When you tap an untapped creature an opponent controls',
-      effect: 'tap target creature an opponent controls',
+      description: youTapEffect,
+      effect: youTapEffect,
       triggerCondition: 'you_tap_opponent_creature',
       affectedType: 'you_tap_opponent_creature',
       mandatory: false,

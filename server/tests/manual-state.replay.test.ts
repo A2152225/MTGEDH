@@ -262,15 +262,17 @@ describe('manual state replay persistence', () => {
 
     const replayPermanent = ((replayGame.state as any).battlefield || []).find((entry: any) => entry.id === 'perm_1');
     expect(replayPermanent?.controller).toBe(p2);
-    expect((replayGame.state as any).controlChangeEffects).toEqual([
-      {
-        permanentId: 'perm_1',
-        originalController: p1,
-        newController: p2,
-        duration: 'eot',
-        appliedAt: Number(persisted.payload?.appliedAt || 0),
-      },
-    ]);
+    const replayedEffects = (replayGame.state as any).controlChangeEffects;
+    expect(replayedEffects).toHaveLength(1);
+    expect(replayedEffects[0]).toMatchObject({
+      permanentId: 'perm_1',
+      originalController: p1,
+      newController: p2,
+      duration: 'eot',
+      appliedAt: Number(persisted.payload?.appliedAt || 0),
+    });
+    // Registry entries are stamped with a layer timestamp when replayed.
+    expect(typeof replayedEffects[0].ceTimestamp).toBe('number');
   });
 
   it('moves prepared exile copies during live and replayed changePermanentControl', async () => {

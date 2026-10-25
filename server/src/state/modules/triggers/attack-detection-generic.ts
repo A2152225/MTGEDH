@@ -121,7 +121,7 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
     });
   }
 
-  const youAttackMatch = oracleText.match(/whenever you attack,?\s*([^.]+)/i);
+  const youAttackMatch = oracleText.match(/whenever you attack(?! with\b),?\s*([^.]+)/i);
   if (youAttackMatch && !triggers.some((t) => t.triggerType === 'you_attack')) {
     const effectText = timingTriggerEffect(oracleText, youAttackMatch);
     triggers.push({
@@ -657,7 +657,7 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
     });
   }
 
-  const anyCreatureAttacksMatch = oracleText.match(/whenever a creature attacks(?! this turn)(?! or blocks),?\s*([^.]+)/i);
+  const anyCreatureAttacksMatch = oracleText.match(/whenever a creature attacks(?! this turn)(?! or blocks)(?! you\b),?\s*([^.]+)/i);
   if (
     anyCreatureAttacksMatch &&
     !triggers.some((t) => t.triggerType === 'any_creature_attacks' || t.triggerType === 'creature_attacks' || t.triggerType === 'creature_attacks_this_turn')

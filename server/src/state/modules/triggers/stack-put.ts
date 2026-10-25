@@ -14,6 +14,8 @@ import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggerConditionFamilyMatch.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
+import { queueTargetEventTriggersForStackItem } from './target-event-triggers.js';
 
 export interface StackPutTrigger {
   permanentId: string;
@@ -32,7 +34,8 @@ function normalizeOracleText(text: string): string {
 const STACK_PUT_PATTERN =
   /whenever a spell or ability is put onto the stack(?:,\s*if it has a single target)?,?\s*([^.]+)/gi;
 
-export function detectStackPutTriggers(card: any, permanent: any): StackPutTrigger[] {
+export function detectStackPutTriggers(card: any, permanent: any, gameState?: any): StackPutTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'cast' })) return []; // Humility / Torpor Orb gate
   const triggers: StackPutTrigger[] = [];
   const oracleText = normalizeOracleText(card?.oracle_text || '');
   const permanentId = String(permanent?.id || '');
@@ -79,7 +82,16 @@ function snapshotPermanent(permanent: any): any | undefined {
 
 let stackPutDepth = 0;
 
+/**
+ * Every spell / ability put on the stack: target events (commits_crime, becomes_target;
+ * idempotent per object) and then stack-put triggers.
+ */
 export function queueStackPutTriggers(ctx: GameContext, stackItemId: string): any[] {
+  const targetEvents = stackPutDepth > 0 ? [] : queueTargetEventTriggersForStackItem(ctx, stackItemId);
+  return [...targetEvents, ...queueStackPutTriggersOnly(ctx, stackItemId)];
+}
+
+function queueStackPutTriggersOnly(ctx: GameContext, stackItemId: string): any[] {
   if ((ctx as any)?.isReplaying) return [];
   const causingId = String(stackItemId || '').trim();
   if (!causingId) return [];

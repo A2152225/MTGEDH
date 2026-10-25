@@ -5,6 +5,7 @@
 
 import type { GameState, PlayerID } from '../../../../shared/src/index.js';
 import { canCastSpell } from '../../../../rules-engine/src/castingRestrictions.js';
+import { findOracleCastingLimitViolation } from './staticCastingRestrictionsOracleExtras.js';
 
 function countSpellsCastThisTurnByPlayer(state: any, playerId: string): number {
   const list = state?.spellsCastThisTurn;
@@ -35,7 +36,7 @@ export function isSpellCastingProhibitedByStaticRestriction(
     countSpellsCastThisTurnByPlayer(state, String(playerId)),
     castingZone,
   );
-  if (result.canCast) return { prohibited: false };
+  if (result.canCast) return findOracleCastingLimitViolation(state, String(playerId), spell);
   return {
     prohibited: true,
     reason: result.reason || 'An effect prevents you from casting that spell.',

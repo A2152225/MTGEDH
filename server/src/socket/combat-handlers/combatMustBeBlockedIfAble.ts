@@ -20,6 +20,10 @@ import {
   hasEffectiveAbility,
   isCurrentlyCreature,
 } from './combatLegalityGates.js';
+import {
+  findMustBlockEachCombatViolation,
+  resolveMustBlockEachCombatAssignments,
+} from './combatMustBlockEachCombat.js';
 
 export type MustBeBlockedIfAbleViolation = {
   code: 'MUST_BE_BLOCKED_IF_ABLE';
@@ -500,7 +504,7 @@ export function findMustBeBlockedIfAbleViolation(args: {
   for (const [keyword, attackers] of typedUnblockedByKeyword) {
     if (attackers.length > 0) return violationFrom(attackers, false, keyword);
   }
-  return null;
+  return findMustBlockEachCombatViolation({ state, defendingPlayerId, assignments: args.assignments });
 }
 
 /**
@@ -524,6 +528,13 @@ export function resolveMustBeBlockedIfAbleAssignments(args: {
     seenBlockers.add(blockerId);
     assignments.push({ blockerId, attackerId });
   }
+  const required = resolveMustBlockEachCombatAssignments({
+    state: args.state,
+    defendingPlayerId: args.defendingPlayerId,
+    assignments,
+  });
+  assignments.length = 0;
+  assignments.push(...required);
 
   const battlefield = Array.isArray(args.state?.battlefield) ? args.state.battlefield : [];
   const maxPasses = Math.max(4, battlefield.length + 2);

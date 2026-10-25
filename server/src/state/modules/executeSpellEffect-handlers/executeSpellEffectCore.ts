@@ -23,9 +23,11 @@ import { shouldExileStackCardInsteadOfGraveyard } from '../stack-zone-replacemen
 import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
 import { appendQueuedResolutionPromptEvent } from '../resolutionPromptEvents.js';
 import { queueDealsDamageToPlayerTriggersFromPermanent } from '../triggerLifeDamageUtils.js';
+import { emitNoncombatDamageEvent } from '../triggers/noncombat-deals-damage.js';
 import { processSpellCounteredTriggers } from '../spellCounteredTriggerUtils.js';
 import { debug, debugWarn } from '../../../utils/debug.js';
 import { normalizeFlickerReturnAt, resolveFlickerReturnAfterExile } from './executeSpellEffectFlickerHelpers.js';
+import { applySpellLifelinkGain } from '../spellLifelinkGrant.js';
 
 /**
  * Execute a single spell effect
@@ -237,7 +239,7 @@ export function executeSpellEffect(
                 dmg,
                 String(caster || ''),
                 String((perm as any)?.controller || ''),
-                undefined,
+                sourceId || undefined,
                 false,
                 String((perm as any)?.id || '') || undefined,
               );
@@ -245,6 +247,8 @@ export function executeSpellEffect(
               return { prevented: modifiedDmg <= 0, appliedAmount: modifiedDmg, usedMinusCounters: false };
             })();
         if (damageResult.prevented || damageResult.appliedAmount <= 0) break;
+        emitNoncombatDamageEvent(ctx, { sourcePermanentId, sourceId, controller: String(caster || ''), sourceName: spellName, permanentIds: [String((perm as any).id)] });
+        applySpellLifelinkGain(ctx, { sourcePermanentId, sourceId, caster: String(caster || ''), amount: damageResult.appliedAmount });
 
         debug(2, `[resolveSpell] ${spellName} dealt ${damageResult.appliedAmount} damage to ${(perm as any).card?.name || effect.id}`);
 
@@ -371,6 +375,10 @@ export function executeSpellEffect(
         try {
           if (sourcePermanentId && resolved.damageDealt > 0) {
             queueDealsDamageToPlayerTriggersFromPermanent(ctx, String(sourcePermanentId), String(targetPlayerId), resolved.damageDealt);
+          }
+          if (resolved.damageDealt > 0) {
+            emitNoncombatDamageEvent(ctx, { sourcePermanentId, sourceId, controller: String(caster || ''), sourceName: spellName, playerIds: [String(targetPlayerId)] });
+            applySpellLifelinkGain(ctx, { sourcePermanentId, sourceId, caster: String(caster || ''), amount: resolved.damageDealt });
           }
         } catch {
           // Defensive: do not block resolution.

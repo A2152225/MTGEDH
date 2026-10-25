@@ -5,6 +5,7 @@
 
 import React from "react";
 import { socket } from "../socket";
+import { readableCombatError } from "../utils/restrictionReasonText";
 import type { BattlefieldPermanent, ClientGameView, ManaPool, PlayerID } from "../../../shared/src";
 import type { TriggerPromptData } from "../components/TriggeredAbilityModal";
 import type { UndoBoundaryPreview, UndoRequestData } from "../components/UndoRequestModal";
@@ -376,7 +377,7 @@ export function useAppPlaySocketEffects(deps: AppPlaySocketEffectDeps) {
         : [];
       if (!attackersDeclaredBy.includes(you)) {
         setCombatMode('attackers');
-        setCombatModalError(lastError);
+        setCombatModalError(readableCombatError(lastError));
         setCombatModalReadOnly(false);
         setCombatModalMinimized(false);
         setCombatModalOpen(true);
@@ -408,7 +409,7 @@ export function useAppPlaySocketEffects(deps: AppPlaySocketEffectDeps) {
 
     if (attackersTargetingYou.length > 0 && !youAlreadyDeclared) {
       setCombatMode('blockers');
-      setCombatModalError(lastError);
+      setCombatModalError(readableCombatError(lastError));
       setCombatModalReadOnly(false);
       setCombatModalOpen(true);
     }

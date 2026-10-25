@@ -1,5 +1,6 @@
 import type { KnownCardRef } from '../../../shared/src';
 import type { OptionChoiceOption } from '../components/OptionChoiceModal';
+import { decorateBatch24OptionChoice } from './batch24ChoicePresentation';
 
 /**
  * Generic resolution choice primitives (task D6).
@@ -179,6 +180,16 @@ export function readResolutionPromptCause(step: Record<string, unknown>): {
   };
 }
 
+/** Force-style pitch prompts: make sure the colour requirement is visible. */
+export function withPitchColorRequirement(step: Record<string, unknown>): string {
+  const description = String(step.description || '');
+  const word = typeof step.forcePitchColorWord === 'string' ? step.forcePitchColorWord.trim() : '';
+  if (step.forceOfWillExileChoice !== true || !word) return description;
+  if (new RegExp(`\\b${word}\\b`, 'i').test(description)) return description;
+  const req = `Requirement: exile a ${word} card from your hand.`;
+  return description ? `${description} ${req}` : req;
+}
+
 export function buildGenericOptionChoiceRequestFromStep(
   step: Record<string, unknown>,
   gameId: string,
@@ -191,8 +202,7 @@ export function buildGenericOptionChoiceRequestFromStep(
     sourceName: String(step.sourceName || 'Make a Choice'),
     sourceImage: typeof step.sourceImage === 'string' ? step.sourceImage : undefined,
     ...readResolutionPromptCause(step),
-    description: String(step.description || ''),
-    options: Array.isArray(step.options) ? step.options as OptionChoiceOption[] : [],
+    ...(decorateBatch24OptionChoice(step, withPitchColorRequirement(step), Array.isArray(step.options) ? step.options as OptionChoiceOption[] : []) as { description: string; options: OptionChoiceOption[] }),
     minSelections: Number(step.minSelections ?? 0),
     maxSelections: Number(step.maxSelections ?? 1),
     mandatory,

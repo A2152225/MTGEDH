@@ -9,6 +9,7 @@
  */
 
 import { isGrantedActivatedAbilityText } from '../../../../shared/src/attachmentAbilityGrants';
+import { listGrantedActivatedAbilityLines, normalizeGrantedActivatedAbilityLine } from '../../../../shared/src/grantedActivatedAbilityList';
 import type { ParsedActivatedAbility } from './activatedAbilityParserTypes';
 import { parseCostComponents } from './parseActivatedAbilityCostAndMill';
 import { parseManaProduction } from './parseManaProduction';
@@ -31,40 +32,9 @@ export function pushUniqueParsedAbility(abilities: ParsedActivatedAbility[], abi
   }
 }
 
+/** Shared with the server activation handler so `-granted-<n>` indexes agree. */
 export function normalizeGrantedActivatedAbilityText(entry: string): string | null {
-  const raw = String(entry || '').trim();
-  if (!raw) return null;
-
-  const lower = raw.toLowerCase();
-  if (lower === 'tap_for_any_color') {
-    return '{T}: Add one mana of any color.';
-  }
-  if (lower === 'tap_for_green') {
-    return '{T}: Add {G}.';
-  }
-  if (lower === 'tap_for_white') {
-    return '{T}: Add {W}.';
-  }
-  if (lower === 'tap_for_blue') {
-    return '{T}: Add {U}.';
-  }
-  if (lower === 'tap_for_black') {
-    return '{T}: Add {B}.';
-  }
-  if (lower === 'tap_for_red') {
-    return '{T}: Add {R}.';
-  }
-
-  const quoted = raw.match(/["“”]([^"“”]*:[^"“”]*)["“”]/);
-  if (quoted?.[1]) {
-    return quoted[1].trim();
-  }
-
-  if (raw.includes(':') && (raw.includes('{T}') || /^(Sacrifice|Discard|Pay|Exile|Remove|Tap|Untap)\b/i.test(raw))) {
-    return raw;
-  }
-
-  return null;
+  return normalizeGrantedActivatedAbilityLine(entry);
 }
 
 export function buildParsedAbilityFromGrantedLine(
@@ -125,16 +95,16 @@ export function appendGrantedActivatedAbilities(
   if (!Array.isArray(grantedAbilities) || grantedAbilities.length === 0) return;
 
   let grantedIndex = 0;
-  for (const entry of grantedAbilities) {
-    const grantedText = normalizeGrantedActivatedAbilityText(String(entry || ''));
-    if (!grantedText) continue;
+  // Same deduped list the server indexes for `-granted-<n>`.
+  for (const grantedText of listGrantedActivatedAbilityLines(grantedAbilities)) {
 
     // Allow trailing restriction text (Powerstone / Vibranium).
     const manaMatch = grantedText.match(/^\{T\}\s*:\s*Add\s+(.+?)(?:\.|$)/i);
     if (manaMatch) {
       const producedText = manaMatch[1].trim();
       const normalizedProduced = producedText.toLowerCase();
-      const singleColorSymbol = producedText.match(/^\{([WUBRGC])\}/i)?.[1]?.toUpperCase();
+      // Only a lone symbol maps to the native tap ability; "{C}{C}" keeps its full amount (granted path).
+      const singleColorSymbol = producedText.match(/^\{([WUBRGC])\}(?!\s*\{)/i)?.[1]?.toUpperCase();
       const nativeId = normalizedProduced.includes('any color')
         ? 'native_any'
         : singleColorSymbol

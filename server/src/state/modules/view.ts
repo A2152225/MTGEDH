@@ -12,8 +12,11 @@ import { computeCurrentPowerToughnessWithSources } from "./currentPowerToughness
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getContinuousGrantedAbilitiesForPermanent, syncDerivedContinuousEffects } from "./staticEffectSpec.js";
 import { collectBattlefieldAbilityBadgesForView } from "./battlefieldAbilityBadges.js";
+import { computePermanentRulesStatus } from "./viewPermanentRulesStatus.js";
+import { applyRevealedInformationToZones } from "./viewRevealedInformation.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
 import { maskFaceDownExileCardForViewer, applyCurrentExiledWithSourcePlayLook } from "./impulse-exile-utils.js";
+import { maskFaceDownPermanentForViewer, maskFaceDownStackItemForViewer } from "./faceDownViewMasking.js";
 import {
   applyCurrentHideawayExamination,
   collectMissingHideawayExileCards,
@@ -138,12 +141,15 @@ export function viewFor(
   const filteredBattlefield = state.battlefield.map((perm: BattlefieldPermanent) => {
     const card = perm.card as any;
     const typeLine = String(card?.type_line || "").toLowerCase();
-    const isCreature = /\bcreature\b/.test(typeLine);
+    // Type-setting Auras: Ensoul Artifact makes a creature; Imprisoned in the Moon stops being one.
+    const isCreature = (perm as any).notCreature !== true && (/\bcreature\b/.test(typeLine) || (perm as any).isCreature === true);
     let effectivePower: number | undefined;
     let effectiveToughness: number | undefined;
     
     const continuousAbilities = getContinuousGrantedAbilitiesForPermanent(perm, state);
-    const existingAbilities = collectBattlefieldAbilityBadgesForView(perm, continuousAbilities);
+    const existingAbilities = collectBattlefieldAbilityBadgesForView(perm, continuousAbilities, state.battlefield);
+    let rulesStatus: ReturnType<typeof computePermanentRulesStatus>;
+    try { rulesStatus = computePermanentRulesStatus(perm, state); } catch { rulesStatus = undefined; }
 
     if (isCreature) {
       // Shared with rules effects (fight, bite, damage equal to power) via currentPowerToughness.ts.
@@ -178,6 +184,7 @@ export function viewFor(
       ...((perm as any).ptSources?.length > 0 ? { ptSources: (perm as any).ptSources } : {}),
       // Include granted abilities from continuous effects (Avacyn, Svyelun, anthems, etc.)
       ...(existingAbilities.length > 0 ? { grantedAbilities: existingAbilities } : {}),
+      ...(rulesStatus ? { rulesStatus } : {}),
     };
   });
 
@@ -290,6 +297,8 @@ export function viewFor(
     }
   }
 
+  try { applyRevealedInformationToZones(state, filteredZones as any, (pid) => libraries.get(pid as PlayerID)?.[0]); } catch { /* best-effort */ }
+
   const projectedPlayers: PlayerRef[] = (state.players as any as PlayerRef[]).map(
     (p) => {
       const lifeTotal = (state as any).life?.[p.id] ?? (p as any).life;
@@ -335,8 +344,9 @@ export function viewFor(
 
   return {
     ...state,
-    battlefield: filteredBattlefield,
-    stack: state.stack.slice(),
+    battlefield: filteredBattlefield.map((p: any) => maskFaceDownPermanentForViewer(p, viewer, (state as any).gameOver === true)),
+    stack: state.stack.map((it: any) => maskFaceDownStackItemForViewer(it, viewer, (state as any).gameOver === true)),
+    faceDownReveals: Array.isArray((state as any).faceDownReveals) ? (state as any).faceDownReveals : [],
     players: projectedPlayers,
     zones: filteredZones,
     spectators: [],

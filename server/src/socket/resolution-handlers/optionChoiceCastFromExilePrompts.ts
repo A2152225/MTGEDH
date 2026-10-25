@@ -22,6 +22,7 @@
  * Wired through resolutionHandlerDeps. Must not import resolution.ts.
  */
 
+import { notifyNoncombatPlayerDamage } from '../../state/modules/triggers/player-dealt-damage-ir.js';
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../../state/modules/graveyardEntryUtils.js";
@@ -329,6 +330,7 @@ export async function handleCastFromExilePromptChoice(
         (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
         (game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] =
           ((game.state as any).damageTakenThisTurnByPlayer[String(targetPlayerId)] || 0) + dmg;
+        notifyNoncombatPlayerDamage(game as any, String(targetPlayerId), dmg);
       } catch {}
       try {
         (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};

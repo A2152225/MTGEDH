@@ -42,7 +42,8 @@ const CITYS_BLESSING_CARD_TYPE_GET_RE =
 const HISTORIC_DURING_TURN_HAVE_RE =
   /during your turn,?\s*(other\s+)?historic creatures you control have ([^.]+)/gi;
 const BASE_PT_RE =
-  /(?:^|[.\n;])\s*(other\s+)?creatures(?: you control)? have base power and toughness (\d+)\s*\/\s*(\d+)(?: and are ([a-z]+)s? in addition[^.]*)?/gi;
+  // Also Humility: "All creatures lose all abilities and have base power and toughness 1/1."
+  /(?:^|[.\n;])\s*(other\s+)?(?:all\s+)?creatures(?: you control)? (?:lose all abilities and )?have base power and toughness (\d+)\s*\/\s*(\d+)(?: and are ([a-z]+)s? in addition[^.]*)?/gi;
 const MANA_ABILITY_ANTHEM_RE =
   /each creature you control with a mana ability gets\s+(\+\d+\s*\/\s*\+\d+)/gi;
 

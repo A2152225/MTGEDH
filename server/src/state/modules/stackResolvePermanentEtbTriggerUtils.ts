@@ -6,6 +6,7 @@ import { getETBTriggersForPermanent } from './triggered-abilities.js';
 import { triggerETBEffectsForToken } from './triggerEtbEntryEffects.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+import { permanentHasTriggeredAbilities } from './triggers/triggeredAbilitySuppression.js';
 
 export function matchesColorRestriction(restriction: string, cardColors: string[]): boolean {
   const lowerRestriction = restriction.toLowerCase();
@@ -57,7 +58,8 @@ export function queuePermanentEntersBattlefieldTriggerStackItems(
   const newPermId = options.newPermId;
 
   try {
-    const allTriggers = getETBTriggersForPermanent(effectiveCard, newPermanent, state);
+    const allTriggers = permanentHasTriggeredAbilities(newPermanent, state, { event: 'etb', eventSubject: newPermanent })
+      ? getETBTriggersForPermanent(effectiveCard, newPermanent, state) : [];
     for (const trigger of allTriggers) {
       if (trigger.triggerType !== 'job_select' && trigger.triggerType !== 'living_weapon') {
         continue;

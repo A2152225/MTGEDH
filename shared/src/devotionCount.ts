@@ -32,7 +32,10 @@ export function countDevotionAmongPermanents(
   let total = 0;
   for (const permanent of permanents) {
     if (!permanent || String(permanent.controller || '') !== controller) continue;
-    const manaCost = String(permanent.card?.mana_cost || permanent.mana_cost || '');
+    if (permanent.phasedOut === true) continue;
+    const manaCost = String(
+      permanent.card?.mana_cost || permanent.card?.manaCost || permanent.mana_cost || permanent.manaCost || '',
+    );
     total += countDevotionSymbolsInManaCost(manaCost, colors);
   }
   return total;

@@ -29,13 +29,10 @@ function readChooserZoneCards(state: GameState, playerId: string, zone: 'hand' |
   const player = Array.isArray(state.players)
     ? state.players.find((entry) => String(entry?.id || '').trim() === playerId)
     : undefined;
-  const fromPlayer = Array.isArray((player as { [key: string]: unknown } | undefined)?.[zone])
-    ? ((player as Record<string, unknown>)[zone] as readonly any[])
-    : [];
-  const zones = (state as { zones?: Record<string, Record<string, unknown>> }).zones;
-  const fromZones = Array.isArray(zones?.[playerId]?.[zone])
-    ? (zones[playerId][zone] as readonly any[])
-    : [];
+  const onPlayer: unknown = player ? Reflect.get(player, zone) : undefined;
+  const fromPlayer: readonly unknown[] = Array.isArray(onPlayer) ? onPlayer : [];
+  const inZones: unknown = state.zones?.[playerId] ? Reflect.get(state.zones[playerId], zone) : undefined;
+  const fromZones: readonly unknown[] = Array.isArray(inZones) ? inZones : [];
   return fromPlayer.length > 0 ? fromPlayer : fromZones;
 }
 

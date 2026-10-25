@@ -12,6 +12,7 @@ import {
   getTemporaryRetainedManaForPlayer,
   syncTemporaryRetainedManaToPool,
 } from "./turnTemporaryRetainedMana.js";
+import { readOracleManaRetentionEffects } from "./turnManaRetentionOracle.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -108,6 +109,10 @@ export function clearManaPool(ctx: GameContext) {
             type: 'all_doesnt_empty',
           });
         }
+      }
+
+      for (const effect of readOracleManaRetentionEffects(battlefield, playerId)) {
+        if (!effects.some((existing) => existing.permanentId === effect.permanentId)) effects.push(effect);
       }
 
       return effects;

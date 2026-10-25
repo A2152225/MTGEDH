@@ -6,10 +6,12 @@
 // Leaf must not import turn.ts or turn-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
+import { recordPlaneswalkerCombatDamage } from "./turnCombatDamageRecipientVariantTriggers.js";
 import { calculateModifiedDamage } from "../game-state-effects.js";
 import { applyShieldCounterDamagePrevention } from "../counter-common-effects.js";
 import { evaluateDamageReplacementEvent } from "../replacement-effects.js";
 import { applyCombatDamagePreventionEffects } from "./turnCombatDamageStatsPrevention.js";
+import { recordDamageReplacementMessages } from "../replacementDamageLog.js";
 
 export function isCombatDamagePreventedForPermanent(permanent: any): boolean {
   if (!permanent) {
@@ -81,13 +83,21 @@ export function applyCombatDamageToPlaneswalker(ctx: GameContext, permanent: any
     target: permanent,
     targetId: String(permanent.id || ''),
   });
-  if (isCombatDamagePreventedForPermanent(permanent) || (shieldReplacement.effectId === 'shield-counter-prevent-damage' && applyShieldCounterDamagePrevention(permanent))) {
+  const pwName = String(permanent?.card?.name || permanent?.id || 'planeswalker');
+  const preventedThisTurn = isCombatDamagePreventedForPermanent(permanent);
+  const shielded = !preventedThisTurn && shieldReplacement.effectId === 'shield-counter-prevent-damage' && applyShieldCounterDamagePrevention(permanent);
+  if (preventedThisTurn || shielded) {
+    const why = preventedThisTurn ? 'prevent all combat damage dealt to it this turn' : 'shield counter removed';
+    recordDamageReplacementMessages(ctx.state, [`${pwName}: prevented ${prevention.remainingDamage} combat damage (${why})`], prevention.remainingDamage, 0);
+  }
+  if (preventedThisTurn || shielded) {
     return { prevented: true, appliedAmount: 0, remainingLoyalty: currentLoyalty };
   }
 
   const nextLoyalty = currentLoyalty - prevention.remainingDamage;
   (permanent as any).counters = { ...((permanent as any).counters || {}), loyalty: nextLoyalty };
   (permanent as any).loyalty = nextLoyalty;
+  recordPlaneswalkerCombatDamage(ctx, sourceId, permanent, prevention.remainingDamage);
 
   return { prevented: false, appliedAmount: prevention.remainingDamage, remainingLoyalty: nextLoyalty };
 }

@@ -1,3 +1,4 @@
+import { getGrantedWardCost } from './faceDownWardKeyword.js';
 /**
  * stack-mechanics.ts
  * 
@@ -32,6 +33,7 @@
 import type { GameContext } from "../context.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { persistNamedSpellCastThisGame } from "./namedSpellsCastThisGame.js";
+import { queueSpellCopiedTriggers } from "./triggers/spell-copied.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "./stack-zone-replacements.js";
 import { processSpellCounteredTriggers } from "./spellCounteredTriggerUtils.js";
@@ -406,7 +408,7 @@ export function checkWardTrigger(
     return null;
   }
   
-  const wardCost = getWardCost(permanent.card);
+  const wardCost = getGrantedWardCost(permanent) || ((permanent as any)?.isFaceDown === true ? null : getWardCost(permanent.card));
   if (!wardCost) {
     return null;
   }
@@ -453,6 +455,7 @@ export function copyStackItem(
       name: copy.card?.name || original.card?.name || original.source?.cardName,
       id: copy.id,
     });
+    queueSpellCopiedTriggers(ctx, String(copy.id || ''));
   }
   
   return { success: true, copy };

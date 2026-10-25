@@ -9,10 +9,12 @@ import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
 import { mergeDetectorOracleWithContinuousGrants } from "./detectorGrantedOracle.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import { escapeCardNameForRegex } from "./types.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 /**
  * Detect "dealt damage" triggers (Arcbond, etc.)
  */
 export function detectDealtDamageTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'damage' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const { oracleText } = mergeDetectorOracleWithContinuousGrants(String(card?.oracle_text || ''), permanent, gameState);
   const cardName = String(card?.name || 'Unknown');
@@ -36,7 +38,7 @@ export function detectDealtDamageTriggers(card: any, permanent: any, gameState?:
     /whenever a creature you control with deathtouch deals damage to (?:a player|an opponent) or (?:a )?planeswalker,?\s*([^.]+)/gi,
     /whenever a ([\w]+) you control is dealt damage,?\s*([^.]+)/gi,
     /whenever a creature an opponent controls is dealt damage,?\s*([^.]+)/gi,
-    /whenever an opponent is dealt damage,?\s*([^.]+)/gi,
+    /whenever an opponent is dealt (?:noncombat )?damage,?\s*([^.]+)/gi,
     /whenever an opponent is dealt combat damage by one or more creatures you control,?\s*([^.]+)/gi,
     /whenever a source you control deals noncombat damage to (?:a creature equal to that creature's toughness|an opponent),?\s*([^.]+)/gi,
     /whenever a source you control deals noncombat damage to an opponent,?\s*([^.]+)/gi,

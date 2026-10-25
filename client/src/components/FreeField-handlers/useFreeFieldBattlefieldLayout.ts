@@ -89,9 +89,9 @@ export function useFreeFieldBattlefieldLayout(args: FreeFieldBattlefieldLayoutAr
     const displayPerms = perms;
 
     for (const p of displayPerms) {
-      const kc = p.card as KnownCardRef;
+      const kc = ((p as any).revealedAtGameEnd && (p as any).faceUpCard ? (p as any).faceUpCard : p.card) as KnownCardRef;
       const img = kc?.image_uris?.[imagePref] || kc?.image_uris?.normal || kc?.image_uris?.small || null;
-      const name = kc?.name || p.id;
+      const name = kc?.name || (kc as any)?.displayName || p.id;
       const tl = (kc?.type_line || '').toLowerCase();
       const isCreature = isCurrentlyCreature(p as any);
       const isPlaneswalker = /\bplaneswalker\b/.test(tl);

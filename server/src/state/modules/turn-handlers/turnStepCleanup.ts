@@ -13,6 +13,7 @@ import { debug, debugWarn } from "../../../utils/debug.js";
 import { clearTemporaryEtbTriggers } from '../triggerEtbEntryEffects.js';
 import { clearMarkedPermanentDamage } from "../counter-common-effects.js";
 import { syncPreparedPermanentAfterControlChange } from "../prepared.js";
+import { removeControlEffects, syncControlFromRegistry } from "../continuousEffectRegistry.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { clearTemporaryGraveyardKeywordGrants, clearTemporaryPlayableFromGraveyardPermissions } from "../graveyard-permissions.js";
 import { expireDelayedDealtDamageWatchers } from "../triggers/dealt-damage-watchers.js";
@@ -305,45 +306,18 @@ function endTemporaryEffects(ctx: GameContext) {
     endedCount += clearTemporaryPlayableFromGraveyardPermissions(state);
     endedCount += clearTemporaryEtbTriggers(state);
 
-    // Revert temporary control changes recorded for cleanup.
+    // End temporary control effects; controllers are re-derived from what remains (control Auras,
+    // later or indefinite steals) instead of being written back to a stale original controller.
     if (Array.isArray((state as any).controlChangeEffects) && (state as any).controlChangeEffects.length > 0) {
       const expiringDurations = new Set(['eot', 'turn', 'until_end_of_turn', 'this_turn']);
-      const expiringEffects = ((state as any).controlChangeEffects as any[]).filter((effect: any) =>
+      const removed = removeControlEffects(state, (effect: any) =>
         expiringDurations.has(String(effect?.duration || '').trim().toLowerCase())
       );
-      const remainingEffects = ((state as any).controlChangeEffects as any[]).filter((effect: any) =>
-        !expiringDurations.has(String(effect?.duration || '').trim().toLowerCase())
-      );
-
-      const firstExpiringByPermanent = new Map<string, any>();
-      for (const effect of expiringEffects) {
-        const permanentId = String(effect?.permanentId || '').trim();
-        if (!permanentId || firstExpiringByPermanent.has(permanentId)) continue;
-        firstExpiringByPermanent.set(permanentId, effect);
-      }
-
-      for (const [permanentId, effect] of firstExpiringByPermanent.entries()) {
-        const permanent = battlefield.find((entry: any) => entry && String(entry.id || '').trim() === permanentId);
-        if (!permanent) continue;
-
-        const originalController = String(effect?.originalController || '').trim();
-        const previousController = String(permanent.controller || '').trim();
-        if (!originalController) continue;
-
-        permanent.controller = originalController;
-        syncPreparedPermanentAfterControlChange(state, permanent, previousController);
-
-        const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
-        if (typeLine.includes('creature')) {
-          permanent.summoningSickness = true;
+      if (removed > 0) {
+        for (const change of syncControlFromRegistry(state)) {
+          syncPreparedPermanentAfterControlChange(state, change.permanent, change.previousController);
+          endedCount++;
         }
-        endedCount++;
-      }
-
-      if (remainingEffects.length > 0) {
-        (state as any).controlChangeEffects = remainingEffects;
-      } else {
-        delete (state as any).controlChangeEffects;
       }
     }
     

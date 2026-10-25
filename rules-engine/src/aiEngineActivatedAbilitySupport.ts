@@ -1,4 +1,6 @@
 import type { BattlefieldPermanent, GameState, KnownCardRef, PlayerID } from '../../shared/src';
+import { appendGrantedLoyaltyAbilityLines } from '../../shared/src/planeswalkerGrantedLoyaltyAbilities';
+import { getGrantedVehicleCrewValue, resolveCrewPowerRequirement } from './grantedVehicleCrew';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { cardAnalyzer, CardCategory, SynergyArchetype } from './CardAnalyzer';
 import type { AIPlayerConfig } from './AIEngine';
@@ -75,7 +77,7 @@ interface AIActivatedAbilityCandidate {
   readonly effectText: string;
 }
 
-function getAIActivatedAbilityCandidates(perm: BattlefieldPermanent): AIActivatedAbilityCandidate[] {
+function getAIActivatedAbilityCandidates(perm: BattlefieldPermanent, battlefield?: readonly any[]): AIActivatedAbilityCandidate[] {
   const card = perm.card as KnownCardRef;
   const cardId = String((card as any)?.id || perm?.id || '').trim();
   const nativeOracleText = String(card?.oracle_text || '').trim();
@@ -93,7 +95,9 @@ function getAIActivatedAbilityCandidates(perm: BattlefieldPermanent): AIActivate
     const loyaltyAbilityPattern = /^([+−–—-]?\d+):\s*(.+)/gm;
     let loyaltyMatch: RegExpExecArray | null;
     let loyaltyIndex = 0;
-    while ((loyaltyMatch = loyaltyAbilityPattern.exec(nativeOracleText)) !== null) {
+    // Include loyalty abilities granted by other permanents ("planeswalkers you control have ...").
+    const pwOracleText = appendGrantedLoyaltyAbilityLines(nativeOracleText, battlefield, perm);
+    while ((loyaltyMatch = loyaltyAbilityPattern.exec(pwOracleText)) !== null) {
       const loyaltyCost = String(loyaltyMatch[1] || '').replace(/[−–—]/g, '-').trim();
       const effectText = String(loyaltyMatch[2] || '').trim();
       if (!effectText) continue;
@@ -160,12 +164,15 @@ function getAIActivatedAbilityCandidates(perm: BattlefieldPermanent): AIActivate
     });
   }
 
-  const crewMatch = nativeOracleText.match(/crew\s*(\d+)/i);
-  if (crewMatch && typeLine.includes('vehicle')) {
+  // Own "Crew N" or a granted one ("Vehicles you control have crew N"); the cheapest is offered.
+  const crewBattlefield = Array.isArray(battlefield) ? battlefield : [];
+  const crewController = String((perm as any)?.controller || '');
+  if ((/crew\s*\d+/i.test(nativeOracleText) || getGrantedVehicleCrewValue(crewBattlefield, crewController, perm) !== null) && typeLine.includes('vehicle')) {
+    const crewValue = resolveCrewPowerRequirement(nativeOracleText, crewBattlefield, crewController, perm);
     candidates.push({
       abilityId: `${cardId}-crew-0`,
-      abilityText: `Crew ${crewMatch[1]}`,
-      effectText: `crew ${crewMatch[1]}`,
+      abilityText: `Crew ${crewValue}`,
+      effectText: `crew ${crewValue}`,
     });
   }
 
@@ -680,7 +687,7 @@ export function findBestActivatedAbility(
     if (!playerMayActivatePermanent(perm, playerId)) continue;
     if (!canActivateAbilityNow(perm, gameState, playerId, { hasPermanentType: deps.hasPermanentType })) continue;
 
-    const abilityCandidates = getAIActivatedAbilityCandidates(perm);
+    const abilityCandidates = getAIActivatedAbilityCandidates(perm, battlefield);
     const scoredCandidates = abilityCandidates.length > 0
       ? abilityCandidates
       : (() => {

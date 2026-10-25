@@ -17,6 +17,7 @@ import { markOnceDuringEachActivatedAbilityUsedThisTurn } from '../../../../rule
 import { resolveChosenTypeDrawPerCreature } from './triggerChosenTypeSpellUtils.js';
 import { queueChosenTypeTopLibraryRevealPrompt } from './oracleIrSpellLegacyLibrarySelectionUtils.js';
 import { syncPreparedPermanentAfterControlChange } from './prepared.js';
+import { registerControlEffect, registerExchangeControlEffects } from './continuousEffectRegistry.js';
 import { attachEquipmentToCreature } from './triggerEquipmentUtils.js';
 
 function resolveTextDrivenActivatedControlChange(
@@ -34,18 +35,11 @@ function resolveTextDrivenActivatedControlChange(
   }
 
   const recordTemporaryControlChange = (permanentId: string, originalController: string, newController: string) => {
-    const stateAny = state as any;
-    stateAny.controlChangeEffects = Array.isArray(stateAny.controlChangeEffects) ? stateAny.controlChangeEffects : [];
-    stateAny.controlChangeEffects.push({
-      permanentId,
-      originalController,
-      newController,
-      duration: 'eot',
-      appliedAt: Date.now(),
-    });
+    // Layer 2 registry entry stamped now; cleanup removes it and control is re-derived.
+    registerControlEffect(state, { permanentId, originalController, newController, duration: 'eot' });
   };
 
-  const applyControllerChange = (permanent: any, newController: string, options?: { temporary?: boolean }) => {
+  const applyControllerChange = (permanent: any, newController: string, options?: { temporary?: boolean; skipRegistry?: boolean }) => {
     const originalController = String(permanent?.controller || '').trim();
     if (!newController || !originalController || originalController === newController) {
       return false;
@@ -59,8 +53,12 @@ function resolveTextDrivenActivatedControlChange(
       (permanent as any).summoningSickness = true;
     }
 
-    if (options?.temporary) {
+    if (options?.skipRegistry) {
+      // Caller registers (exchange pairs share one timestamp).
+    } else if (options?.temporary) {
       recordTemporaryControlChange(String(permanent.id || ''), originalController, newController);
+    } else {
+      registerControlEffect(state, { permanentId: String(permanent.id || ''), originalController, newController, duration: 'permanent' });
     }
 
     return true;
@@ -193,8 +191,12 @@ function resolveTextDrivenActivatedControlChange(
           const secondController = String(secondPermanent.controller || '').trim();
 
           if (firstController && secondController && firstController !== secondController) {
-            applyControllerChange(firstPermanent, secondController, { temporary: false });
-            applyControllerChange(secondPermanent, firstController, { temporary: false });
+            applyControllerChange(firstPermanent, secondController, { skipRegistry: true });
+            applyControllerChange(secondPermanent, firstController, { skipRegistry: true });
+            registerExchangeControlEffects(state, [
+              { permanentId: String(firstPermanent.id || ''), originalController: firstController, newController: secondController, duration: 'permanent' },
+              { permanentId: String(secondPermanent.id || ''), originalController: secondController, newController: firstController, duration: 'permanent' },
+            ]);
             applied = true;
             debug(2, `[resolveTextDrivenActivatedControlChange] ${sourceName}: exchanged control of ${firstPermanent.card?.name || firstPermanent.id} and ${secondPermanent.card?.name || secondPermanent.id}`);
           }

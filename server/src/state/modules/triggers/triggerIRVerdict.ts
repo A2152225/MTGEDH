@@ -35,12 +35,13 @@ export function parsedTriggerLinesForEffect(
   oracleText: string,
   events: readonly TriggerConditionEvent[],
   effectTexts: readonly unknown[],
+  cardName?: string,
 ): ParsedTriggerLine[] {
   const lines: ParsedTriggerLine[] = [];
   const texts = effectTexts.filter((text) => String(text || '').trim() !== '');
   if (texts.length === 0) return lines;
   for (const sentence of triggerSentences(oracleText)) {
-    const parsed = parseTriggerClause(sentence);
+    const parsed = parseTriggerClause(sentence, cardName);
     if (!parsed || !parsed.effect) continue;
     const event = parsed.condition.event;
     const paired = parsed.condition.pairedEvent;
@@ -66,7 +67,12 @@ export function triggerSubjectIRVerdict(options: {
   state?: any;
   subjectColors?: readonly string[];
 }): boolean | null {
-  const lines = parsedTriggerLinesForEffect(options.oracleText, options.events, options.effectTexts)
+  const lines = parsedTriggerLinesForEffect(
+    options.oracleText,
+    options.events,
+    options.effectTexts,
+    String(options.sourcePermanent?.card?.name || options.sourcePermanent?.name || '').trim() || undefined,
+  )
     .filter((line) => line.condition.alternatives.length > 0);
   if (lines.length === 0) return null;
   const base = permanentToTriggerMatch(options.subjectPermanent, options.subjectControllerId, options.state);
@@ -140,7 +146,12 @@ export function isOneOrMoreIRBatchDuplicate(
   events: readonly TriggerConditionEvent[],
 ): boolean {
   const oracleText = String(sourcePermanent?.card?.oracle_text || sourcePermanent?.oracle_text || '');
-  const lines = parsedTriggerLinesForEffect(oracleText, events, effectTexts);
+  const lines = parsedTriggerLinesForEffect(
+    oracleText,
+    events,
+    effectTexts,
+    String(sourcePermanent?.card?.name || sourcePermanent?.name || '').trim() || undefined,
+  );
   const line = lines.find((entry) => entry.condition.quantity === 'one_or_more');
   if (!line) return false;
   const key = `${kind}|${String(sourcePermanent?.id || '')}|${line.effect.toLowerCase().replace(/\s+/g, ' ').trim()}`;

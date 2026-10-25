@@ -11,6 +11,7 @@ import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMeta
 import { detectExiledFromBattlefieldTriggers, type ExiledFromBattlefieldTrigger } from './zone-change-handlers/exileFromBattlefieldDetection.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 import type { TriggerConditionEvent, TriggerConditionIR } from '../../../../../rules-engine/src/triggerCondition/index.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 export { detectExiledFromBattlefieldTriggers, type ExiledFromBattlefieldTrigger };
 
 function forEachParsedZoneLine(
@@ -56,7 +57,7 @@ export function getExiledFromBattlefieldTriggers(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
 
-    const permanentTriggers = detectExiledFromBattlefieldTriggers(permanent.card, permanent);
+    const permanentTriggers = detectExiledFromBattlefieldTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of permanentTriggers) {
       if (trigger.targetFilter === 'creature' && !exiledTypeLine.includes('creature')) {
         continue;
@@ -234,7 +235,8 @@ export interface LeftGraveyardTrigger {
   oneOrMore: boolean;
 }
 
-export function detectPutIntoGraveyardTriggers(card: any, permanent: any): PutIntoGraveyardTrigger[] {
+export function detectPutIntoGraveyardTriggers(card: any, permanent: any, gameState?: any): PutIntoGraveyardTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'dies' })) return []; // Humility / Torpor Orb gate
   const triggers: PutIntoGraveyardTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
   const permanentId = String(permanent?.id || '');
@@ -632,7 +634,7 @@ export function getPutIntoGraveyardTriggers(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
 
-    for (const trigger of detectPutIntoGraveyardTriggers(permanent.card, permanent)) {
+    for (const trigger of detectPutIntoGraveyardTriggers(permanent.card, permanent, (ctx as any)?.state)) {
       if (trigger.excludesBattlefield && options?.fromBattlefield) continue;
       if (!cardMatchesPutIntoGraveyardTrigger(card, trigger)) continue;
       if (!graveyardScopeMatches(trigger, String(permanent.controller || ''), ownerId)) continue;
@@ -764,7 +766,8 @@ export function queuePutIntoGraveyardTriggers(
   return queued;
 }
 
-export function detectLeftGraveyardTriggers(card: any, permanent: any): LeftGraveyardTrigger[] {
+export function detectLeftGraveyardTriggers(card: any, permanent: any, gameState?: any): LeftGraveyardTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'zone' })) return []; // Humility / Torpor Orb gate
   const triggers: LeftGraveyardTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
   const permanentId = String(permanent?.id || '');
@@ -892,7 +895,7 @@ export function getLeftGraveyardTriggers(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
 
-    for (const trigger of detectLeftGraveyardTriggers(permanent.card, permanent)) {
+    for (const trigger of detectLeftGraveyardTriggers(permanent.card, permanent, (ctx as any)?.state)) {
       if (trigger.creatureCardOnly && !typeLine.includes('creature')) continue;
       if (!graveyardLeftScopeMatches(trigger, String(permanent.controller || ''), ownerId)) continue;
 

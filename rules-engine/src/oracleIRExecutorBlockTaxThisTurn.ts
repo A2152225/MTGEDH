@@ -77,8 +77,8 @@ export function tryApplyBlockTaxThisTurnGrant(
   if (amount === null) return null;
 
   const source = sourceName || 'This-turn block tax';
-  const existing = Array.isArray((state as { lastingEffects?: unknown[] }).lastingEffects)
-    ? [...((state as { lastingEffects: unknown[] }).lastingEffects)]
+  const existing = Array.isArray(state.lastingEffects)
+    ? [...state.lastingEffects]
     : [];
 
   const stamp = {
@@ -92,9 +92,9 @@ export function tryApplyBlockTaxThisTurnGrant(
   return {
     applied: true,
     state: {
-      ...(state as object),
+      ...state,
       lastingEffects: [...existing, stamp],
-    } as GameState,
+    },
     log: [`Stamped this_turn blockTaxGeneric ${amount} (global)`],
   };
 }

@@ -27,6 +27,7 @@ import {
   recordFirstTimeEachTurnTriggerQueued,
   shouldSkipFirstTimeEachTurnTrigger,
 } from "../triggerDoThisOnlyOnceEachTurn.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export { detectTapTriggers };
 export type { TapTrigger };
@@ -175,7 +176,8 @@ function findBattlefieldPermanentById(ctx: GameContext, permanentId: string): an
  * - "Whenever ~ deals combat damage to a player, untap all lands/creatures you control"
  * - "Whenever enchanted/equipped creature attacks, untap..."
  */
-export function detectUntapTriggers(card: any, permanent: any): UntapTrigger[] {
+export function detectUntapTriggers(card: any, permanent: any, gameState?: any): UntapTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'tap' })) return []; // Humility / Torpor Orb gate
   const triggers: UntapTrigger[] = [];
   const oracleText = (card?.oracle_text || "").toLowerCase();
   const cardName = card?.name || "Unknown";
@@ -289,7 +291,7 @@ export function getAttackUntapTriggers(
   const battlefield = ctx.state?.battlefield || [];
   
   // Check the attacking creature itself
-  const selfTriggers = detectUntapTriggers(attackingCreature.card, attackingCreature);
+  const selfTriggers = detectUntapTriggers(attackingCreature.card, attackingCreature, (ctx as any)?.state);
   for (const trigger of selfTriggers) {
     if (trigger.triggerOn === 'attack') {
       triggers.push(trigger);
@@ -307,7 +309,7 @@ export function getAttackUntapTriggers(
     if (isAura || isEquipment) {
       const attachedTo = permanent.attachedTo;
       if (attachedTo === attackingCreature.id) {
-        const attachmentTriggers = detectUntapTriggers(permanent.card, permanent);
+        const attachmentTriggers = detectUntapTriggers(permanent.card, permanent, (ctx as any)?.state);
         for (const trigger of attachmentTriggers) {
           if (trigger.triggerOn === 'attack') {
             triggers.push(trigger);
@@ -332,7 +334,7 @@ export function getCombatDamageUntapTriggers(
   const battlefield = ctx.state?.battlefield || [];
   
   // Check the attacking creature itself
-  const selfTriggers = detectUntapTriggers(attackingCreature.card, attackingCreature);
+  const selfTriggers = detectUntapTriggers(attackingCreature.card, attackingCreature, (ctx as any)?.state);
   for (const trigger of selfTriggers) {
     if (trigger.triggerOn === 'combat_damage' || trigger.triggerOn === 'damage_to_player') {
       triggers.push(trigger);
@@ -350,7 +352,7 @@ export function getCombatDamageUntapTriggers(
     if (isAura || isEquipment) {
       const attachedTo = permanent.attachedTo;
       if (attachedTo === attackingCreature.id) {
-        const attachmentTriggers = detectUntapTriggers(permanent.card, permanent);
+        const attachmentTriggers = detectUntapTriggers(permanent.card, permanent, (ctx as any)?.state);
         for (const trigger of attachmentTriggers) {
           if (trigger.triggerOn === 'combat_damage' || trigger.triggerOn === 'damage_to_player') {
             triggers.push(trigger);

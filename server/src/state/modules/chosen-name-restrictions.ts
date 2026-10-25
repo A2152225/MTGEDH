@@ -1,4 +1,5 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
+import { findExiledCardNameCastLock } from './exiledCardNameCastLock.js'; // B29
 
 function normalizeApostrophes(input: string): string {
   return input
@@ -104,6 +105,10 @@ export function isSpellCastingProhibitedByChosenName(state: any, playerId: Playe
       },
     };
   }
+
+  // B29: "can't cast spells with the same name as the exiled card" (Ashiok's Erasure, Ixalan's Binding).
+  const exiledLock = findExiledCardNameCastLock(state, String(playerId), targetName, normalizeCardName);
+  if (exiledLock) return { prohibited: true, by: exiledLock };
 
   return { prohibited: false };
 }

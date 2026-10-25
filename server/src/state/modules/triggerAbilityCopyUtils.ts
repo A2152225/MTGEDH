@@ -10,6 +10,7 @@ import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 import { isTriggerEffectOwnedByOracleIrPrimary } from './oracleIrTriggerLegacyRouting.js';
 import { readTriggeringStackItemSnapshot } from './triggerCastSpellStackBinding.js';
+import { queueTargetEventTriggersForStackItem } from './triggers/target-event-triggers.js';
 
 const OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const OPTIONAL_COPY_ABILITY_LIFE_PAYMENT_PATTERN = /^you may pay (\d+) life again\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
@@ -66,6 +67,13 @@ export function cloneStackItemForAbilityCopy(
   };
 
   stack.push(copiedItem);
+  // Copied abilities target too: becomes-the-target triggers fire. No crime (CR 700.13: a copy
+  // is not activated); the crime check declines isCopy items.
+  try {
+    queueTargetEventTriggersForStackItem(ctx, String(copiedItem.id));
+  } catch (err) {
+    debugWarn(1, '[copyAbility] target-event triggers failed:', err);
+  }
 
   const gameId = (ctx as any).gameId || 'unknown';
   const io = (ctx as any).io;

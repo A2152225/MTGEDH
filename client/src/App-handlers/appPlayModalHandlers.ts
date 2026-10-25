@@ -142,6 +142,10 @@ export function useAppPlayModalHandlers(p: Record<string, any>) {
   };
 
   const handleCastSpellCancel = () => {
+    // Assist: return any helper mana already paid toward this abandoned cast.
+    if (safeView && spellToCast?.effectId) {
+      socket.emit('abandonAssistedCast', { gameId: safeView.id, effectId: String(spellToCast.effectId) });
+    }
     // If this was a Resolution Queue spell payment step, cancel via submitResolutionResponse.
     if (safeView && spellToCast && (spellToCast as any).paymentStepId) {
       socket.emit('submitResolutionResponse', {

@@ -410,7 +410,8 @@ export function CastSpellModal({
   }, [currentCost, effectiveManaCost, manaCost, xValue, floatingMana, restrictedPurpose]);
 
   const isForceAltCostSelected = selectedCostId === 'force_of_will';
-  const skipManaPaymentPicker = isForceAltCostSelected || selectedCostId === 'free';
+  const isEvokeExileSelected = selectedCostId === 'evoke_exile';
+  const skipManaPaymentPicker = isForceAltCostSelected || isEvokeExileSelected || selectedCostId === 'free';
 
   const explicitPaymentSelectionRequired = useMemo(() => {
     if (!manualFloatingManaSelection || skipManaPaymentPicker) return false;
@@ -581,7 +582,7 @@ export function CastSpellModal({
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontWeight: 500 }}>{cost.label}</span>
-                      <span style={{ 
+                      {!cost.hideManaCost && <span style={{ 
                         fontFamily: 'monospace', 
                         backgroundColor: 'rgba(0,0,0,0.3)', 
                         padding: '2px 6px', 
@@ -589,7 +590,7 @@ export function CastSpellModal({
                         fontSize: 12,
                       }}>
                         {alternateCostDisplayMana.get(cost.id) || cost.manaCost || '{0}'}
-                      </span>
+                      </span>}
                       {alternateCostDisplayMana.get(cost.id)
                         && cost.manaCost
                         && alternateCostDisplayMana.get(cost.id) !== cost.manaCost && (
@@ -829,7 +830,9 @@ export function CastSpellModal({
             fontSize: 13,
             color: '#cbd5e1',
           }}>
-            {isForceAltCostSelected
+            {isEvokeExileSelected
+              ? `No mana payment required. After confirming, you'll be prompted to ${String(currentCost?.additionalCost || 'exile a card from your hand').split(';')[0].toLowerCase()}.`
+              : isForceAltCostSelected
               ? 'No mana payment required. You’ll be prompted to exile a blue card (and pay life if applicable) after confirming.'
               : 'No mana payment required. This spell is being cast without paying its mana cost.'}
           </div>

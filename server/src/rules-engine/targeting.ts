@@ -13,6 +13,7 @@ import { tryCategorizeDamageFlickerRestrictions } from './targeting-handlers/tar
 import { tryCategorizeTapBounceGenericTargets } from './targeting-handlers/targetingCategorizeTapBounceGenericTargets.js';
 import { protectionKeywordIgnoredForTargeting } from './targeting-handlers/targetingProtectionKeywordStaticOverride.js';
 import { canPlayerBeTargetedByPlayer } from './targeting-handlers/targetingPlayerProtectionKeyword.js';
+import { isBlockedByColorSourceTargetingRestriction } from './targeting-handlers/colorSourceTargetingRestriction.js';
 
 export { canPlayerBeTargetedByPlayer };
 
@@ -448,6 +449,8 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
     
     // Shroud blocks all targeting; hexproof only blocks opponents.
     if (!canPermanentBeTargetedByPlayer(p, state, caster)) continue;
+    // Census #23: "can't be the target of COLOR spells or abilities from COLOR sources".
+    if (isBlockedByColorSourceTargetingRestriction(p, state, sourceId)) continue;
     
     // Check controller restriction ("creature you control")
     if (spec.controllerOnly && p.controller !== caster) continue;

@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react'
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import type { ImagePref } from './BattlefieldGrid';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { displayTypeLine } from './PermanentRulesStatusBadges';
 import { CardContextMenu } from './CardContextMenu';
 import { permanentIdsForPositionUpdate } from './FreeField-handlers/freeFieldDisplayUtils';
 import { FreeFieldPermanentOverlays } from './FreeField-handlers/FreeFieldPermanentOverlays';
@@ -698,7 +699,7 @@ export function FreeField(props: {
             draggable={false}
             onDragStart={(e) => e.preventDefault()}
             onPointerDown={(e) => onPointerDown(id, e)}
-            onMouseEnter={(e) => { setHoverId(id); showCardPreview(e.currentTarget as HTMLElement, raw.card as any, { prefer: 'above', anchorPadding: 0 }); }}
+            onMouseEnter={(e) => { setHoverId(id); showCardPreview(e.currentTarget as HTMLElement, raw.card as any, { prefer: 'above', anchorPadding: 0, typeLine: displayTypeLine(raw) }); }}
             onMouseLeave={(e) => { setHoverId(prev => prev === id ? null : prev); hideCardPreview(e.currentTarget as HTMLElement); }}
             onClick={() => onCardClick && onCardClick(id)}
             onDoubleClick={(e) => {
@@ -785,6 +786,7 @@ export function FreeField(props: {
             )}
 
             <FreeFieldPermanentOverlays
+              players={players}
               scale={scale}
               name={name}
               raw={raw}

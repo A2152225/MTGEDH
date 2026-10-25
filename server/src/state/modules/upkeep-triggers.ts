@@ -27,6 +27,7 @@ import type { UpkeepTrigger } from "./upkeep-triggers-handlers/upkeepTriggerDete
 import { getLastUpkeepMarker } from "./upkeep-triggers-handlers/upkeepMarkerHelpers.js";
 import { detectUpkeepTriggers } from "./upkeep-triggers-handlers/upkeepTriggerDetect.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from "./triggers/triggerConditionFamilyMatch.js";
+import { permanentHasTriggeredAbilities } from './triggers/triggeredAbilitySuppression.js';
 
 export type { UpkeepTrigger };
 export { detectUpkeepTriggers };
@@ -56,7 +57,8 @@ export function stampPermanentControlEntryForEcho(state: any, permanent: any, co
 /**
  * Detect saga lore-counter turn-based triggers for precombat main (Rule 714.3b).
  */
-export function detectSagaLoreCounterTrigger(card: any, permanent: any): UpkeepTrigger | null {
+export function detectSagaLoreCounterTrigger(card: any, permanent: any, gameState?: any): UpkeepTrigger | null {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'counters' })) return null; // Humility / Torpor Orb gate
   const typeLine = String(card?.type_line || '').toLowerCase();
   if (!typeLine.includes('saga')) {
     return null;
@@ -102,7 +104,7 @@ export function getSagaLoreCounterTriggers(ctx: GameContext, activePlayerId: str
 
   for (const permanent of battlefield) {
     if (!permanent?.card || permanent.controller !== activePlayerId) continue;
-    const trigger = detectSagaLoreCounterTrigger(permanent.card, permanent);
+    const trigger = detectSagaLoreCounterTrigger(permanent.card, permanent, (ctx as any)?.state);
     if (trigger) {
       triggers.push(trigger);
     }
@@ -451,83 +453,9 @@ export function checkSagaSacrifice(ctx: GameContext, permanentId: string): boole
  * 
  * Returns: List of permanents that had mana-adding cumulative upkeep processed
  */
-export function autoProcessCumulativeUpkeepMana(ctx: GameContext, activePlayerId: string): Array<{permanentId: string, cardName: string, manaAdded: Record<string, number>, ageCounters: number}> {
-  const processed: Array<{permanentId: string, cardName: string, manaAdded: Record<string, number>, ageCounters: number}> = [];
-  const battlefield = ctx.state?.battlefield || [];
-  
-  for (const permanent of battlefield) {
-    if (!permanent || permanent.controller !== activePlayerId) continue;
-    
-    const card = permanent.card;
-    const oracleText = card?.oracle_text || '';
-    
-    // Check for cumulative upkeep with "Add {X}" pattern (e.g., Braid of Fire)
-    // Note: The pattern should capture one or more mana symbols (can be mixed)
-    // Includes {W}{U}{B}{R}{G}{C} for white, blue, black, red, green, colorless
-    const cumulativeMatch = oracleText.match(/cumulative upkeep[—\-\s]*add\s+((?:\{[WUBRGC]\})+)/i);
-    if (!cumulativeMatch) continue;
-    
-    const manaSymbols = cumulativeMatch[1];
-    const counters = permanent.counters || {};
-    
-    // Add age counter first
-    const newAgeCounters = (counters["age"] || 0) + 1;
-    (permanent as any).counters = { ...counters, age: newAgeCounters };
-    
-    // Parse all mana symbols (e.g., {R} or {R}{R} or {R}{G})
-    // Supports {W}{U}{B}{R}{G}{C} for white, blue, black, red, green, colorless
-    const symbolMatches = Array.from(manaSymbols.matchAll(/\{([WUBRGC])\}/g));
-    const manaPerCounter: Record<string, number> = {};
-    
-    for (const match of symbolMatches) {
-      const symbol = match[1];
-      const manaType = symbol === 'W' ? 'white' :
-                       symbol === 'U' ? 'blue' :
-                       symbol === 'B' ? 'black' :
-                       symbol === 'R' ? 'red' :
-                       symbol === 'G' ? 'green' :
-                       symbol === 'C' ? 'colorless' :
-                       null; // Invalid symbol - skip it
-      
-      if (manaType) {
-        manaPerCounter[manaType] = (manaPerCounter[manaType] || 0) + 1;
-      }
-    }
-    
-    // Calculate total mana: (mana per counter) * (age counters)
-    const manaToAdd: Record<string, number> = {};
-    for (const [manaType, perCounter] of Object.entries(manaPerCounter)) {
-      manaToAdd[manaType] = perCounter * newAgeCounters;
-    }
-    
-    // Initialize mana pool if needed
-    if (!ctx.state.manaPool) {
-      (ctx.state as any).manaPool = {};
-    }
-    if (!(ctx.state as any).manaPool[activePlayerId]) {
-      (ctx.state as any).manaPool[activePlayerId] = {
-        white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0
-      };
-    }
-    
-    // Add mana to pool
-    const pool = (ctx.state as any).manaPool[activePlayerId];
-    for (const [manaType, amount] of Object.entries(manaToAdd)) {
-      pool[manaType] = (pool[manaType] || 0) + amount;
-    }
-    
-    processed.push({
-      permanentId: permanent.id,
-      cardName: card?.name || 'Unknown',
-      manaAdded: manaToAdd,
-      ageCounters: newAgeCounters
-    });
-  }
-  
-  if (processed.length > 0) {
-    ctx.bumpSeq();
-  }
-  
-  return processed;
+export function autoProcessCumulativeUpkeepMana(_ctx: GameContext, _activePlayerId: string): Array<{permanentId: string, cardName: string, manaAdded: Record<string, number>, ageCounters: number}> {
+  // Superseded: "Cumulative upkeep—Add {X}" now resolves as a normal cumulative
+  // upkeep trigger (add mana or sacrifice) in cumulativeUpkeepPayment.ts.
+  return [];
 }
 

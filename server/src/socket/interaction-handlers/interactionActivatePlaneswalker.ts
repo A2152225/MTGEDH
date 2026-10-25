@@ -15,6 +15,8 @@ import { getLoyaltyActivationLimit } from "../../state/modules/triggered-abiliti
 import { triggerAbilityActivatedTriggers } from "../../state/modules/triggers/ability-activated.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
+import { permanentActivatedAbilitiesLockedByAttachment } from "../../state/modules/staticActivationLockFromAttachments.js";
+import { appendGrantedLoyaltyAbilityLines } from "../../../../shared/src/planeswalkerGrantedLoyaltyAbilities.js";
 import { broadcastGame, getPlayerName } from "../util";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
 
@@ -40,6 +42,11 @@ export async function tryHandleActivatePlaneswalker(
   if (/^pw-ability-\d+$/i.test(abilityId)) {
     // Parse ability index
     const abilityIndex = parseInt(abilityId.replace("pw-ability-", ""), 10);
+    const pwLock = permanentActivatedAbilitiesLockedByAttachment(permanent, game.state, false);
+    if (pwLock.locked) {
+      socket.emit("error", { code: "CANNOT_ACTIVATE_LOCKED", message: `${cardName}'s activated abilities can't be activated${pwLock.sourceName ? ` (${pwLock.sourceName})` : ''}.`, sourceName: pwLock.sourceName });
+      return true;
+    }
     
     // Parse the planeswalker ability from oracle text
     // Scryfall oracle text uses plain format without brackets (e.g., "+1: Effect text")
@@ -47,7 +54,9 @@ export async function tryHandleActivatePlaneswalker(
     const pwAbilityPattern = /^([+−–—-]?(?:\d+|X)):\s*(.+)/gm;
     const abilities: { loyaltyCost: number; text: string; isVariableLoyalty: boolean; isMinusX: boolean }[] = [];
     let pwMatch;
-    while ((pwMatch = pwAbilityPattern.exec(oracleText)) !== null) {
+    // Printed lines first, then "Planeswalkers you control have \"[N]: ...\"" grants.
+    const pwOracleText = appendGrantedLoyaltyAbilityLines(oracleText, (game.state as any)?.battlefield, permanent as any);
+    while ((pwMatch = pwAbilityPattern.exec(pwOracleText)) !== null) {
       const costStr = pwMatch[1].replace(/[−–—]/g, '-');
       const isVariableLoyalty = /x/i.test(costStr);
       const isMinusX = isVariableLoyalty && costStr.startsWith('-');

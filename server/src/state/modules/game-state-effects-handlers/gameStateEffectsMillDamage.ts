@@ -20,6 +20,7 @@ import {
   detectDamageReplacementEffects,
   applyCounterReplacements,
 } from "./gameStateEffectsReplacementApply.js";
+import { applyDamageSideEffectReplacements } from "./gameStateEffectsDamageSideEffects.js";
 
 /**
  * Calculate modified damage amount based on battlefield effects
@@ -31,6 +32,21 @@ import {
  * @param damageReceiver - Player ID receiving the damage
  * @returns Modified damage amount
  */
+/** UI log of applied damage replacements (client toasts new entries; capped). */
+function recordDamageReplacements(ctx: GameContext, result: { amount: number; modifiers: string[] }, original: number): { amount: number; modifiers: string[] } {
+  try {
+    const state: any = (ctx as any)?.state;
+    if (state && Array.isArray(result?.modifiers) && result.modifiers.length > 0) {
+      const log: any[] = Array.isArray(state.damageReplacementLog) ? state.damageReplacementLog : (state.damageReplacementLog = []);
+      log.push({ messages: result.modifiers.map(String), original, amount: result.amount, timestamp: Date.now() });
+      if (log.length > 50) log.splice(0, log.length - 50);
+    }
+  } catch { /* best-effort */ }
+  return result;
+}
+
+import { recordDamageReplacementMessages } from '../replacementDamageLog.js';
+
 export function calculateModifiedDamage(
   ctx: GameContext,
   damageAmount: number,
@@ -40,7 +56,21 @@ export function calculateModifiedDamage(
   isCombatDamage?: boolean,
   targetPermanentId?: string,
 ): { amount: number; modifiers: string[] } {
+  return recordDamageReplacements(ctx, calculateModifiedDamageUnlogged(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, isCombatDamage, targetPermanentId), damageAmount);
+}
+
+function calculateModifiedDamageUnlogged(
+  ctx: GameContext,
+  damageAmount: number,
+  damageDealer: string,
+  damageReceiver: string,
+  damageSourcePermanentId?: string,
+  isCombatDamage?: boolean,
+  targetPermanentId?: string,
+): { amount: number; modifiers: string[] } {
   const isToOpponent = damageDealer !== damageReceiver;
+  const sideEffect = applyDamageSideEffectReplacements(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
+  if (sideEffect) return sideEffect;
   
   // Detect all replacement effects that apply
   const effects = detectDamageReplacementEffects(
@@ -632,6 +662,7 @@ export function resolveOpponentDirectedDamage(
     ...args,
     damageAmount: amount,
   });
+  recordDamageReplacementMessages(ctx.state, replacement.effectsApplied, amount, replacement.damageDealt);
   return {
     ...replacement,
     preReplacementAmount: amount,
@@ -720,6 +751,7 @@ export function resolveCombatDamageToOpponent(
     amount,
     args.defendingPlayerId
   );
+  recordDamageReplacementMessages(ctx.state, replacement.effectsApplied, amount, replacement.damageDealt);
 
   if (args.executeMills !== false && replacement.millAmount && replacement.millTargets) {
     millSpecifiedPlayers(ctx, replacement.millTargets, replacement.millAmount);

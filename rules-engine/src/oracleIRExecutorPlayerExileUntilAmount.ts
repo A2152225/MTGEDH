@@ -55,6 +55,12 @@ function resolveShareCardTypeReferenceTypes(
 }
 
 export function getCardManaValue(card: any): number | null {
+  // An Adventure spell on the stack has only the Adventure face's mana cost (CR 715.3b).
+  const castCard = card?.card && card?.castAsAdventure === true ? { ...card.card, castAsAdventure: true } : card;
+  const advFace = castCard?.castAsAdventure === true && Array.isArray(castCard?.card_faces) ? castCard.card_faces[1] : undefined;
+  if (advFace && typeof advFace.mana_cost === 'string' && advFace.mana_cost.trim()) {
+    return getCardManaValue({ mana_cost: advFace.mana_cost, type_line: advFace.type_line || 'Instant' });
+  }
   const raw =
     card?.manaValue ??
     card?.mana_value ??

@@ -16,6 +16,7 @@
 
 import type { GameContext } from "../context.js";
 import { calculateAllPTBonuses } from "../../utils.js";
+import { getCurrentPowerToughness } from "../currentPowerToughness.js";
 import { isPermanentCard } from "./intervening-if-this-turn-counts.js";
 import { parseMaybeNumber, getGraveyard } from "./intervening-if-zone-lookups.js";
 
@@ -88,6 +89,9 @@ function getPermanentPower(perm: any, ctx?: GameContext): number {
   if (!ctx) return base;
 
   try {
+    // Layer 7 (7a-7d) evaluator; legacy bonus sum only when no base P/T resolves.
+    const layer7 = getCurrentPowerToughness(perm, (ctx as any).state);
+    if (layer7) return layer7.power;
     const bonus = calculateAllPTBonuses(perm, (ctx as any).state);
     if (bonus && typeof bonus.power === 'number') {
       return base + bonus.power;
@@ -111,6 +115,9 @@ function getPermanentPowerMaybe(perm: any, ctx?: GameContext): number | null {
   if (!ctx) return baseRaw;
 
   try {
+    // Layer 7 (7a-7d) evaluator; legacy bonus sum only when no base P/T resolves.
+    const layer7 = getCurrentPowerToughness(perm, (ctx as any).state);
+    if (layer7) return layer7.power;
     const bonus = calculateAllPTBonuses(perm, (ctx as any).state);
     if (bonus && typeof bonus.power === 'number') {
       return baseRaw + bonus.power;
@@ -133,6 +140,9 @@ function getPermanentToughness(perm: any, ctx?: GameContext): number {
   if (!ctx) return base;
 
   try {
+    // Layer 7 (7a-7d) evaluator; legacy bonus sum only when no base P/T resolves.
+    const layer7 = getCurrentPowerToughness(perm, (ctx as any).state);
+    if (layer7) return layer7.toughness;
     const bonus = calculateAllPTBonuses(perm, (ctx as any).state);
     if (bonus && typeof bonus.toughness === 'number') {
       return base + bonus.toughness;
@@ -156,6 +166,9 @@ function getPermanentToughnessMaybe(perm: any, ctx?: GameContext): number | null
   if (!ctx) return baseRaw;
 
   try {
+    // Layer 7 (7a-7d) evaluator; legacy bonus sum only when no base P/T resolves.
+    const layer7 = getCurrentPowerToughness(perm, (ctx as any).state);
+    if (layer7) return layer7.toughness;
     const bonus = calculateAllPTBonuses(perm, (ctx as any).state);
     if (bonus && typeof bonus.toughness === 'number') {
       return baseRaw + bonus.toughness;

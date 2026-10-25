@@ -4,6 +4,13 @@
 // Public entry symbols: calculateVariablePT.
 // Re-exported from utils.ts so the "./utils.js" import path keeps working.
 
+import { calculatePowerOnlyCDA } from "./variablePowerOnlyCalculator.js";
+import { calculateGreatestManaValuePowerCDA } from "./variablePowerGreatestManaValue.js";
+import { calculateGreatestPowerAmongCDA } from "./variablePowerGreatestPower.js";
+import { calculateColorPermanentCountPT } from "./variableColorPermanentCount.js";
+import { landAwareTypeLine } from '../modules/effectiveLandTypeLine.js';
+import { calculateControlledCountCDA, calculateDevotionCDA, calculateGraveyardCardTypesCDA } from "./variablePTControlledCountCDA.js";
+
 /**
  * Calculate the effective P/T for creatures with variable (star slash star) power/toughness.
  * This implements the characteristic-defining abilities from card text.
@@ -269,7 +276,7 @@ export function calculateVariablePT(
   if (name.includes('korlash')) {
     const swamps = battlefield.filter((p: any) => 
       p.controller === controllerId && 
-      (p.card?.type_line || '').toLowerCase().includes('swamp')
+      landAwareTypeLine(gameState, p, String(p.card?.type_line || '')).includes('swamp')
     );
     return { power: swamps.length, toughness: swamps.length };
   }
@@ -278,7 +285,7 @@ export function calculateVariablePT(
   if (name.includes('dungrove elder')) {
     const forests = battlefield.filter((p: any) => 
       p.controller === controllerId && 
-      (p.card?.type_line || '').toLowerCase().includes('forest')
+      landAwareTypeLine(gameState, p, String(p.card?.type_line || '')).includes('forest')
     );
     return { power: forests.length, toughness: forests.length };
   }
@@ -338,6 +345,18 @@ export function calculateVariablePT(
   }
   
   // ===== GENERIC PATTERN MATCHING =====
+
+  // "~'s power is equal to the number of X" with printed toughness (*/N).
+  const powerOnly = calculatePowerOnlyCDA(card, oracleText, battlefield, zones, controllerId);
+  if (powerOnly) return powerOnly;
+  const greatestMv = calculateGreatestManaValuePowerCDA(card, oracleText, battlefield, controllerId);
+  if (greatestMv) return greatestMv;
+  const greatestPower = calculateGreatestPowerAmongCDA(card, oracleText, gameState, controllerId);
+  if (greatestPower) return greatestPower;
+
+  // "each equal to the number of [COLOR] permanents/creatures you control"
+  const colorCount = calculateColorPermanentCountPT(oracleText, battlefield, controllerId);
+  if (colorCount) return colorCount;
   
   // "power and toughness are each equal to" patterns
   if (oracleText.includes('power and toughness are each equal to')) {
@@ -410,7 +429,7 @@ export function calculateVariablePT(
     }
     
     // "cards in your graveyard"
-    if (oracleText.includes('cards in your graveyard')) {
+    if (oracleText.includes('cards in your graveyard') && !/creature cards in your graveyard|creatures in your graveyard/.test(oracleText)) {
       const playerZones = zones[controllerId];
       const cardCount = playerZones?.graveyard?.length ?? 0;
       return { power: cardCount, toughness: cardCount };
@@ -483,6 +502,13 @@ export function calculateVariablePT(
     return { power: parseInt(sizeMatch[1], 10), toughness: parseInt(sizeMatch[2], 10) };
   }
   
+  const controlledCount = calculateControlledCountCDA(oracleText, battlefield, controllerId, card.id, gameState);
+  if (controlledCount) return controlledCount;
+  const graveyardTypes = calculateGraveyardCardTypesCDA(oracleText, gameState, controllerId);
+  if (graveyardTypes) return graveyardTypes;
+  const devotion = calculateDevotionCDA(oracleText, battlefield, controllerId, card.toughness);
+  if (devotion) return devotion;
+
   // Default fallback - return undefined so caller knows we couldn't calculate
   return undefined;
 }

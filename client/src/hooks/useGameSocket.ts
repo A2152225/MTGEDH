@@ -6,6 +6,9 @@ import {
   useState,
 } from "react";
 import { socket } from "../socket";
+import { installAssistFeedbackListeners, showGameRuleErrorToast } from "../utils/gameRuleErrorToast";
+import { installFaceDownListeners } from "../utils/faceDownUi";
+import { installStateEventToasts } from "../utils/stateEventToasts";
 import type {
   ClientGameView,
   PlayerID,
@@ -555,9 +558,13 @@ export function useGameSocket(): UseGameSocketState {
       ]);
     });
 
-    socket.on("error", ({ message }: any) =>
-      setLastError(message || "Error")
-    );
+    installAssistFeedbackListeners(socket);
+    installFaceDownListeners(socket as any);
+    installStateEventToasts(socket as any);
+    socket.on("error", (payload: any) => {
+      setLastError(payload?.message || "Error");
+      showGameRuleErrorToast(payload);
+    });
 
     socket.on("deckError", ({ gameId: deckErrorGameId, message }: any) => {
       const text = String(message || "Deck import failed.").trim() || "Deck import failed.";

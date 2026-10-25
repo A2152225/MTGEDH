@@ -11,6 +11,15 @@ import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 import { createInitialGameState } from '../src/state/index.js';
 
+// Copy triggers go on the stack (CR 603.3); resolve them so the copy is created.
+function resolveCopyTriggers(game: any) {
+  for (let i = 0; i < 5; i++) {
+    const stack = (game.state as any).stack || [];
+    if (String(stack[stack.length - 1]?.type || '') !== 'triggered_ability') return;
+    game.resolveTopOfStack();
+  }
+}
+
 function createNoopIo() {
   return {
     to: (_room: string) => ({
@@ -186,6 +195,7 @@ describe('Oracle IR trigger copy_spell replay integration', () => {
       cardId: 'wizard_spell_1',
       targets: [],
     });
+    resolveCopyTriggers(game);
 
     expect((game.state as any).stack).toHaveLength(2);
     const originalSpell = ((game.state as any).stack || []).find((item: any) => !item?.copiedFromStackItemId);
@@ -218,6 +228,7 @@ describe('Oracle IR trigger copy_spell replay integration', () => {
     }
 
     replayGame.replay(replayEvents as any);
+    resolveCopyTriggers(replayGame);
 
     expect((replayGame.state as any).stack).toHaveLength(2);
     const replayOriginalSpell = ((replayGame.state as any).stack || []).find((item: any) => !item?.copiedFromStackItemId);
@@ -245,6 +256,7 @@ describe('Oracle IR trigger copy_spell replay integration', () => {
       cardId: 'wizard_spell_1',
       targets: [],
     });
+    resolveCopyTriggers(game);
 
     expect((game.state as any).zones.p1.hand).toHaveLength(0);
     expect((game.state as any).stack).toHaveLength(2);
@@ -288,6 +300,7 @@ describe('Oracle IR trigger copy_spell replay integration', () => {
       cardId: 'wizard_spell_1',
       targets: [],
     });
+    resolveCopyTriggers(game);
 
     expect((game.state as any).zones.p1.hand).toHaveLength(0);
     expect((game.state as any).zones.p1.handCount).toBe(0);

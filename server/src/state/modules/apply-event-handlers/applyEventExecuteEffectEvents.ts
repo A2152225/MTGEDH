@@ -1,3 +1,4 @@
+import { applyTurnFaceUpCostEffects } from '../turnFaceUpCostPayment.js';
 // server/src/state/modules/apply-event-handlers/applyEventExecuteEffectEvents.ts
 // Extracted verbatim from server/src/state/modules/applyEvent.ts (applyEvent switch).
 //
@@ -472,6 +473,20 @@ export function applyExecuteEffectEvents(ctx: GameContext, e: GameEvent): boolea
               ? { ...(permanent.faceUpCard as any), zone: 'battlefield' }
               : null);
           if (!actualCard) break;
+
+          // Batch 13: special-action turn face up persists its payment; re-apply it on replay.
+          if ((e as any).specialAction === true && (e as any).paymentAlreadyApplied !== true) {
+            const tapped = Array.isArray((e as any).tappedPermanentIds) ? (e as any).tappedPermanentIds.map(String) : [];
+            for (const tp of battlefield as any[]) if (tp && tapped.includes(String(tp.id))) tp.tapped = true;
+            if (playerId) {
+              applyTurnFaceUpCostEffects(ctx as any, String(playerId), {
+                lifePaid: Number((e as any).lifePaid || 0),
+                returnedPermanentIds: (e as any).returnedPermanentIds,
+                sacrificedPermanentIds: (e as any).sacrificedPermanentIds,
+                discardedCardIds: (e as any).discardedCardIds,
+              }, { replay: true });
+            }
+          }
 
           permanent.isFaceDown = false;
           permanent.card = actualCard;

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
+import { displayTypeLine } from './PermanentRulesStatusBadges';
 import { getKeywordInfo } from '../utils/keywordGlossary';
 
 export type ImagePref = 'small' | 'normal' | 'art_crop';
@@ -158,7 +159,7 @@ export function BattlefieldGrid(props: {
             data-perm-id={p.id}
             onMouseEnter={(e) => {
               setHovered(p.id);
-              showCardPreview(e.currentTarget as HTMLElement, p.card as any, { prefer: 'above', anchorPadding: 0 });
+              showCardPreview(e.currentTarget as HTMLElement, p.card as any, { prefer: 'above', anchorPadding: 0, typeLine: displayTypeLine(p) });
             }}
             onMouseLeave={(e) => { setHovered(null); hideCardPreview(e.currentTarget as HTMLElement); }}
             onClick={onCardClick ? () => onCardClick(p.id) : undefined}

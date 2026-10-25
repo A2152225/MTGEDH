@@ -11,6 +11,7 @@ import { FatesealModal } from "../components/FatesealModal";
 import { ClashModal } from "../components/ClashModal";
 import { VoteModal } from "../components/VoteModal";
 import { CastSpellModal } from "../components/CastSpellModal";
+import { AssistRequestButton } from "../components/AssistRequestButton";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "../components/CombatSelectionModal";
 import { CombatControlModal } from "../components/CombatControlModal";
 import { expandGroupedTokensForDisplay } from "../utils/expandGroupedTokens";
@@ -209,6 +210,15 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
         onConfirm={handleCastSpellConfirm}
         onCancel={handleCastSpellCancel}
       />
+      <AssistRequestButton
+        key={String(spellToCast?.effectId || 'none')}
+        open={castSpellModalOpen && !spellToCast?.isCommander}
+        gameId={safeView?.id}
+        effectId={spellToCast?.effectId}
+        oracleText={spellToCast?.oracleText}
+        you={you || undefined}
+        players={((safeView as any)?.players || []) as Array<{ id: string; name?: string }>}
+      />
 
       <XValueSelectionModal
         isOpen={resolutionPromptOpen(pendingSpellXSelection !== null, pendingSpellXSelection?.stepId)}
@@ -302,6 +312,7 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
         attackingCreatures={attackingCreatures}
         battlefield={(safeView?.battlefield || []) as BattlefieldPermanent[]}
         players={(safeView?.players || []) as PlayerRef[]}
+        zones={(safeView as any)?.zones}
         defenders={combatMode === 'attackers' && combatModalReadOnly ? combatModalAttackersDefenders : defenders}
         initialAttackTargets={
           combatMode === 'attackers' && combatModalReadOnly

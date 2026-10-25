@@ -6,9 +6,12 @@
  *
  * Public entry symbols: tryPromptCastSpellForceFlashFromHand.
  */
+import { opponentTurnCastProhibitionReason } from "../../state/modules/batch31CastLocks.js"; // B31
 import type { Socket } from "socket.io";
+import { isCastingLimitedToSorceryTiming } from "../../state/modules/opponentSorceryTimingLock.js"; // B30
 import type { PaymentItem, PlayerID } from "../../../../shared/src/index.js";
 import { cardIsBlueForPitchCost, getForceOfWillAlternateCost } from "../../state/modules/alternate-costs.js";
+import { parseEvokeExileColor, cardMatchesEvokeExileColor, EVOKE_EXILE_ALTERNATE_COST_ID } from "../../state/modules/evokeKeyword.js";
 import { spellHasChosenTypeFlashGrant } from "../../state/modules/casting-modifiers.js";
 import { canCastFromTop } from "../../state/modules/game-state-effects";
 import { canCastWithSneakAtCurrentTiming } from "../../state/modules/sneakCastUtils.js";
@@ -71,10 +74,15 @@ export function tryPromptCastSpellForceFlashFromHand(
       // This alternate cost is a special interaction (exile a blue card; sometimes pay 1 life)
       // and must be handled even when skipInteractivePrompts=true (completeCastSpell path).
       // We enqueue a Resolution Queue prompt and resume the cast once the cost is paid.
-      const isForceAltCostRequested = alternateCostId === 'force_of_will';
+      const evokeExileColor = alternateCostId === EVOKE_EXILE_ALTERNATE_COST_ID ? parseEvokeExileColor(oracleText) : null;
+      if (alternateCostId === EVOKE_EXILE_ALTERNATE_COST_ID && !evokeExileColor) {
+        socket.emit('error', { code: 'NO_EVOKE', message: 'This card does not have an exile-a-card evoke cost.' });
+        return;
+      }
+      const isForceAltCostRequested = alternateCostId === 'force_of_will' || !!evokeExileColor;
       const forceAltAlreadyPaid = (cardInHand as any).forceAltCostPaid === true;
       if (isForceAltCostRequested && !forceAltAlreadyPaid) {
-        const forceInfo = getForceOfWillAlternateCost(
+        const forceInfo = evokeExileColor ? { available: true, requiresLifePayment: false } : getForceOfWillAlternateCost(
           { state: game.state, bumpSeq: () => {}, rng: Math.random } as any,
           playerId as any,
           cardInHand as any
@@ -91,7 +99,7 @@ export function tryPromptCastSpellForceFlashFromHand(
         const handCards = Array.isArray((zones as any).hand) ? ((zones as any).hand as any[]) : [];
         const blueCards = handCards
           .filter((c: any) => c && c.id !== cardId)
-          .filter((c: any) => cardIsBlueForPitchCost(c))
+          .filter((c: any) => (evokeExileColor ? cardMatchesEvokeExileColor(c, evokeExileColor.symbol) : cardIsBlueForPitchCost(c)))
           .map((c: any) => ({
             id: String(c.id),
             label: `Exile ${c.name || 'Blue card'}`,
@@ -101,7 +109,7 @@ export function tryPromptCastSpellForceFlashFromHand(
         if (blueCards.length === 0) {
           socket.emit('error', {
             code: 'CANNOT_PAY_COST',
-            message: `Cannot cast ${cardInHand.name}: no other blue card in hand to exile.`,
+            message: `Cannot cast ${cardInHand.name}: no other ${evokeExileColor ? evokeExileColor.word : 'blue'} card in hand to exile.`,
           });
           return;
         }
@@ -117,7 +125,9 @@ export function tryPromptCastSpellForceFlashFromHand(
             sourceId: cardId,
             sourceName: cardInHand.name,
             sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
-            description: forceInfo.requiresLifePayment
+            description: evokeExileColor
+              ? `To evoke ${cardInHand.name}, exile a ${evokeExileColor.word} card from your hand.`
+              : forceInfo.requiresLifePayment
               ? `To cast ${cardInHand.name} for its alternate cost, exile a blue card from your hand and pay 1 life.`
               : `To cast ${cardInHand.name} for its alternate cost, exile a blue card from your hand.`,
             mandatory: true,
@@ -128,6 +138,7 @@ export function tryPromptCastSpellForceFlashFromHand(
             maxSelections: 1,
 
             forceOfWillExileChoice: true,
+            ...(evokeExileColor ? { forcePitchColor: evokeExileColor.symbol, forcePitchColorWord: evokeExileColor.word } : {}),
             forceSpellCardId: cardId,
             forceSpellName: cardInHand.name,
             forceRequiresLifePayment: forceInfo.requiresLifePayment === true,
@@ -246,7 +257,12 @@ export function tryPromptCastSpellForceFlashFromHand(
         debug(2, `[castSpellFromHand] ${cardInHand.name} has flash via chosen-type flash grant`);
       }
       
-      const isSorcerySpeed = !isInstant && !hasFlash;
+      const isSorcerySpeed = (!isInstant && !hasFlash) || isCastingLimitedToSorceryTiming(game.state, String(playerId)); // B30 Teferi
+      const b31TurnLock = opponentTurnCastProhibitionReason(game.state, String(playerId));
+      if (b31TurnLock) {
+        socket.emit("error", { code: "CAST_PROHIBITED", message: b31TurnLock });
+        return;
+      }
       const allowsSneakTiming = canCastWithSneakAtCurrentTiming(game, playerId, cardInHand);
       
       if (isSorcerySpeed && !ignoreTimingRestrictions && !allowsSneakTiming) {

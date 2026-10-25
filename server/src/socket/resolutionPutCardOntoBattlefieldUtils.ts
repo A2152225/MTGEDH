@@ -79,7 +79,7 @@ export async function putCardOntoBattlefield(
     basePower: baseP,
     baseToughness: baseT,
     summoningSickness: hasSummoningSickness,
-    ...(isCreature ? { enteredThisTurn: true } : {}),
+    ...(!/\bland\b/.test(tl) ? { enteredThisTurn: true } : {}),
     card: { ...card, zone: "battlefield" },
   } as any;
   

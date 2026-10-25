@@ -17,6 +17,7 @@
  * chooseAIPutFromHandSelectionsForStep.
  */
 import { cardAnalyzer, CardCategory, SynergyArchetype } from "../../../../rules-engine/src/CardAnalyzer.js";
+import { chooseAICumulativeUpkeepPayment } from '../../state/modules/cumulativeUpkeepPayment.js';
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { getOptionalPaymentValidationFailure } from "../optional-payment-prompts.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
@@ -551,6 +552,11 @@ export function chooseAIOptionalPaymentPromptSelection(
   const validationFailure = getOptionalPaymentValidationFailure(game, String(playerId), step, payId);
   if (validationFailure) {
     return { selections: [declineId], cancelled: true };
+  }
+  if (step?.cumulativeUpkeepChoice === true) {
+    return chooseAICumulativeUpkeepPayment(game, String(playerId), step) === 'pay'
+      ? { selections: [payId], cancelled: false }
+      : { selections: [declineId], cancelled: true };
   }
 
   const validationKind = String(step?.optionalPaymentValidationKind || 'none').trim().toLowerCase();

@@ -69,12 +69,19 @@ import {
   chooseAIResolvedSpellCopySelection,
 } from "./aiPileAndKeywordChoiceHandlers.js";
 import { chooseAIPlayerChoiceId } from "./aiPlayerCardNameChoiceHandlers.js";
+import { chooseAIBatch24OptionSelection } from "./aiBatch24OptionChoices.js";
+
+/** Phyrexian attack-cost payment answers with an object (optionId + phyrexianChoices); everything else is string ids. */
+export type AIOptionSelectionDecision = {
+  selections: string[] | { optionId: string; phyrexianChoices: unknown };
+  cancelled: boolean;
+};
 
 export function chooseAIOptionSelectionsForStep(
   game: any,
   playerId: PlayerID,
   step: any
-): { selections: string[]; cancelled: boolean } {
+): AIOptionSelectionDecision {
   const options = Array.isArray(step?.options) ? step.options : [];
   if (options.length === 0) {
     return { selections: [], cancelled: false };
@@ -226,12 +233,15 @@ export function chooseAIOptionSelectionsForStep(
     return chooseAIDredgeDrawReplacementSelection(game, playerId, step, options, resolveOptionId);
   }
 
+  const batch24Selection = chooseAIBatch24OptionSelection(game, String(playerId), step, options, resolveOptionId);
+  if (batch24Selection) return batch24Selection;
+
   if (step?.skipDrawReplacementChoice === true) {
     return chooseAISkipDrawReplacementSelection(options, resolveOptionId);
   }
 
   if (step?.opponentLibraryDrawReplacement === true) {
-    return resolveOptionId(options[0]) || String(options[0]?.id || '').trim() || null;
+    return { selections: [resolveOptionId(options[0]) || String(options[0]?.id || '').trim()], cancelled: false };
   }
 
   if (step?.zursWeirdingOpponentChoice === true) {

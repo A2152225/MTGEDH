@@ -95,8 +95,9 @@ describe('staticEffectSpec (Phase 5.3 declarative registry)', () => {
       ],
     };
 
+    // computeContinuousEffects is now an alias of the spec-derived recompute (legacy scan retired).
     const base = computeContinuousEffects(state as any);
-    expect(base.perPermanent.get('soldier_perm_1')?.pDelta || 0).toBe(0);
+    expect(base.perPermanent.get('soldier_perm_1')?.pDelta || 0).toBe(1);
 
     const merged = recomputeContinuousEffects(state as any);
     expect(merged.perPermanent.get('soldier_perm_1')).toMatchObject({ pDelta: 1, tDelta: 1 });

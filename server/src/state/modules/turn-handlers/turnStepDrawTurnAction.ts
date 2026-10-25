@@ -9,7 +9,9 @@
 import type { GameContext } from "../../context.js";
 import { drawCards, drawCardsByIds } from "../zones.js";
 import { runSBA } from "../counters_tokens.js";
+import { findStaticSkipDrawStepSource } from "../../../../../rules-engine/src/phaseTransitionTriggers.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
+import { applyOptionalDrawStepSkipLifeGain } from "../optionalDrawStepSkip.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -27,7 +29,12 @@ export function runTurnStepDrawTurnAction(
       try {
         const turnPlayer = (ctx as any).state.turnPlayer;
         if (turnPlayer) {
-          if (shouldPerformDrawStepTurnAction(ctx, String(turnPlayer))) {
+          // Rule 614.10: "Skip your draw step" (Necropotence / Recycle style statics).
+          const skipDrawSource = findStaticSkipDrawStepSource((ctx as any).state, String(turnPlayer));
+          if (skipDrawSource) {
+            debug(2, `${ts()} [nextStep] Skipped draw step turn action for ${turnPlayer} (${skipDrawSource})`);
+            try { applyOptionalDrawStepSkipLifeGain(ctx, String(turnPlayer)); } catch {}
+          } else if (shouldPerformDrawStepTurnAction(ctx, String(turnPlayer))) {
             // Calculate total cards to draw: 1 (base) + any additional draws from effects
             const additionalDraws = (ctx as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
             const totalDraws = 1 + additionalDraws;

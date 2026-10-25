@@ -6,6 +6,7 @@ import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../..
 
 import { recalculatePlayerEffects } from './game-state-effects.js';
 import { getLandfallTriggers } from './triggered-abilities.js';
+import { queuePlayLandOrCastLandTriggers } from './triggers/playLandSaddleDieRollHooks.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
 import { parsedEffectDuplicates } from './triggers/triggerConditionFamilyMatch.js';
 import { cleanupCardLeavingExile, removeCardFromAnyPlayerExile } from './playable-from-exile.js';
@@ -18,6 +19,7 @@ import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { markPermanentEnteredFromZone } from './triggerDelayedEffectUtils.js';
 import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
 import { repairReplayCardSourceZones } from './stackReplayUtils.js';
+import { enterUntappedOverrideSourceName } from './landsEnterUntappedOverride.js';
 import { tryDeferPlayLandForWouldEnterReplacement, tryApplyLandWouldEnterNamedSacrificeReplacement } from './land-would-enter-replacement.js';
 
 export interface PlayLandEntryOptions {
@@ -334,6 +336,9 @@ export function finishPlayLandBattlefieldEntry(
     }
   }
 
+  if (shouldEnterTapped && enterUntappedOverrideSourceName(state.battlefield, playerId, card)) {
+    shouldEnterTapped = false;
+  }
   state.battlefield = state.battlefield || [];
   state.battlefield.push({
     id: uid('perm'),
@@ -453,6 +458,11 @@ export function finishPlayLandBattlefieldEntry(
     }
   } catch (err) {
     debugWarn(1, '[playLand] Failed to process landfall triggers:', err);
+  }
+  try {
+    queuePlayLandOrCastLandTriggers(ctx, String(playerId), String(newPermanent?.id || ''), playedFromExile);
+  } catch (err) {
+    debugWarn(1, '[playLand] Failed to queue play-a-land-or-cast triggers:', err);
   }
   }
 

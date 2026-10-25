@@ -14,6 +14,7 @@
  * Reference: MagicCompRules 20251114.txt, Rule 104
  */
 
+import { countDevotionAmongPermanents } from '../../shared/src/devotionCount.js';
 import type { BattlefieldPermanent, GameState, PlayerID, KnownCardRef } from '../../shared/src';
 
 type WinEffectPlayer = {
@@ -540,32 +541,6 @@ export function checkEmptyLibraryDrawWin(
 }
 
 /**
- * Pre-compiled regex patterns for devotion calculation
- */
-const DEVOTION_PATTERNS: Record<string, { basic: RegExp; hybrid: RegExp }> = {
-  W: { 
-    basic: /\{W\}/gi, 
-    hybrid: /\{W\/[UBRGP]\}|\{[UBRGP]\/W\}/gi 
-  },
-  U: { 
-    basic: /\{U\}/gi, 
-    hybrid: /\{U\/[WBRGP]\}|\{[WBRGP]\/U\}/gi 
-  },
-  B: { 
-    basic: /\{B\}/gi, 
-    hybrid: /\{B\/[WURGP]\}|\{[WURGP]\/B\}/gi 
-  },
-  R: { 
-    basic: /\{R\}/gi, 
-    hybrid: /\{R\/[WUBGP]\}|\{[WUBGP]\/R\}/gi 
-  },
-  G: { 
-    basic: /\{G\}/gi, 
-    hybrid: /\{G\/[WUBRP]\}|\{[WUBRP]\/G\}/gi 
-  },
-};
-
-/**
  * Calculate devotion to a color for a player
  */
 export function calculateDevotion(
@@ -573,38 +548,7 @@ export function calculateDevotion(
   color: string,
   battlefield: readonly BattlefieldPermanent[]
 ): number {
-  let devotion = 0;
-  const colorUpper = color.toUpperCase();
-  const patterns = DEVOTION_PATTERNS[colorUpper];
-  
-  for (const perm of battlefield) {
-    if (perm.controller !== playerId) continue;
-    
-    const card = perm.card as KnownCardRef;
-    const manaCost = card?.mana_cost || '';
-    
-    if (patterns) {
-      // Use pre-compiled patterns for standard colors
-      const basicMatches = manaCost.match(patterns.basic) || [];
-      devotion += basicMatches.length;
-      
-      const hybridMatches = manaCost.match(patterns.hybrid) || [];
-      devotion += hybridMatches.length;
-    } else {
-      // Fallback for non-standard colors (shouldn't happen in normal MTG)
-      // Use string matching instead of dynamic regex to avoid security issues
-      const colorSymbol = `{${colorUpper}}`;
-      let count = 0;
-      let idx = 0;
-      while ((idx = manaCost.toUpperCase().indexOf(colorSymbol, idx)) !== -1) {
-        count++;
-        idx += colorSymbol.length;
-      }
-      devotion += count;
-    }
-  }
-  
-  return devotion;
+  return countDevotionAmongPermanents(battlefield as readonly any[], String(playerId), [color]);
 }
 
 /**

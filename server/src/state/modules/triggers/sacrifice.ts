@@ -9,6 +9,7 @@ import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 import { isOneOrMoreIRBatchDuplicate } from './triggerIRVerdict.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export interface SacrificeTrigger {
   permanentId: string;
@@ -55,7 +56,8 @@ function extendSacrificeEffectText(oracleText: string, match: RegExpExecArray): 
   return timingTriggerEffect(oracleText, match, 2);
 }
 
-export function detectSacrificeTriggers(card: any, permanent: any): SacrificeTrigger[] {
+export function detectSacrificeTriggers(card: any, permanent: any, gameState?: any): SacrificeTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'sacrifice' })) return []; // Humility / Torpor Orb gate
   const triggers: SacrificeTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
   const permanentId = String(permanent?.id || '');
@@ -279,7 +281,7 @@ export function getSacrificeTriggers(
     if (!permanent || !permanent.card) continue;
 
     const permanentController = String(permanent.controller || '');
-    const permanentTriggers = detectSacrificeTriggers(permanent.card, permanent);
+    const permanentTriggers = detectSacrificeTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of permanentTriggers) {
       if (trigger.excludesSource && sacrificedPermanentId && sacrificedPermanentId === String(trigger.permanentId || '')) {
         continue;

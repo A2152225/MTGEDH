@@ -7,6 +7,7 @@
 import { playerHasLeftTheGame } from '../../../../rules-engine/src/playerInGameStatus.js';
 import { ResolutionQueueManager } from '../resolution/index.js';
 import { syncPreparedPermanentAfterControlChange } from './prepared.js';
+import { removeControlEffects, syncControlFromRegistry } from './continuousEffectRegistry.js';
 
 function playerStillInGame(state: any, playerId: string): boolean {
   const id = String(playerId || '').trim();
@@ -181,6 +182,12 @@ export function removeLeavingPlayerGameObjects(
   const id = String(playerId || '').trim();
   if (!id || !state) return [];
 
+  // CR 800.4a: effects giving the leaving player control end; re-derive through the registry first.
+  if (removeControlEffects(state, (entry) => String(entry?.newController || '').trim() === id) > 0) {
+    for (const change of syncControlFromRegistry(state)) {
+      syncPreparedPermanentAfterControlChange(state, change.permanent, change.previousController);
+    }
+  }
   revertControlEffectsHeldByLeavingPlayer(state, id);
   returnUnownedControlledPermanentsToLivingOwners(state, id);
 

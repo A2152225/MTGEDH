@@ -9,6 +9,7 @@
 
 import type { GameContext } from "../context.js";
 import { calculateAllPTBonuses, calculateVariablePT, parsePT } from "../utils.js";
+import { getCurrentPowerToughness } from "./currentPowerToughness.js";
 import { recordDurablePermissionUse } from "./durable-permissions.js";
 import { resolveCastPermissionId } from "./castIntent.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
@@ -298,6 +299,8 @@ export function generateDeterministicId(ctx: any, prefix: string, cardId: string
 
 export function getCurrentCombatPowerSnapshot(permanent: any, state: any): number {
   const card = permanent?.card || {};
+  const layer7 = getCurrentPowerToughness(permanent, state);
+  if (layer7) return Math.max(0, layer7.power);
 
   let basePower = parsePT((permanent as any)?.basePower);
   if (!Number.isFinite(basePower as number)) {
@@ -838,7 +841,7 @@ export function consumeReplayManaActivationLifeCost(rawState: any, playerId: str
 }
 
 export function applyManaAbilityLifeLoss(ctx: any, playerId: string, amount: number, tracksDamage: boolean): void {
-  applyManaAbilityLifeEffectToState(ctx?.state, playerId, { amount, isDamage: tracksDamage });
+  applyManaAbilityLifeEffectToState(ctx?.state, playerId, { amount, isDamage: tracksDamage }, ctx);
 }
 
 export function applyRecordedLifePayment(ctx: GameContext, playerId: string, rawAmount: unknown): void {

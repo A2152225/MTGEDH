@@ -94,8 +94,8 @@ export function tryApplyPreventLifeGainThisTurnGrant(
     };
   }
 
-  const existing = Array.isArray((state as { lastingEffects?: unknown[] }).lastingEffects)
-    ? [...((state as { lastingEffects: unknown[] }).lastingEffects)]
+  const existing = Array.isArray(state.lastingEffects)
+    ? [...state.lastingEffects]
     : [];
   const source = sourceName || 'This-turn lock';
   const nextEffects = [...existing];
@@ -117,9 +117,9 @@ export function tryApplyPreventLifeGainThisTurnGrant(
   return {
     applied: true,
     state: {
-      ...(state as object),
+      ...state,
       lastingEffects: nextEffects,
-    } as GameState,
+    },
     log: [`Stamped this-turn preventLifeGain for ${playerIds.join(', ')}`],
   };
 }

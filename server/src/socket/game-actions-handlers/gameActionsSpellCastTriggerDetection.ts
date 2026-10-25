@@ -23,7 +23,9 @@ import { persistNamedSpellCastThisGame } from "../../state/modules/namedSpellsCa
 import { consumeNextSpellCostReductionAfterCast } from "../../state/modules/nextSpellCostReduction.js";
 import { detectSpellCastTriggers, type SpellCastTrigger } from "../../state/modules/triggered-abilities";
 import { spellSharesCreatureTypeWithSource } from "../../state/modules/triggers/spellCastSharedCreatureType.js";
+import { castFaceSpellView, refineSpellCastQualifierTriggers } from "../../state/modules/triggers/spellCastQualifierTriggers.js";
 import { spellCastTriggerIRVerdict } from "../../state/modules/triggers/triggerIRVerdict.js";
+import { collectMatchingParsedEventLines, parsedEffectDuplicates } from "../../state/modules/triggers/triggerConditionFamilyMatch.js";
 import { debugWarn } from "../../utils/debug.js";
 import {
   broadcastGame,
@@ -46,7 +48,13 @@ export function normalizeSpellCastSourceZone(value: unknown): SpellCastSourceZon
  * Get spell-cast triggers that should fire for a spell being cast
  * Checks battlefield for permanents with spell-cast triggered abilities
  */
-export function getSpellCastTriggersForCard(game: any, casterId: string, spellCard: any, castSourceZone?: SpellCastSourceZone): SpellCastTrigger[] {
+export function getSpellCastTriggersForCard(
+  game: any,
+  casterId: string,
+  spellCard: any,
+  castSourceZone?: SpellCastSourceZone,
+): SpellCastTrigger[] {
+  spellCard = castFaceSpellView(spellCard);
   const triggers: SpellCastTrigger[] = [];
   const battlefield = game.state?.battlefield || [];
 
@@ -74,8 +82,8 @@ export function getSpellCastTriggersForCard(game: any, casterId: string, spellCa
     sourcePermanent?: any,
     spellSourceZone = castSourceZone,
   ): boolean => {
-    // Cycle triggers share the detector but fire on cycling, never on a spell cast.
-    if (trigger.triggerEvent === 'cycle') return false;
+    // Cycle / copy triggers share the detector but never fire on a spell cast.
+    if (trigger.triggerEvent === 'cycle' || trigger.triggerEvent === 'copy') return false;
     if (trigger.sourceZoneRequirement === 'hand' && spellSourceZone && spellSourceZone !== 'hand') {
       return false;
     }
@@ -104,6 +112,9 @@ export function getSpellCastTriggersForCard(game: any, casterId: string, spellCa
       ? card.colors
       : (Array.isArray(card?.color_identity) ? card.color_identity : []);
     const isColorlessSpell = spellColors.length === 0;
+
+    // Crime triggers are Oracle IR commits_crime (crime-triggers.ts), not spell-cast entries.
+    if (trigger.tribalType === 'commit_a_crime') return false;
 
     if (trigger.minSpellPower != null) {
       if (!isCreatureSpell) return false;
@@ -200,9 +211,37 @@ export function getSpellCastTriggersForCard(game: any, casterId: string, spellCa
         triggers.push(trigger);
       }
     }
+
+    // Printed cast lines the legacy enum cannot express (multicolored / monocolored,
+    // mana value N or greater, kicked, ...) fire from the parsed IR. Lines legacy fired, or
+    // rejected under a real enum, stay legacy-owned; a rejected catch-all tribal_type
+    // ("multicolored", "kicked", "or copy an instant") is a misparse the IR replaces.
+    for (const line of collectMatchingParsedEventLines({
+      ctx: game,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'spell_cast',
+      subjectPermanent: spellCard?.card ? spellCard : { ...spellCard, card: spellCard },
+      subjectControllerId: casterId,
+      sourcePermanent: permanent,
+      castFromZone: castSourceZone,
+    })) {
+      if (line.condition?.event !== 'spell_cast' || line.condition?.ordinal || line.interveningIf) continue;
+      if (line.condition.alternatives.some((alt: any) => alt.controller !== 'you')) continue;
+      const legacyOwners = permTriggers.filter((legacy) => triggers.includes(legacy) || legacy.spellCondition !== 'tribal_type');
+      if (legacyOwners.some((legacy) => parsedEffectDuplicates([legacy.effect, legacy.description], line))) continue;
+      triggers.push({
+        permanentId: String(permanent.id || ''),
+        cardName: String(permanent.card?.name || 'Unknown'),
+        controllerId: String(permanent.controller || ''),
+        description: line.effect,
+        effect: line.effect,
+        spellCondition: 'any',
+        mandatory: !/^you may\b/i.test(line.effect),
+      } as SpellCastTrigger);
+    }
   }
   
-  return triggers;
+  return refineSpellCastQualifierTriggers(battlefield, casterId, spellCard, triggers);
 }
 
 function getSpellCastTriggerUsageKey(trigger: SpellCastTrigger): string {

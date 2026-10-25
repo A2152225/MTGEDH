@@ -27,6 +27,7 @@ import {
   isDelayedDrawUpToSelectionStep,
 } from "../../state/modules/triggerDelayedDrawUpToUtils.js";
 import { resumeOracleIRRemainingStepsFromResolution } from "../../state/modules/oracleIrServerZoneSync-handlers/oracleIrServerResumeAndChoiceApply.js";
+import { applyAssistPaymentChoice, isAssistPaymentChoiceStep } from "../assistPaymentFlow.js";
 import { continuePlaneswalkerAbilityAfterChosenX } from "../interaction-handlers/interactionActivatePlaneswalkerContinueAfterX.js";
 
 /** X_VALUE_SELECTION: record chosen X for a spell cast, delayed up-to draw, or Blight X activation cost. */
@@ -65,6 +66,16 @@ export async function handleXValueSelectionResponse(
       isMinusX: stepAny.planeswalkerAbility?.isMinusX === true,
       xValue: chosen,
     });
+    return;
+  }
+
+  if (isAssistPaymentChoiceStep(stepAny)) {
+    const paid = response.cancelled ? 0 : applyAssistPaymentChoice(game, stepAny, String(pid), selectedXValue);
+    if (paid > 0) {
+      emitToPlayer(io, String(stepAny.assistCasterId), "assistPaid", { gameId, helperId: pid, amount: paid, cardId: stepAny.assistCardId });
+    }
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
     return;
   }
 

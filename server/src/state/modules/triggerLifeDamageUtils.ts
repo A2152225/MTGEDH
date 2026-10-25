@@ -2,6 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid, triggerLifeGainEffects } from '../utils.js';
 import { resolveOpponentDirectedDamage } from './game-state-effects.js';
+import { queuePlayerDealtNoncombatDamageIR } from './triggers/player-dealt-damage-ir.js';
 import { applyDamageToPermanentWithCounterEffects } from './counter-common-effects.js';
 import { detectCombatDamageTriggers } from './triggers/index.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
@@ -94,6 +95,7 @@ export function applyTriggerOpponentDamageFromPermanent(
     } catch {
       /* best-effort */
     }
+    queuePlayerDealtNoncombatDamageIR(ctxForDamage, { damagedPlayerId: String(targetPlayerId), damageAmount: actualDamage });
   }
   return actualDamage;
 }

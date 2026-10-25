@@ -51,7 +51,7 @@ export interface SpellCastTrigger {
    * ("whenever you cycle a card", "when you cycle this card") are recognized by the detector
    * but must never be put on the stack by a spell cast.
    */
-  triggerEvent?: 'cycle';
+  triggerEvent?: 'cycle' | 'copy';
   /** Full parsed condition when the entry came from the trigger IR; matchers use it over spellCondition. */
   triggerCondition?: import('../../../../../rules-engine/src/triggerCondition/index.js').TriggerConditionIR;
   mandatory: boolean;

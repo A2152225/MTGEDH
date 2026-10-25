@@ -11,6 +11,7 @@
  * hasCreatureSummoningSickness, scoreAISacrificePermanentForManaAbility,
  * calculateAvailableMana, canAIPayAdditionalCost.
  */
+import { notifyNoncombatPlayerDamage } from '../../state/modules/triggers/player-dealt-damage-ir.js';
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { cardAnalyzer } from "../../../../rules-engine/src/CardAnalyzer.js";
 import {
@@ -156,6 +157,7 @@ export function applyAIManaLifeLoss(game: any, playerId: PlayerID, amount: numbe
       (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
       (game.state as any).damageTakenThisTurnByPlayer[String(playerId)] =
         (((game.state as any).damageTakenThisTurnByPlayer[String(playerId)] || 0) + finalAmount);
+      notifyNoncombatPlayerDamage(game, String(playerId), finalAmount);
     }
 
     (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};

@@ -28,12 +28,17 @@ import { emitTriggersAfterOracleIRApply, snapshotBattlefieldForTriggerEmission }
 import { processDrawTriggers } from '../zones.js';
 import { queueCopySpellStackPushFromOracleIRResult, queueCastableCopiedSpellPromptsFromOracleIRResult } from '../oracleIrServerCopySpellSync.js';
 import { resyncPreparedExileCopiesWithControllers } from '../prepared.js';
+import { syncControlFromRegistry } from '../continuousEffectRegistry.js';
+import { queueClassLevelUpsSinceGating } from '../triggerStateAndLevelEmitters.js';
+import { queueFreshDieRollTriggers } from '../triggers/playLandSaddleDieRollHooks.js';
+import { prepareIrEventWatchers, finalizeIrEventWatchers } from '../triggers/irEventWatchers.js';
 import { queueEachPlayerCounterPlacementPromptsFromOracleIRResult } from '../triggerCounterPlacementPromptUtils.js';
 import { bridgeGameStateOracleEffectsAfterOracleIR } from '../triggerGameStateOracleBridgeUtils.js';
 import { bridgeCreatedTokenEtbTriggersAfterOracleIR } from '../triggerOracleIrTokenEtbBridge.js';
 import { bridgeEnteredPermanentEtbTriggersAfterOracleIR } from '../triggerOracleIrPermanentEtbBridge.js';
 import { prepareChaosResolutionZoneTriggersAfterOracleIR } from '../oracleIrChaosResolutionTriggerHold.js';
 import { collectLegalRetargetCandidatesForStackItem } from '../oracleIrRetargetLegalTargets.js';
+import { applyOracleIrSpellLifelinkGain } from '../spellLifelinkGrant.js';
 import { getCurrentPowerToughness } from '../currentPowerToughness.js';
 import { queueBattlefieldEntryReplacementPromptsAfterOracleIR } from '../oracleIrBattlefieldEntryPrompts.js';
 import { queueOracleIrReflexiveWhenYouDoFollowups } from '../triggerReflexiveWhenYouDoQueueUtils.js';
@@ -239,7 +244,8 @@ export function applyOracleIRStepsOnServer(
   // Filled by the IR counter commit for every permanent whose placement already ran
   // through the counter modifiers, so the post-IR sync does not apply them again.
   const counterModifiersAppliedTo = new Set<string>();
-  const result = applyOracleIRStepsToGameState(state, adjustedSteps, {
+  const irEvents = prepareIrEventWatchers(adjustedSteps);
+  const result = applyOracleIRStepsToGameState(state, irEvents.steps, {
     ...irCtx,
     counterModifiersAppliedTo,
     stepLedger,
@@ -261,6 +267,14 @@ export function applyOracleIRStepsOnServer(
   });
   Object.assign(state, result.state);
   normalizeOracleIrControlChangeEffectsForServer(state);
+  // Controller is derived from the registry (latest timestamp wins); prepared copies resync from controllersBefore below.
+  syncControlFromRegistry(state);
+  // "When this Class becomes level N" (Level N abilities resolve through IR).
+  try { queueClassLevelUpsSinceGating(ctx); } catch { /* best-effort */ }
+  // Die-roll result triggers for rolls made by spells and abilities (each roll is queued once).
+  try { queueFreshDieRollTriggers(ctx); } catch { /* best-effort */ }
+  // Connive triggers, regeneration riders, and leaves-this-turn watchers.
+  try { finalizeIrEventWatchers(ctx, irEvents.steps, irEvents.pending, irCtx, result); } catch { /* best-effort */ }
   try {
     const warpWorldLog = (result.log || []).filter((line) =>
       /shuffled \d+ owned permanent|Skipped owned-permanents shuffle|Skipped reveal-top|reveals |put \d+ revealed|revealed-this-way remainder/i
@@ -325,6 +339,7 @@ export function applyOracleIRStepsOnServer(
   } catch {
     // best-effort ? do not fail IR resolution for trigger emission
   }
+  applyOracleIrSpellLifelinkGain(ctx, result, triggerEmissionBefore, { controller: String(controller || ''), sourceId: String(irCtx?.sourceId || ''), sourceItem: params?.sourceItem });
   try {
     emitTriggersAfterOracleIRApply(ctx, state, result, triggerEmissionBefore, {
       controller: String(controller || ''),

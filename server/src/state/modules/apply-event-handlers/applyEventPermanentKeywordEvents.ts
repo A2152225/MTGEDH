@@ -22,6 +22,8 @@ import { applyBattlefieldPermanentReplayPatch } from "../../effects/battlefieldP
 import { getOrInitManaPool } from "../../../socket/util.js";
 import { queueParsedSubjectEvent } from "../triggerEmissionFamilyUtils.js";
 import { rollPlanarDie } from "../planarDie.js";
+import { queueCrewVehicleTriggers } from "../triggers/eventSpecificLegacyTriggers.js";
+import { queueSaddleMountTriggers } from "../triggers/playLandSaddleDieRollHooks.js";
 
 export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -274,6 +276,7 @@ export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boo
           const crewerIds = Array.isArray(crewerIdsRaw)
             ? crewerIdsRaw.map((id: any) => String(id ?? '')).filter((x: string) => x.length > 0)
             : [];
+          if (vehicleId && crewerIds.length > 0) queueCrewVehicleTriggers(ctx, crewerIds, vehicleId);
 
           const replayGameId = String((ctx as any).gameId || '').trim();
           if (replayGameId) {
@@ -592,6 +595,7 @@ export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boo
             triggerType: 'becomes_saddled',
             effectData: { mountId },
           });
+          if (crewerIds.length > 0) queueSaddleMountTriggers(ctx, crewerIds, mountId);
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(saddleMount): failed', err);

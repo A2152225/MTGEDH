@@ -6,6 +6,7 @@ type DelayedTriggerTiming =
   | 'your_next_end_step'
   | 'next_upkeep'
   | 'your_next_upkeep'
+  | 'next_end_of_combat'
   | 'when_dealt_damage';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
@@ -34,6 +35,11 @@ const TIMING_SPECS: readonly {
     timing: 'your_next_upkeep',
     leading: /^at\s+the\s+beginning\s+of\s+your\s+next\s+upkeep,\s*(.+)$/i,
     trailing: /^(.+?)\s+at\s+the\s+beginning\s+of\s+your\s+next\s+upkeep\s*$/i,
+  },
+  {
+    timing: 'next_end_of_combat',
+    leading: /^at\s+(?:this\s+turn(?:'|\u2019)s\s+)?next\s+end\s+of\s+combat(?:\s+this\s+turn)?,\s*(.+)$/i,
+    trailing: /^(.+?)\s+at\s+(?:this\s+turn(?:'|\u2019)s\s+)?next\s+end\s+of\s+combat(?:\s+this\s+turn)?\s*$/i,
   },
   {
     timing: 'next_upkeep',
@@ -69,6 +75,23 @@ export function tryParseDelayedTriggerClause(args: {
   const whenYouDo = clause.match(/^when you do(?: so)?,?\s*(.+)$/i);
   if (whenYouDo) {
     const effect = normalizeEffectText(String(whenYouDo[1] || ''));
+    if (effect) {
+      return withMeta({
+        kind: 'schedule_delayed_trigger',
+        timing: 'on_event',
+        effect,
+        raw: rawClause,
+      });
+    }
+  }
+
+  // "When that creature leaves the battlefield this turn, X" (Kjeldoran Guard, Runesword):
+  // a delayed trigger the server watches for the rest of the turn.
+  const leavesThisTurn = clause.match(
+    /^when (?:that|the targeted|the|this) (?:creature|artifact|permanent|enchantment) leaves the battlefield this turn,?\s*(.+)$/i,
+  );
+  if (leavesThisTurn) {
+    const effect = normalizeEffectText(String(leavesThisTurn[1] || ''));
     if (effect) {
       return withMeta({
         kind: 'schedule_delayed_trigger',

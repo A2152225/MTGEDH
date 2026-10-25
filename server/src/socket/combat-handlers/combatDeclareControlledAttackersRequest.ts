@@ -15,7 +15,7 @@ import { permanentHasKeyword, permanentHasSummoningSickness } from "../game-acti
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { queueOptionalPaymentStep } from "../optional-payment-prompts.js";
 import { broadcastGame, ensureGame } from "../util.js";
-import { isCurrentlyCreature } from "./combatLegalityGates.js";
+import { canPermanentAttack, isCurrentlyCreature } from "./combatLegalityGates.js";
 import { persistTriggeredAbilityPush } from "./combatDeclareBlockersRequest.js";
 import { playerIsLegalAttackTarget } from "../../../../rules-engine/src/playerInGameStatus.js";
 import {
@@ -161,12 +161,12 @@ export async function handleDeclareControlledAttackers(
         return;
       }
 
-      // Check defender keyword
-      const oracleText = ((creature as any).card?.oracle_text || "").toLowerCase();
-      if (oracleText.includes("defender")) {
+      // Defender (incl. granted defender and "as though it didn't have defender") and other attack gates.
+      const attackCheck = canPermanentAttack(creature, battlefield, String((creature as any).controller || playerId), game.state);
+      if (!attackCheck.canAttack) {
         socket.emit("error", {
-          code: "HAS_DEFENDER",
-          message: `${(creature as any).card?.name || "Creature"} has defender and cannot attack`,
+          code: attackCheck.reason === "Has defender" ? "HAS_DEFENDER" : "CANT_ATTACK",
+          message: `${(creature as any).card?.name || "Creature"} cannot attack (${attackCheck.reason || "restricted"})`,
         });
         return;
       }

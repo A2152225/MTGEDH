@@ -14,7 +14,8 @@ import type {
 } from '../replacement-effects.js';
 
 /** Declarative replacement spec (Phase 5.1). See docs/oracle-ir-phase5-continuous-effects-design.md */
-export type ReplacementEffectSpecEvent = ReplacementEvent['type'] | 'lose-game';
+export type ReplacementEffectSpecEvent = ReplacementEvent['type'] | 'lose-game'
+  | 'damage-redirect' | 'damage-prevention-cost' | 'life-gain-draw';
 
 export type ReplacementModifyMode = 'double' | 'triple' | 'add_flat' | 'halve' | 'cap';
 
@@ -39,6 +40,10 @@ export interface ReplacementZoneChangeMatch {
   objectTypeLineIncludes?: string;
   /** Destination must not be this zone. */
   destinationZoneNot?: ReplacementZone;
+  /** Moving object must be the spec source permanent ("if ~ would die"). */
+  objectIsSource?: boolean;
+  /** Moving object's controller must be an opponent of the spec source controller. */
+  objectControllerIsOpponentOfSource?: boolean;
 }
 
 export interface ReplacementMillMatch {
@@ -126,6 +131,23 @@ export interface ReplacementDamageMatch {
   receivingIsYouOrMatchingPermanentYouControl?: boolean;
   /** Worship: apply only while the source controller controls a creature. */
   requiresSourceControllerControlsCreature?: boolean;
+  /** Receiving permanent must be the spec source ("dealt to ~"). */
+  receivingPermanentIsSource?: boolean;
+  /** Receiving permanent must be the creature the spec source Aura is attached to. */
+  receivingPermanentIsEnchantedBySource?: boolean;
+  /** Damage must be dealt to a player, not a permanent ("damage to you"). */
+  receivingIsPlayerOnly?: boolean;
+  /** Damage source permanent must be the replacement's own source permanent ("if this creature would deal ..."). */
+  damageSourceIsSource?: boolean;
+  damageSourceIsInstantOrSorcerySpell?: boolean;
+  /** Damage source permanent must be a creature. */
+  damageSourceIsCreature?: boolean;
+  /** Damage source must be controlled by an opponent of the spec source controller. */
+  damageSourceControllerIsOpponentOfSource?: boolean;
+  /** Damage source permanent's colors must include this color letter (W/U/B/R/G). */
+  damageSourceColorIncludes?: string;
+  /** Only apply when the damage event is noncombat damage. */
+  noncombatDamageOnly?: boolean;
 }
 
 export interface ReplacementLoseGameMatch {

@@ -38,6 +38,7 @@ import {
 } from './stackResolveSpellCopyChoiceUtils.js';
 import { appendEvent } from '../../db/index.js';
 import { persistNamedSpellCastThisGame } from './namedSpellsCastThisGame.js';
+import { queueSpellCopiedTriggers } from './triggers/spell-copied.js';
 import { queueStackPutTriggers } from './triggers/stack-put.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 
@@ -108,6 +109,7 @@ function appendCopiedSpellToServerStack(state: any, copiedItem: any, ctx?: GameC
   const copiedId = String(copiedItem?.id || '').trim();
   if (ctx && copiedId) {
     queueStackPutTriggers(ctx, copiedId);
+    queueSpellCopiedTriggers(ctx, copiedId);
   }
 }
 
@@ -434,6 +436,7 @@ function appendCopyTriggeredSpellResolveEvent(
     controllerId?: string;
     triggeringStackItemId?: string;
     copiedStackItemId?: string;
+    triggerStackItemId?: string;
   },
 ): void {
   const gameId = String((ctx as any).gameId || '').trim();
@@ -445,6 +448,8 @@ function appendCopyTriggeredSpellResolveEvent(
       Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (ctx.state as any)?.seq ?? 0),
       'copyTriggeredSpellResolve',
       {
+        resolvedTriggerFromStack: options.triggerStackItemId ? true : undefined,
+        triggerStackItemId: String(options.triggerStackItemId || '').trim() || undefined,
         sourceId: String(options.sourceId || '').trim() || undefined,
         sourceName: String(options.sourceName || 'Spell copy').trim() || 'Spell copy',
         controllerId: String(options.controllerId || '').trim() || undefined,
@@ -673,6 +678,7 @@ export function queueCopySpellStackPushFromOracleIRResult(
             controllerId: copyControllerId,
             triggeringStackItemId,
             copiedStackItemId: String(copiedItem?.id || '').trim() || undefined,
+            triggerStackItemId: triggerStackItemId || undefined,
           });
         }
 

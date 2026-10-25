@@ -1,9 +1,12 @@
+import { ALL_COLOR_SYMBOLS, hasSelfAllColorsCDA } from './selfAllColorsCDA.js';
 /**
  * Effective mana colors for permanents/spells, including continuous color additions
  * (Painter's Servant, Alloy Golem, etc.).
  */
 
 import { readDerivedContinuousEffects } from './staticEffectSpec.js';
+import { typeSetOverrideIsColorless } from './attachedTypeSettingStamp.js';
+import { COLOR_SET_PREFIX, resolveColorsWithSetting } from './colorSettingMarker.js';
 
 const COLOR_WORD_TO_SYMBOL: Record<string, string> = {
   white: 'W',
@@ -66,21 +69,28 @@ export function getEffectiveColors(
   state?: unknown,
 ): string[] {
   if (!object) return [];
+  // Layer 5 "is a colorless land" (Imprisoned in the Moon / Song of the Dryads).
+  if (typeSetOverrideIsColorless(object)) return [];
   const printed = Array.isArray(object.colors)
     ? object.colors
     : Array.isArray(object.card?.colors)
       ? object.card.colors
       : [];
   const base = printed.map((c) => normalizeColorSymbol(String(c))).filter(Boolean) as string[];
+  // Batch 14: "~ is all colors" characteristic-defining ability.
+  if (hasSelfAllColorsCDA((object as any).card || object)) for (const c of ALL_COLOR_SYMBOLS) if (!base.includes(c)) base.push(c);
 
   let additions: string[] = [];
+  let setters: string[] = [];
   if (Array.isArray((object as any).colorAdditions)) {
+    setters = ((object as any).colorAdditions as string[]).filter((c) => String(c).toUpperCase().startsWith(COLOR_SET_PREFIX));
     additions = ((object as any).colorAdditions as string[])
       .map((c) => normalizeColorSymbol(String(c)))
       .filter(Boolean) as string[];
   } else if (state && (object as any).id) {
     const derived = readDerivedContinuousEffects(state);
     const fromMap = derived?.colorAdditions?.get(String((object as any).id)) || [];
+    setters = fromMap.filter((c) => String(c).toUpperCase().startsWith(COLOR_SET_PREFIX));
     additions = fromMap.map((c) => normalizeColorSymbol(String(c))).filter(Boolean) as string[];
   }
 
@@ -90,7 +100,8 @@ export function getEffectiveColors(
     }
   }
 
-  return [...new Set([...base, ...additions])];
+  // Layer 5 colour setting (Frogify): SET: entries replace the printed / CDA colours.
+  return resolveColorsWithSetting(base, [...setters, ...additions]);
 }
 
 export function objectHasManaColor(

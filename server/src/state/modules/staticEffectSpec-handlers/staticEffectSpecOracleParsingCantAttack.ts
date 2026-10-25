@@ -52,7 +52,7 @@ function typeLineOf(perm: BattlefieldPermanent): string {
 type CombatLockHost = 'enchanted' | 'equipped' | 'self';
 
 function resolveCombatLockHost(sentence: string, perm: BattlefieldPermanent): CombatLockHost | null {
-  if (/\benchanted creature\b/.test(sentence)) return 'enchanted';
+  if (/\benchanted (?:creature|permanent)\b/.test(sentence)) return 'enchanted';
   if (/\bequipped creature\b/.test(sentence)) return 'equipped';
   if (/\bthis creature\b/.test(sentence)) return 'self';
   const typeLine = typeLineOf(perm);

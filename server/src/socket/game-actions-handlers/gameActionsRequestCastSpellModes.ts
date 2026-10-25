@@ -7,6 +7,8 @@
  *
  * Public entry symbols: tryPromptRequestCastSpellModes.
  */
+import { opponentTurnCastProhibitionReason, zoneCastProhibitionReason } from "../../state/modules/batch31CastLocks.js"; // B31
+import { isCastingLimitedToSorceryTiming } from "../../state/modules/opponentSorceryTimingLock.js"; // B31
 import type { Socket } from "socket.io";
 import { extractAdditionalCostModesFromOracleText } from "../../state/modules/additionalCostModeOracleText.js";
 import { parseMadnessCost, parseMutateCost } from "../../state/modules/alternate-costs.js";
@@ -110,6 +112,17 @@ export function tryPromptRequestCastSpellModes(
     phaseStr,
   } = args;
   let { manaCost } = args;
+    // B31: absolute cast locks (Grand Abolisher on the locker's turn; Grafdigger's Cage for graveyard/library casts).
+    {
+      const zoneForLock = String(castSourceZone || '').toLowerCase();
+      const b31CastLock = opponentTurnCastProhibitionReason(game.state, String(playerId))
+        || (zoneForLock.includes('graveyard') ? zoneCastProhibitionReason(game.state, String(playerId), 'graveyard') : null)
+        || (zoneForLock.includes('library') ? zoneCastProhibitionReason(game.state, String(playerId), 'library') : null);
+      if (b31CastLock) {
+        socket.emit('error', { code: 'CAST_PROHIBITED', message: b31CastLock });
+        return;
+      }
+    }
     // Sorcery-speed gate for requestCastSpell (hand/command/etc). Without this, payment can be
     // queued while the stack is non-empty and completeCastSpell then fails with SORCERY_TIMING
     // after the player already paid (see Anointed Procession / deferred-finalize races).
@@ -125,7 +138,7 @@ export function tryPromptRequestCastSpellModes(
         sneakGrantsTiming: canCastWithSneakAtCurrentTiming(game, playerId, cardForCast),
         topLibraryGrantsFlash: topLibraryPermission?.grantsFlash === true,
       });
-      if (!grantsFlash) {
+      if (!grantsFlash || (!ignoreTimingRestrictions && isCastingLimitedToSorceryTiming(game.state, String(playerId)))) { // B31 Teferi
         const stepStr = String(game.state?.step || '').toUpperCase().trim();
         const isMainPhase = phaseStr.includes('MAIN') || stepStr.includes('MAIN');
         const isYourTurn = game.state.turnPlayer === playerId;

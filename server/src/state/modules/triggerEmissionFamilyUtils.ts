@@ -5,6 +5,7 @@
  */
 import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
+import { queueLoyaltyActivationTriggers } from './triggers/eventSpecificLegacyTriggers.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { uid } from '../utils.js';
 import {
@@ -52,6 +53,7 @@ export function queueParsedSubjectEvent(
     damageKind?: string;
     includeSubject?: boolean;
     excludePermanentIds?: readonly string[];
+    matchContext?: Record<string, unknown>;
   },
 ): any[] {
   // Replay re-creates these stack items from their persisted pushTriggeredAbility events.
@@ -81,6 +83,7 @@ export function queueParsedSubjectEvent(
       fromZone: options.fromZone,
       zoneOwnerId: options.zoneOwnerId,
       damageKind: options.damageKind,
+      matchContext: options.matchContext,
     })) {
       let onceKey = '';
       if (line.condition?.onceEachTurn) {
@@ -286,7 +289,7 @@ export function processEquippedTriggers(
   if ((ctx as any)?.isReplaying) return [];
   if (!equipment?.card || !equipment?.id) return [];
 
-  const detected = detectEquippedTriggers(equipment.card, equipment);
+  const detected = detectEquippedTriggers(equipment.card, equipment, (ctx as any)?.state);
   const queued: any[] = [];
   const ordered = orderTriggersByAPNAP(
     ctx,
@@ -354,7 +357,7 @@ export function processReturnedToHandTriggers(
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const detected = detectReturnedToHandTriggers(permanent.card, permanent);
+    const detected = detectReturnedToHandTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of detected) {
       const controllerId = String(permanent.controller || returnedController || '');
       const effectLower = String(trigger.description || trigger.effect || '').toLowerCase();
@@ -434,8 +437,9 @@ export function processTransformTriggers(ctx: GameContext, permanent: any): any[
   const queued: any[] = [];
 
   // Self transform triggers on the transforming permanent.
-  const selfDetected = detectTransformTriggers(permanent.card, permanent);
+  const selfDetected = detectTransformTriggers(permanent.card, permanent, (ctx as any)?.state);
   for (const trigger of selfDetected) {
+    if (String((trigger as any).triggerType) !== 'transform') continue; // e.g. life_threshold
     const enriched = {
       ...trigger,
       controllerId: String(permanent.controller || ''),
@@ -453,8 +457,9 @@ export function processTransformTriggers(ctx: GameContext, permanent: any): any[
     if (!watcher?.card || String(watcher.id) === String(permanent.id)) continue;
     const attachedTo = String(watcher.attachedTo || '');
     if (!attachedTo || attachedTo !== String(permanent.id)) continue;
-    const detected = detectTransformTriggers(watcher.card, watcher);
+    const detected = detectTransformTriggers(watcher.card, watcher, (ctx as any)?.state);
     for (const trigger of detected) {
+      if (String((trigger as any).triggerType) !== 'transform') continue;
       const enriched = {
         ...trigger,
         controllerId: String(watcher.controller || ''),
@@ -531,7 +536,18 @@ export function processFaceUpTriggers(ctx: GameContext, faceUpPermanent: any): a
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const faceUpId = String(faceUpPermanent.id || '');
   const faceUpController = String(faceUpPermanent.controller || faceUpPermanent.owner || '');
-  const queued: any[] = [];
+  // IR first: parsed "is turned face up" lines; legacy detectors only fill gaps (no double-fire).
+  const queued: any[] = queueParsedSubjectEvent(ctx, {
+    event: 'turned_face_up',
+    subjectPermanent: faceUpPermanent,
+    subjectControllerId: faceUpController,
+    triggerType: 'face_up',
+    includeSubject: true,
+    effectData: { faceUpPermanentId: faceUpId, faceUpPermanentName: String(faceUpPermanent?.card?.name || ''), faceUpController },
+  });
+  for (const item of queued) {
+    if (item && String(item.source || '') !== faceUpId) item.triggerType = 'another_permanent_face_up';
+  }
   const seenKeys = new Set<string>();
 
   const candidates = [...battlefield];
@@ -553,6 +569,10 @@ export function processFaceUpTriggers(ctx: GameContext, faceUpPermanent: any): a
       const isSelf = String(permanent.id || '') === faceUpId;
       const sameController = String(permanent.controller || '') === faceUpController;
       if (!faceUpTriggerMatchesEvent(triggerType, isSelf, sameController)) continue;
+      const legacyTexts = [trigger.effect, trigger.description];
+      if (queued.some((item: any) => String(item?.permanentId || item?.source || '') === String(permanent.id || '')
+        && (parsedEffectDuplicates([item?.effect, item?.description], String(trigger.effect || trigger.description || ''))
+          || parsedEffectDuplicates(legacyTexts, String(item?.effect || ''))))) continue;
 
       const enriched = {
         ...trigger,
@@ -589,7 +609,7 @@ export function processMonstrousTriggers(ctx: GameContext, permanent: any): any[
   if ((ctx as any)?.isReplaying) return [];
   if (!permanent?.card || !permanent?.id) return [];
 
-  const detected = detectMonstrousTriggers(permanent.card, permanent);
+  const detected = detectMonstrousTriggers(permanent.card, permanent, (ctx as any)?.state);
   const queued: any[] = [];
   const ordered = orderTriggersByAPNAP(
     ctx,
@@ -752,7 +772,7 @@ export function processDetectedAbilityActivatedTriggers(
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
     if (handled.has(String(permanent.id || ''))) continue;
-    const detected = detectAbilityActivatedTriggers(permanent.card, permanent);
+    const detected = detectAbilityActivatedTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of detected) {
       const triggerType = String(trigger.triggerType || '');
       // Only wire activation-shaped detectors here; exploit/surveil are other events.
@@ -884,6 +904,10 @@ export function processDetectedAbilityActivatedTriggers(
   }
   if (!event.isManaAbility && event.stackItemId) {
     queued.push(...queueStackPutTriggers(ctx, String(event.stackItemId)));
+    const activatedItem = ((ctx as any).state?.stack || []).find((s: any) => String(s?.id || '') === String(event.stackItemId));
+    if (activatedItem?.planeswalker && sourcePermanent) {
+      queued.push(...queueLoyaltyActivationTriggers(ctx, String(event.activatedBy), sourcePermanent, String(event.stackItemId)));
+    }
   }
   if (!event.isManaAbility && sourcePermanent) {
     const effectData = {

@@ -133,8 +133,14 @@ export function resolveGrantedAbilities(source: BattlefieldPermanent, text: stri
 }
 
 export function isCreature(permanent: BattlefieldPermanent): boolean {
+  const pa = permanent as any;
+  if (pa.notCreature === true) return false;
+  // Ensoul Artifact / animation flags and layer-4 type-setting Auras (attachedTypeSettingStamp.ts).
+  if (pa.isCreature === true || pa.animated === true) return true;
+  if (pa.typeSetOverride && Array.isArray(pa.typeSetOverride.cardTypes)) return pa.typeSetOverride.cardTypes.includes('creature');
   const tl = ((permanent.card as any)?.type_line || '').toLowerCase();
-  return /\bcreature\b/.test(tl);
+  // layer4AddedTypes: layer 4 type-setting stamp (Opalescence), see state/modules/layer4TypeSetting.ts.
+  return /\bcreature\b/.test(tl) || ((permanent as any).layer4AddedTypes || []).includes('Creature');
 }
 
 export function isLegendaryCreature(permanent: BattlefieldPermanent): boolean {

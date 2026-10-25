@@ -46,8 +46,14 @@ import { collectOraclePatternDrawReplacementSpecsFromState } from './replacement
 import { collectOraclePatternTokenReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecTokenOracleTemplates.js';
 import { collectOraclePatternMillReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecMillOracleTemplates.js';
 import { collectOraclePatternZoneChangeReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecZoneChangeOracleTemplates.js';
+import { matchesZoneChangeOwnershipExtras } from './replacementEffectSpec-handlers/replacementEffectSpecZoneChangeDiesExileTemplates.js';
+import { collectDamageSideEffectSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecDamageSideEffectTemplates.js';
+import { collectLifeGainDrawInsteadSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeGainDrawInsteadTemplates.js';
 import { collectOraclePatternLoseGameReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLoseGameOracleTemplates.js';
 import { collectOraclePatternLifeFloorDamageReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeFloorDamageOracleTemplates.js';
+import { matchesDrawSpec, NONCREATURE_TOKEN_NAMES, tokenCreationEventLooksLikeCreature, matchesTokenSpec, normalizeReplacementToken, readStackCastWithAbility, stackItemExilesAfterResolution, getObjectCardId, objectIsTokenPermanent, normalizeCounterName, permanentHasCounter, readLeaveBattlefieldReplacementDestination, readReplacementSourceName, readReplacementLifeGain, objectIsCommander, matchesZoneChangeSpec } from './replacementEffectSpecEventMatchers.js';
+import { overlaySpecsMatchTokenCreation, overlaySpecsMatchLibrarySearch, overlaySpecsMatchMill, overlaySpecsMatchCounterPlacement } from './replacementEffectSpecEventMatchers.js';
+export { overlaySpecsMatchTokenCreation, overlaySpecsMatchLibrarySearch, overlaySpecsMatchMill, overlaySpecsMatchCounterPlacement } from './replacementEffectSpecEventMatchers.js';
 
 const STACK_GRAVEYARD_EXILE_ABILITIES = ['flashback', 'jump-start', 'escape', 'disturb', 'harmonize'];
 
@@ -201,278 +207,6 @@ export function collectIntrinsicZoneChangeReplacementSpecsFromObject(
   return specs;
 }
 
-function matchesDrawSpec(spec: ReplacementEffectSpec, event: CardDrawReplacementEvent): boolean {
-  const match = spec.match;
-  if (!match) return true;
-
-  if (match.skipWhenEventMetadataTrue
-    && event.metadata?.[match.skipWhenEventMetadataTrue] === true) {
-    return false;
-  }
-
-  if (match.requireEventMetadataTrue
-    && event.metadata?.[match.requireEventMetadataTrue] !== true) {
-    return false;
-  }
-
-  if (match.exactDrawCount !== undefined) {
-    const count = Math.max(0, Math.floor(Number(event.count || 0)));
-    if (count !== match.exactDrawCount) return false;
-  }
-
-  if (match.drawingPlayerIsOpponentOfSource === true
-    && String(event.playerId || '') === String(spec.sourceController || '')) {
-    return false;
-  }
-
-  if (match.drawingPlayerIsSourceController === true
-    && String(event.playerId || '') !== String(spec.sourceController || '')) {
-    return false;
-  }
-
-  if (match.minimumDrawCount !== undefined) {
-    const count = Math.max(0, Math.floor(Number(event.count || 0)));
-    if (count < match.minimumDrawCount) return false;
-  }
-
-  return true;
-}
-
-const NONCREATURE_TOKEN_NAMES = new Set([
-  'treasure',
-  'food',
-  'clue',
-  'blood',
-  'gold',
-  'map',
-  'junk',
-  'powerstone',
-  'shard',
-]);
-
-function tokenCreationEventLooksLikeCreature(event: TokenCreationReplacementEvent): boolean {
-  const typeLine = String(
-    event.tokenTypeLine
-    || event.metadata?.typeLine
-    || event.metadata?.type_line
-    || '',
-  ).toLowerCase();
-  if (typeLine.includes('creature')) return true;
-  if (typeLine) return false;
-  const name = String(event.tokenName || '').trim().toLowerCase();
-  if (NONCREATURE_TOKEN_NAMES.has(name)) return false;
-  return true;
-}
-
-function matchesTokenSpec(spec: ReplacementEffectSpec, event: TokenCreationReplacementEvent): boolean {
-  const match = spec.match;
-  if (!match) return true;
-
-  const controllerId = String(event.controllerId || '');
-  const sourceController = String(spec.sourceController || '');
-
-  if (match.creatingPlayerIsSourceController === true
-    && controllerId !== sourceController) {
-    return false;
-  }
-
-  if (match.tokenIsCreature === true && !tokenCreationEventLooksLikeCreature(event)) {
-    return false;
-  }
-
-  return true;
-}
-
-export function overlaySpecsMatchTokenCreation(
-  spec: ReplacementEffectSpec,
-  event: { controllerId: string; state?: unknown; tokenName?: string; tokenTypeLine?: string; count?: number },
-): boolean {
-  return matchesTokenSpec(spec, {
-    type: 'token-creation',
-    state: event.state,
-    controllerId: event.controllerId,
-    count: event.count ?? 1,
-    tokenName: event.tokenName,
-    tokenTypeLine: event.tokenTypeLine,
-  });
-}
-
-function normalizeReplacementToken(value: unknown): string {
-  return String(value || '').trim().toLowerCase();
-}
-
-function readStackCastWithAbility(stackItem: any): string {
-  return normalizeReplacementToken(
-    stackItem?.card?.castWithAbility
-      || stackItem?.castWithAbility
-      || stackItem?.alternativeCost
-      || '',
-  );
-}
-
-function stackItemExilesAfterResolution(stackItem: any): boolean {
-  return stackItem?.exileAfterResolution === true
-    || stackItem?.card?.exileAfterResolution === true
-    || stackItem?.card?.card?.exileAfterResolution === true;
-}
-
-function getObjectCardId(object: any): string {
-  return String(object?.card?.id || object?.id || '').trim();
-}
-
-function objectIsTokenPermanent(object: any): boolean {
-  return object?.isToken === true || object?.card?.isToken === true;
-}
-
-function normalizeCounterName(value: string): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/ counters?$/i, '')
-    .replace(/^an?\s+/i, '')
-    .trim();
-}
-
-function permanentHasCounter(permanent: any, counterName: string): boolean {
-  const counters = permanent?.counters;
-  if (!counters || typeof counters !== 'object' || Array.isArray(counters)) return false;
-  const target = normalizeCounterName(counterName);
-  for (const [name, amountRaw] of Object.entries(counters as Record<string, unknown>)) {
-    if (normalizeCounterName(name) === target && Number(amountRaw || 0) > 0) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function readLeaveBattlefieldReplacementDestination(permanent: any, state?: any): string {
-  const explicit = normalizeReplacementToken(
-    permanent?.leaveBattlefieldReplacementDestination
-      || permanent?.card?.leaveBattlefieldReplacementDestination
-      || '',
-  );
-  if (explicit === 'exile') return explicit;
-  const inferred = inferLeaveBattlefieldExileReplacement(permanent, state);
-  return inferred?.leaveBattlefieldReplacementDestination === 'exile' ? 'exile' : explicit;
-}
-
-function readReplacementSourceName(permanent: any): string | undefined {
-  const value = String(
-    permanent?.leaveBattlefieldReplacementSourceName
-      || permanent?.card?.leaveBattlefieldReplacementSourceName
-      || '',
-  ).trim();
-  return value || undefined;
-}
-
-function readReplacementLifeGain(permanent: any): number | undefined {
-  const value = Number(
-    permanent?.leaveBattlefieldReplacementLifeGain
-      || permanent?.card?.leaveBattlefieldReplacementLifeGain
-      || 0,
-  );
-  return value > 0 ? value : undefined;
-}
-
-function objectIsCommander(event: ZoneChangeReplacementEvent): boolean {
-  const object = event.object;
-  if (object?.isCommander === true || object?.card?.isCommander === true) return true;
-
-  const commanderIds = Array.isArray(event.metadata?.commanderIds) ? event.metadata?.commanderIds : [];
-  const cardId = getObjectCardId(object);
-  return Boolean(cardId && commanderIds.some((id) => String(id || '') === cardId));
-}
-
-function matchesZoneChangeSpec(event: ZoneChangeReplacementEvent, match: ReplacementZoneChangeMatch): boolean {
-  if (match.sourceZone && event.sourceZone !== match.sourceZone) return false;
-  if (match.destinationZone && event.destinationZone !== match.destinationZone) return false;
-  if (match.destinationZoneIn && match.destinationZoneIn.length > 0
-    && !match.destinationZoneIn.includes(event.destinationZone)) {
-    return false;
-  }
-  if (match.objectIsCommander === true && !objectIsCommander(event)) return false;
-  if (match.destinationZoneNot && event.destinationZone === match.destinationZoneNot) return false;
-
-  const permanent = event.object;
-  if (match.leaveBattlefieldExileInstead === true
-    && readLeaveBattlefieldReplacementDestination(permanent, event.state) !== 'exile') {
-    return false;
-  }
-  if (match.objectIsToken === true && !objectIsTokenPermanent(permanent)) return false;
-  if (match.objectHasCounter
-    && !permanentHasCounter(permanent, match.objectHasCounter)) {
-    return false;
-  }
-  if (match.objectTypeLineIncludes) {
-    const typeLine = normalizeReplacementToken(permanent?.card?.type_line || permanent?.type_line || '');
-    if (!typeLine.includes(normalizeReplacementToken(match.objectTypeLineIncludes))) return false;
-  }
-
-  const stackItem = event.object;
-  const castWithAbility = readStackCastWithAbility(stackItem);
-  const explicitExileAfterResolution = match.exileAfterResolution === true && stackItemExilesAfterResolution(stackItem);
-  const castWithListedAbility = Array.isArray(match.castWithAbilityIn)
-    && match.castWithAbilityIn.length > 0
-    && match.castWithAbilityIn.some((ability) => normalizeReplacementToken(ability) === castWithAbility);
-
-  if (match.exileAfterResolution === true || (match.castWithAbilityIn && match.castWithAbilityIn.length > 0)) {
-    return explicitExileAfterResolution || castWithListedAbility;
-  }
-
-  return true;
-}
-
-export function overlaySpecsMatchLibrarySearch(
-  spec: ReplacementEffectSpec,
-  event: { searchingPlayerId: string },
-): boolean {
-  const match = spec.match;
-  if (!match) return true;
-  const searching = String(event.searchingPlayerId || '');
-  const sourceController = String(spec.sourceController || '');
-  if (match.searchingPlayerIsOpponentOfSource === true && searching === sourceController) {
-    return false;
-  }
-  if (match.searchingPlayerIsSourceController === true && searching !== sourceController) {
-    return false;
-  }
-  return true;
-}
-
-export function overlaySpecsMatchMill(
-  spec: ReplacementEffectSpec,
-  event: { millingPlayerId: string; targetPlayerId: string },
-): boolean {
-  const match = spec.match;
-  if (!match) return true;
-  if (match.millingPlayerIsSourceController === true
-    && String(event.millingPlayerId) !== String(spec.sourceController || '')) {
-    return false;
-  }
-  if (match.targetIsOpponent === true
-    && String(event.targetPlayerId) === String(event.millingPlayerId)) {
-    return false;
-  }
-  return true;
-}
-
-export function overlaySpecsMatchCounterPlacement(
-  spec: ReplacementEffectSpec,
-  input: { counterType: string; targetController: string },
-): boolean {
-  const match = spec.match;
-  if (!match) return true;
-  if (match.counterTypeIncludes
-    && !String(input.counterType || '').includes(String(match.counterTypeIncludes))) {
-    return false;
-  }
-  if (typeof match.targetControllerIsSourceController === 'boolean') {
-    const sameController = String(input.targetController) === String(spec.sourceController || '');
-    if (match.targetControllerIsSourceController !== sameController) return false;
-  }
-  return true;
-}
-
 export function overlayReplacementSpecToEffect(spec: ReplacementEffectSpec): ReplacementEffect {
   const modify = spec.instead.modify;
   const source = String(spec.sourceName || spec.effectId || spec.id || 'Replacement effect');
@@ -600,6 +334,8 @@ function collectReplacementEffectSpecsFromStateUncached(state: unknown): Replace
   specs.push(...collectOraclePatternLibrarySearchReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternLoseGameReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternLifeFloorDamageReplacementSpecsFromState(state));
+  specs.push(...collectDamageSideEffectSpecsFromState(state));
+  specs.push(...collectLifeGainDrawInsteadSpecsFromState(state));
   return specs;
 }
 
@@ -746,6 +482,7 @@ export function evaluateReplacementEffectSpec(
 
   if (event.type === 'zone-change' && spec.match) {
     if (!matchesZoneChangeSpec(event, spec.match)) return null;
+    if (!matchesZoneChangeOwnershipExtras(event, spec)) return null;
 
     const stackItem = event.object;
     const castWithAbility = readStackCastWithAbility(stackItem);

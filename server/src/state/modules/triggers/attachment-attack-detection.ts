@@ -2,7 +2,7 @@
  * Origin: server/src/state/modules/triggered-abilities.ts
  * Cluster: leftover attachment-attack detect/get + combat-untap getters/execute
  * Public: detectAttachmentAttackTriggers, getAttachmentAttackTriggers,
- *   getAttachmentCombatDamageTriggers, getAttackUntapTriggers,
+ *   getAttackUntapTriggers,
  *   getCombatDamageUntapTriggers, executeUntapTrigger
  */
 
@@ -10,6 +10,7 @@ import { debug } from "../../../utils/debug.js";
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import { detectUntapTriggers, type UntapTrigger } from "./untap-detection.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 /**
  * Interface for equipment/aura attack triggers
  */
@@ -37,7 +38,8 @@ export interface AttachmentAttackTrigger {
  * Detect attack/combat damage triggers from equipment and auras
  * This handles cards like Sword of the Animist, Sword of Feast and Famine, etc.
  */
-export function detectAttachmentAttackTriggers(card: any, permanent: any): AttachmentAttackTrigger[] {
+export function detectAttachmentAttackTriggers(card: any, permanent: any, gameState?: any): AttachmentAttackTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'attack' })) return []; // Humility / Torpor Orb gate
   const triggers: AttachmentAttackTrigger[] = [];
   const oracleText = card?.oracle_text || "";
   const lowerOracle = oracleText.toLowerCase();
@@ -187,45 +189,9 @@ export function getAttachmentAttackTriggers(
     if (permanent.attachedTo !== attackingCreature.id) continue;
     
     // Detect triggers from this equipment/aura
-    const attachmentTriggers = detectAttachmentAttackTriggers(permanent.card, permanent);
+    const attachmentTriggers = detectAttachmentAttackTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of attachmentTriggers) {
       if (trigger.triggerType === 'attack') {
-        triggers.push(trigger);
-      }
-    }
-  }
-  
-  return triggers;
-}
-
-/**
- * Get all equipment/aura triggers that fire when equipped creature deals combat damage
- */
-export function getAttachmentCombatDamageTriggers(
-  ctx: GameContext,
-  attackingCreature: any,
-  attackingController: string
-): AttachmentAttackTrigger[] {
-  const triggers: AttachmentAttackTrigger[] = [];
-  const battlefield = ctx.state?.battlefield || [];
-  
-  // Find all equipment/auras attached to the attacking creature
-  for (const permanent of battlefield) {
-    if (!permanent || !permanent.card) continue;
-    
-    const typeLine = (permanent.card.type_line || '').toLowerCase();
-    const isEquipment = typeLine.includes('equipment');
-    const isAura = typeLine.includes('aura');
-    
-    if (!isEquipment && !isAura) continue;
-    
-    // Check if attached to the attacking creature
-    if (permanent.attachedTo !== attackingCreature.id) continue;
-    
-    // Detect triggers from this equipment/aura
-    const attachmentTriggers = detectAttachmentAttackTriggers(permanent.card, permanent);
-    for (const trigger of attachmentTriggers) {
-      if (trigger.triggerType === 'combat_damage' || trigger.triggerType === 'damage_to_player') {
         triggers.push(trigger);
       }
     }
@@ -246,7 +212,7 @@ export function getAttackUntapTriggers(
   const battlefield = ctx.state?.battlefield || [];
   
   // Check the attacking creature itself
-  const selfTriggers = detectUntapTriggers(attackingCreature.card, attackingCreature);
+  const selfTriggers = detectUntapTriggers(attackingCreature.card, attackingCreature, (ctx as any)?.state);
   for (const trigger of selfTriggers) {
     if (trigger.triggerOn === 'attack') {
       triggers.push(trigger);
@@ -265,7 +231,7 @@ export function getAttackUntapTriggers(
       // Check if this is attached to the attacking creature
       const attachedTo = permanent.attachedTo;
       if (attachedTo === attackingCreature.id) {
-        const attachmentTriggers = detectUntapTriggers(permanent.card, permanent);
+        const attachmentTriggers = detectUntapTriggers(permanent.card, permanent, (ctx as any)?.state);
         for (const trigger of attachmentTriggers) {
           if (trigger.triggerOn === 'attack') {
             triggers.push(trigger);
@@ -290,7 +256,7 @@ export function getCombatDamageUntapTriggers(
   const battlefield = ctx.state?.battlefield || [];
   
   // Check the attacking creature itself
-  const selfTriggers = detectUntapTriggers(attackingCreature.card, attackingCreature);
+  const selfTriggers = detectUntapTriggers(attackingCreature.card, attackingCreature, (ctx as any)?.state);
   for (const trigger of selfTriggers) {
     if (trigger.triggerOn === 'combat_damage' || trigger.triggerOn === 'damage_to_player') {
       triggers.push(trigger);
@@ -308,7 +274,7 @@ export function getCombatDamageUntapTriggers(
     if (isAura || isEquipment) {
       const attachedTo = permanent.attachedTo;
       if (attachedTo === attackingCreature.id) {
-        const attachmentTriggers = detectUntapTriggers(permanent.card, permanent);
+        const attachmentTriggers = detectUntapTriggers(permanent.card, permanent, (ctx as any)?.state);
         for (const trigger of attachmentTriggers) {
           if (trigger.triggerOn === 'combat_damage' || trigger.triggerOn === 'damage_to_player') {
             triggers.push(trigger);

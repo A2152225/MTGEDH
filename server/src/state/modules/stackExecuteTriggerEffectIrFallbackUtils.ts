@@ -177,6 +177,8 @@ export function applyOracleIRFallbackForTriggeredEffect(
     ...(discardedCardId ? [discardedCardId] : []),
     ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
     ...(triggeringLandId ? [triggeringLandId] : []),
+    ...[(triggerItem as any)?.effectData?.targetPermanentId, (triggerItem as any)?.effectData?.vehicleId, (triggerItem as any)?.effectData?.mountId]
+      .map((id: unknown) => String(id || '').trim()).filter(Boolean),
   ]));
   const targetBinding = inferOracleIrTargetBinding((ctx as any).state, chosenObjectIds, controller);
 

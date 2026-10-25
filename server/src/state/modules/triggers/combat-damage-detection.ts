@@ -13,11 +13,13 @@ import { appendCombatDamageDetectionMid } from "./combat-damage-detection-mid.js
 import type { CombatDamageDetectionState } from "./combat-damage-detection-state.js";
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 /**
  * Detect combat damage triggers from a permanent's abilities
  */
 export function detectCombatDamageTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'damage' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const { oracleText } = mergeDetectorOracleWithContinuousGrants(card?.oracle_text || "", permanent, gameState);
   const lowerOracle = oracleText.toLowerCase();

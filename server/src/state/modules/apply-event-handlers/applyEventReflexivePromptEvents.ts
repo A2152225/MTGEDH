@@ -5,6 +5,7 @@
 // Public entry: applyReflexivePromptEvents(ctx, e) -> true when it handled the event.
 //
 // Handles: mayAbilityResolve, upkeepSacrificeResolve, keywordPromptResolve, reflexiveManaPaymentResolve, reflexiveFixedPaymentResolve, reflexiveDiscardResolve, reflexiveConvertResolve, reflexiveGraveyardExileResolve, castFromExilePromptResolve, castFromGraveyardPromptResolve
+import { notifyNoncombatPlayerDamage } from '../triggers/player-dealt-damage-ir.js';
 import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
 import { recordCardLeftGraveyardThisTurn } from "../turn-tracking.js";
@@ -473,6 +474,7 @@ export function applyReflexivePromptEvents(ctx: GameContext, e: GameEvent): bool
               (ctx.state as any).damageTakenThisTurnByPlayer = (ctx.state as any).damageTakenThisTurnByPlayer || {};
               (ctx.state as any).damageTakenThisTurnByPlayer[opponentId] =
                 ((ctx.state as any).damageTakenThisTurnByPlayer[opponentId] || 0) + declineDamageEachOpponent;
+              notifyNoncombatPlayerDamage(ctx, opponentId, declineDamageEachOpponent, sourceCreature);
 
               (ctx.state as any).lifeLostThisTurn = (ctx.state as any).lifeLostThisTurn || {};
               (ctx.state as any).lifeLostThisTurn[opponentId] =

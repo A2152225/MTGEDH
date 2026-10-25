@@ -164,7 +164,7 @@ export function parseManaSpendRestrictionFromOracle(
     return { restriction: 'artifacts' };
   }
 
-  if (/spend this mana only to cast instant or sorcery|spend this mana only to cast instants and sorceries/.test(text)) {
+  if (/spend this mana only to cast instant (?:or|and) sorcery|spend this mana only to cast instants and sorceries/.test(text)) {
     return { restriction: 'instant_sorcery' };
   }
 

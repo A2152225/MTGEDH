@@ -14,6 +14,8 @@ import { buildTriggerSourcePermanentSnapshot } from '../triggerSourceUtils.js';
 import { inferTriggeredAbilityTargetMetadata } from '../inferTriggeredAbilityTargetMetadata.js';
 import { ResolutionStepType } from '../../resolution/index.js';
 import { queueResolveTopOfStackPrompt } from '../resolutionPromptEvents.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
+import { queueRoomFullyUnlockedTriggers } from '../triggerStateAndLevelEmitters.js';
 
 export interface RoomUnlockDoorTrigger {
   permanentId: string;
@@ -88,7 +90,8 @@ export function buildRoomUnlockDoorRegisteredTrigger(
   };
 }
 
-export function detectRoomUnlockDoorTriggers(card: any, permanent?: any): RoomUnlockDoorTrigger[] {
+export function detectRoomUnlockDoorTriggers(card: any, permanent?: any, gameState?: any): RoomUnlockDoorTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const effect = extractRoomUnlockDoorEffect(String(card?.oracle_text || ''));
   if (!effect) return [];
 
@@ -147,7 +150,7 @@ function queueRoomUnlockDoorTriggers(
   const state = (ctx as any).state;
   if (!state || !permanent?.card) return;
 
-  const triggers = detectRoomUnlockDoorTriggers(permanent.card, permanent);
+  const triggers = detectRoomUnlockDoorTriggers(permanent.card, permanent, state);
   if (triggers.length === 0) return;
 
   state.stack = state.stack || [];
@@ -196,8 +199,11 @@ export function unlockRoomDoorPermanent(
   controller: PlayerID,
 ): boolean {
   if (!permanent || !isRoomPermanent(permanent)) return false;
+  const wasLocked = permanent.doorLocked === true;
   if (!permanentHasUnlockDoorTrigger(permanent.card)) {
     permanent.doorLocked = false;
+    // The last locked door just opened: the Room is fully unlocked (CR 709.5).
+    if (wasLocked) queueRoomFullyUnlockedTriggers(ctx, permanent);
     return false;
   }
 
@@ -207,6 +213,7 @@ export function unlockRoomDoorPermanent(
 
   permanent.doorLocked = false;
   queueRoomUnlockDoorTriggers(ctx, permanent, controller);
+  queueRoomFullyUnlockedTriggers(ctx, permanent);
   return true;
 }
 

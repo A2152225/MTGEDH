@@ -42,12 +42,20 @@ export function isTriggerEffectFullyIrWired(
   return steps.every((step) => isTriggerStepRuntimeWired(step as OracleEffectStep));
 }
 
+/** "you may pay {X}. If you do, when you next cast ...": the next-cast rider waits for the payment. */
+export function isCostGatedNextCastRiderText(effectText: string): boolean {
+  return /\byou may pay [^.]*\.\s*(?:if|when) you do,\s*when you next cast\b/i.test(String(effectText || ''));
+}
+
 export function isTriggerEffectOwnedByOracleIrPrimary(
   effectText: string,
   sourceName: string,
 ): boolean {
   if (!isOracleIrTriggerPrimaryEnabled()) return false;
   if (isJoinForcesEffectText(effectText)) return false;
+  // Najal: "you may pay {2}. If you do, when you next cast ..." - the legacy mana-payment prompt
+  // registers the next-cast rider only when paid.
+  if (isCostGatedNextCastRiderText(effectText)) return false;
   return isTriggerEffectFullyIrWired(effectText, sourceName);
 }
 

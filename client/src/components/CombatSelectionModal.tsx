@@ -12,6 +12,8 @@ import type { BattlefieldPermanent } from '../../../shared/src';
 import { getLandwalkUnblockableReason } from '../../../shared/src/combatLandwalk';
 import { getBlockerCapacity } from '../utils/blockerCapacity';
 import { canBlockAttacker } from '../utils/combatBlocking';
+import { getMaximumBlockers, graveyardAttackGateReason } from '../utils/combatBlockLimits';
+import { batch33AttackGateReason } from '../utils/combatBatch33Restrictions';
 import {
   permanentMustAttackIfAble,
   preferredForcedAttackTarget,
@@ -68,6 +70,7 @@ export function CombatSelectionModal({
   errorMessage,
   readOnly = false,
   isYourTurn = true,
+  zones,
 }: CombatSelectionModalProps) {
   // For attackers: selected creatures and their targets
   const [selectedAttackers, setSelectedAttackers] = useState<Map<string, string | undefined>>(new Map());
@@ -157,8 +160,12 @@ export function CombatSelectionModal({
 
   // Filter to only untapped creatures for attackers (interactive only)
   const availableForAttack = useMemo(() => {
-    return readOnly ? availableCreatures : availableCreatures.filter(c => !c.tapped);
-  }, [availableCreatures, readOnly]);
+    if (readOnly) return availableCreatures;
+    // UI32: hide graveyard-gated attackers (Deep-Sea Terror) while the gate is unmet.
+    // UI34: also hide Batch 33 statically gated attackers (non-Eye locks, "another artifact", "more creatures").
+    const opponentIdsFor = (c: any) => (players || []).map((p: any) => String(p?.id || '')).filter((id: string) => id && id !== String(c?.controller || ''));
+    return availableCreatures.filter(c => !c.tapped && !(mode === 'attackers' && (graveyardAttackGateReason(c, zones) || batch33AttackGateReason(c, battlefield, opponentIdsFor(c)))));
+  }, [availableCreatures, readOnly, mode, zones, battlefield, players]);
 
   const forcedAttackerIds = useMemo(() => {
     const ids = new Set<string>();
@@ -355,9 +362,15 @@ export function CombatSelectionModal({
       if (!check.isLegal && check.message) {
         violations.set(attacker.id, check.message);
       }
+      // UI31: "can't be blocked by more than N creatures" (Charging Rhino, Familiar Ground).
+      const max = getMaximumBlockers(attacker, battlefieldForBlocking);
+      const count = Array.from(selectedBlockers.values()).filter((ids) => ids.has(attacker.id)).length;
+      if (count > max && !violations.has(attacker.id)) {
+        violations.set(attacker.id, `${getCreatureInfo(attacker).name} can't be blocked by more than ${max} creature${max === 1 ? '' : 's'}`);
+      }
     }
     return violations;
-  }, [attackingCreatures, selectedBlockers]);
+  }, [attackingCreatures, selectedBlockers, battlefieldForBlocking]);
   
   // Check for Lure violations - all able blockers MUST block creatures with Lure
   const lureViolations = useMemo(() => {

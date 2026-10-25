@@ -20,6 +20,8 @@ import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
 import { applyShieldCounterDamagePrevention } from "./counter-common-effects.js";
+import { filterRestrictedCounterDeltas } from "./counterPlacementRestrictions.js";
+import { tryStaticRegenerateInsteadOfDestroy } from "./replacementBatch16LongTail.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 import { detectKeywords } from "./keyword-detection.js";
@@ -259,9 +261,10 @@ export function updateCounters(
   const canonicalDeltas = canonicalizeCounterDeltas(deltas);
 
   // Apply counter modification effects (Vorinclex, Doubling Season, Hardened Scales, etc.)
-  const modifiedDeltas = options?.skipCounterModifications
+  // CR 122.1: "can't have counters put on it" applies after replacement effects modify the event.
+  const modifiedDeltas = filterRestrictedCounterDeltas(state, p, options?.skipCounterModifications
     ? canonicalDeltas
-    : applyCounterModifications(state, permanentId, canonicalDeltas);
+    : applyCounterModifications(state, permanentId, canonicalDeltas));
 
   trackCountersPlacedThisTurn(state, p, permanentId, modifiedDeltas);
   
@@ -457,6 +460,11 @@ export function destroyPermanent(ctx: GameContext, permanentId: string, triggerD
     return true;
   }
 
+  if (tryStaticRegenerateInsteadOfDestroy(state, normalizedId)) {
+    bumpSeq();
+    return true;
+  }
+
   return movePermanentToGraveyard(ctx, normalizedId, triggerDeathEffects);
 }
 
@@ -548,42 +556,7 @@ export function applyEngineEffects(ctx: GameContext, effects: readonly any[]) {
  * @returns Total devotion to that color
  */
 export function calculateDevotion(ctx: GameContext, playerId: PlayerID, color: string): number {
-  const { state } = ctx;
-  const battlefield = state.battlefield || [];
-  
-  let devotion = 0;
-  const colorUpper = color.toUpperCase();
-  
-  for (const perm of battlefield) {
-    if (perm.controller !== playerId) continue;
-    
-    const manaCost = (perm.card as any)?.mana_cost || '';
-    
-    // Count occurrences of the color symbol
-    const regex = new RegExp(`\\{${colorUpper}\\}`, 'gi');
-    const matches = manaCost.match(regex);
-    if (matches) devotion += matches.length;
-    
-    // Also check hybrid mana symbols (e.g., {W/U}, {R/G})
-    const hybridRegex = /\{([WUBRG])\/([WUBRG])\}/gi;
-    let hybridMatch;
-    while ((hybridMatch = hybridRegex.exec(manaCost)) !== null) {
-      if (hybridMatch[1].toUpperCase() === colorUpper || hybridMatch[2].toUpperCase() === colorUpper) {
-        devotion++;
-      }
-    }
-    
-    // Phyrexian hybrid mana (e.g., {W/P})
-    const phyrexianRegex = /\{([WUBRG])\/P\}/gi;
-    let phyrexMatch;
-    while ((phyrexMatch = phyrexianRegex.exec(manaCost)) !== null) {
-      if (phyrexMatch[1].toUpperCase() === colorUpper) {
-        devotion++;
-      }
-    }
-  }
-  
-  return devotion;
+  return countDevotionAmongPermanents((ctx.state?.battlefield || []) as any[], String(playerId), [color]);
 }
 
 /**

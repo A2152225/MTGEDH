@@ -1,3 +1,4 @@
+import { evaluateDevotionReference } from '../../shared/src/devotionReference.js';
 import type { BattlefieldPermanent, GameState } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 
@@ -140,6 +141,12 @@ export function tryEvaluateModifyPtWhereBoardStateCounts(args: {
   }
 
   {
+    const devotionAmount = evaluateDevotionReference(
+      (controlled as any[]).map((permanent) => ({ ...permanent, controller: 'self' })),
+      'self',
+      raw,
+    );
+    if (devotionAmount !== null) return devotionAmount;
     const m = raw.match(/^x is your devotion to (white|blue|black|red|green)$/i);
     if (m) {
       const colorName = String(m[1] || '').toLowerCase();

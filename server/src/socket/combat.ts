@@ -22,6 +22,7 @@ import { isInterveningIfSatisfied } from "../state/modules/triggers/intervening-
 import { getCurrentGoaders } from "../state/modules/goad-effects.js";
 import { creatureHasHaste, permanentHasKeyword, permanentHasSummoningSickness } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { canBlockShadowAsThough } from "../state/modules/blockAsThoughShadow.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { queueOptionalPaymentStep } from "./optional-payment-prompts.js";
 import { advanceStepPersistingEvent } from "./step-advance.js";
@@ -349,6 +350,10 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       // This allows step advancement to proceed past DECLARE_BLOCKERS
       state.blockersDeclaredBy.push(playerId);
       debug(1, `[combat] ${playerId} skipped declaring blockers`);
+      {
+        const { queueParsedAttacksUnblockedTriggersOnce } = await import("../state/modules/triggers/combatBlockedIrTriggers.js");
+        queueParsedAttacksUnblockedTriggersOnce(game as any, String(playerId), gameId);
+      }
 
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -635,7 +640,7 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
         
         // Shadow
         if (permanentHasKeywordAbility(attackerCreature, 'shadow', battlefield)) {
-          if (!permanentHasKeywordAbility(blockerCreature, 'shadow', battlefield)) {
+          if (!permanentHasKeywordAbility(blockerCreature, 'shadow', battlefield) && !canBlockShadowAsThough(blockerCreature, battlefield)) {
             socket.emit("error", {
               code: "CANT_BLOCK_SHADOW",
               message: `${(blockerCreature as any).card?.name} can't block ${(attackerCreature as any).card?.name} (shadow)`,

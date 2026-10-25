@@ -98,8 +98,8 @@ export function tryApplyAttackTaxThisTurnGrant(
 
   const attackYou = /\bcan(?:not|'t)\s+attack\s+you\b/.test(effectText);
   const source = sourceName || 'This-turn attack tax';
-  const existing = Array.isArray((state as { lastingEffects?: unknown[] }).lastingEffects)
-    ? [...((state as { lastingEffects: unknown[] }).lastingEffects)]
+  const existing = Array.isArray(state.lastingEffects)
+    ? [...state.lastingEffects]
     : [];
 
   const stamp = amount.life > 0
@@ -135,9 +135,9 @@ export function tryApplyAttackTaxThisTurnGrant(
   return {
     applied: true,
     state: {
-      ...(state as object),
+      ...state,
       lastingEffects: [...existing, stamp],
-    } as GameState,
+    },
     log: [`Stamped ${stamp.duration} ${stamp.type} ${amount.life || amount.generic} (${stamp.global ? 'global' : 'attack_you'})`],
   };
 }

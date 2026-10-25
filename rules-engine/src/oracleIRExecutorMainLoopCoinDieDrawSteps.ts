@@ -3,6 +3,7 @@
 // set_in_motion (coin/die, draw/win/lose, clash/learn/attraction, venture/monarch).
 // Public entry symbol: tryApplyMainLoopCoinDieDrawSteps.
 
+import { applyDieRollAdvantage, countDieRollAdvantage } from './dieRollAdvantage';
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
@@ -423,7 +424,12 @@ export function tryApplyMainLoopCoinDieDrawSteps(
             : count === 1
               ? [performDieRoll(players[0], step.sides)]
               : [...performMultipleDieRolls(players[0], step.sides, count)];
-        const results = rolls.map(roll => Number((roll as any).result)).filter(result => Number.isFinite(result));
+        const baseResults = rolls.map(roll => Number((roll as any).result)).filter(result => Number.isFinite(result));
+        const dieAdvantage = rolls.length === 1 && (rolls[0] as any) !== undefined && !(count === 1 && Number.isFinite(forcedResult) && forcedResult >= 1 && forcedResult <= step.sides)
+          ? countDieRollAdvantage(nextState, players[0]) : 0;
+        const results = dieAdvantage > 0
+          ? applyDieRollAdvantage(baseResults, dieAdvantage, () => Number((performDieRoll(players[0], step.sides) as any).result)).kept
+          : baseResults;
         const total = results.reduce((sum, result) => sum + result, 0);
         const displayedResult = count === 1 ? (results[0] ?? 0) : total;
         const timestamp = Date.now();

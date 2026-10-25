@@ -24,6 +24,7 @@ import type {
 import { debug, debugWarn } from "../../utils/debug.js";
 import { creatureHasHaste } from "../game-actions.js";
 import { resolveGroupedPermanentRef } from "../tokenGroupResolve.js";
+import { crewSaddlePowerBonus } from "../crewSaddlePowerBonus.js";
 import {
   broadcastGame,
   emitToPlayer,
@@ -100,7 +101,7 @@ export async function tryHandleCrewAbilityTargetSelection(
     usedCrewerIds.add(String(resolvedId));
     resolvedCrewerIds.push(String(resolvedId));
     chosenCrewers.push(crewer);
-    totalPower += getEffectivePower(crewer, game.state);
+    totalPower += getEffectivePower(crewer, game.state) + crewSaddlePowerBonus(crewer, 'crew');
   }
   const crewerIds = resolvedCrewerIds;
 

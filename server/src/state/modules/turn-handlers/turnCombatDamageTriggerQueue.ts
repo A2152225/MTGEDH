@@ -16,6 +16,7 @@ import {
   pushCombatDamageTriggerQueueEntries,
 } from "./turnCombatDamageTriggerPersist.js";
 import type { DealCombatDamageResult } from "./turnCombatDamageAttackerLoop.js";
+import { collectRecipientVariantCombatDamageTriggers } from "./turnCombatDamageRecipientVariantTriggers.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -68,6 +69,8 @@ export function applyDealCombatDamageTriggerQueue(
             subjectControllerId: String(attackerPerm.controller || ''),
             sourcePermanent: attackerPerm,
           })) {
+            // "one or more creatures ... deal combat damage" is batched; the batched pass below owns it.
+            if (line.condition?.quantity === 'one_or_more') continue;
             if (triggers.some((trigger) => parsedEffectDuplicates(trigger.effect || trigger.description || '', line.effect))) {
               continue;
             }
@@ -157,7 +160,10 @@ export function applyDealCombatDamageTriggerQueue(
                 subjectPermanent: attackerPerm,
                 subjectControllerId: String(attackerPerm.controller || ''),
                 sourcePermanent: watcher,
+                matchContext: { damagedPlayerId: String(defendingPlayerId) },
               })) {
+                // Batched "one or more" wordings fire once from the batched pass, not per attacker.
+                if (line.condition?.quantity === 'one_or_more') continue;
                 pendingCombatDamageTriggerEntries.push({
                   stackItem: {
                     id: uid('trigger'),
@@ -263,6 +269,29 @@ export function applyDealCombatDamageTriggerQueue(
 
           const triggers = detectCombatDamageTriggers(perm.card, perm, state);
           const oracleText = String(perm.card?.oracle_text || '');
+          // IR first: parsed "whenever you're dealt [combat] damage" lines (player subject).
+          for (const line of collectMatchingParsedEventLines({
+            ctx: ctx as any,
+            oracleText,
+            event: 'dealt_damage',
+            subjectPermanent: { id: `player:${String(damagedPlayerId)}`, controller: String(damagedPlayerId), card: { type_line: '' } },
+            subjectControllerId: String(damagedPlayerId),
+            sourcePermanent: perm,
+            damageKind: 'combat',
+            thatPlayerId: String(damagedPlayerId),
+            matchContext: { subjectIsPlayer: true },
+          } as any)) {
+            if (!line.condition?.playerSubject) continue;
+            if (triggers.some((trigger: any) => parsedEffectDuplicates([trigger.effect, trigger.description], line))) continue;
+            triggers.push({
+              permanentId: String(perm.id || ''),
+              cardName: String(perm.card?.name || 'Unknown'),
+              triggerType: line.condition?.damageKind === 'combat' ? 'you_are_dealt_combat_damage' : 'you_are_dealt_damage',
+              description: line.effect,
+              effect: line.effect,
+              mandatory: !/^you may\b/i.test(line.effect),
+            } as any);
+          }
           if (!triggers.some((trigger) => trigger.triggerType === 'you_are_dealt_damage')) {
             const lowerOracleText = oracleText.toLowerCase();
             const youAreDealtDamageMatch = oracleText.match(/when(?:ever)?\s+you(?:'re| are)\s+dealt\s+damage,?\s*([^.]+)/i);
@@ -455,6 +484,12 @@ export function applyDealCombatDamageTriggerQueue(
       }
     } catch (err) {
       debugWarn(1, `${ts()} [dealCombatDamage] Failed to queue batched combat damage triggers:`, err);
+    }
+
+    try {
+      collectRecipientVariantCombatDamageTriggers(ctx, battlefield, result as any, pendingCombatDamageTriggerEntries as any, shouldUsePersistedCombatDamageTriggersDuringReplay(ctx));
+    } catch (err) {
+      debugWarn(1, ts() + ' [dealCombatDamage] Failed to queue recipient-variant combat damage triggers:', err);
     }
 
     pushCombatDamageTriggerQueueEntries(ctx, pendingCombatDamageTriggerEntries);

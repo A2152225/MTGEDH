@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
+import { persistedGrantedAbilitiesSurvivingLoss } from './persistedGrantedAbilityLoss.js';
 
 /** Keywords shown as compact battlefield badges (IND, Dth, etc.). */
 export const BATTLEFIELD_KEYWORD_BADGES = new Set([
@@ -52,6 +53,7 @@ function readTemporaryAbilityBadge(entry: unknown): string | null {
 export function collectBattlefieldAbilityBadgesForView(
   perm: BattlefieldPermanent,
   continuousAbilities: readonly string[],
+  battlefield?: readonly any[],
 ): string[] {
   const typeLine = String((perm.card as any)?.type_line || '').toLowerCase();
   const isCreature = /\bcreature\b/.test(typeLine);
@@ -60,7 +62,9 @@ export function collectBattlefieldAbilityBadgesForView(
 
   const abilities = new Set<string>();
 
-  for (const ability of [...(perm as any).grantedAbilities || [], ...continuousAbilities]) {
+  // With a battlefield, persisted quoted grants obey ability loss in timestamp order.
+  const persisted = battlefield ? persistedGrantedAbilitiesSurvivingLoss(perm, battlefield) : (perm as any).grantedAbilities || [];
+  for (const ability of [...persisted, ...continuousAbilities]) {
     const normalized = normalizeAbilityBadge(ability);
     if (normalized) abilities.add(normalized);
   }

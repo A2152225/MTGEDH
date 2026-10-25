@@ -9,6 +9,7 @@ import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { isInterveningIfSatisfied } from "./intervening-if.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from "./triggerConditionFamilyMatch.js";
+import { dropTriggersFromAbilitylessSources, permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export interface CardDrawTrigger {
   permanentId: string;
@@ -31,7 +32,8 @@ export interface CardDrawTrigger {
  * - "Whenever a player draws a card, that player discards a card" (Notion Thief reverse)
  * - "Whenever you draw a card, you gain 1 life" (various)
  */
-export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigger[] {
+export function detectCardDrawTriggers(card: any, permanent: any, gameState?: any): CardDrawTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'draw' })) return []; // Humility / Torpor Orb gate
   const triggers: CardDrawTrigger[] = [];
   const oracleText = (card?.oracle_text || "");
   const lowerOracle = oracleText.toLowerCase();
@@ -123,14 +125,13 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
     });
   }
 
-  const secondCardDrawPatterns = [
-    /whenever a player draws their second card each turn,?\s*([^.]+)/gi,
-    /whenever a player draws their second card during their turn,?\s*([^.]+)/gi,
-    /whenever (?:an opponent|you) draws (?:your |their )?second card each turn,?\s*([^.]+)/gi,
-    /when(?:ever)? you draw your second card each turn,?\s*([^.]+)/gi,
-    /when(?:ever)? you draw your third card in a turn,?\s*([^.]+)/gi,
+  // "first/second card each turn" is emitted from the trigger IR (ordinal draws_card) in
+  // getCardDrawTriggers; only the wordings the IR does not parse stay here, gated by draw number.
+  const secondCardDrawPatterns: Array<[RegExp, number, boolean]> = [
+    [/whenever a player draws their second card during their turn,?\s*([^.]+)/gi, 2, true],
+    [/when(?:ever)? you draw your third card in a turn,?\s*([^.]+)/gi, 3, false],
   ];
-  for (const pattern of secondCardDrawPatterns) {
+  for (const [pattern, drawOrdinal, duringOwnTurn] of secondCardDrawPatterns) {
     let match: RegExpExecArray | null;
     pattern.lastIndex = 0;
     while ((match = pattern.exec(oracleText)) !== null) {
@@ -140,10 +141,12 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
         permanentId,
         cardName,
         controllerId,
-        triggerType: 'player_draws',
+        triggerType: /^when(?:ever)? you\b/i.test(match[0]) ? 'you_draw' : 'player_draws',
         effect,
         mandatory: !/^you may\b/i.test(effect),
-      });
+        drawOrdinal,
+        ...(duringOwnTurn ? { duringOwnTurn } : {}),
+      } as any);
     }
   }
 
@@ -161,7 +164,7 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
     });
   }
 
-  const revealCreatureThisWayMatch = oracleText.match(/when you reveal a creature card this way,?\s*([^.]+)/i);
+  const revealCreatureThisWayMatch = oracleText.match(/when(?:ever)? you reveal a creature card this way,?\s*([^.]+)/i);
   if (revealCreatureThisWayMatch && !triggers.some((t) => t.triggerType === 'reveal_creature_this_way')) {
     const effect = timingTriggerEffect(oracleText, revealCreatureThisWayMatch);
     triggers.push({
@@ -198,12 +201,35 @@ export function detectCardDrawTriggers(card: any, permanent: any): CardDrawTrigg
 }
 
 /**
+ * Keranos / Primitive Etchings: "Reveal the first card you draw [on each of your turns | each turn].
+ * Whenever you reveal a land/nonland/creature card this way, ..."
+ */
+function revealedFirstDrawMatches(ctx: GameContext, permanent: any, trigger: CardDrawTrigger, drawingPlayerId: string, permController: string, drawNumber: number | undefined, drawnCard: any): boolean {
+  if (String(drawingPlayerId) !== String(permController) || drawNumber !== 1 || !drawnCard) return false;
+  const oracle = String(permanent?.card?.oracle_text || '').toLowerCase();
+  const reveal = /reveal the first card you draw (on each of your turns|each turn)/.exec(oracle);
+  if (!reveal) return false;
+  if (reveal[1] === 'on each of your turns' && String((ctx.state as any)?.turnPlayer || (ctx.state as any)?.activePlayer || '') !== String(drawingPlayerId)) return false;
+  const typeLine = String(drawnCard?.type_line || drawnCard?.card?.type_line || '').toLowerCase();
+  if (trigger.triggerType === 'reveal_creature_this_way') return typeLine.includes('creature');
+  const effect = String(trigger.effect || '').toLowerCase();
+  const kind = new RegExp('reveal an? (land|nonland) card this way,?\\s*' + effect.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).exec(oracle);
+  const isLand = typeLine.includes('land');
+  if (!kind) return false;
+  return kind[1] === 'land' ? isLand : !isLand;
+}
+
+/**
  * Get all card draw triggers that should fire when a player draws a card
  */
 export function getCardDrawTriggers(
   ctx: GameContext,
   drawingPlayerId: string,
-  controllerId?: string
+  controllerId?: string,
+  /** 1-based count of this draw among the player's draws this turn ("second card each turn"). */
+  drawNumber?: number,
+  /** The card just drawn, for "reveal the first card you draw ... whenever you reveal a land card this way". */
+  drawnCard?: any,
 ): CardDrawTrigger[] {
   const triggers: CardDrawTrigger[] = [];
   const battlefield = ctx.state?.battlefield || [];
@@ -212,7 +238,7 @@ export function getCardDrawTriggers(
     if (!permanent || !permanent.card) continue;
     
     const permController = permanent.controller;
-    const permTriggers = detectCardDrawTriggers(permanent.card, permanent);
+    const permTriggers = detectCardDrawTriggers(permanent.card, permanent, (ctx as any)?.state);
     
     for (const trigger of permTriggers) {
       // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
@@ -251,6 +277,10 @@ export function getCardDrawTriggers(
       );
       if (ok === false) continue;
 
+      const drawOrdinal = Number((trigger as any).drawOrdinal || 0);
+      if (drawOrdinal > 0 && drawNumber !== drawOrdinal) continue;
+      if ((trigger as any).duringOwnTurn && String((ctx.state as any)?.turnPlayer || (ctx.state as any)?.activePlayer || '') !== String(drawingPlayerId)) continue;
+
       // Check if this trigger applies
       switch (trigger.triggerType) {
         case "opponent_draws":
@@ -269,6 +299,12 @@ export function getCardDrawTriggers(
             triggers.push({ ...trigger, controllerId: permController });
           }
           break;
+        case 'reveal_this_way':
+        case 'reveal_creature_this_way':
+          if (revealedFirstDrawMatches(ctx, permanent, trigger, drawingPlayerId, permController, drawNumber, drawnCard)) {
+            triggers.push({ ...trigger, controllerId: permController });
+          }
+          break;
       }
     }
 
@@ -279,7 +315,10 @@ export function getCardDrawTriggers(
       subjectPermanent: { id: '', typeLine: '', controllerId: drawingPlayerId },
       subjectControllerId: drawingPlayerId,
       sourcePermanent: permanent,
+      spellOrdinal: drawNumber,
     })) {
+      // This emitter runs per card drawn; "draw one or more cards" is batched and stays legacy-owned.
+      if (line.condition?.quantity === 'one_or_more') continue;
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
         sameTriggerSource(existing, permanent)
@@ -300,5 +339,5 @@ export function getCardDrawTriggers(
     }
   }
   
-  return triggers;
+  return dropTriggersFromAbilitylessSources(triggers, ctx.state, (t: any) => String(t?.permanentId || ''), { event: 'draw' });
 }

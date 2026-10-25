@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent } from '../../../shared/src';
+import { countDevotionAmongPermanents } from '../../../shared/src/devotionCount';
 
 export type DevotionColorCode = 'W' | 'U' | 'B' | 'R' | 'G';
 const DEVOTION_COLOR_CODES: DevotionColorCode[] = ['W', 'U', 'B', 'R', 'G'];
@@ -8,24 +9,8 @@ export function calculateDevotion(
   playerId: string,
   color: DevotionColorCode,
 ): number {
-  let devotion = 0;
-
-  for (const permanent of battlefield) {
-    if (!permanent || permanent.controller !== playerId) continue;
-    const manaCost = String((permanent.card as any)?.mana_cost || '');
-    if (!manaCost) continue;
-
-    const singleColorRegex = new RegExp(`\\{${color}\\}`, 'gi');
-    devotion += (manaCost.match(singleColorRegex) || []).length;
-
-    const hybridRegex = new RegExp(`\\{${color}\\/[WUBRGP]\\}|\\{[WUBRG]\\/${color}\\}`, 'gi');
-    devotion += (manaCost.match(hybridRegex) || []).length;
-
-    const twobrideRegex = new RegExp(`\\{2\\/${color}\\}`, 'gi');
-    devotion += (manaCost.match(twobrideRegex) || []).length;
-  }
-
-  return devotion;
+  // Shared CR 700.5 counter: hybrid/Phyrexian/{2/C} count once; phased-out permanents excluded.
+  return countDevotionAmongPermanents(battlefield as readonly any[], playerId, [color]);
 }
 
 export function getDevotionByColor(

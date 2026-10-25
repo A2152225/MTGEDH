@@ -5,6 +5,8 @@
  * Handles counting mana symbols and calculating devotion amounts.
  */
 
+import { countDevotionAmongPermanents } from "../../../../../shared/src/devotionCount.js";
+
 /**
  * Calculate devotion to a color for a player
  * Devotion = count of mana symbols of that color in mana costs of permanents you control
@@ -14,24 +16,7 @@ export function calculateDevotion(
   playerId: string,
   color: 'W' | 'U' | 'B' | 'R' | 'G'
 ): number {
-  const battlefield = gameState?.battlefield || [];
-  let devotion = 0;
-  
-  for (const permanent of battlefield) {
-    if (!permanent || permanent.controller !== playerId) continue;
-    
-    const manaCost = permanent.card?.mana_cost || "";
-    
-    // Count occurrences of the color symbol
-    // Format: {W}, {U}, {B}, {R}, {G}
-    // Also count hybrid: {W/U}, {W/B}, etc.
-    const colorSymbol = `{${color}}`;
-    const regex = new RegExp(`\\{${color}(?:\\/[WUBRG])?\\}|\\{[WUBRG]\\/${color}\\}`, 'gi');
-    const matches = manaCost.match(regex) || [];
-    devotion += matches.length;
-  }
-  
-  return devotion;
+  return countDevotionAmongPermanents(gameState?.battlefield || [], playerId, [color]);
 }
 
 /**

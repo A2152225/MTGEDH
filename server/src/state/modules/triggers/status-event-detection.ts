@@ -7,12 +7,14 @@
 
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 /**
  * Detect spell-countered triggers.
  * - controlled_spell_countered: Multani's Presence ("whenever a spell you've cast is countered")
  * - you_countered_spell: Baral / Lullmage ("whenever a spell or ability you control counters a spell")
  */
-export function detectSpellCounteredTriggers(card: any, permanent: any): TriggeredAbility[] {
+export function detectSpellCounteredTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const oracleText = String(card?.oracle_text || '');
   const cardName = String(card?.name || 'Unknown');
@@ -74,7 +76,8 @@ export function detectSpellCounteredTriggers(card: any, permanent: any): Trigger
 /**
  * Detect mutate triggers from oracle text.
  */
-export function detectMutateTriggers(card: any, permanent: any): TriggeredAbility[] {
+export function detectMutateTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const oracleText = String(card?.oracle_text || '');
   const cardName = String(card?.name || 'Unknown');
@@ -109,7 +112,8 @@ export function detectMutateTriggers(card: any, permanent: any): TriggeredAbilit
 /**
  * Detect discard triggers from oracle text.
  */
-export function detectEquippedTriggers(card: any, permanent: any): TriggeredAbility[] {
+export function detectEquippedTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const oracleText = String(card?.oracle_text || '');
   const cardName = String(card?.name || 'Unknown');

@@ -22,6 +22,7 @@ import {
   maybeResumeOracleIRStepsAfterResolution,
 } from "../../state/modules/oracleIrServerZoneSync.js";
 import { queueTapTriggersForTappedPermanents } from "../../state/modules/tap-trigger-queue.js";
+import { queueYouTapOpponentCreatureTriggers } from "../../state/modules/triggers/youTapOpponentCreature.js";
 import { queueBecomesUntappedTriggers } from "../../state/modules/triggers/tap-untap.js";
 import {
   ResolutionQueueManager,
@@ -322,6 +323,7 @@ export async function handleTapUntapTargetResponse(
 
     if (action === 'tap' && newlyTappedIds.length > 0) {
       queueTapTriggersForTappedPermanents(io, game, gameId, newlyTappedIds, String(pid));
+      queueYouTapOpponentCreatureTriggers(game as any, newlyTappedIds, String(pid));
     }
   }
 

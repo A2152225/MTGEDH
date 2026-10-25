@@ -67,6 +67,7 @@ import { checkPendingInteractions } from "./turn-handlers/checkPendingInteractio
 import { getActivePriorityPlayers } from "./priorityEligibility.js";
 import { clearTemporaryRetainedManaDuration } from "./turn-handlers/turnTemporaryRetainedMana.js";
 import { clearManaPool } from "./turn-handlers/turnClearManaPool.js";
+import { dropSkippedExtraTurns } from "./replacementBatch16LongTail.js";
 import { getCombatCreatureStats, applyCombatDamagePreventionEffects } from "./turn-handlers/turnCombatDamageStatsPrevention.js";
 import {
   isCombatDamagePreventedForPermanent,
@@ -103,6 +104,7 @@ import { passPriority } from "./turn-handlers/turnPassPriority.js";
 import { clearCombatState } from "./turn-handlers/turnClearCombatState.js";
 import { processPendingFlickerReturnsAtBeginningOfEndStep } from "./turn-handlers/turnFlickerEndStepReturns.js";
 import { processImpendingEndStepCounterRemoval } from "./impendingEffects.js";
+import { getCaseSolveEndStepTriggers } from "./caseSolve.js";
 import { computeNextStepPhaseAdvance } from "./turn-handlers/turnStepPhaseAdvance.js";
 import { pushTurnStepTriggersToStack } from "./turn-handlers/turnStepPushTriggers.js";
 import { grantTurnStepPriority } from "./turn-handlers/turnStepPriorityGrant.js";
@@ -625,6 +627,7 @@ export function nextTurn(ctx: GameContext) {
     let next: string;
     const extraTurns = (ctx as any).state.extraTurns as any[] || [];
     
+    dropSkippedExtraTurns((ctx as any).state, extraTurns);
     if (extraTurns.length > 0) {
       // Take the first extra turn from the stack
       const extraTurn = extraTurns.shift();
@@ -872,7 +875,7 @@ export function nextStep(ctx: GameContext) {
         else if (nextStep === "END") {
           const endStepTriggers = getEndStepTriggers(ctx, turnPlayer);
           const delayedCleanupTriggers = dequeuePendingNextEndStepZoneChangeTriggers(ctx);
-          pushTriggersToStack([...endStepTriggers, ...delayedCleanupTriggers], 'end_step', 'endstep');
+          pushTriggersToStack([...endStepTriggers, ...delayedCleanupTriggers, ...getCaseSolveEndStepTriggers(ctx, turnPlayer)], 'end_step', 'endstep');
 
           // Best-effort delayed return processing (planeswalker templates, etc.)
           processPendingFlickerReturnsAtBeginningOfEndStep(ctx, turnPlayer);

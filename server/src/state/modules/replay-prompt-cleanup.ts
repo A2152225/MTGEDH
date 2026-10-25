@@ -318,10 +318,14 @@ export function replayEnsureAsEntersPermanentFromPromptSteps(
 
   const candidateIds = new Set<string>();
   const fallback = String(fallbackSourceId || '').trim();
-  if (fallback) candidateIds.add(fallback);
+  // A spell-copy retarget prompt means the copy is still on the stack; it has not entered.
+  const onlyRetargetSteps = (queuedSteps || []).length > 0
+    && (queuedSteps || []).every((step: any) => step?.retargetSpellCopy === true);
+  if (fallback && !onlyRetargetSteps) candidateIds.add(fallback);
 
   for (const step of queuedSteps || []) {
     if (!step || typeof step !== 'object') continue;
+    if ((step as any).retargetSpellCopy === true) continue;
     const stepType = String((step as any).type || '').trim().toLowerCase();
     if (!AS_ENTERS_CHOICE_STEP_TYPES.has(stepType)) continue;
     const permanentId = String((step as any).permanentId || '').trim();

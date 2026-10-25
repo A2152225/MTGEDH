@@ -7,6 +7,7 @@
  * Public entry symbols: handleAIResolutionTriggerAndChoiceSteps.
  */
 import type { Server } from "socket.io";
+import { applyFlagbearerRequirement } from '../../state/modules/flagbearerTargeting.js'; // B29
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
 import { debug } from "../../utils/debug.js";
@@ -52,7 +53,7 @@ export async function handleAIResolutionTriggerAndChoiceSteps(
       }
       
       case 'target_selection': {
-        const targetsToSelect = chooseAITargetSelectionsForChoiceStep(game, playerId, step);
+        const targetsToSelect = applyFlagbearerRequirement(game.state, String(playerId), step, chooseAITargetSelectionsForChoiceStep(game, playerId, step) as any[]) as any; // B29
         const targetResponse = createResponse(targetsToSelect);
         if (ResolutionQueueManager.completeStep(gameId, step.id, targetResponse)) {
           if ((step as any)?.oracleIrLibraryChaosTargetSelection === true) {
@@ -97,7 +98,7 @@ export async function handleAIResolutionTriggerAndChoiceSteps(
           const { resolveLibraryChaosCastChoiceForAI } = await import('../resolution.js');
           await resolveLibraryChaosCastChoiceForAI(io, game, gameId, step, response);
         }
-        debug(1, `[AI] ${step.type}: Selected ${optionDecision.selections.join(', ') || 'none'}`);
+        debug(1, `[AI] ${step.type}: Selected ${Array.isArray(optionDecision.selections) ? (optionDecision.selections.join(', ') || 'none') : JSON.stringify(optionDecision.selections)}`);
         break;
       }
   }

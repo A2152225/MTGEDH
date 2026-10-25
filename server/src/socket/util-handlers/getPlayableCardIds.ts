@@ -26,8 +26,12 @@ import {
 } from "../../state/modules/graveyard-permissions.js";
 import { creatureHasHaste } from "../game-actions.js";
 import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
+import { permanentActivatedAbilitiesLockedByAttachment } from "../../state/modules/staticActivationLockFromAttachments.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { isInMainPhase } from "./utilMainPhaseCheck.js";
+import { isCastingLimitedToSorceryTiming } from "../../state/modules/opponentSorceryTimingLock.js"; // UI31 Teferi lock
+import { opponentTurnCastProhibitionReason, zoneCastProhibitionReason } from "../../state/modules/batch31CastLocks.js"; // UI32
+import { opponentActivationProhibitionReason } from "../../state/modules/opponentActivationLocks.js"; // UI33
 
 /**
  * Get IDs of cards/permanents that the player can currently play or activate
@@ -69,7 +73,16 @@ export function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): stri
     });
 
     const highlightedSpellIds = new Set<string>();
-    for (const candidate of sharedSpellCandidates) {
+    // UI31: Teferi-style lock -> no spell casts outside sorcery timing.
+    const sorceryTimingOnly = spellCandidateMode === 'response' && isCastingLimitedToSorceryTiming(state, String(playerId));
+    // UI32: Grand Abolisher (no casts on its controller's turn) and Grafdigger's Cage (no graveyard/library casts).
+    const turnCastLocked = Boolean(opponentTurnCastProhibitionReason(state, String(playerId)));
+    const graveyardCastLocked = Boolean(zoneCastProhibitionReason(state, String(playerId), 'graveyard'));
+    const libraryCastLocked = Boolean(zoneCastProhibitionReason(state, String(playerId), 'library'));
+    for (const candidate of sorceryTimingOnly || turnCastLocked ? [] : sharedSpellCandidates) {
+      const fromZone = String(candidate.sourceZone || '');
+      if (fromZone === 'graveyard' && graveyardCastLocked) continue;
+      if (fromZone === 'library' && libraryCastLocked) continue;
       const playableId = candidate.sourceZone === 'library'
         ? `library-${playerId}`
         : String(candidate.card?.id || candidate.castCard?.id || '').trim();
@@ -101,7 +114,7 @@ export function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): stri
       libraries: (game as any).libraries,
     } as any, playerId as any);
     for (const candidate of commanderCandidates) {
-      const canCastNow = candidate.grantsFlash || (isMainPhase && stackIsEmpty && isMyTurn);
+      const canCastNow = !turnCastLocked && ((candidate.grantsFlash && !sorceryTimingOnly) || (isMainPhase && stackIsEmpty && isMyTurn));
       if (!canCastNow) continue;
 
       const commanderId = String(candidate.commanderId || candidate.card?.id || '').trim();
@@ -198,6 +211,10 @@ export function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): stri
     const battlefield = state.battlefield || [];
     for (const perm of battlefield) {
       if (!perm || perm.controller !== playerId) continue;
+      // Arrest-style auras: "its activated abilities can't be activated".
+      if (permanentActivatedAbilitiesLockedByAttachment(perm, state, false).locked) continue;
+      // UI33: Grand Abolisher / Myrel-style opponent activation lock (non-mana abilities are what count here).
+      if (opponentActivationProhibitionReason(state, playerId, perm, false)) continue;
       
       const oracleText = stripReminderTextFromOracle(perm.card?.oracle_text || "");
       let hasActivatableAbility = false;

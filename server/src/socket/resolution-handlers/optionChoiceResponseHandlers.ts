@@ -23,7 +23,9 @@ import {
 import { handleMayRevealHandWinIfOwnNamedChoice } from "./optionChoiceMayRevealHandWinHandlers.js";
 import { sanitizeStepForClient } from "./sanitizeStepForClient.js";
 import { tryHandleSkipDrawReplacementChoice } from "../resolutionOptionChoiceSkipDrawReplacementHandlers.js";
+import { tryHandleAmplifyRevealChoice, tryHandleOptionalDrawStepSkipChoice } from "../resolutionOptionChoiceBatch24Handlers.js";
 import { tryHandleOpponentLibraryDrawReplacementChoice } from "../resolutionOptionChoiceOpponentLibraryDrawReplacementHandlers.js";
+import { tryHandleExtraVoteOfferChoice } from "../resolutionOptionChoiceExtraVoteHandlers.js"; // B29
 
 /** OPTION_CHOICE: dispatch the chosen prompt flag to the specialized handler. */
 /**
@@ -47,7 +49,19 @@ export async function handleOptionChoiceResponse(
     return;
   }
 
+  if (await tryHandleAmplifyRevealChoice(io, game, gameId, step, response)) {
+    return;
+  }
+
+  if (await tryHandleOptionalDrawStepSkipChoice(io, game, gameId, step, response)) {
+    return;
+  }
+
   if (await tryHandleOpponentLibraryDrawReplacementChoice(io, game, gameId, step, response)) {
+    return;
+  }
+
+  if (await tryHandleExtraVoteOfferChoice(io, game, gameId, step, response)) {
     return;
   }
 

@@ -4,6 +4,7 @@
 // Public entries: readPermanentPower, permanentIsCreature, permanentHasSubtype,
 // repeatManaString, resolveDynamicAddManaSequence, resolveAddManaAmount.
 
+import { evaluateDevotionReference } from '../../shared/src/devotionReference.js';
 import type { GameState } from '../../shared/src';
 import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
 import type { OracleEffectStep } from './oracleIR';
@@ -181,6 +182,12 @@ export function resolveAddManaAmount(
   if (step.amount.kind === 'reference_amount') {
     const normalized = normalizeOracleText(String(step.amount.raw || ''));
     const sourcePermanent = getSourceBattlefieldPermanent(state, ctx);
+    const devotionAmount = evaluateDevotionReference(
+      getControlledPermanents(state, ctx.controllerId).map((permanent) => ({ ...permanent, controller: ctx.controllerId })),
+      String(ctx.controllerId || ''),
+      normalized,
+    );
+    if (devotionAmount !== null) return devotionAmount;
     switch (normalized) {
       case 'the chosen colors':
         return 1;

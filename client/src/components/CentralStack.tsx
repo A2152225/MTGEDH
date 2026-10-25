@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
+import { FaceDownPermanentLayer } from './FaceDownPermanentLayer';
 import type { StackItem, KnownCardRef, PlayerID, BattlefieldPermanent, PlayerRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { openReportIssueMenu } from '../utils/reportIssueStore';
@@ -129,7 +130,7 @@ export function CentralStack({
     const stackItem = stack.find(s => s.id === targetId);
     if (stackItem) {
       const kc = stackItem.card as KnownCardRef | undefined;
-      const name = kc?.name || (stackItem as any).sourceName;
+      const name = kc?.name || (kc as any)?.displayName || (stackItem as any).sourceName;
       if (name) {
         const controllerName = stackItem.controller ? getPlayerName(stackItem.controller) : undefined;
         return { name, controllerName };
@@ -374,7 +375,9 @@ export function CentralStack({
         {stack.slice().reverse().map((it, idx) => {
           const kc = it.card as KnownCardRef | undefined;
           // For triggered abilities, use sourceName; for spells, use card.name; fallback to ID
-          const name = kc?.name || (it as any).sourceName || it.id;
+          const fdSpell = !!(it as any).faceDownSpell;
+          const name = (kc?.name || (kc as any)?.displayName || (it as any).sourceName || it.id)
+            + (fdSpell ? ((kc as any)?.isFaceDownStub ? ' spell' : ' (casting face down)') : '');
           const imageUrl = kc?.image_uris?.small || kc?.image_uris?.normal || null;
           const isTopOfStack = idx === 0;
           // For triggered abilities, show the description
@@ -465,8 +468,12 @@ export function CentralStack({
                 {stack.length - idx}
               </div>
 
-              {/* Card thumbnail */}
-              {imageUrl && (
+              {/* Card thumbnail (face-down spells: shared card back) */}
+              {fdSpell && (kc as any)?.isFaceDownStub ? (
+                <div style={{ position:'relative', width:40, height:56, flexShrink:0 }}>
+                  <FaceDownPermanentLayer compact scale={0.55} perm={{ isFaceDown: true, faceDownType: (it as any).faceDownType, card: kc }} />
+                </div>
+              ) : imageUrl && (
                 <img 
                   src={imageUrl} 
                   alt={name}

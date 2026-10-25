@@ -53,10 +53,12 @@ import {
   handleForetellCardRequest,
   handlePhaseOutPermanentsRequest,
 } from "./game-actions-handlers/gameActionsForetellPhaseOutSocketHandlers.js";
+import { handleTurnFaceUpRequest } from "./game-actions-handlers/gameActionsTurnFaceUpSocketHandler.js";
 import {
   handleConcedeRequest,
   handleSetTriggerShortcutRequest,
 } from "./game-actions-handlers/gameActionsConcedeShortcutSocketHandlers.js";
+import { registerAssistSocketHandlers } from "./assistPaymentFlow.js";
 import { handleCompleteCastSpellRequest } from "./game-actions-handlers/gameActionsCompleteCastSpellSocketHandlers.js";
 import { handleRequestCastSpellRequest } from "./game-actions-handlers/gameActionsRequestCastSpellSocketHandlers.js";
 
@@ -387,6 +389,9 @@ export function registerGameActions(io: Server, socket: Socket) {
     webSlingingReturnedCreatureId?: unknown;
   }) => handleCompleteCastSpellRequest(io, socket, ensureInGameRoom, handleCastSpellFromHand, payload));
 
+  // Assist (CR 702.132): caster asks another player to help pay generic mana
+  registerAssistSocketHandlers(io, socket);
+
   // Cast spell from hand - registers the socket event handler
   socket.on("castSpellFromHand", handleCastSpellFromHand);
 
@@ -561,6 +566,10 @@ export function registerGameActions(io: Server, socket: Socket) {
   // Client TableLayout historically emitted "foretell"; keep the alias so the click is not dropped.
   socket.on("foretell", (payload?: { gameId?: unknown; cardId?: unknown }) =>
     handleForetellCardRequest(io, socket, ensureInGameRoom, payload));
+
+  // Morph / megamorph / disguise / manifest: turn face up (special action, no stack).
+  socket.on("turnFaceUp", (payload?: { gameId?: unknown; permanentId?: unknown; revealCardId?: unknown }) =>
+    handleTurnFaceUpRequest(io, socket, ensureInGameRoom, payload));
 
   socket.on("castForetold", async (payload?: { gameId?: unknown; cardId?: unknown }) =>
     handleCastForetoldRequest(io, socket, ensureInGameRoom, handleCastSpellFromHand, payload));

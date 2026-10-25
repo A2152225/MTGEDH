@@ -13,6 +13,7 @@ import { appendDeathDetectionEarly } from "./death-detection-early.js";
 import { appendDeathDetectionMid } from "./death-detection-mid.js";
 import { appendDeathDetectionLate } from "./death-detection-late.js";
 import { printedKeywordDeathAbilities } from "../../../../../rules-engine/src/triggerCondition/index.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export function collectDeathTriggerEffectText(oracleText: string, match: RegExpMatchArray, effectCaptureIndex: number): string {
   const effect = String(match?.[effectCaptureIndex] || '').trim();
@@ -63,6 +64,7 @@ export function collectDeathTriggerEffectText(oracleText: string, match: RegExpM
  * - "Persist" keyword
  */
 export function detectDeathTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'dies' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const { oracleText } = mergeDetectorOracleWithContinuousGrants(card?.oracle_text || "", permanent, gameState);
   const lowerOracle = oracleText.toLowerCase();
@@ -130,6 +132,7 @@ export function detectDeathTriggers(card: any, permanent: any, gameState?: any):
     'this artifact',
     'this enchantment',
     'this aura',
+    'this token',
     'this equipment',
     'this vehicle',
     'this planeswalker',

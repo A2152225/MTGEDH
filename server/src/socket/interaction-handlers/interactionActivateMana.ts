@@ -7,6 +7,7 @@
  * Public entry symbols: tryHandleActivateMana.
  */
 
+import { notifyNoncombatPlayerDamage } from '../../state/modules/triggers/player-dealt-damage-ir.js';
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { ActivatedAbilityConditionRequirement } from "../../state/modules/activated-ability-conditions.js";
 import { detectActivatedAbilityConditionRequirement } from "../../state/modules/activated-ability-conditions.js";
@@ -271,6 +272,7 @@ export async function tryHandleActivateMana(
           (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
           (game.state as any).damageTakenThisTurnByPlayer[String(pid)] =
             ((game.state as any).damageTakenThisTurnByPlayer[String(pid)] || 0) + manaLifeEffect.amount;
+          notifyNoncombatPlayerDamage(game as any, String(pid), manaLifeEffect.amount);
         }
 
         (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};

@@ -8,6 +8,7 @@
  * Public entry symbols: tryHandleActivateEquipFortifyReconfigure.
  */
 
+import { equipLifeCostError, equipSacrificeCandidates, parseEquipSacrificeCost } from "../../state/modules/equipNonManaCosts.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { parseEquipAbilitiesFromOracle, permanentMatchesEquipQualifier } from "../../../../shared/src/equipAbilities.js";
 import { appendEvent } from "../../db";
@@ -77,6 +78,16 @@ export async function tryHandleActivateEquipFortifyReconfigure(
     const selectedEquip = equipAbilities[selectedAbilityIndex] || equipAbilities[0] || null;
     const equipCost = selectedEquip?.cost || "{0}";
     const equipQualifier = selectedEquip?.qualifier || { kind: 'any' as const, raw: null };
+    const b33EquipLife = equipLifeCostError(game.state, String(pid), equipCost);
+    if (b33EquipLife) {
+      socket.emit('error', { code: 'CANNOT_PAY_COST', message: `${cardName}: ${b33EquipLife}` });
+      return true;
+    }
+    // UI34: Equip\u2014Sacrifice a creature needs something to sacrifice besides the equipment itself.
+    if (parseEquipSacrificeCost(equipCost) && equipSacrificeCandidates(game.state, String(pid), equipCost, [String(permanentId)]).length === 0) {
+      socket.emit('error', { code: 'CANNOT_PAY_COST', message: `${cardName}: you have nothing to sacrifice (${equipCost}).` });
+      return true;
+    }
     const equipType = equipQualifier.raw; // human-readable restriction, or null for generic equip
     const equipTargetDescription = selectedEquip?.targetDescription || 'creature you control';
     

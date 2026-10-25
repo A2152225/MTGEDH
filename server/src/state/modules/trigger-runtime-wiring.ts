@@ -165,7 +165,9 @@ export function normalizeTriggerEffectDescriptionForExecution(effectText: string
  * "Each player may …" is mandatory at trigger time — per-player choices happen during resolution.
  */
 export function isControllerOptionalTriggeredAbilityEffect(effectText: string): boolean {
-  const lower = String(effectText || '').replace(/\u2019/g, "'").trim().toLowerCase();
+  // "You may choose new targets for the copy" is a resolution detail, not a may-trigger (Lucky Clover).
+  const lower = String(effectText || '').replace(/\u2019/g, "'").trim().toLowerCase()
+    .replace(/\byou may choose new targets for (?:the|that|each|any of the) cop(?:y|ies)\b/g, '');
   if (!lower) return false;
   if (/\beach player may\b/.test(lower)) return false;
   if (/\bstarting with you, each player may\b/.test(lower)) return false;

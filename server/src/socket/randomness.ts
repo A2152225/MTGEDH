@@ -1,6 +1,8 @@
 import type { Server, Socket } from "socket.io";
-import { ensureGame, getPlayerName } from "./util";
+import { ensureGame, getPlayerName, broadcastGame } from "./util";
+import { queueFreshDieRollTriggers } from "../state/modules/triggers/playLandSaddleDieRollHooks.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { applyDieRollAdvantage, countDieRollAdvantage } from "../../../rules-engine/src/dieRollAdvantage.js";
 
 /**
  * Roll a die with the specified number of sides.
@@ -66,7 +68,9 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
         sides = 1000; // Cap at d1000
       }
       
-      const result = rollDie(sides);
+      const advantage = countDieRollAdvantage(game.state, String(playerId));
+      const adv = applyDieRollAdvantage([rollDie(sides)], advantage, () => rollDie(sides));
+      const result = adv.kept[0];
       const playerName = getPlayerName(game, playerId);
       const timestamp = Date.now();
 
@@ -74,7 +78,7 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       // Keep both a global last roll and a per-player last roll for "you rolled ..." templates.
       try {
         const stateAny = game.state as any;
-        stateAny.lastDieRoll = { playerId, sides, result, timestamp };
+        stateAny.lastDieRoll = { playerId, sides, result, timestamp, ...(advantage ? { rolls: adv.all, ignored: adv.ignored } : {}) };
         stateAny.lastDieRollByPlayer = stateAny.lastDieRollByPlayer || {};
         stateAny.lastDieRollByPlayer[playerId] = { sides, result, timestamp };
         stateAny.dieRollsThisTurn = stateAny.dieRollsThisTurn || {};
@@ -85,13 +89,18 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       }
       
       debug(2, `[randomness] ${playerName} rolled d${sides}: ${result}`);
+      try {
+        if (queueFreshDieRollTriggers(game as any, String(playerId)).length > 0) broadcastGame(io, game as any, gameId);
+      } catch { /* best-effort */ }
 
       // Also send as a chat message for game log
       io.to(gameId).emit("chat", {
         id: `m_${timestamp}`,
         gameId,
         from: "system",
-        message: `${playerName} rolled a d${sides}: ${result}`,
+        message: advantage
+          ? `${playerName} rolled ${adv.all.length}d${sides} (${adv.all.join(', ')}), ignoring the lowest: ${result}`
+          : `${playerName} rolled a d${sides}: ${result}`,
         ts: timestamp,
       });
       

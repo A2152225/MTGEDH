@@ -70,7 +70,7 @@ export function queueMutateTriggeredAbilities(
       String(entry?.name || sourceName).trim() || sourceName,
     ).filter((trigger) => trigger?.event === ParsedTriggerEvent.MUTATES);
   });
-  const seenMutateEffects = new Set(
+  const seenMutateEffects = new Set<string>(
     mutateTriggers.map((trigger) => String(trigger?.effect || '').trim().toLowerCase()).filter(Boolean),
   );
   for (const entry of cardsToInspect) {

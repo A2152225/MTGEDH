@@ -100,6 +100,18 @@ export function applyCopyRetargetEvents(ctx: GameContext, e: GameEvent): boolean
           if (!triggeringStackItemId) break;
 
           const stack = ctx.state.stack as any[];
+          // The copy came from a copy trigger resolving off the stack (CR 603.3): drop that trigger on replay.
+          if ((e as any).resolvedTriggerFromStack === true) {
+            const triggerId = String((e as any).triggerStackItemId || '').trim();
+            let idx = triggerId ? stack.findIndex((item: any) => String(item?.id || '').trim() === triggerId) : -1;
+            if (idx < 0) {
+              for (let i = stack.length - 1; i >= 0; i--) {
+                const item: any = stack[i];
+                if (String(item?.type || '') === 'triggered_ability' && String(item?.triggeringStackItemId || item?.effectData?.triggeringStackItemId || '').trim() === triggeringStackItemId) { idx = i; break; }
+              }
+            }
+            if (idx >= 0) stack.splice(idx, 1);
+          }
           const existingCopiedItem = copiedStackItemId
             ? stack.find((item: any) => item && String(item.id || '').trim() === copiedStackItemId)
             : null;

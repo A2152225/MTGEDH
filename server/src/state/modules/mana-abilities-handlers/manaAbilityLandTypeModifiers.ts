@@ -6,6 +6,9 @@
 // Leaf must not import mana-abilities.ts or mana-abilities-handlers/index.ts.
 
 import { controllerHasLeftTheGame } from '../../../../../rules-engine/src/playerInGameStatus.js';
+import { orderEffectsByDependency } from '../../../../../rules-engine/src/layerDependencyOrder.js';
+import { readPermanentTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
+import { parseOracleLandTypeSetting } from './manaAbilityLandTypeSettingOracle.js';
 
 export interface ManaAbility {
   id: string;
@@ -46,6 +49,9 @@ export interface ManaModifier {
   affectsAllPlayers?: boolean; // For symmetric effects like Mana Flare
   untilEndOfTurn?: boolean; // For effects that only last until end of turn
   hostPermanentId?: string; // Aura host for "Enchanted land is an Island"
+  fromLandType?: string; // "All Mountains are Plains" (Conversion): only lands of this basic type
+  fromBasicOnly?: boolean; // "Basic lands of the first chosen type ..." (Illusionary Terrain)
+  counterName?: string; // "Each land with an everything counter on it ..." (Omo)
 }
 
 export const BASIC_LAND_TYPES = ['plains', 'island', 'swamp', 'mountain', 'forest'] as const;
@@ -207,7 +213,7 @@ function parseOracleLandTypeGrant(permanent: any): Omit<ManaModifier, 'permanent
     };
   }
 
-  return null;
+  return parseOracleLandTypeSetting(oracle, permanent);
 }
 
 type OrderedLandTypeModifier = {
@@ -279,6 +285,11 @@ function modifierAppliesToLand(
       && String(permanent?.controller || '') === playerId;
   }
   if (!isLand) return false;
+  if (modifier.fromLandType) {
+    if (modifier.fromBasicOnly && !isBasic) return false;
+    if (!getPrintedBasicLandTypes(String(permanent?.card?.type_line || '')).has(modifier.fromLandType as BasicLandType)) return false;
+  }
+  if (modifier.counterName && !(Number(permanent?.counters?.[modifier.counterName]) > 0)) return false;
   if (modifier.affects === 'all_lands') return true;
   if (modifier.affects === 'nonbasic_lands') return !isBasic;
   if (modifier.affects === 'basic_lands') return isBasic;
@@ -297,7 +308,7 @@ function getOrderedLandTypeModifiers(gameState: any, playerId: string): OrderedL
     }
   });
 
-  return detectManaModifiers(gameState, playerId)
+  const timestampOrdered = detectManaModifiers(gameState, playerId)
     .filter((modifier): modifier is ManaModifier => modifier.type === 'land_type')
     .map(modifier => {
       const sourcePermanent = battlefield.find((permanent: any) => permanent?.id === modifier.permanentId);
@@ -309,6 +320,20 @@ function getOrderedLandTypeModifiers(gameState: any, playerId: string): OrderedL
     })
     .filter(effect => Boolean(effect.sourcePermanent))
     .sort((left, right) => left.sourceIndex - right.sourceIndex);
+  if (timestampOrdered.length < 2) return timestampOrdered;
+  // CR 613.8: an effect sourced from a land depends on a type-setting effect (Blood Moon) that would strip
+  // that land's abilities (305.7), so Blood Moon applies first regardless of timestamps.
+  return orderEffectsByDependency(timestampOrdered, {
+    timestampOf: (effect) => readPermanentTimestamp(effect.sourcePermanent) ?? effect.sourceIndex,
+    dependsOn: (dependent, dependency) => {
+      if (!dependency.modifier.overridesExisting) return false;
+      const land = dependent.sourcePermanent;
+      const typeLine = String(land?.card?.type_line || '').toLowerCase();
+      if (!typeLine.includes('land')) return false;
+      const controller = String(land?.controller || '').trim();
+      return modifierAppliesToLand(dependency.modifier, land, controller, typeLine.includes('basic'), true);
+    },
+  });
 }
 
 function isLandTypeModifierSourceActive(

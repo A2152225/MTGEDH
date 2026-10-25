@@ -201,7 +201,31 @@ export function applyTapOrUntapStep(
   };
 }
 
+/**
+ * Mirrors IR "doesn't untap during its controller's next untap step" markers onto the
+ * permanent-level doesntUntapNextTurn flag that the server untap step already honors.
+ */
 export function applySkipNextUntapStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'skip_next_untap' }>,
+  ctx: OracleIRExecutionContext,
+  runtime?: RecentBattlefieldRuntime
+): BattlefieldStepHandlerResult {
+  const result: any = applySkipNextUntapStepMarkers(state, step, ctx, runtime);
+  if (!result?.applied || !Array.isArray(result?.state?.battlefield)) return result;
+  const marked = (perm: any) => Array.isArray(perm?.temporaryEffects)
+    && perm.temporaryEffects.some((e: any) => /doesnt-untap-next-untap-step$/.test(String(e?.id || '')));
+  const before = new Map(((state.battlefield || []) as any[]).map((p: any) => [String(p?.id || ''), p]));
+  const battlefield = result.state.battlefield.map((perm: any) => {
+    const prev: any = before.get(String(perm?.id || ''));
+    const prevCount = Array.isArray(prev?.temporaryEffects) ? prev.temporaryEffects.length : 0;
+    const grew = Array.isArray(perm?.temporaryEffects) && perm.temporaryEffects.length > prevCount;
+    return grew && marked(perm) && perm.doesntUntapNextTurn !== true ? { ...perm, doesntUntapNextTurn: true } : perm;
+  });
+  return { ...result, state: { ...result.state, battlefield } };
+}
+
+function applySkipNextUntapStepMarkers(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'skip_next_untap' }>,
   ctx: OracleIRExecutionContext,

@@ -8,6 +8,7 @@ import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export interface PayLifeTrigger {
   permanentId: string;
@@ -24,7 +25,8 @@ export interface LifePaymentTriggerSource {
   sourceName?: string;
 }
 
-export function detectPayLifeTriggers(card: any, permanent: any): PayLifeTrigger[] {
+export function detectPayLifeTriggers(card: any, permanent: any, gameState?: any): PayLifeTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'life' })) return []; // Humility / Torpor Orb gate
   const triggers: PayLifeTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
   const permanentId = String(permanent?.id || '');
@@ -65,7 +67,7 @@ export function getPayLifeTriggers(ctx: GameContext, payingPlayerId: string): Pa
     if (!permanent || !permanent.card) continue;
 
     const permanentController = String(permanent.controller || '');
-    const permanentTriggers = detectPayLifeTriggers(permanent.card, permanent);
+    const permanentTriggers = detectPayLifeTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of permanentTriggers) {
       const interveningText = String(trigger.oracleClause || trigger.effect || '').trim();
       const ok = isInterveningIfSatisfied(

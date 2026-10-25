@@ -5,6 +5,7 @@
 // Public entry symbols: canActivateAnyAbility, hasActivatableAbility,
 // hasSacrificePrefixActivatedAbility, hasActivatableLoyaltyAbility.
 
+import { opponentActivationProhibitionReason } from "../opponentActivationLocks.js";
 import type { GameContext } from '../../context.js';
 import type { PlayerID } from '../../../../../shared/src/index.js';
 import { parseManaCost, canPayManaCostWithAvailableSources, getAvailableMana } from '../mana-check.js';
@@ -18,6 +19,8 @@ import { findPermanentsWithCreatureType } from '../../../../../shared/src/creatu
 import { abilityAllowsAnyPlayerActivation, textAllowsAnyPlayerActivation } from '../../../../../shared/src/anyPlayerActivatedAbility.js';
 import { isAbilityActivationProhibitedByChosenName } from '../chosen-name-restrictions.js';
 import { permanentCannotActivateTapAbilities } from '../staticEffectSpecActivationLocks.js';
+import { permanentActivatedAbilitiesLockedByAttachment } from '../staticActivationLockFromAttachments.js';
+import { appendGrantedLoyaltyAbilityLines } from '../../../../../shared/src/planeswalkerGrantedLoyaltyAbilities.js';
 import { canActivateLoyaltyAtInstantSpeed } from '../triggered-abilities.js';
 import { isSplitSecondLockActive } from './canRespondSplitSecondLandPredicates.js';
 import { parseWordNumberForGraveyardCost } from './canRespondParseWordNumber.js';
@@ -101,6 +104,7 @@ export function hasActivatableLoyaltyAbility(
 
   const typeLine = String(permanent.card.type_line || '').toLowerCase();
   if (!typeLine.includes('planeswalker')) return false;
+  if (permanentActivatedAbilitiesLockedByAttachment(permanent, state, false).locked) return false;
 
   const activationsThisTurn = (permanent as any).loyaltyActivationsThisTurn || 0;
   let maxActivations = 1;
@@ -129,7 +133,7 @@ export function hasActivatableLoyaltyAbility(
     (permanent as any).loyaltyCounters ??
     (permanent as any).loyalty ??
     (loyaltyString ? parseInt(String(loyaltyString), 10) : 0);
-  const oracleText = String(permanent.card.oracle_text || '');
+  const oracleText = appendGrantedLoyaltyAbilityLines(String(permanent.card.oracle_text || ''), battlefield, permanent);
 
   // Scryfall loyalty abilities use +N:, -N:, or 0: prefixes without brackets.
   const loyaltyPattern = /^([+−–—-]?)(\d+|X):\s*/gim;
@@ -242,6 +246,13 @@ export function hasActivatableAbility(
   // Chosen-name activation restrictions (e.g., Pithing Needle / Phyrexian Revoker)
   // This function only considers abilities that require priority, so treating the activation as non-mana is fine.
   if (isAbilityActivationProhibitedByChosenName(state, playerId, permanent.card?.name || '', false).prohibited) {
+    return false;
+  }
+  // B32 b32ActivationLock: Grand Abolisher / Myrel style opponent-turn activation lock.
+  if (opponentActivationProhibitionReason(state, String(playerId), permanent)) {
+    return false;
+  }
+  if (permanentActivatedAbilitiesLockedByAttachment(permanent, state, false).locked) {
     return false;
   }
 

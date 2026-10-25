@@ -5,6 +5,7 @@
  *
  * Public entry symbols: handleTapPermanentRequest.
  */
+import { notifyNoncombatPlayerDamage } from '../../state/modules/triggers/player-dealt-damage-ir.js';
 import type { Server, Socket } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { appendEvent } from "../../db";
@@ -487,6 +488,7 @@ export async function handleTapPermanentRequest(
             (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
             (game.state as any).damageTakenThisTurnByPlayer[String(pid)] =
               ((game.state as any).damageTakenThisTurnByPlayer[String(pid)] || 0) + Number(damageAmount || 0);
+            notifyNoncombatPlayerDamage(game as any, String(pid), Number(damageAmount || 0));
 
             (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
             (game.state as any).lifeLostThisTurn[String(pid)] =

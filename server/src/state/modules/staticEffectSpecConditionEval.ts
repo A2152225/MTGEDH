@@ -4,9 +4,11 @@
 // Public entry symbols: specMatchesStaticCondition, StaticConditionState,
 // permanentHasKeywordAbility, StaticKeywordResolver.
 
+import { COLOR_SET_PREFIX, resolveColorsWithSetting } from './colorSettingMarker.js';
 import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
 import { permanentHasCreatureType } from '../../../../shared/src/creatureTypes.js';
 import { collectPrintedColorSymbols, printedObjectHasManaColor } from './printedColorSymbols.js';
+import { evalPhase5StaticCondition } from './staticEffectSpecPhase5Eval.js';
 
 export type StaticConditionState = {
   battlefield?: readonly BattlefieldPermanent[];
@@ -33,6 +35,7 @@ export type StaticConditionState = {
 };
 
 type ConditionSpec = {
+  conditionNegated?: boolean;
   condition?: {
     kind?: string;
     offset?: number;
@@ -48,8 +51,9 @@ type ConditionSpec = {
     creaturesOnly?: boolean;
     amount?: number;
     counterType?: string;
+    option?: string;
   };
-  conditions?: readonly { kind?: string; color?: string; cardType?: string; keyword?: string; keywords?: readonly string[]; power?: number; creatureType?: string; landType?: string; offset?: number; count?: number; other?: boolean; creaturesOnly?: boolean; amount?: number; counterType?: string }[];
+  conditions?: readonly { kind?: string; color?: string; cardType?: string; keyword?: string; keywords?: readonly string[]; power?: number; creatureType?: string; landType?: string; offset?: number; count?: number; other?: boolean; creaturesOnly?: boolean; amount?: number; counterType?: string; option?: string }[];
   sourceController?: string;
   sourcePermanentId?: string;
   sourceName?: string;
@@ -77,14 +81,17 @@ function creatureHasManaColor(permanent: BattlefieldPermanent, colorName: string
   const added = Array.isArray((permanent as any).colorAdditions)
     ? ((permanent as any).colorAdditions as string[]).map((entry) => String(entry).toUpperCase())
     : [];
-  const effective = [...new Set([...colors, ...added])];
+  const effective = resolveColorsWithSetting(colors, added);
   if (symbol && effective.includes(symbol)) return true;
+  // A layer 5 colour setter (Frogify) overrides the printed-colour fallback.
+  if (added.some((c) => c.startsWith(COLOR_SET_PREFIX))) return false;
   return printedObjectHasManaColor(permanent, colorName);
 }
 
 function isCreaturePermanent(permanent: BattlefieldPermanent): boolean {
   const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
-  return typeLine.includes('creature') || typeLine.includes('kindred') || typeLine.includes('tribal');
+  return typeLine.includes('creature') || typeLine.includes('kindred') || typeLine.includes('tribal')
+    || ((permanent as any).layer4AddedTypes || []).includes('Creature'); // layer 4 stamp (Opalescence)
 }
 
 function isLegendaryCreaturePermanent(permanent: BattlefieldPermanent): boolean {
@@ -242,6 +249,14 @@ function sourceControllerHasThreshold(spec: ConditionSpec, state: StaticConditio
   return graveyard.length >= 7;
 }
 
+function sourceControllerGraveyardCount(spec: ConditionSpec, state: StaticConditionState): number {
+  const controller = String(spec.sourceController || '').trim();
+  const graveyard = controller && Array.isArray(state.zones?.[controller]?.graveyard)
+    ? state.zones[controller]!.graveyard!
+    : [];
+  return graveyard.length;
+}
+
 function sourceControllerHandCount(spec: ConditionSpec, state: StaticConditionState): number | null {
   const controller = String(spec.sourceController || '').trim();
   if (!controller) return null;
@@ -334,7 +349,7 @@ function permanentColorSymbols(
   const added = Array.isArray((permanent as any).colorAdditions)
     ? ((permanent as any).colorAdditions as string[]).map((entry) => String(entry).toUpperCase())
     : [];
-  return [...new Set([...printed, ...added])].filter((symbol) => ['W', 'U', 'B', 'R', 'G'].includes(symbol));
+  return resolveColorsWithSetting(printed, added).filter((symbol) => ['W', 'U', 'B', 'R', 'G'].includes(symbol));
 }
 
 function permanentIsModified(
@@ -414,6 +429,9 @@ export function specMatchesStaticCondition(
   state: StaticConditionState,
   keywordResolver?: StaticKeywordResolver,
 ): boolean {
+  if (spec.conditionNegated) {
+    return !specMatchesStaticCondition(permanent, { ...spec, conditionNegated: false }, state, keywordResolver);
+  }
   const extra = Array.isArray(spec.conditions) ? spec.conditions : [];
   if (extra.length > 0) {
     const list = [
@@ -483,6 +501,8 @@ export function specMatchesStaticCondition(
       return permanentIsRingBearer(permanent, spec, state);
     case 'source_controller_has_threshold':
       return sourceControllerHasThreshold(spec, state);
+    case 'source_controller_graveyard_at_least':
+      return sourceControllerGraveyardCount(spec, state) >= Number(condition.amount || 0);
     case 'source_controller_attacked_this_turn':
       return sourceControllerAttackedThisTurn(spec, state);
     case 'target_is_equipped':
@@ -561,6 +581,13 @@ export function specMatchesStaticCondition(
       return sourcePermanentIsUntapped(spec, state);
     case 'source_is_attacking':
       return sourcePermanentIsAttacking(spec, state);
+    case 'source_is_equipped': {
+      const sourceId = String(spec.sourcePermanentId || '').trim();
+      const source = sourceId ? (state.battlefield || []).find((perm) => String(perm.id || '') === sourceId) : undefined;
+      return Boolean(source) && permanentIsEquipped(source!, state);
+    }
+    case 'source_controller_is_monarch':
+      return Boolean(spec.sourceController) && String((state as any).monarch || '') === String(spec.sourceController);
     case 'source_controller_has_citys_blessing':
       return sourceControllerHasCitysBlessing(spec, state);
     case 'target_is_historic':
@@ -571,6 +598,6 @@ export function specMatchesStaticCondition(
     case 'target_has_mana_ability':
       return permanentHasManaAbility(permanent);
     default:
-      return false;
+      return evalPhase5StaticCondition(condition as any, permanent, spec as any, state.battlefield, state) ?? false;
   }
 }

@@ -20,6 +20,7 @@ import {
 } from '../../../../../rules-engine/src/triggerCondition/index.js';
 import type { TriggerConditionEvent, TriggerConditionIR, TriggerMatchPermanent } from '../../../../../rules-engine/src/triggerCondition/index.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
+import { permanentHasTriggeredAbilities, type TriggerEventKind } from './triggeredAbilitySuppression.js';
 import { resolveEnchantedControllerId, resolveEnchantedPlayerId } from './phaseWhoseTurn.js';
 import { getPermanentPowerMaybe, getPermanentToughnessMaybe } from './intervening-if-permanent-and-player.js';
 
@@ -91,6 +92,14 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string, s
   // Keywords (battlefield-wide grant scan) and current P/T are O(board) each and most
   // conditions never read them ("counters are put on this creature"); compute on first
   // read only. Values are the same as eager evaluation at match time.
+  defineLazy(match, 'manaValue', () => {
+    const raw = permanent?.card?.cmc ?? permanent?.card?.mana_value ?? permanent?.card?.manaValue ?? permanent?.cmc ?? permanent?.mana_value;
+    const value = Number(raw);
+    return raw === undefined || raw === null || !Number.isFinite(value) ? undefined : value;
+  });
+  defineLazy(match, 'kicked', () => [permanent, permanent?.card].some((obj: any) => obj && (
+    obj.wasKicked === true || Number(obj.kickerPaidCount || 0) > 0 || Number(obj.timesKicked || 0) > 0
+  )));
   defineLazy(match, 'keywords', () => keywordsOnPermanent(permanent, Array.isArray(state?.battlefield) ? state.battlefield : undefined));
   defineLazy(match, 'power', () => currentStat(getPermanentPowerMaybe(permanent, statContext)));
   defineLazy(match, 'toughness', () => currentStat(getPermanentToughnessMaybe(permanent, statContext)));
@@ -380,8 +389,9 @@ type ParsedTriggerSentence = { sentence: string; parsed: ReturnType<typeof parse
 const PARSED_TRIGGER_SENTENCE_CACHE = new Map<string, readonly ParsedTriggerSentence[]>();
 const PARSED_TRIGGER_SENTENCE_CACHE_MAX = 4096;
 
-function parsedTriggerSentencesFor(oracleText: string): readonly ParsedTriggerSentence[] {
-  const cached = PARSED_TRIGGER_SENTENCE_CACHE.get(oracleText);
+function parsedTriggerSentencesFor(oracleText: string, cardName?: string): readonly ParsedTriggerSentence[] {
+  const cacheKey = cardName ? `${cardName}\u0001${oracleText}` : oracleText;
+  const cached = PARSED_TRIGGER_SENTENCE_CACHE.get(cacheKey);
   if (cached) return cached;
   // Quoted text is an ability granted to something else (Perigee Beckoner: gains "When this
   // creature dies, ..."), never a trigger of the source itself.
@@ -392,14 +402,37 @@ function parsedTriggerSentencesFor(oracleText: string): readonly ParsedTriggerSe
   const out = text
     .split(/\n+/)
     .flatMap((line) => line.split(/(?<=\.)\s+(?=(?:when|whenever|at)\b)/i))
-    .map((sentence) => ({ sentence, parsed: parseTriggerClause(sentence) }));
+    .map((sentence) => ({ sentence, parsed: parseTriggerClause(sentence, cardName) }));
   if (PARSED_TRIGGER_SENTENCE_CACHE.size >= PARSED_TRIGGER_SENTENCE_CACHE_MAX) PARSED_TRIGGER_SENTENCE_CACHE.clear();
-  PARSED_TRIGGER_SENTENCE_CACHE.set(oracleText, out);
+  PARSED_TRIGGER_SENTENCE_CACHE.set(cacheKey, out);
+  return out;
+}
+
+/** Parse-only: printed trigger lines for these events (no matching). Used to retire duplicate legacy entries. */
+export function parsedEventLinesFor(
+  oracleText: string,
+  events: readonly TriggerConditionEvent[],
+  cardName?: string,
+): Array<{ effect: string; condition: any }> {
+  const out: Array<{ effect: string; condition: any }> = [];
+  for (const { parsed } of parsedTriggerSentencesFor(String(oracleText || ''), cardName)) {
+    if (!parsed || !parsed.effect) continue;
+    const event = parsed.condition.event;
+    const paired = (parsed.condition as any).pairedEvent;
+    if (events.includes(event) || (paired && events.includes(paired))) out.push({ effect: parsed.effect, condition: parsed.condition });
+  }
   return out;
 }
 
 function effectKey(effect: string): string {
   return String(effect || '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function suppressionEventFor(event: TriggerConditionEvent): TriggerEventKind {
+  if (event === 'dies' || event === 'put_into_graveyard') return 'dies';
+  if (event === 'leaves_battlefield') return 'ltb';
+  if (event === 'sacrifices') return 'sacrifice';
+  return 'other';
 }
 
 /**
@@ -421,16 +454,29 @@ export function collectMatchingParsedEventLines(options: {
   fromZone?: string;
   action?: string;
   damageKind?: string;
+  /** Permanent ids the triggering spell targets (heroic "spell that targets ~"). */
+  targetPermanentIds?: readonly string[];
   /** Player bound to "that player" in an intervening-if clause (defaults to the active player for phase events). */
   thatPlayerId?: string;
+  /** The other creature in a block (blockPartner filters fail closed without it). */
+  blockPartnerPermanent?: any;
+  /** Extra match context fields (attackerCount, targeting*, damageRecipient*). */
+  matchContext?: Record<string, unknown>;
 }): Array<{ effect: string; interveningIf?: string; condition?: import('../../../../../rules-engine/src/triggerCondition/index.js').TriggerConditionIR; reflexive?: { actor: 'you' | 'they'; effect: string; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }> {
   const effects = [];
+  // Sources that lost all abilities (Humility, Dress Down, ...) have no triggers to match;
+  // dies/leaves read the last-known stamp.
+  if (options.sourcePermanent && !permanentHasTriggeredAbilities(options.sourcePermanent, options.ctx?.state, { event: suppressionEventFor(options.event) })) return [];
   const seen = new Set<string>();
-  for (const { sentence, parsed } of parsedTriggerSentencesFor(String(options.oracleText || ''))) {
+  const sourceCardName = String(options.sourcePermanent?.card?.name || options.sourcePermanent?.name || '').trim() || undefined;
+  for (const { sentence, parsed } of parsedTriggerSentencesFor(String(options.oracleText || ''), sourceCardName)) {
     if (!parsed || !parsed.effect) continue;
     const eventMatches = parsed.condition.event === options.event || parsed.condition.pairedEvent === options.event;
+    const pairedFromZone = (parsed.condition as any).pairedFromZone;
+    if (eventMatches && parsed.condition.event !== options.event && pairedFromZone && String((options as any).fromZone || '').toLowerCase() !== pairedFromZone) continue;
     if (!eventMatches) continue;
-    if (options.action && parsed.condition.action !== options.action) continue;
+    if (options.action && parsed.condition.action !== options.action
+      && !String(parsed.condition.action || '').split('|').includes(options.action)) continue;
     if (parsed.interveningIf && options.ctx) {
       // Evaluate the printed sentence so the clause keeps its own header, and bind
       // "that player" / "their turn" to the active player for beginning-of-phase events
@@ -469,9 +515,11 @@ export function collectMatchingParsedEventLines(options: {
         controllerId: String(options.sourcePermanent?.controller || '').trim(),
         attachedToId: String(options.sourcePermanent?.attachedTo || '').trim(),
         chosenCreatureType: String(options.sourcePermanent?.chosenCreatureType || '').trim() || undefined,
+        saddled: Boolean(options.sourcePermanent?.saddled),
+        tapped: options.sourcePermanent?.tapped === true,
       },
       {
-        activePlayerId: options.activePlayerId,
+        activePlayerId: options.activePlayerId ?? (String(options.ctx?.state?.turnPlayer || '').trim() || undefined),
         enchantedPlayerId: resolveEnchantedPlayerId(options.sourcePermanent, options.ctx?.state),
         monarchPlayerId: String(options.ctx?.state?.monarch || '').trim(),
         chosenPlayerId: String(
@@ -486,6 +534,11 @@ export function collectMatchingParsedEventLines(options: {
         zoneOwnerId: options.zoneOwnerId,
         fromZone: options.fromZone,
         damageKind: options.damageKind,
+        targetPermanentIds: options.targetPermanentIds,
+        ...(options.matchContext || {}),
+        ...(options.blockPartnerPermanent
+          ? { blockPartner: permanentToTriggerMatch(options.blockPartnerPermanent, String(options.blockPartnerPermanent?.controller || ''), options.ctx?.state) }
+          : {}),
         enchantedControllerId: resolveEnchantedControllerId(options.sourcePermanent, options.ctx?.state),
         exiledCardOwnerId: String(
           options.sourcePermanent?.exiledCardOwner

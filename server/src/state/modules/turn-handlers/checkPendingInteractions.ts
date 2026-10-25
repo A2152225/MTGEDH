@@ -9,6 +9,7 @@ import type { GameContext } from "../../context.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { playerIdCanReceivePriority } from "../priorityEligibility.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
+import { queueParsedAttacksUnblockedTriggersOnce } from "../triggers/combatBlockedIrTriggers.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -318,6 +319,7 @@ export function checkPendingInteractions(ctx: GameContext): {
             if (!hasPotentialBlockers) {
               debug(2, `${ts()} [checkPendingInteractions] Auto-declaring empty blockers for ${defenderId} (no valid blockers)`);
               blockersDeclaredBy.push(defenderId);
+              queueParsedAttacksUnblockedTriggersOnce(ctx, String(defenderId));
               continue;
             }
             

@@ -5,6 +5,8 @@ import { debug } from '../../../utils/debug.js';
 import { appendEvent } from '../../../db/index.js';
 import { detectTargetedTriggers } from '../triggered-abilities.js';
 import { orderTriggersByAPNAP } from './ordering.js';
+import { claimTargetingTargets, mergeParsedBecomesTargetTriggers } from './targetedIr.js';
+import { queueCrimeTriggersForStackItem } from './crime-triggers.js';
 import { resolveDetectorOracleForPermanent } from './detectorGrantedOracle.js';
 import {
   recordFirstTimeEachTurnTriggerQueued,
@@ -527,12 +529,15 @@ export function triggerPermanentTargetedTriggersFromAbility(
 ): TargetedTriggeredStackItem[] {
   if ((ctx as any).isReplaying) return [];
 
-  const normalizedTargetIds = normalizeTargetIds(event.targetIds);
+  // Crime first (idempotent per stack object), then each target reported once per object.
+  queueCrimeTriggersForStackItem(ctx, event.stackItemId, event.targetIds);
+  const allTargetIds = normalizeTargetIds(event.targetIds);
+  const normalizedTargetIds = claimTargetingTargets(ctx.state, String(event.activatedBy || ''), allTargetIds, event.stackItemId);
   if (normalizedTargetIds.length === 0) return [];
 
   const state: any = ctx.state as any;
   const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
-  const singleTargetAbility = normalizedTargetIds.length === 1;
+  const singleTargetAbility = allTargetIds.length === 1;
   const createdTriggers: TargetedTriggeredStackItem[] = [];
 
   for (const targetId of normalizedTargetIds) {
@@ -568,7 +573,10 @@ export function triggerPermanentTargetedTriggersFromAbility(
     normalizedTargetIds,
   ));
 
-  return pushTargetedTriggersOntoStack(ctx, dedupeTargetedTriggers(createdTriggers));
+  return pushTargetedTriggersOntoStack(ctx, dedupeTargetedTriggers(mergeParsedBecomesTargetTriggers(
+    ctx, String(event.activatedBy || ''), 'ability', normalizedTargetIds, createdTriggers,
+    (source, effect, subjectId) => buildTargetedTriggeredStackItem(ctx, source, String(source?.controller || '') as PlayerID, effect, effect, event, { targetedSubjectPermanentId: subjectId }),
+  )));
 }
 
 /**
@@ -580,7 +588,8 @@ export function triggerPermanentTargetedTriggersFromSpell(
 ): TargetedTriggeredStackItem[] {
   if ((ctx as any).isReplaying) return [];
 
-  const normalizedTargetIds = normalizeTargetIds(event.targetIds);
+  queueCrimeTriggersForStackItem(ctx, event.stackItemId, event.targetIds);
+  const normalizedTargetIds = claimTargetingTargets(ctx.state, String(event.castBy || ''), normalizeTargetIds(event.targetIds), event.stackItemId);
   if (normalizedTargetIds.length === 0) return [];
 
   const state: any = ctx.state as any;
@@ -615,7 +624,10 @@ export function triggerPermanentTargetedTriggersFromSpell(
     normalizedTargetIds,
   ));
 
-  return pushTargetedTriggersOntoStack(ctx, dedupeTargetedTriggers(createdTriggers));
+  return pushTargetedTriggersOntoStack(ctx, dedupeTargetedTriggers(mergeParsedBecomesTargetTriggers(
+    ctx, String(event.castBy || ''), 'spell', normalizedTargetIds, createdTriggers,
+    (source, effect, subjectId) => buildTargetedTriggeredStackItem(ctx, source, String(source?.controller || '') as PlayerID, effect, effect, event, { targetedSubjectPermanentId: subjectId }),
+  )));
 }
 
 export function extractStackItemTargetIds(stackItem: any): string[] {

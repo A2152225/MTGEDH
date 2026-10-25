@@ -8,7 +8,13 @@
  * existing filter for null.
  */
 
+import { normalizeSelfNameInTriggerSentence } from './selfNameNormalize.js';
 import { parseLateTriggerSentence } from './parseLateEvents.js';
+import { parseSelfAndPlayerTriggerSentence } from './parseSelfAndPlayerEvents.js';
+import { parseRound13TriggerSentence } from './parseRound13Events.js';
+import { parseRound14TriggerSentence } from './parseRound14Events.js';
+import { parseRound15TriggerSentence } from './parseRound15Events.js';
+import { parseRound16TriggerSentence } from './parseRound16Events.js';
 import { normalizeTriggerClause, parseSubjectPhrase } from './parseSubjectPhrase.js';
 import type { TriggerConditionEvent, TriggerConditionIR, TriggerWhoseTurn } from './types.js';
 
@@ -59,6 +65,14 @@ export function parseBlocksSubjectClause(clause: string): TriggerConditionIR | n
   return parseEntersLike(clause, 'blocks');
 }
 
+/** Non-self "becomes blocked" / "attacks and isn't blocked" subjects, incl. enchanted/equipped. */
+export function parseBlockedSubjectClause(
+  clause: string,
+  event: TriggerConditionEvent,
+): TriggerConditionIR | null {
+  return parseAttachmentOrSubject(clause, event);
+}
+
 export function parseBecomesTappedSubjectClause(clause: string): TriggerConditionIR | null {
   return parseAttachmentOrSubject(clause, 'becomes_tapped');
 }
@@ -73,7 +87,11 @@ export function parseBecomesUntappedSubjectClause(clause: string): TriggerCondit
  */
 export function parseSpellCastClause(clause: string): TriggerConditionIR | null {
   let text = normalizeTriggerClause(clause);
-  if (!text || /\b(?:this|whenever|when|commander|chosen|historic|colorless|with|without|power|where|unless|~)\b/.test(text)) {
+  const manaValue = / with (?:mana value|converted mana cost) (\d+) or (greater|more|less)\b/.exec(text);
+  if (manaValue) text = text.replace(manaValue[0], ' ').replace(/\s+/g, ' ').trim();
+  const kicked = /^(?:you cast|an opponent casts|a player casts) (?:a|an) kicked\b/.test(text);
+  if (kicked) text = text.replace(/ kicked\b/, ' ').replace(/\s+/g, ' ').trim();
+  if (!text || /\b(?:this|whenever|when|commander|chosen|with|without|power|where|unless|~)\b/.test(text)) {
     return null;
   }
 
@@ -99,7 +117,13 @@ export function parseSpellCastClause(clause: string): TriggerConditionIR | null 
   text = text.replace(/\beach turn\b/, ' ').replace(/\s+/g, ' ').trim();
 
   let castFromZone: TriggerConditionIR['castFromZone'];
-  const fromZone = / from (hand|graveyard|exile|library)\b/.exec(text);
+  let whoseTurn: TriggerConditionIR['whoseTurn'];
+  const duringTurn = / during (?:an|each) opponent's turn\b| during your turn\b/.exec(text);
+  if (duringTurn) {
+    whoseTurn = /your turn/.test(duringTurn[0]) ? 'you' : 'each_opponent';
+    text = text.replace(duringTurn[0], ' ').replace(/\s+/g, ' ').trim();
+  }
+  const fromZone = / from (?:your |their )?(hand|graveyard|exile|library)\b/.exec(text);
   if (fromZone) {
     castFromZone = fromZone[1] as TriggerConditionIR['castFromZone'];
     text = text.replace(fromZone[0], ' ').replace(/\s+/g, ' ').trim();
@@ -112,6 +136,12 @@ export function parseSpellCastClause(clause: string): TriggerConditionIR | null 
   if (/\bthat targets you\b/.test(text)) {
     targets = 'you';
     text = text.replace(/\bthat targets you\b/, ' ').replace(/\s+/g, ' ').trim();
+  } else if (/\bthat targets (?:a|one or more) creatures? you control\b/.test(text)) {
+    targets = 'creature_you_control';
+    text = text.replace(/\bthat targets (?:a|one or more) creatures? you control\b/, ' ').replace(/\s+/g, ' ').trim();
+  } else if (/\bthat targets (?:a|one or more) creatures?\b/.test(text)) {
+    targets = 'creature';
+    text = text.replace(/\bthat targets (?:a|one or more) creatures?\b/, ' ').replace(/\s+/g, ' ').trim();
   } else if (/\bthat targets an opponent\b/.test(text)) {
     targets = 'opponent';
     text = text.replace(/\bthat targets an opponent\b/, ' ').replace(/\s+/g, ' ').trim();
@@ -129,7 +159,22 @@ export function parseSpellCastClause(clause: string): TriggerConditionIR | null 
     ...(castFromZone ? { castFromZone } : {}),
     ...(ordinal ? { ordinal } : {}),
     ...(targets ? { targets } : {}),
-    alternatives: parsed.alternatives.map((alternative) => ({ ...alternative, controller })),
+    ...(whoseTurn ? { whoseTurn } : {}),
+    alternatives: parsed.alternatives.map((alternative) => ({
+      ...alternative,
+      controller,
+      ...(manaValue || kicked
+        ? {
+          subject: {
+            ...alternative.subject,
+            ...(manaValue
+              ? { stats: [...(alternative.subject.stats || []), { stat: 'mana_value' as const, op: manaValue[2] === 'less' ? 'lte' as const : 'gte' as const, value: Number(manaValue[1]) }] }
+              : {}),
+            ...(kicked ? { kicked: true } : {}),
+          },
+        }
+        : {}),
+    })),
   };
 }
 
@@ -150,10 +195,15 @@ export function parsePhaseTriggerClause(clause: string): TriggerConditionIR | nu
     'at the beginning of your postcombat main phase': { event: 'beginning_of_postcombat_main', whoseTurn: 'you' },
     'at the beginning of your second main phase': { event: 'beginning_of_postcombat_main', whoseTurn: 'you' },
     'at the beginning of each of your main phases': { event: 'each_of_your_main_phases', whoseTurn: 'you' },
+    'at the beginning of each of your postcombat main phases': { event: 'beginning_of_postcombat_main', whoseTurn: 'you' },
+    'at the beginning of each of your upkeeps': { event: 'beginning_of_upkeep', whoseTurn: 'you' },
+    'at the beginning of each of your end steps': { event: 'beginning_of_end_step', whoseTurn: 'you' },
     'at end of combat': { event: 'end_of_combat', whoseTurn: 'each_player' },
     'at the end of combat': { event: 'end_of_combat', whoseTurn: 'each_player' },
     'at end of combat on your turn': { event: 'end_of_combat', whoseTurn: 'you' },
     'at the end of combat on your turn': { event: 'end_of_combat', whoseTurn: 'you' },
+    // Ball Lightning family: "At the beginning of the end step" is every end step.
+    'at the beginning of the end step': { event: 'beginning_of_end_step', whoseTurn: 'each_player' },
   };
   const known = exact[text];
   if (known) {
@@ -261,13 +311,43 @@ function parseActorTrigger(actor: string, verb: string, rest: string): ParsedTri
   return null;
 }
 
+const PAIRED_EVENT_WORD: Readonly<Record<string, TriggerConditionEvent>> = {
+  enters: 'enters', attacks: 'attacks', blocks: 'blocks', dies: 'dies',
+};
+
+/**
+ * "Whenever this creature enters or attacks, ..." / "attacks or blocks" / "enters or dies":
+ * one self-subject trigger listening to two events (pairedEvent). Only self subjects, so
+ * "a creature enters or attacks" stays with its own families.
+ */
+function parseSelfPairedEventSentence(text: string): ParsedTriggerEventSentence | null {
+  const m = /^(?:whenever|when)\s+(this (?:creature|permanent|vehicle|artifact|enchantment))\s+(enters|attacks|blocks)(?: the battlefield)? or (attacks|blocks|dies)\s*,\s*(.+)$/.exec(text);
+  if (!m || m[2] === m[3]) return null;
+  const first = parseTriggerEventSentence(`when ${m[1]} ${m[2]}, ${m[4]}`);
+  const pairedEvent = PAIRED_EVENT_WORD[m[3]];
+  if (!first || !pairedEvent) return null;
+  return { ...first, condition: { ...first.condition, pairedEvent } };
+}
+
 /**
  * "Whenever a Goblin you control dies, you gain 1 life."
  * Null when the subject is outside the condition record.
  */
 export function parseTriggerEventSentence(sentence: string): ParsedTriggerEventSentence | null {
   const text = normalizeTriggerClause(sentence).replace(/\.+$/, '').trim();
-  const match = /^(?:whenever|when)\s+(.+?)\s+(dies|enters(?: the battlefield)?(?: under your control)?|attacks|blocks|becomes tapped|becomes untapped)\s*,\s*(.+)$/.exec(text);
+  const paired = parseSelfPairedEventSentence(text);
+  if (paired) return paired;
+  const round13 = parseRound13TriggerSentence(text, parseTriggerEventSentence as any);
+  if (round13) return round13;
+  const round14 = parseRound14TriggerSentence(text, parseTriggerEventSentence as any);
+  if (round14) return round14;
+  const round15 = parseRound15TriggerSentence(text, parseTriggerEventSentence as any);
+  if (round15) return round15;
+  const round16 = parseRound16TriggerSentence(text, parseTriggerEventSentence as any);
+  if (round16) return round16;
+  const match = /^(?:whenever|when)\s+(.+?)\s+(dies|enters(?: the battlefield)?(?: under your control)?|attacks|blocks|becomes tapped|becomes untapped)\s*,\s*(.+)$/.exec(text)
+    // Plural verbs only with a batched subject ("one or more tokens you control enter").
+    ?? /^(?:whenever|when)\s+(one or more .+?)\s+(enter(?: the battlefield)?(?: under your control)?|attack)\s*,\s*(.+)$/.exec(text);
   if (!match) {
     const phaseSentence = /^at the beginning of ([^,]+),\s*(.+)$/.exec(text);
     if (phaseSentence) {
@@ -337,11 +417,15 @@ export function parseTriggerEventSentence(sentence: string): ParsedTriggerEventS
       const controller = playerAction[1] === 'you' ? 'you' : playerAction[1] === 'an opponent' ? 'not_you' : 'any';
       const verb = playerAction[2];
       const event = /draw/.test(verb) ? 'draws_card' : /discard/.test(verb) ? 'discards' : 'mills';
-      const objectText = playerAction[3].replace(/\s+cards?\b/g, '').replace(/\bcards?\b/g, 'permanent').replace(/\s+/g, ' ').trim();
-      const subject = parseSubjectPhrase(
+      const rawObjectText = playerAction[3].replace(/\s+cards?\b/g, '').replace(/\bcards?\b/g, 'permanent').replace(/\s+/g, ' ').trim();
+      // "one or more cards" / "one or more land cards": batched (one trigger per event).
+      const oneOrMore = /^one or more\b/.test(rawObjectText);
+      const objectText = oneOrMore ? `a ${rawObjectText.slice('one or more'.length).trim()}`.trim() : rawObjectText;
+      const parsedSubject = parseSubjectPhrase(
         objectText === '' || objectText === 'a' || objectText === 'an' ? 'a permanent' : objectText,
         event,
       );
+      const subject = parsedSubject && oneOrMore ? { ...parsedSubject, quantity: 'one_or_more' as const } : parsedSubject;
       const effect = playerAction[4].trim();
       if (subject && effect) {
         return {
@@ -354,10 +438,10 @@ export function parseTriggerEventSentence(sentence: string): ParsedTriggerEventS
         };
       }
     }
-    const combatDamage = /^(?:whenever|when)\s+(.+?)\s+deals combat damage to (a player|an opponent|you|a creature),\s*(.+)$/.exec(text);
+    const combatDamage = /^(?:whenever|when)\s+(.+?)\s+deals? combat damage to (a player|an opponent|you|a creature),\s*(.+)$/.exec(text);
     if (combatDamage) {
       const toCreature = combatDamage[2] === 'a creature';
-      const subject = parseSubjectPhrase(combatDamage[1], toCreature ? 'deals_combat_damage_to_creature' : 'deals_combat_damage_to_player');
+      const subject = parseAttachmentOrSubject(combatDamage[1], toCreature ? 'deals_combat_damage_to_creature' : 'deals_combat_damage_to_player');
       const effect = combatDamage[3].trim();
       if (subject && effect) return { condition: subject, effect };
     }
@@ -434,7 +518,7 @@ export function parseTriggerEventSentence(sentence: string): ParsedTriggerEventS
       const zoneOwner = leftGraveyard[2] === 'your' ? 'you' : leftGraveyard[2] === "an opponent's" ? 'not_you' : 'any';
       return { condition: { ...subject, event: 'left_graveyard', zoneOwner }, effect };
     }
-    return parseLateTriggerSentence(text);
+    return parseLateTriggerSentence(text) ?? parseSelfAndPlayerTriggerSentence(text);
   }
   const subject = match[1].trim();
   const eventWord = match[2];
@@ -442,9 +526,9 @@ export function parseTriggerEventSentence(sentence: string): ParsedTriggerEventS
   if (!subject || !effect) return null;
 
   const underYourControl = /under your control$/.test(eventWord);
-  const eventKind = eventWord.startsWith('enters')
+  const eventKind = eventWord.startsWith('enter')
     ? 'enters'
-    : eventWord.startsWith('attacks')
+    : eventWord.startsWith('attack')
       ? 'attacks'
       : eventWord.startsWith('blocks')
         ? 'blocks'
@@ -464,7 +548,7 @@ export function parseTriggerEventSentence(sentence: string): ParsedTriggerEventS
           ? parseBecomesTappedSubjectClause(subjectText)
           : eventKind === 'becomes_untapped'
             ? parseBecomesUntappedSubjectClause(subjectText)
-            : parseSubjectPhrase(subjectText, 'dies');
+            : parseAttachmentOrSubject(subjectText, 'dies');
   if (!condition) return null;
   return { condition, effect };
 }
@@ -538,8 +622,9 @@ export function splitTriggerEffectRiders(effect: string): Omit<ParsedTriggerClau
 /** "Landfall — Whenever ...": an ability word labels the trigger and is not part of it. */
 const ABILITY_WORD_PREFIX = /^\s*[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
 
-export function parseTriggerClause(sentence: string): ParsedTriggerClause | null {
-  const parsed = parseTriggerEventSentence(String(sentence || '').replace(ABILITY_WORD_PREFIX, ''));
+export function parseTriggerClause(sentence: string, cardName?: string): ParsedTriggerClause | null {
+  const unlabeled = String(sentence || '').replace(ABILITY_WORD_PREFIX, '');
+  const parsed = parseTriggerEventSentence(cardName ? normalizeSelfNameInTriggerSentence(unlabeled, cardName) : unlabeled);
   if (!parsed) return null;
   return { condition: parsed.condition, ...splitTriggerEffectRiders(parsed.effect) };
 }

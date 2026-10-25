@@ -46,7 +46,7 @@ export function queueExiledTimeCounterRemovedTriggers(
   if (!cardId) return [];
 
   const probe = snapshotExileCardForTrigger(exileCard, controllerId);
-  const detected = detectCounterRemovedTriggers(card, probe).filter(
+  const detected = detectCounterRemovedTriggers(card, probe, (ctx as any)?.state).filter(
     (trigger) => trigger.triggerType === 'time_counter_removed_from_exiled_self',
   );
   if (detected.length === 0) return [];

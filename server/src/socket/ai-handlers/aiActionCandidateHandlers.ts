@@ -259,7 +259,7 @@ export function canAIActivateBattlefieldAbilityNow(
 
   // Mana-battery "put a charge counter" lines are main-phase value plays, not responses.
   // Charging Gemstone Array (etc.) during every combat priority window dumps the AI's mana.
-  const isChargeInvest = isAIManaBatteryChargeInvestAction(permanent, action);
+  const isChargeInvest = isAIManaBatteryChargeInvestAction(permanent, action, game.state?.battlefield);
 
   if (isChargeInvest) {
     if (mode === 'response') {
@@ -368,7 +368,7 @@ export async function enumerateAIActionCandidates(
         (entry: any) => String(entry?.id || '') === String(abilityCandidate.action?.permanentId || ''),
       );
       const isBatteryChargeInvest = abilityPermanent
-        ? isAIManaBatteryChargeInvestAction(abilityPermanent, abilityCandidate.action)
+        ? isAIManaBatteryChargeInvestAction(abilityPermanent, abilityCandidate.action, battlefield)
         : false;
       // Battery charge is spare-mana / color-fixing — sit below real casts (base 320+)
       // and commanders (650+), but above "nothing" so leftover mana still stocks the battery.

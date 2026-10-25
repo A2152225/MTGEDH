@@ -28,6 +28,8 @@ export const BATTLEFIELD_PERMANENT_REPLAY_PATCH_FIELDS = [
   'mustAttackEachCombat',
   'cantAttackOwner',
   'goaded',
+  'amplifyRevealed',
+  'optionalDrawStepSkipTurn',
 ] as const;
 
 /** Default fields for Critical undo/replay gap #2 (temp P/T / until-EOT abilities). */

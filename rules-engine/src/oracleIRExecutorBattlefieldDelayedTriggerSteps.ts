@@ -34,6 +34,18 @@ export function applyScheduleDelayedTriggerStep(
     };
   }
 
+  // "When that creature leaves the battlefield this turn" / "When it regenerates this way":
+  // the server registers a watcher from the step itself; never default these to the end step.
+  if (step.timing === 'on_event' && /^when (?:it|that creature|the targeted creature|the creature|this creature|this artifact|that permanent) (?:regenerates this way|leaves the battlefield this turn)\b/i.test(String(step.raw || '').trim())) {
+    return { applied: true, state, log: ['Deferred event watcher to server'] };
+  }
+
+  // "When you next cast ... this turn, copy it": the server's next-cast registry (delayedSpellCopiesThisTurn)
+  // owns these; scheduling them for the end step would copy nothing at the wrong time.
+  if (step.timing === 'on_event' && /^(?:if you do,\s*)?when you next cast\b/i.test(String(step.raw || '').trim())) {
+    return { applied: true, state, log: ['Deferred next-cast rider to server'] };
+  }
+
   const controllerId = (String(ctx.controllerId || '').trim() || ctx.controllerId) as PlayerID;
   const currentTurn = Number((state as any).turnNumber ?? (state as any).turn ?? 0) || 0;
   const targetPermanentId = String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim() || undefined;
@@ -109,7 +121,9 @@ export function applyScheduleDelayedTriggerStep(
         ? DelayedTriggerTiming.NEXT_UPKEEP
         : step.timing === 'your_next_upkeep'
           ? DelayedTriggerTiming.YOUR_NEXT_UPKEEP
-          : DelayedTriggerTiming.NEXT_END_STEP;
+          : step.timing === 'next_end_of_combat'
+            ? DelayedTriggerTiming.END_OF_COMBAT
+            : DelayedTriggerTiming.NEXT_END_STEP;
 
   const delayedTrigger = createDelayedTrigger(
     String(ctx.sourceId || ctx.sourceName || 'oracle-ir'),

@@ -440,7 +440,11 @@ export function applyAnimatePermanentStep(
       const nextBattlefield = battlefield.map((permanent: any) => {
         const permanentId = String((permanent as any)?.id || '').trim();
         if (!targetIds.has(permanentId)) return permanent;
-        return appendPermanentTypes(permanent, Array.isArray(step.addTypes) && step.addTypes.length > 0 ? step.addTypes : ['Creature']);
+        const typed: any = appendPermanentTypes(permanent, Array.isArray(step.addTypes) && step.addTypes.length > 0 ? step.addTypes : ['Creature']);
+        // Permanent self-animation (Opal Avenger "it becomes a 3/5 Soldier creature") sets base P/T.
+        if (step.duration !== 'static' || typeof step.power !== 'number' || typeof step.toughness !== 'number') return typed;
+        const replaced = /in addition to its other types/i.test(String(step.raw || '')) ? typed : replaceCardTypesForBecome(typed, step.addTypes);
+        return { ...replaced, power: step.power, basePower: step.power, effectivePower: undefined, toughness: step.toughness, baseToughness: step.toughness, effectiveToughness: undefined };
       });
       return {
         applied: true,
@@ -548,4 +552,23 @@ export function applyAnimatePermanentStep(
     state: { ...(state as any), battlefield: processedBattlefield } as GameState,
     log: [`Animated ${targetIds.size} permanent(s)`],
   };
+}
+
+const CARD_TYPES = ['artifact', 'battle', 'creature', 'enchantment', 'kindred', 'land', 'planeswalker', 'tribal'];
+const SUPERTYPES = ['basic', 'legendary', 'snow', 'world', 'ongoing'];
+/** CR 205.1a: "becomes a [N/N] [type] creature" (without "in addition to its other types") replaces old card types and their subtypes. */
+function replaceCardTypesForBecome(permanent: any, addTypes: unknown): any {
+  const adds = (Array.isArray(addTypes) ? addTypes : []).map((t) => String(t || '').trim()).filter(Boolean);
+  if (!adds.some((t) => t.toLowerCase() === 'creature')) return permanent;
+  const line = String(permanent?.card?.type_line || permanent?.type_line || '');
+  if (!line) return permanent;
+  const [left, right = ''] = line.split(/\s+(?:-|\u2014)\s+/);
+  const leftWords = left.split(/\s+/).filter(Boolean);
+  const wasCreature = leftWords.some((w) => w.toLowerCase() === 'creature');
+  const supers = leftWords.filter((w) => SUPERTYPES.includes(w.toLowerCase()));
+  const newCardTypes = adds.filter((t) => CARD_TYPES.includes(t.toLowerCase())).map((t) => t[0].toUpperCase() + t.slice(1).toLowerCase());
+  const subs = [...(wasCreature ? right.split(/\s+/).filter(Boolean) : []), ...adds.filter((t) => !CARD_TYPES.includes(t.toLowerCase()))];
+  const uniqSubs = subs.filter((s, i) => subs.findIndex((x) => x.toLowerCase() === s.toLowerCase()) === i);
+  const next = [...supers, ...newCardTypes].join(' ') + (uniqSubs.length ? ' - ' + uniqSubs.join(' ') : '');
+  return { ...permanent, ...(permanent?.type_line !== undefined ? { type_line: next } : {}), card: { ...(permanent?.card || {}), type_line: next } };
 }

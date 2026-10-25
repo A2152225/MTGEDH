@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parsedEventLinesFor } from '../src/state/modules/triggers/triggerConditionFamilyMatch.js';
 import { parseTriggeredAbilitiesFromText } from '../../rules-engine/src/triggeredAbilitiesParsing.js';
 import { parseDelayedTriggerFromText } from '../../rules-engine/src/delayedTriggeredAbilities.js';
 import {
@@ -32,7 +33,7 @@ import { detectCounterPlacedTriggers, detectCounterRemovedTriggers } from '../sr
 import { detectLeftGraveyardTriggers, detectPutIntoGraveyardTriggers, detectExiledFromBattlefieldTriggers } from '../src/state/modules/triggers/zone-change.js';
 import { detectPrecombatMainTriggers } from '../src/state/modules/triggers/turn-phases.js';
 import { detectUpkeepTriggers } from '../src/state/modules/upkeep-triggers.js';
-import { detectCardDrawTriggers } from '../src/state/modules/triggers/card-draw.js';
+import { detectCardDrawTriggers, getCardDrawTriggers } from '../src/state/modules/triggers/card-draw.js';
 import { detectOpponentSpellCastTriggers } from '../src/state/modules/triggers/spell-cast.js';
 import { detectEndStepTriggers, detectPostcombatMainTriggers, detectDrawStepTriggers } from '../src/state/modules/triggers/turn-phases.js';
 import { detectSacrificeTriggers } from '../src/state/modules/triggers/sacrifice.js';
@@ -186,7 +187,8 @@ const GAP_CASES: GapCase[] = [
   {
     name: 'Ian Malcolm (second card drawn)',
     oracle_text: 'Whenever a player draws their second card each turn, that player exiles the top card of their library.',
-    detect: () => detectCardDrawTriggers({ name: 'Ian Malcolm, Chaotician', oracle_text: 'Whenever a player draws their second card each turn, that player exiles the top card of their library.' }, permanent).length > 0,
+    // Retired from the legacy detector; the trigger IR emits it on the second draw.
+    detect: () => getCardDrawTriggers({ state: { battlefield: [{ id: 'ian', controller: 'p1', owner: 'p1', counters: {}, card: { name: 'Ian Malcolm, Chaotician', type_line: 'Legendary Creature - Human Scientist', oracle_text: 'Whenever a player draws their second card each turn, that player exiles the top card of their library.' } }], turnPlayer: 'p1', players: [{ id: 'p1' }, { id: 'p2' }] } } as any, 'p2', undefined, 2).length > 0,
   },
   {
     name: 'Emrakul and Chatterfang (named cast)',
@@ -972,7 +974,8 @@ const GAP_CASES: GapCase[] = [
   {
     name: 'Tarnation (player commits a crime)',
     oracle_text: 'Whenever a player commits a crime, they may draw a card.',
-    detect: () => detectSpellCastTriggers({ name: 'Tarnation', oracle_text: 'Whenever a player commits a crime, they may draw a card.' }, permanent).some((t) => (t as any).tribalType === 'commit_a_crime'),
+    // Crime is Oracle IR commits_crime now (crime-triggers.ts); legacy spell-cast detection retired.
+    detect: () => parsedEventLinesFor('Whenever a player commits a crime, they may draw a card.', ['commits_crime' as any], 'Tarnation').length === 1,
   },
   {
     name: 'Hardened Bonds (singular counter placed)',
@@ -1611,8 +1614,8 @@ const GAP_CASES: GapCase[] = [
   },
   {
     name: 'Icewrought Sentry (tap opponent creature)',
-    oracle_text: 'When you do, tap target creature an opponent controls.',
-    detect: () => detectTapTriggers({ name: 'Icewrought Sentry', oracle_text: 'Whenever this creature attacks, you may pay {1}{U}. When you do, tap target creature an opponent controls.' }, permanent).some((t) => (t as any).affectedType === 'you_tap_opponent_creature'),
+    oracle_text: 'Whenever you tap an untapped creature an opponent controls, this creature gets +2/+1 until end of turn.',
+    detect: () => detectTapTriggers({ name: 'Icewrought Sentry', oracle_text: 'Whenever this creature attacks, you may pay {1}{U}. When you do, tap target creature an opponent controls.\nWhenever you tap an untapped creature an opponent controls, this creature gets +2/+1 until end of turn.' }, permanent).some((t) => (t as any).affectedType === 'you_tap_opponent_creature'),
   },
   {
     name: 'Ray Fillet (counter on creature combat damage)',

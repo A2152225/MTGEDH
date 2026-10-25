@@ -1,4 +1,5 @@
-export type ReflexiveManaPaymentUnit = 'mana' | '{W}' | '{U}' | '{B}' | '{R}' | '{G}' | '{C}';
+import { consumeRepeatCostPaymentFromPool, getMaxRepeatCostPaymentsFromPool, isRepeatCostPaymentUnit, materializeThatManyCount } from './reflexiveRepeatCostPayment.js';
+export type ReflexiveManaPaymentUnit = 'mana' | '{W}' | '{U}' | '{B}' | '{R}' | '{G}' | '{C}' | `{${string}}${string}`;
 
 export interface ReflexiveAnyAmountManaPayment {
   paymentUnit: ReflexiveManaPaymentUnit;
@@ -27,6 +28,8 @@ export interface ReflexiveSacrificeWhenYouDo {
 export interface ReflexiveDiscardWhenYouDo {
   discardCount: number;
   followupText: string;
+  /** "When you discard a [type] card this way": the type the discarded card must have. */
+  typeFilter?: string;
 }
 
 export interface ReflexiveConvertWhenYouDo {
@@ -236,13 +239,14 @@ export function parseReflexiveDiscardWhenYouDo(effectText: string): ReflexiveDis
   const normalized = normalizeReflexiveEffectText(effectText);
   if (!normalized) return null;
 
-  const match = normalized.match(/^(?:you\s+may\s+)?discard\s+(?:a|one|1)\s+card.\s*(?:when|if)\s+you\s+do,?\s*([\s\S]+)$/i);
+  const match = normalized.match(/^(?:you\s+may\s+)?discard\s+(?:a|one|1)\s+card.\s*(?:when|if)\s+you\s+(?:do|discard\s+an?\s+([a-z][a-z -]*?)\s+card\s+this\s+way),?\s*([\s\S]+)$/i);
   if (!match) return null;
 
-  const followupText = String(match[1] || '').trim();
+  const followupText = String(match[2] || '').trim();
   if (!followupText) return null;
 
-  return { discardCount: 1, followupText };
+  const typeFilter = String(match[1] || '').trim().toLowerCase();
+  return { discardCount: 1, followupText, ...(typeFilter ? { typeFilter } : {}) };
 }
 
 export function parseReflexiveConvertWhenYouDo(effectText: string): ReflexiveConvertWhenYouDo | null {
@@ -431,6 +435,9 @@ export function formatReflexiveManaAmount(amount: number, paymentUnit: Reflexive
   if (paymentUnit === 'mana') {
     return `${normalizedAmount} mana`;
   }
+  if (isRepeatCostPaymentUnit(paymentUnit)) {
+    return `${paymentUnit} ${normalizedAmount} time${normalizedAmount === 1 ? '' : 's'}`;
+  }
 
   return `${normalizedAmount} ${paymentUnit}`;
 }
@@ -457,6 +464,7 @@ export function parseReflexivePaymentChoiceAmount(choiceId: string | null | unde
 }
 
 export function getAvailableReflexiveManaAmountFromPool(state: any, playerId: string, paymentUnit: ReflexiveManaPaymentUnit): number {
+  if (isRepeatCostPaymentUnit(paymentUnit)) return getMaxRepeatCostPaymentsFromPool(state, playerId, String(paymentUnit));
   const pool = state?.manaPool?.[playerId] || {};
   if (paymentUnit !== 'mana') {
     const symbol = paymentUnit.replace(/[{}]/g, '').toUpperCase();
@@ -470,6 +478,10 @@ export function getAvailableReflexiveManaAmountFromPool(state: any, playerId: st
 export function consumeReflexiveManaAmountFromPool(state: any, playerId: string, paymentUnit: ReflexiveManaPaymentUnit, amount: number): void {
   const paymentAmount = Math.max(0, Math.floor(Number(amount || 0)));
   if (paymentAmount <= 0) return;
+  if (isRepeatCostPaymentUnit(paymentUnit)) {
+    consumeRepeatCostPaymentFromPool(state, playerId, String(paymentUnit), paymentAmount);
+    return;
+  }
 
   state.manaPool = state.manaPool || {};
   const pool = state.manaPool[playerId] = state.manaPool[playerId] || {
@@ -505,6 +517,7 @@ export function materializeReflexiveFollowupText(followupText: string, sourceNam
   let text = String(followupText || '')
     .replace(/[’]/g, "'")
     .replace(/\bthat much\b/gi, String(Math.max(0, Math.floor(Number(amount || 0)))))
+    .replace(/[\s\S]*/, (t) => materializeThatManyCount(t, amount))
     .replace(/\s+/g, ' ')
     .trim();
 

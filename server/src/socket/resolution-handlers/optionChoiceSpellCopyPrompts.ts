@@ -30,6 +30,7 @@ import { debugWarn } from "../../utils/debug.js";
 import { appendQueuedResolutionPromptEvent } from "../resolutionCloneQueuedPromptUtils.js";
 import { broadcastGame } from "../util.js";
 import { persistNamedSpellCastThisGame } from "../../state/modules/namedSpellsCastThisGame.js";
+import { queueSpellCopiedTriggers } from "../../state/modules/triggers/spell-copied.js";
 import { extractOptionChoiceSelectionId } from "./resolutionOptionChoiceSelectionIds.js";
 
 /** "You may copy that spell" after it resolved, then optionally retarget the copy. */
@@ -97,6 +98,8 @@ export async function handleResolvedSpellCopyChoice(
       });
     }
   }
+
+  queueSpellCopiedTriggers(game, String((copiedSpellSnapshot as any)?.id || ''), gameId);
 
   io.to(gameId).emit('chat', {
     id: `m_${Date.now()}`,

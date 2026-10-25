@@ -18,6 +18,7 @@ import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
 import { pushCardToGraveyardFromLibrary } from "./graveyardEntryUtils.js";
 import { queueParsedKeywordAction } from "./triggerEmissionFamilyUtils.js";
+import { queueCreatureExploresTriggers } from "./triggers/eventSpecificLegacyTriggers.js";
 import { processLinkedExileReturns } from "./triggers/linked-exile.js";
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
 import {
@@ -674,6 +675,7 @@ export function applyExplore(
   ctx.libraries.set(playerId, lib);
   ctx.bumpSeq();
   queueParsedKeywordAction(ctx, String(playerId), 'explore');
+  queueCreatureExploresTriggers(ctx, String(playerId), String(permanentId), Boolean(isLand));
 }
 
 /* ===== search helper ===== */

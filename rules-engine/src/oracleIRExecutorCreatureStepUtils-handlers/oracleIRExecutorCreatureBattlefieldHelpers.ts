@@ -158,3 +158,27 @@ export function permanentHasKeyword(permanent: BattlefieldPermanent | any, rawKe
 
   return keywordValues.some(value => normalizeOracleText(String(value || '')) === keyword);
 }
+
+/** Creatures the given permanent blocked this combat (it may already have left the battlefield). */
+export function resolveCreaturesBlockedByPermanent(state: GameState, blockerPermanentId: string): string[] {
+  const blockerId = String(blockerPermanentId || '').trim();
+  if (!blockerId) return [];
+  const out = new Set<string>();
+  const onField = new Set(getProcessedBattlefield(state).map((p: any) => String(p?.id || '').trim()));
+  for (const permanent of getProcessedBattlefield(state) as any[]) {
+    const blockedBy = Array.isArray(permanent?.blockedBy) ? permanent.blockedBy : [];
+    if (blockedBy.some((entry: any) => String(entry?.blockerId || entry || '').trim() === blockerId)) out.add(String(permanent.id));
+  }
+  const combat: any = (state as any).combat || {};
+  for (const entry of Array.isArray(combat.attackers) ? combat.attackers : []) {
+    const blockedBy = Array.isArray(entry?.blockedBy) ? entry.blockedBy : [];
+    if (blockedBy.some((id: unknown) => String(id || '').trim() === blockerId)) out.add(String(entry?.permanentId || entry?.id || '').trim());
+  }
+  for (const entry of Array.isArray(combat.blockers) ? combat.blockers : []) {
+    if (String(entry?.permanentId || entry?.id || '').trim() !== blockerId) continue;
+    for (const id of Array.isArray(entry?.blocking) ? entry.blocking : []) out.add(String(id || '').trim());
+  }
+  const lki: any = (state as any).lastKnownBlockingById?.[blockerId];
+  for (const id of Array.isArray(lki) ? lki : []) out.add(String(id || '').trim());
+  return [...out].filter((id) => id && onField.has(id));
+}

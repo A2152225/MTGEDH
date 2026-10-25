@@ -16,6 +16,7 @@ import { appendEvent } from "../db/index.js";
 import { parseMadnessCost } from "../state/modules/alternate-costs.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
 import { materializeReflexiveSourceText } from "../state/modules/reflexive-triggers.js";
+import { anyDiscardedCardMatchesTypeFilter } from "../state/modules/reflexiveDiscardTypeFilter.js";
 import { resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution, maybeResumeOracleIRStepsAfterResolution } from "../state/modules/oracleIrServerZoneSync.js";
 import { maybeResumeDeferredOracleIrStackSpellOnGame } from "../state/modules/oracleIrDeferredStackFinalize.js";
 import { uid } from "../state/utils.js";
@@ -32,6 +33,7 @@ import {
   queueDiscardTriggeredAbilities,
   queueDiscardTriggeredGraveyardCastAbilities,
 } from "./resolutionDiscardTriggerUtils.js";
+import { resolveDiscardCauseController } from "../state/modules/triggers/eventSpecificLegacyTriggers.js";
 import { tryResumeDiscardActivationCosts } from "./resolutionDiscardActivationResumeHandlers.js";
 import { emitWardCounterOutcome, tryCounterByWard } from "./resolutionWardUtils.js";
 
@@ -569,7 +571,8 @@ export async function handleDiscardResponse(
   // afterDiscardDrawCount*; do not also push a reflexive stack trigger.
   const rummageFollowupAlreadyApplied = afterDiscardDrawCount > 0
     || afterDiscardDrawCountIfDiscardedLand > 0;
-  if ((step as any)?.reflexiveDiscardWhenYouDo === true && movedCards.length > 0 && !rummageFollowupAlreadyApplied) {
+  if ((step as any)?.reflexiveDiscardWhenYouDo === true && movedCards.length > 0 && !rummageFollowupAlreadyApplied
+    && anyDiscardedCardMatchesTypeFilter(movedCards, (step as any)?.reflexiveDiscardWhenYouDoTypeFilter)) {
     const controllerId = String((step as any)?.reflexiveDiscardWhenYouDoController || pid);
     const sourceName = String((step as any)?.reflexiveDiscardWhenYouDoSourceName || step.sourceName || 'Ability');
     const sourcePermanentId = String((step as any)?.reflexiveDiscardWhenYouDoSourcePermanentId || step.sourceId || '').trim();
@@ -657,7 +660,7 @@ export async function handleDiscardResponse(
   }
 
   if (!isDiscardCostActivation && !isExileFromHandCostActivation && !isGraveyardCastDiscardActivation && !isCleanupDiscard && movedCards.length > 0) {
-    queueDiscardTriggeredAbilities(game, gameId, String(pid), movedCards);
+    queueDiscardTriggeredAbilities(game, gameId, String(pid), movedCards, resolveDiscardCauseController((game as any).state, step));
     queueDiscardTriggeredGraveyardCastAbilities(game, gameId, String(pid), movedCards);
   }
 

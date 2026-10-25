@@ -14,7 +14,14 @@
 //   stampAttachmentTimestamp, stampMissingPermanentTimestamps, stampMissingTimestampsOnBattlefieldCopy,
 //   readPermanentTimestamp, readAttachmentTimestamp.
 
-export const TIMESTAMP_BASE = 1000;
+/** Floor for real (allocated) timestamps; any value above it is a genuine CR 613.7 timestamp. */
+export const REAL_TIMESTAMP_FLOOR = 1000;
+/** True when `value` is a real allocated timestamp rather than an unstamped/legacy index proxy. */
+export function isRealTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > REAL_TIMESTAMP_FLOOR;
+}
+/** @deprecated Use REAL_TIMESTAMP_FLOOR / isRealTimestamp. Kept as an alias for existing callers. */
+export const TIMESTAMP_BASE = REAL_TIMESTAMP_FLOOR;
 
 function finite(value: unknown): number | undefined {
   const n = Number(value);
@@ -36,9 +43,13 @@ export function highestAssignedTimestamp(state: any): number {
   return max;
 }
 
-/** Next timestamp (mutates `state.timestampCounter`). */
+/**
+ * Next timestamp (mutates `state.timestampCounter`). Counter-only: the battlefield is scanned just once, to seed a
+ * state that has no counter yet (fresh/hand-built states); afterwards every stamp comes from the counter.
+ */
 export function allocateTimestamp(state: any): number {
-  const next = highestAssignedTimestamp(state) + 1;
+  const counter = finite(state?.timestampCounter);
+  const next = (counter !== undefined && counter >= TIMESTAMP_BASE ? counter : highestAssignedTimestamp(state)) + 1;
   if (state && typeof state === 'object') state.timestampCounter = next;
   return next;
 }

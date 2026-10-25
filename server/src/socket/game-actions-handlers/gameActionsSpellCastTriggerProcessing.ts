@@ -1,3 +1,4 @@
+import { faceDownSpellCastView } from '../../state/modules/faceDownCastTriggerView.js';
 /**
  * Origin parent: server/src/socket/game-actions.ts
  *
@@ -50,6 +51,8 @@ export function processSpellCastTriggersForCast(
   castSourceZone?: SpellCastSourceZone,
   triggeringStackItemId?: string,
 ): void {
+  // Batch 14: a face-down spell is a 2/2 creature spell with no characteristics (CR 708.4).
+  spellCard = faceDownSpellCastView(game?.state, casterId, spellCard, triggeringStackItemId);
   try {
     const ctxForInterveningIf = { state: game.state } as any;
     const normalizedCastSourceZone = normalizeSpellCastSourceZone(castSourceZone);
@@ -96,7 +99,12 @@ export function processSpellCastTriggersForCast(
         bumpSeq: (game as any).bumpSeq,
       } as any, resolvedTriggeringStackItemId);
     }
-    const spellCastTriggers = getSpellCastTriggersForCard(game, casterId, spellCard, castSourceZone);
+    const spellCastTriggers = getSpellCastTriggersForCard(
+      game,
+      casterId,
+      spellCard,
+      castSourceZone,
+    );
     const castManaPayment = Array.isArray((triggeringStackItem as any)?.manaPayment)
       ? (triggeringStackItem as any).manaPayment
       : (Array.isArray((triggeringStackItem as any)?.card?.manaPayment)
@@ -202,7 +210,9 @@ export function processSpellCastTriggersForCast(
         sourceName: trigger.cardName,
         sourcePermanent: sourcePerm,
       });
-      const routesThroughDirectSpellCopy = trigger.copiesSpell === true;
+      // Copy triggers ("copy it") use the stack like any triggered ability (CR 603.3), so players can respond.
+      const copyTriggerOnStack = trigger.copiesSpell === true && Boolean(resolvedTriggeringStackItemId);
+      const routesThroughDirectSpellCopy = trigger.copiesSpell === true && !copyTriggerOnStack;
 
       if (trigger.optionalPaymentCost && !trigger.mandatory) {
         const triggerControllerId = String(trigger.controllerId || casterId);
@@ -260,13 +270,13 @@ export function processSpellCastTriggersForCast(
       );
 
       if (
-        !routesThroughDirectSpellCopy
+        copyTriggerOnStack || (!routesThroughDirectSpellCopy
         && (
           inferredTargetMetadata.requiresTarget === true
           || String(inferredTargetMetadata.targetZone || '').length > 0
           || String(inferredTargetMetadata.targetAction || '').length > 0
           || !hasShortcut
-        )
+        ))
       ) {
         const triggerId = uid('trigger');
         const stackItem = {
@@ -276,9 +286,9 @@ export function processSpellCastTriggersForCast(
           source: trigger.permanentId,
           permanentId: trigger.permanentId,
           sourceName: trigger.cardName,
-          description: trigger.description,
+          description: copyTriggerOnStack ? punctuateCopyRetargetRider(trigger.description) : trigger.description,
           triggerType: 'cast_creature_type',
-          effect: trigger.effect,
+          effect: copyTriggerOnStack ? punctuateCopyRetargetRider(trigger.effect) : trigger.effect,
           mandatory: trigger.mandatory,
           triggeringPlayer: String(casterId),
           addsLoyaltyCounters: trigger.addsLoyaltyCounters,
@@ -587,6 +597,7 @@ export function processOpponentSpellCastTriggersForCast(
   castSourceZone?: SpellCastSourceZone,
   triggeringStackItemId?: string,
 ): void {
+  spellCard = faceDownSpellCastView(game?.state, casterId, spellCard);
   try {
     const allPlayerIds = (game.state?.players || []).map((player: any) => player.id);
     const battlefield = game.state?.battlefield || [];
@@ -758,4 +769,10 @@ export function processOpponentSpellCastTriggersForCast(
   } catch (err) {
     debugWarn(1, '[processOpponentSpellCastTriggersForCast] Failed to process opponent spell triggers:', err);
   }
+}
+
+/** Trigger text builders can drop the period before the copy retarget rider ("copy that spell You may choose ..."). */
+function punctuateCopyRetargetRider(text: any): any {
+  if (typeof text !== 'string') return text;
+  return text.replace(/(\bcop(?:y|ies) (?:it|that spell|that copy|them))\s+(you may choose new targets)/i, '$1. $2');
 }

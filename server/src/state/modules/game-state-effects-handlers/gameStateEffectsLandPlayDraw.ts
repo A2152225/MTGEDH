@@ -5,6 +5,7 @@
 // clearTemporaryLandBonuses, detectSpellLandBonus, calculateAdditionalDraws.
 // Leaf must not import game-state-effects.ts or game-state-effects-handlers/index.ts.
 
+import { landPlayProhibitionSource } from "../playerActionProhibitions.js"; // B34
 import type { GameContext } from "../../context.js";
 import { isStationPermanentTypeLine } from "../../../../../rules-engine/src/stationPermanentUtils.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
@@ -136,6 +137,8 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
     debug(3, `[calculateMaxLandsPerTurn] Added +${temporaryBonus} temporary lands for ${playerId} (spell effect)`);
   }
   
+  const b34LandBan = landPlayProhibitionSource(battlefield as any[], playerId); // B34
+  if (b34LandBan) return 0;
   debug(3, `[calculateMaxLandsPerTurn] Final result for ${playerId}: ${maxLands} lands per turn`);
   return maxLands;
 }

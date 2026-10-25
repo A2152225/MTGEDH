@@ -18,11 +18,14 @@ import { appendEvent } from "../../db";
 import { canPlayerBeTargetedByPlayer } from "../../rules-engine/targeting";
 import { updateCounters } from "../../state/modules/counters_tokens.js";
 import { persistNamedSpellCastThisGame } from "../../state/modules/namedSpellsCastThisGame.js";
+import { queueSpellCopiedTriggers } from "../../state/modules/triggers/spell-copied.js";
+import { buildNextCastEffectStackItem, delayedNextCastEntryMatches } from "../../state/modules/nextCastDelayedRiders.js";
 import type { SpellCastTrigger } from "../../state/modules/triggered-abilities";
 import {
   persistTargetedTriggeredStackItems,
   triggerPermanentTargetedTriggersFromSpell,
 } from "../../state/modules/triggers/targeted.js";
+import { collectMatchingParsedEventLines } from "../../state/modules/triggers/triggerConditionFamilyMatch.js";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../../state/resolution/index.js";
 import { uid } from "../../state/utils";
 import { debug, debugWarn } from "../../utils/debug.js";
@@ -202,6 +205,7 @@ export function cloneTriggeredSpellCopy(
     triggeringStackItemId: copiedFromStackItemId,
     copiedStackItemId: String((copiedItem as any).id || '').trim() || undefined,
   });
+  queueSpellCopiedTriggers(game, String((copiedItem as any).id || ''), gameId);
 
   io.to(gameId).emit('chat', {
     id: `m_${Date.now()}`,
@@ -263,13 +267,7 @@ function spellQualifiesForDelayedCopy(entry: any, spellCard: any, casterId: stri
     return false;
   }
 
-  const spellType = String(entry?.spellType || '').trim();
-  const typeLine = String(spellCard?.type_line || '').toLowerCase();
-  if (spellType === 'instant_or_sorcery') {
-    return typeLine.includes('instant') || typeLine.includes('sorcery');
-  }
-
-  return false;
+  return delayedNextCastEntryMatches(entry, spellCard, casterId);
 }
 
 export function consumeDelayedSpellCopiesForCast(
@@ -328,6 +326,27 @@ export function consumeDelayedSpellCopiesForCast(
 
   for (const entry of matchingEntries) {
     const sourceName = String(entry?.sourceName || 'Spell copy').trim() || 'Spell copy';
+    if (typeof entry?.effect === 'string' && entry.effect.trim()) {
+      // Non-copy delayed trigger ("when you next cast a spell this turn, <effect>").
+      const effectItem = buildNextCastEffectStackItem(entry, spellCard, casterId, copiedFromStackItemId, uid('trigger'));
+      stack.push(effectItem);
+      try {
+        appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', {
+          triggerId: effectItem.id,
+          sourceId: effectItem.source || undefined,
+          sourceName: effectItem.sourceName,
+          controllerId: effectItem.controller,
+          description: effectItem.description,
+          triggerType: effectItem.triggerType,
+          effect: effectItem.effect,
+          mandatory: effectItem.mandatory,
+          triggeringStackItemId: effectItem.triggeringStackItemId,
+        });
+      } catch (err) {
+        debugWarn(1, '[castSpell] appendEvent(pushTriggeredAbility next_cast_delayed) failed:', err);
+      }
+      continue;
+    }
     const copiedItem: any = {
       ...original,
       id: uid('copied_spell'),
@@ -383,6 +402,7 @@ export function consumeDelayedSpellCopiesForCast(
       triggeringStackItemId: copiedFromStackItemId,
       copiedStackItemId: String((copiedItem as any).id || '').trim() || undefined,
     });
+    queueSpellCopiedTriggers(game, String((copiedItem as any).id || ''), gameId);
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
@@ -479,7 +499,7 @@ interface HeroicTrigger {
  * @param targetIds The IDs of permanents targeted by the spell
  * @returns Array of heroic triggers to fire
  */
-export function getHeroicTriggers(game: any, casterId: string, targetIds: string[]): HeroicTrigger[] {
+export function getHeroicTriggers(game: any, casterId: string, targetIds: string[], spellCard?: any): HeroicTrigger[] {
   const triggers: HeroicTrigger[] = [];
   const battlefield = game.state?.battlefield || [];
   
@@ -495,47 +515,63 @@ export function getHeroicTriggers(game: any, casterId: string, targetIds: string
     const typeLine = (permanent.card.type_line || '').toLowerCase();
     if (!typeLine.includes('creature')) continue;
     
-    const oracleText = (permanent.card.oracle_text || '');
-    const lowerOracle = oracleText.toLowerCase();
-    const lowerCardName = String(permanent.card.name || '').toLowerCase();
-    
-    // Check for heroic pattern: "Heroic G�� Whenever you cast a spell that targets ~"
-    // Must match the specific keyword ability format with em-dash or colon
-    // Also check for non-keyworded heroic: "Whenever you cast a spell that targets this creature"
-    const heroicKeywordMatch = /heroic\s*(?:�|�|:|-|G��)/i.test(oracleText);
-    const hasTargetTrigger = lowerOracle.includes('whenever you cast a spell that targets') && 
-                 (lowerOracle.includes('this creature') || lowerOracle.includes('~') || (!!lowerCardName && lowerOracle.includes(`targets ${lowerCardName}`)));
-    
-    if (heroicKeywordMatch || hasTargetTrigger) {
-      // Extract the effect text - handle multi-sentence effects by capturing until end of ability
-      let effectText = '';
-      
-      // Try to match heroic pattern with em-dash/colon - capture everything after the trigger condition
-      // Use a more permissive pattern that captures until newline or end of text
-      const heroicMatch = oracleText.match(/heroic\s*(?:�|�|:|-|G��)\s*whenever you cast a spell that targets [^,\n]+,?\s*(.+?)(?:\n|$)/i);
-      if (heroicMatch) {
-        effectText = heroicMatch[1].trim();
-      } else {
-        // Try generic pattern for non-keyworded heroic
-        const escapedCardName = lowerCardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const genericMatch = oracleText.match(new RegExp(`whenever you cast a spell that targets (?:this creature|~|${escapedCardName}),?\\s*(.+?)(?:\\n|$)`, 'i'));
-        if (genericMatch) {
-          effectText = genericMatch[1].trim();
-        }
-      }
-      
-      if (effectText) {
+    // Heroic / "whenever you cast a spell that targets ~" comes from the trigger IR
+    // (spell_cast with targets 'self'), matched against the spell's target ids.
+    for (const line of collectMatchingParsedEventLines({
+      ctx: { state: game.state },
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'spell_cast',
+      subjectPermanent: spellCard || {},
+      subjectControllerId: casterId,
+      sourcePermanent: permanent,
+      targetPermanentIds: targetIds,
+    })) {
+      if (line.condition?.targets !== 'self') continue;
+      const effectText = String(line.effect || '').trim();
+      if (!effectText) continue;
+      triggers.push({
+        permanentId: permanent.id,
+        cardName: permanent.card.name || 'Unknown',
+        controllerId: permanent.controller,
+        effect: effectText,
+        description: `Heroic \u2014 Whenever you cast a spell that targets ${permanent.card.name}, ${effectText}`,
+      });
+    }
+  }
+  // "Whenever you cast a spell that targets a creature [you control]" (any watcher on the battlefield).
+  const targetPermanents = targetIds
+    .map((id) => battlefield.find((p: any) => p?.id === id))
+    .filter((p: any) => p?.card)
+    .map((p: any) => ({ typeLine: String(p.card.type_line || ''), controllerId: String(p.controller || '') }));
+  if (spellCard && targetPermanents.length > 0) {
+    for (const watcher of battlefield) {
+      if (!watcher?.card || String(watcher.controller || '') !== String(casterId)) continue;
+      const oracle = String(watcher.card.oracle_text || '');
+      if (!/that targets (?:a|one or more) creature/i.test(oracle)) continue;
+      for (const line of collectMatchingParsedEventLines({
+        ctx: { state: game.state },
+        oracleText: oracle,
+        event: 'spell_cast',
+        subjectPermanent: spellCard,
+        subjectControllerId: casterId,
+        sourcePermanent: watcher,
+        targetPermanentIds: targetIds,
+        matchContext: { targetPermanents },
+      })) {
+        if (line.condition?.targets !== 'creature' && line.condition?.targets !== 'creature_you_control') continue;
+        const effectText = String(line.effect || '').trim();
+        if (!effectText) continue;
         triggers.push({
-          permanentId: permanent.id,
-          cardName: permanent.card.name || 'Unknown',
-          controllerId: permanent.controller,
+          permanentId: watcher.id,
+          cardName: watcher.card.name || 'Unknown',
+          controllerId: watcher.controller,
           effect: effectText,
-          description: `Heroic G�� Whenever you cast a spell that targets ${permanent.card.name}, ${effectText}`,
+          description: `Whenever you cast a spell that targets a creature, ${effectText}`,
         });
       }
     }
   }
-  
+
   return triggers;
 }
 

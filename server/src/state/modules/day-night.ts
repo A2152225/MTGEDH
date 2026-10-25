@@ -187,14 +187,20 @@ export function ensureInitialDayNightDesignationFromBattlefield(state: any): voi
     const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
     let hasDaybound = false;
     let hasNightbound = false;
+    // "If it's neither day nor night, it becomes day/night as ~ enters."
+    let becomesOnEnter: 'day' | 'night' | null = null;
     for (const perm of battlefield) {
       const oracle = String(perm?.card?.oracle_text || '').toLowerCase();
       if (!hasDaybound && oracle.includes('daybound')) hasDaybound = true;
       if (!hasNightbound && oracle.includes('nightbound')) hasNightbound = true;
-      if (hasDaybound && hasNightbound) break;
+      if (!becomesOnEnter) {
+        const m = oracle.replace(/\u2019/g, "'").match(/neither day nor night, it becomes (day|night) as /);
+        if (m) becomesOnEnter = m[1] as 'day' | 'night';
+      }
     }
 
-    if (hasDaybound) setDayNightState(state, 'day');
+    if (becomesOnEnter) setDayNightState(state, becomesOnEnter);
+    else if (hasDaybound) setDayNightState(state, 'day');
     else if (hasNightbound) setDayNightState(state, 'night');
   } catch (err) {
     debugWarn(1, '[day-night] Failed to ensure initial day/night designation:', err);

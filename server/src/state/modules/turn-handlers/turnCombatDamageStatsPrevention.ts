@@ -8,6 +8,7 @@
 import type { GameContext } from "../../context.js";
 import { canDamageBePrevented } from "../game-state-effects.js";
 import { calculateAllPTBonuses, calculateVariablePT, parsePT } from "../../utils.js";
+import { getCurrentPowerToughness } from "../currentPowerToughness.js";
 import { debug } from "../../../utils/debug.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -21,6 +22,9 @@ function isFiniteNumber(value: unknown): value is number {
 
 export function getCombatCreatureStats(ctx: GameContext, permanent: any): { power: number; toughness: number } {
   const card = permanent?.card || {};
+  // Layer 7 evaluator first so combat damage matches the displayed P/T.
+  const layer7 = getCurrentPowerToughness(permanent, (ctx as any)?.state);
+  if (layer7) return { power: Math.max(0, layer7.power), toughness: layer7.toughness };
 
   if (isFiniteNumber((permanent as any)?.effectivePower) && isFiniteNumber((permanent as any)?.effectiveToughness)) {
     return {
@@ -87,6 +91,8 @@ function getSourceColorsForPrevention(sourceCard: any): string[] {
     .map((color: any) => String(color || '').trim().toUpperCase())
     .filter(Boolean);
 }
+
+import { recordDamageReplacementMessages } from '../replacementDamageLog.js';
 
 export function applyCombatDamagePreventionEffects(
   ctx: GameContext,
@@ -159,6 +165,10 @@ export function applyCombatDamagePreventionEffects(
     }
 
     debug(2, `${ts()} [dealCombatDamage] Prevented ${prevented} combat damage from ${normalizedSourceId || sourceCard?.name || 'source'}`);
+    if (prevented > 0) {
+      const by = String(effect?.sourceName || effect?.source || '').trim();
+      recordDamageReplacementMessages(state, [`${by ? `${by}: ` : ''}prevented ${prevented} combat damage from ${sourceCard?.name || 'source'}`], initialAmount, Math.max(0, initialAmount - prevented));
+    }
     return { prevented, remainingDamage: Math.max(0, initialAmount - prevented) };
   }
 

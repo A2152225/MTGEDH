@@ -30,6 +30,7 @@
  */
 
 
+import { countDevotionAmongPermanents } from "../../../../shared/src/devotionCount.js";
 import { debug } from "../../utils/debug.js";
 import { battlefieldPermanentInstanceCount, countControlledCreaturesOfChosenType } from "./chosen-creature-type.js";
 import { extractCreatureTypes } from "../../../../shared/src/creatureTypes.js";
@@ -186,53 +187,7 @@ export function calculateDevotion(
   playerId: string,
   color: 'W' | 'U' | 'B' | 'R' | 'G'
 ): number {
-  const battlefield = gameState?.battlefield || [];
-  let devotion = 0;
-  
-  const devotedPermanents: string[] = [];
-  
-  for (const permanent of battlefield) {
-    if (!permanent || permanent.controller !== playerId) continue;
-    
-    const manaCost = permanent.card?.mana_cost || "";
-    
-    // Count occurrences of the color symbol
-    // Format: {W}, {U}, {B}, {R}, {G}
-    // Also count hybrid: {W/U}, {W/B}, etc. and Phyrexian: {W/P}
-    const colorSymbol = color;
-    
-    let permDevotion = 0;
-    
-    // Count regular mana symbols: {W}, {U}, etc.
-    const singleColorRegex = new RegExp(`\\{${colorSymbol}\\}`, 'gi');
-    const singleMatches = manaCost.match(singleColorRegex) || [];
-    permDevotion += singleMatches.length;
-    
-    // Count hybrid mana symbols: {W/U}, {R/G}, etc. - each counts as 1 devotion to BOTH colors
-    const hybridRegex = new RegExp(`\\{${colorSymbol}\\/[WUBRGP]\\}|\\{[WUBRG]\\/${colorSymbol}\\}`, 'gi');
-    const hybridMatches = manaCost.match(hybridRegex) || [];
-    permDevotion += hybridMatches.length;
-    
-    // Count 2-brid symbols: {2/W} etc.
-    const twobrideRegex = new RegExp(`\\{2\\/${colorSymbol}\\}`, 'gi');
-    const twobrideMatches = manaCost.match(twobrideRegex) || [];
-    permDevotion += twobrideMatches.length;
-    
-    if (permDevotion > 0) {
-      devotedPermanents.push(`${permanent.card?.name || 'Unknown'} (${permDevotion})`);
-    }
-    devotion += permDevotion;
-  }
-  
-  if (color === 'G') {
-    debug(2, `[calculateDevotion] Green devotion for ${playerId}:`, {
-      totalDevotion: devotion,
-      permanents: devotedPermanents,
-      battlefieldCount: battlefield.filter((p: any) => p?.controller === playerId).length,
-    });
-  }
-  
-  return devotion;
+  return countDevotionAmongPermanents(gameState?.battlefield || [], playerId, [color]);
 }
 
 /**

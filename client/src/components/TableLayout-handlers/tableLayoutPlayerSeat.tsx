@@ -3,6 +3,7 @@
 // Public entry symbols: renderTableLayoutPlayerSeat.
 
 import React from 'react';
+import { revealedByLabel } from '../../utils/revealedInformationLabel';
 import type {
   BattlefieldPermanent,
   CardCostAdjustment,
@@ -36,6 +37,7 @@ import {
 } from './tableLayoutGeometry';
 import type { TableLayoutSeatPosition } from './useTableLayoutViewport';
 import { TableLayoutPlayerSeatHeader } from './tableLayoutPlayerSeatHeader';
+import { readPlayerRadCounters } from '../../utils/playerRadCounters';
 
 const OPP_THUMB_W = 42;
 const OPP_THUMB_H = 57;
@@ -250,6 +252,7 @@ export function renderTableLayoutPlayerSeat({
                 const isEliminated = Boolean(pb.player.hasLost) || Boolean(pb.player.eliminated) || lifeVal <= 0;
                 const poisonVal = poisonCounters?.[pb.player.id] ?? 0;
                 const xpVal = experienceCounters?.[pb.player.id] ?? 0;
+                const radVal = readPlayerRadCounters(pb.player);
                 const energyVal =
                   energyCounters?.[pb.player.id] ??
                   energy?.[pb.player.id] ??
@@ -302,6 +305,7 @@ export function renderTableLayoutPlayerSeat({
                           poisonVal={poisonVal}
                           xpVal={xpVal}
                           energyVal={energyVal}
+                          radVal={radVal}
                           getSeatManaPool={getSeatManaPool}
                           isYouThis={isYouThis}
                           externalDeckMgrAnchorEl={externalDeckMgrAnchorEl}
@@ -619,6 +623,11 @@ export function renderTableLayoutPlayerSeat({
                               }}
                             >
                               <span>Hand</span>
+                              {revealedByLabel((zObj as any)?.handRevealedBy) && (
+                                <span data-testid="hand-revealed-by" style={{ fontSize: 10, color: '#fbbf24' }}>
+                                  {revealedByLabel((zObj as any)?.handRevealedBy)}
+                                </span>
+                              )}
                               <span>{playerHandCount} cards</span>
                             </div>
                             <div

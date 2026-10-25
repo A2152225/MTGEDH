@@ -11,6 +11,20 @@ import {
   getCurrentTurnNumber,
   stampCardsPutIntoGraveyardThisTurn,
 } from './oracleIRExecutorPlayerZoneAccess';
+import { applyDiscardToBattlefieldReplacements } from './discardToBattlefieldReplacement';
+
+/** Loxodon Smiter-style replacement: opponent-caused discards of matching cards go to the battlefield. */
+function withDiscardToBattlefield<R extends { state: GameState; discardedCards: any[]; log: string[] }>(
+  result: R,
+  playerId: PlayerID,
+  bridgeOptions?: PlayerZoneChangeBridgeContext,
+): R {
+  const source = (bridgeOptions?.ctx as any)?.controllerId;
+  if (!result?.discardedCards?.length || !source) return result;
+  const applied = applyDiscardToBattlefieldReplacements(result.state, playerId, result.discardedCards, String(source));
+  if (!applied.redirected.length) return result;
+  return { ...result, state: applied.state, log: [...result.log, `${applied.redirected.length} discarded card(s) put onto the battlefield instead`] };
+}
 
 function discardProvenanceFields(
   state: GameState,
@@ -65,6 +79,15 @@ function applyDiscardProvenanceToGraveyardCards(
 }
 
 export function discardCardsForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  count: number,
+  bridgeOptions?: PlayerZoneChangeBridgeContext,
+): ReturnType<typeof discardCardsForPlayerRaw> {
+  return withDiscardToBattlefield(discardCardsForPlayerRaw(state, playerId, count, bridgeOptions), playerId, bridgeOptions);
+}
+
+function discardCardsForPlayerRaw(
   state: GameState,
   playerId: PlayerID,
   count: number,
@@ -153,6 +176,15 @@ export function discardCardsForPlayer(
 }
 
 export function discardSpecificCardsForPlayer(
+  state: GameState,
+  playerId: PlayerID,
+  cardIds: readonly string[],
+  bridgeOptions?: PlayerZoneChangeBridgeContext,
+): ReturnType<typeof discardSpecificCardsForPlayerRaw> {
+  return withDiscardToBattlefield(discardSpecificCardsForPlayerRaw(state, playerId, cardIds, bridgeOptions) as any, playerId, bridgeOptions) as any;
+}
+
+function discardSpecificCardsForPlayerRaw(
   state: GameState,
   playerId: PlayerID,
   cardIds: readonly string[],

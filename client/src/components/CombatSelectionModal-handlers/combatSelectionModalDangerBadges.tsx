@@ -46,6 +46,20 @@ export function DangerIndicatorBadges({ dangers }: { dangers: DangerIndicators }
     badges.push(<DangerBadge key="goad" label="🎯GOAD" color="#d97706" tooltip={goadTooltip} />);
   }
   
+  // Attack/block requirements (rule 508.1d / 509.1c) and restrictions.
+  if (dangers.mustAttack && !dangers.goaded) {
+    badges.push(<DangerBadge key="mustatk" label="MUST ATK" color="#d97706" tooltip="Attacks each combat if able" />);
+  }
+  if (dangers.mustBlock) {
+    badges.push(<DangerBadge key="mustblk" label="MUST BLK" color="#d97706" tooltip="Blocks each combat if able" />);
+  }
+  if (dangers.cantAttack) {
+    badges.push(<DangerBadge key="noatk" label="NO ATK" color="#6b7280" tooltip="Can't attack" />);
+  }
+  if (dangers.cantBlock) {
+    badges.push(<DangerBadge key="noblk" label="NO BLK" color="#6b7280" tooltip="Can't block" />);
+  }
+
   if (dangers.lure) {
     badges.push(<DangerBadge key="lure" label="🧲LURE" color="#f472b6" tooltip="Lure - All creatures able to block this creature must do so" />);
   }

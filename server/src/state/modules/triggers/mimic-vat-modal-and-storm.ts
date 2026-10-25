@@ -8,6 +8,7 @@
 
 import type { GameContext } from "../../context.js";
 import { detectTargetType } from "./detect-target-type.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 // ============================================================================
 // Mimic Vat and Imprint Triggers
 // ============================================================================
@@ -44,7 +45,8 @@ const KNOWN_IMPRINT_ON_DEATH_CARDS: Record<string, { effect: string; canExile: b
  * Detect Mimic Vat-style imprint triggers from a permanent's oracle text
  * Pattern: "Whenever a nontoken creature dies, you may exile that card"
  */
-export function detectMimicVatTriggers(card: any, permanent: any): boolean {
+export function detectMimicVatTriggers(card: any, permanent: any, gameState?: any): boolean {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'dies' })) return false; // Humility / Torpor Orb gate
   const oracleText = (card?.oracle_text || "").toLowerCase();
   const cardName = (card?.name || "").toLowerCase();
   
@@ -88,7 +90,7 @@ export function getMimicVatTriggers(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
     
-    const hasMimicVatTrigger = detectMimicVatTriggers(permanent.card, permanent);
+    const hasMimicVatTrigger = detectMimicVatTriggers(permanent.card, permanent, (ctx as any)?.state);
     
     if (hasMimicVatTrigger) {
       const cardName = (permanent.card.name || "").toLowerCase();

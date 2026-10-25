@@ -6,6 +6,7 @@ import { transformPermanentToFace } from './day-night.js';
 import { tryResolveThassasOracleWin } from './game-state-effects.js';
 import { queueInitiativeVentureTrigger, resolveVentureProgress } from './triggerVentureUtils.js';
 import { queueParsedKeywordAction } from './triggerEmissionFamilyUtils.js';
+import { queueDieRollResultTriggers } from './triggers/eventSpecificLegacyTriggers.js';
 
 function normalizeEffectText(text: string): string {
   return String(text || '').replace(/\u2019/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
@@ -93,6 +94,11 @@ export function bridgeGameStateOracleEffectsAfterOracleIR(
     if (!action || queuedActions.has(action)) continue;
     queuedActions.add(action);
     queueParsedKeywordAction(ctx, String(params.controller), action);
+  }
+  if (queuedActions.has('roll_die')) {
+    const roll = (state as any).lastDieRollByPlayer?.[String(params.controller)];
+    const results = Array.isArray(roll?.results) ? roll.results : (roll?.result != null ? [roll.result] : []);
+    queueDieRollResultTriggers(ctx, String(params.controller), results);
   }
 
   if (!kinds.has('become_monarch') && (desc.includes('become the monarch') || desc.includes('you become the monarch'))) {

@@ -9,6 +9,7 @@
  */
 import type { Server, Socket } from "socket.io";
 import type { PaymentItem, PlayerID } from "../../../../shared/src/index.js";
+import { faceDownCastManaCostOverride } from "../../state/modules/faceDownCasting.js";
 import {
   canUseFreeAlternateCost,
   getSelfRatherThanPayAlternateManaCost,
@@ -18,6 +19,7 @@ import {
   parseWarpCost,
   parseImpendingInfo,
 } from "../../state/modules/alternate-costs.js";
+import { consumeAssistCredit } from "../assistPaymentFlow.js";
 import { spellHasConvokeForCast } from "../../state/modules/casting-modifiers.js";
 import {
   applyWebSlingingReturnedCreatureCost,
@@ -183,7 +185,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
         : null;
       const resolvedImpendingCost = resolvedImpendingInfo?.cost || '';
       const resolvedKeywordAlternateCost = (!resolvedWarpCost && !resolvedImpendingCost && alternateCostId && alternateCostId !== 'normal' && alternateCostId !== 'alternate')
-        ? (parseKeywordAlternateManaCost(String(cardInHand.oracle_text || ''), alternateCostId) || '')
+        ? (faceDownCastManaCostOverride(alternateCostId) || parseKeywordAlternateManaCost(String(cardInHand.oracle_text || ''), alternateCostId) || '')
         : '';
       const resolvedRatherThanPayCost = alternateCostId === 'alternate'
         ? (getSelfRatherThanPayAlternateManaCost(game as any, playerId, cardInHand) || '')
@@ -383,7 +385,8 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
       }
       
       // Calculate total mana cost for spell from hand (using reduced cost)
-      const totalGeneric = payableCost.generic;
+      // Assist (CR 702.132): generic mana already paid by a helping player.
+      const totalGeneric = isForceAltCostPaid ? payableCost.generic : consumeAssistCredit(game.state, playerId, String(cardInHand?.id || ''), payableCost.generic);
       const totalColored = payableCost.colors;
       const castingTypeLine = String(cardInHand?.type_line || '').toLowerCase();
       const castingCreatureSpell = castingTypeLine.includes('creature');

@@ -625,6 +625,7 @@ export function handleAppResolutionStepPromptLate(
             owner: ownerId,
             ownerName,
             card,
+            flagbearerRequired: Array.isArray((step as any).requiredFlagbearerIds) && (step as any).requiredFlagbearerIds.includes(t.id) ? true : undefined,
           };
         };
         const validTargets: TargetOption[] = rawTargets.map(mapTargetOption);
@@ -672,12 +673,13 @@ export function handleAppResolutionStepPromptLate(
           targets: validTargets,
           // Auras must always require exactly one host. Treat 0 as missing so a bad
           // server payload cannot lock the modal into not-allowed / unselectable hosts.
-          minTargets: Array.isArray((step as any).targetTypes) && (step as any).targetTypes.includes('aura_target')
+          minTargets: (step as any).upkeepPaidUntapSelection === true ? 0 : Array.isArray((step as any).targetTypes) && (step as any).targetTypes.includes('aura_target')
             ? Math.max(1, Number(step.minTargets ?? 1))
             : (step.minTargets ?? 1),
           maxTargets: Array.isArray((step as any).targetTypes) && (step as any).targetTypes.includes('aura_target')
             ? Math.max(1, Number(step.maxTargets ?? 1))
             : (step.maxTargets ?? 1),
+          costPerTarget: (step as any).upkeepPaidUntapSelection === true ? Number((step as any).upkeepPaidUntapCostPerCreature || 0) : undefined,
           targetGroups,
           perOpponent,
           opponents: Array.isArray((step as any).opponents) ? (step as any).opponents : undefined,

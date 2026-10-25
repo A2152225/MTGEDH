@@ -11,6 +11,8 @@ import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { resolveOracleIrBoundTargetSpellId } from './oracleIrTargetBinding';
 import { getStackItems } from './stackOperations';
 import { tryApplySeatDirectionNonlandControlRotation } from './oracleIRExecutorLoyaltyDirectionGainControl';
+import { allocateTimestamp } from './permanentTimestamps';
+import { readCharacteristicNumber } from './oracleIRExecutorBattlefieldCharacteristicNumber';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -204,6 +206,43 @@ export function applyGainControlStep(
       applied: true,
       state: { ...(state as any), controlledPlayerNextTurn } as GameState,
       log: [`${controllerId} gains control of ${targetOpponentId} during that player's next turn`],
+    };
+  }
+
+  // Mob Rule / Insurrection: gain control of all creatures (optionally "with power N or greater/less").
+  const massMatch = /gain\s+control\s+of\s+all\s+creatures(?:\s+with\s+power\s+(\d+)\s+or\s+(greater|less))?(?:\s+until\s+end\s+of\s+turn)?\s*\.?$/i.exec(raw);
+  if (massMatch) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    if (!controllerId) {
+      return { applied: false, message: `Skipped gain-control (no controller): ${step.raw}`, reason: 'no_deterministic_target' };
+    }
+    const threshold = massMatch[1] !== undefined ? Number(massMatch[1]) : undefined;
+    const temporary = step.duration !== 'indefinite';
+    const controlChangeEffects = Array.isArray((state as any).controlChangeEffects) ? [...(state as any).controlChangeEffects] : [];
+    const permanentControlEffects = Array.isArray((state as any).permanentControlEffects) ? [...(state as any).permanentControlEffects] : [];
+    const stolenIds: string[] = [];
+    const nextBattlefield = ((state.battlefield || []) as any[]).map((permanent: any) => {
+      if (!permanentMatchesType(permanent, 'creature')) return permanent;
+      if (threshold !== undefined) {
+        const power = readCharacteristicNumber(permanent?.effectivePower, permanent?.basePower, permanent?.card?.power, permanent?.power);
+        if (power === undefined) return permanent;
+        if (massMatch[2] === 'greater' ? power < threshold : power > threshold) return permanent;
+      }
+      const current = String(permanent?.controller || '').trim();
+      if (!current) return permanent;
+      stolenIds.push(String(permanent.id));
+      if (current === controllerId) return permanent;
+      const entry = { permanentId: String(permanent.id), originalController: current, newController: controllerId,
+        duration: temporary ? step.duration : 'permanent', appliedAt: Date.now(), ceTimestamp: allocateTimestamp(state as any) };
+      (temporary ? controlChangeEffects : permanentControlEffects).push(entry);
+      return { ...permanent, controller: controllerId, summoningSickness: true, ...(permanent.controlBase ? {} : { controlBase: current }) };
+    });
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield: nextBattlefield, controlChangeEffects, permanentControlEffects } as GameState,
+      log: [`Gained control of ${stolenIds.length} creature(s)`],
+      lastAntecedentBattlefieldPermanentIds: stolenIds,
+      lastMovedBattlefieldPermanentIds: stolenIds,
     };
   }
 
@@ -725,20 +764,30 @@ export function applyGainControlStep(
   ).trim() || currentController;
   const nextControlChangeEffects = existingEffects.filter((_, index) => index !== existingEffectIndex);
 
+  // Layer 2 registry entry, stamped now (CR 613.7): the controller is derived from the latest active entry.
+  const ceTimestamp = allocateTimestamp(state as any);
+  const nextPermanentControlEffects = Array.isArray((state as any).permanentControlEffects)
+    ? [...((state as any).permanentControlEffects as any[])]
+    : [];
+  const registryEntry = {
+    permanentId: targetPermanentId,
+    originalController: originalController as PlayerID,
+    newController: newController as PlayerID,
+    duration: step.duration,
+    appliedAt: Date.now(),
+    ceTimestamp,
+  };
   if (step.duration !== 'indefinite') {
-    nextControlChangeEffects.push({
-      permanentId: targetPermanentId,
-      originalController: originalController as PlayerID,
-      newController: newController as PlayerID,
-      duration: step.duration,
-      appliedAt: Date.now(),
-    });
+    nextControlChangeEffects.push(registryEntry);
+  } else {
+    nextPermanentControlEffects.push({ ...registryEntry, duration: 'permanent' });
   }
 
   battlefield[targetIndex] = {
     ...targetPermanent,
     controller: newController,
     summoningSickness: true,
+    ...((targetPermanent as any).controlBase ? {} : { controlBase: originalController }),
   } as BattlefieldPermanent;
 
   return {
@@ -747,6 +796,7 @@ export function applyGainControlStep(
       ...(state as any),
       battlefield,
       controlChangeEffects: nextControlChangeEffects,
+      ...(nextPermanentControlEffects.length > 0 ? { permanentControlEffects: nextPermanentControlEffects } : {}),
     } as GameState,
     log: [
       `${targetPermanentId} changes control to ${newController}` +

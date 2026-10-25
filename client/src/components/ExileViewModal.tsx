@@ -32,6 +32,8 @@ export interface ExileViewModalProps {
   onIgnoreForPlayability?: (cardId: string, cardName: string, imageUrl?: string) => void;
   onUnignoreForPlayability?: (cardId: string) => void;
   ignoredCardIds?: Set<string>;
+  /** Current turn number; marks Uba Mask-style cards exiled this turn as playable. */
+  currentTurn?: number;
 }
 
 function isUnknownFaceDownExileCard(card: KnownCardRef): boolean {
@@ -49,8 +51,21 @@ function exileCardDisplayName(card: KnownCardRef): string {
   return card.name || (isHideawayExileCard(card) ? 'Hideaway' : 'Unknown card');
 }
 
-function parseExileAbilities(card: KnownCardRef): ExileAbility[] {
+/** Uba Mask: a card exiled instead of drawn (exiledWithSourceId + ubaMaskExiledTurn) is playable the turn it was exiled. */
+export function isPlayableThisTurnFromExile(card: any, currentTurn?: number): boolean {
+  if (!card?.exiledWithSourceId || card.ubaMaskExiledTurn === undefined || card.ubaMaskExiledTurn === null) return false;
+  return currentTurn === undefined || Number(card.ubaMaskExiledTurn) === Number(currentTurn);
+}
+
+export function parseExileAbilities(card: KnownCardRef, currentTurn?: number, playableCards?: string[]): ExileAbility[] {
   if (isUnknownFaceDownExileCard(card)) return [];
+  if (isPlayableThisTurnFromExile(card, currentTurn)) {
+    // The server's playable list is authoritative (e.g. Uba Mask left the battlefield): don't advertise a dead permission.
+    if (playableCards && !playableCards.includes(String((card as any).id))) {
+      return [{ id: 'exiled-instead-of-draw', label: 'Exiled instead of drawn', description: 'Exiled by Uba Mask; not playable by you right now' }];
+    }
+    return [{ id: 'play-from-exile', label: 'Playable this turn', description: 'Exiled instead of drawn (Uba Mask): you may play it this turn' }];
+  }
   const abilities: ExileAbility[] = [];
   const oracleText = (card.oracle_text || '').toLowerCase();
   
@@ -131,6 +146,7 @@ export function ExileViewModal({
   onIgnoreForPlayability,
   onUnignoreForPlayability,
   ignoredCardIds = new Set(),
+  currentTurn,
 }: ExileViewModalProps) {
   const [selectedCard, setSelectedCard] = useState<KnownCardRef | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -138,8 +154,8 @@ export function ExileViewModal({
   const [contextMenu, setContextMenu] = useState<{ card: KnownCardRef; x: number; y: number } | null>(null);
 
   const cardsWithAbilities = useMemo(() => 
-    cards.map(card => ({ card, abilities: parseExileAbilities(card) })),
-    [cards]
+    cards.map(card => ({ card, abilities: parseExileAbilities(card, currentTurn, playableCards) })),
+    [cards, currentTurn, playableCards]
   );
 
   const suspendedCards = useMemo(() => 
@@ -331,7 +347,7 @@ export function ExileViewModal({
               <button onClick={() => setSelectedCard(null)} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>
             </div>
             
-            {parseExileAbilities(selectedCard).map((ability) => (
+            {parseExileAbilities(selectedCard, currentTurn, playableCards).map((ability) => (
               <div key={ability.id} style={{ padding: 8, backgroundColor: '#1a1a2e', borderRadius: 6, marginBottom: 8, border: '1px solid #4a4a6a' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
                   <div style={{ fontWeight: 600, fontSize: 14, color: ability.id === 'suspend' ? '#f59e0b' : '#a78bfa' }}>{ability.label}</div>
@@ -377,7 +393,7 @@ export function ExileViewModal({
               </div>
             )}
 
-            {parseExileAbilities(selectedCard).length === 0 && !isHideawayExileCard(selectedCard) && (
+            {parseExileAbilities(selectedCard, currentTurn, playableCards).length === 0 && !isHideawayExileCard(selectedCard) && (
               <div style={{ fontSize: 12, color: '#888', fontStyle: 'italic', padding: 8 }}>
                 No special abilities from exile
               </div>

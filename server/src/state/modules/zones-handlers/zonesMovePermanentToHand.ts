@@ -1,3 +1,4 @@
+import { recordFaceDownReveal } from '../faceDownRevealLog.js';
 // server/src/state/modules/zones-handlers/zonesMovePermanentToHand.ts
 // Origin parent: server/src/state/modules/zones.ts
 // Cluster moved: movePermanentToHand.
@@ -45,7 +46,9 @@ export function movePermanentToHand(ctx: GameContext, permanentId: string): bool
     // best-effort only
   }
 
-  const card = perm.card;
+  // Batch 14: a bounced face-down permanent goes to hand as its real card and is revealed (CR 708.9).
+  const card = ((perm as any).isFaceDown === true && (perm as any).faceUpCard) ? (perm as any).faceUpCard : perm.card;
+  try { recordFaceDownReveal(state, perm); } catch { /* best-effort */ }
 
   clearPreparedStateOnBattlefieldExit(state, perm);
 

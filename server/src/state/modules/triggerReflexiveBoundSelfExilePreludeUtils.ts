@@ -7,7 +7,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
-import { executeSpellEffect } from './executeSpellEffect.js';
+import { executeSpellEffectRecorded } from './executeSpellEffectRecorded.js';
 import { REFLEXIVE_BOUND_GRAVEYARD_SELF_EXILE_PRELUDE_MILL_REASON } from './executeSpellEffectMillCards.js';
 
 const WORD_TO_NUMBER: Record<string, number> = {
@@ -63,8 +63,9 @@ export function executeReflexiveBoundSelfExilePrelude(
     .map((player: any) => String(player.id));
 
   for (const playerId of playerIds) {
-    executeSpellEffect(
+    executeSpellEffectRecorded(
       ctx,
+      { id: String(sourcePermanentId || ''), cardId: String(sourcePermanentId || ''), card: { name: sourceName }, targets: [] },
       {
         kind: 'MillCards',
         playerId: playerId as PlayerID,

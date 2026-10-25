@@ -38,7 +38,7 @@ export interface UntapStepEffect {
   sourceCounterMin?: number;
 }
 
-const SELF_UNTAP_THIS = /untap this (?:artifact|creature|land|permanent) during each other player's untap step/i;
+const SELF_UNTAP_THIS = /untap (?:this (?:artifact|creature|land|permanent|enchantment|vehicle|card)|~) during each other player's untap step/i;
 const GRANTS_SELF_UNTAP = /(?:enchanted|equipped)\s+\w+\s+has\s+["']untap this (?:artifact|creature|land|permanent) during each other player's untap step/i;
 const GROUP_UNTAP = /untap (?:all|each) (.+?) during each other player's untap step/i;
 const SOURCE_COUNTER_GATE = /as long as there (?:are|is) (\w+|\d+)(?: or more)? (\w+) counters? on/i;
@@ -224,8 +224,10 @@ export function detectUntapStepEffects(card: any, permanent: any): UntapStepEffe
 
   for (const abilityText of collectPermanentAbilityTexts(card, permanent)) {
     if (GRANTS_SELF_UNTAP.test(abilityText)) continue;
-    const namedSelf = Boolean(cardName) && new RegExp(
-      `\\buntap\\s+${escapeRegExp(cardName)}\\b during each other player's untap step`,
+    const shortName = String(cardName || '').split(',')[0].trim();
+    const nameAlternatives = [cardName, shortName].filter(Boolean).map(escapeRegExp).join('|');
+    const namedSelf = Boolean(nameAlternatives) && new RegExp(
+      `\\buntap\\s+(?:${nameAlternatives})\\b during each other player's untap step`,
       'i',
     ).test(abilityText);
     if (SELF_UNTAP_THIS.test(abilityText) || namedSelf) {

@@ -14925,7 +14925,10 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       'Lotus Bloom'
     );
 
-    expect(ir.abilities).toEqual([]);
+    // Reminder text is stripped, leaving the same keyword shape as a bare "Suspend 3-{1}{U}" line.
+    expect(ir.abilities).toEqual([
+      { type: 'keyword', text: 'Suspend 3-{1}{U}', cost: '3-{1}{U}', effectText: '', steps: [] },
+    ]);
   });
 
   it('parses Megamorph keyword lines into a turn-face-up plus counter sequence', () => {

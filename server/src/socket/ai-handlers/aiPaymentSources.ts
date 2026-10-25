@@ -33,8 +33,8 @@ import {
   spendRestrictionGrantsUncounterableChosenTypeCast,
 } from "./aiUncounterableChosenTypeMana.js";
 
-function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedAbilityResolverCandidate[] {
-  return getAIHandlerDeps().buildAIActivatedAbilityResolverCandidates(permanent);
+function buildAIActivatedAbilityResolverCandidates(permanent: any, battlefield?: readonly any[]): AIActivatedAbilityResolverCandidate[] {
+  return getAIHandlerDeps().buildAIActivatedAbilityResolverCandidates(permanent, battlefield);
 }
 
 function parsedActivationManaPips(activationCostText: string): number {
@@ -61,7 +61,7 @@ function getAISpellPaymentSourceCostText(
 ): string {
   const normalizedAbilityId = String(abilityId || '').trim();
   if (normalizedAbilityId) {
-    const candidate = buildAIActivatedAbilityResolverCandidates(permanent).find(
+    const candidate = buildAIActivatedAbilityResolverCandidates(permanent, game?.state?.battlefield).find(
       (entry) => String(entry?.id || '') === normalizedAbilityId,
     );
     const candidateText = String(candidate?.text || '').trim();

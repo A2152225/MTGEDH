@@ -27,6 +27,8 @@ export type TableLayoutPlayerSeatHeaderProps = {
   poisonVal: number;
   xpVal: number;
   energyVal: number;
+  /** Rad counters (Fallout); shown only when > 0. */
+  radVal?: number;
   getSeatManaPool: (playerId: string, isYouSeat: boolean) => ManaPool | null;
   isYouThis: any;
   externalDeckMgrAnchorEl?: HTMLElement | null;
@@ -55,6 +57,7 @@ export function TableLayoutPlayerSeatHeader({
   poisonVal,
   xpVal,
   energyVal,
+  radVal = 0,
   getSeatManaPool,
   isYouThis,
   externalDeckMgrAnchorEl,
@@ -95,7 +98,7 @@ export function TableLayoutPlayerSeatHeader({
                           >
                             <span style={{ fontSize: 14 }}>{pb.player.name}</span>
                             {isEliminated ? (
-                              <span title={pb.player.lostReason || 'Eliminated'} style={{ fontSize: 11, color: '#f87171' }}>eliminated</span>
+                              <span data-testid="player-lost" title={pb.player.lostReason || 'Eliminated'} style={{ fontSize: 11, color: '#f87171', fontWeight: 700, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pb.player.hasLost ? `\u2620 lost${pb.player.lostReason ? ` \u2014 ${pb.player.lostReason}` : ''}` : 'eliminated'}</span>
                             ) : null}
                             {speed?.[pb.player.id] !== undefined ? (
                               <span title="Speed" style={{ fontSize: 12, color: '#fbbf24' }}>🏁 {speed[pb.player.id]}</span>
@@ -183,6 +186,16 @@ export function TableLayoutPlayerSeatHeader({
                               >
                                 ⚡ {energyVal}
                               </span>
+                              {radVal > 0 && (
+                                <span
+                                  data-testid="rad-counters"
+                                  aria-label={`Rad Counters: ${radVal}`}
+                                  title="Rad Counters (at the start of your precombat main phase, mill that many; lose 1 life and remove a rad counter per nonland milled)"
+                                  style={{ color: '#a3e635', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}
+                                >
+                                  {'\u2622'} {radVal}
+                                </span>
+                              )}
                             </div>
                             {/* Floating Mana Pool - all seats when they have floating mana */}
                             {(() => {

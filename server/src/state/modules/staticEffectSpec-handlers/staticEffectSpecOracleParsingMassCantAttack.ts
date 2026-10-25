@@ -98,6 +98,12 @@ export function pushMassCantAttackBlockSpecs(
       /^(\w+)s you control can(?:not|'t)\s+attack\b/i,
     );
     const allCreatures = /^creatures can(?:not|'t)\s+attack(?:\s+or\s+block)?$/i.test(sentence);
+    // Glacial Chasm: "Creatures you control can't attack."
+    const allYouControl = /^creatures you control can(?:not|'t)\s+attack(?:\s+or\s+block)?$/i.test(sentence);
+    // Light of Day / Gloom-style: "Black creatures can't attack or block."
+    const colorCreatures = sentence.match(
+      /^(white|blue|black|red|green) creatures can(?:not|'t)\s+attack(?:\s+or\s+block)?$/i,
+    );
 
     if (withoutKeyword) {
       condition = { kind: 'target_lacks_keyword', keyword: String(withoutKeyword[1]).toLowerCase() };
@@ -108,19 +114,26 @@ export function pushMassCantAttackBlockSpecs(
     } else if (powerVsHand) {
       condition = { kind: 'target_power_greater_than_source_controller_hand_size' };
       idSuffix = 'mass-combat-lock-power-vs-hand';
+    } else if (allYouControl) {
+      // Checked before the type branch: "creatures you control" also matches /(\w+)s you control/.
+      scope = { kind: 'creatures_you_control' };
+      idSuffix = 'you-control-combat-lock';
     } else if (typeCreaturesYouControl || typesYouControl) {
       const rawType = String((typeCreaturesYouControl || typesYouControl)?.[1] || '');
       const creatureType = parseLordCreatureType(rawType);
       if (!creatureType || !isCreatureTypeWord(creatureType)) continue;
       scope = { kind: 'creatures_you_control', creatureType };
       idSuffix = 'type-you-control-combat-lock';
+    } else if (colorCreatures) {
+      condition = { kind: 'target_has_mana_color', color: String(colorCreatures[1]).toLowerCase() };
+      idSuffix = 'mass-combat-lock-color';
     } else if (allCreatures) {
       idSuffix = 'mass-combat-lock-all';
     } else {
       continue;
     }
 
-    const grantKey = `${scope.kind}:${scope.creatureType || ''}:${condition?.kind || ''}:${condition?.keyword || ''}:${abilities.join(',')}`;
+    const grantKey = `${scope.kind}:${scope.creatureType || ''}:${condition?.kind || ''}:${condition?.keyword || ''}:${condition?.color || ''}:${abilities.join(',')}`;
     if (seen.has(grantKey)) continue;
     seen.add(grantKey);
 

@@ -23,6 +23,8 @@ import {
   getPTColor,
 } from './freeFieldDisplayUtils';
 import { ClassLevelBadge } from '../ClassLevelBadge';
+import { PermanentRulesStatusBadges, isActivationFullyLocked, isActivationManaOnly, conditionalPtBonusLines, variablePtLines } from '../PermanentRulesStatusBadges';
+import { FaceDownPermanentLayer } from '../FaceDownPermanentLayer';
 
 export type FreeFieldPermanentOverlaysProps = {
   scale: number;
@@ -71,6 +73,7 @@ export type FreeFieldPermanentOverlaysProps = {
   currentStep?: string;
   hasThousandYearElixirEffect?: boolean;
   onActivateAbility?: (permanentId: string, abilityId: string, ability?: ParsedActivatedAbility, xValue?: number) => void;
+  players?: readonly { id: string; name?: string }[];
 };
 
 export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProps) {
@@ -121,16 +124,19 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
     currentStep,
     hasThousandYearElixirEffect,
     onActivateAbility,
+    players,
   } = props;
+  const activationFullyLocked = isActivationFullyLocked(raw);
   const viewerId = String(playerId || '');
   const controllerId = String(raw.controller || '');
   const showOwnAbilityButtons = !!showActivatedAbilityButtons && !!viewerId && controllerId === viewerId;
   const showAnyPlayerAbilityButtons = !!showActivatedAbilityButtons && !!viewerId
     && controllerId !== viewerId
     && textAllowsAnyPlayerActivation((raw.card as { oracle_text?: string } | undefined)?.oracle_text);
-  const showNonPlaneswalkerAbilityButtons = (showOwnAbilityButtons || showAnyPlayerAbilityButtons) && !isPlaneswalker;
+  const showNonPlaneswalkerAbilityButtons = (showOwnAbilityButtons || showAnyPlayerAbilityButtons) && !isPlaneswalker && !activationFullyLocked;
   return (
     <>
+            {(raw as any)?.isFaceDown && <FaceDownPermanentLayer perm={raw} viewerId={playerId} scale={scale} />}
             {/* Token count badge - shown for grouped tokens or any token with count > 1 */}
             {((isGroupedTokens && tokenCount && tokenCount > 1) || (isToken && tokenCount && tokenCount > 1)) && (
               <div style={{
@@ -329,6 +335,9 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
 
             {/* Class level badge (the printed image shows every level) */}
             <ClassLevelBadge card={raw?.card} level={(raw as any)?.level} scale={scale} />
+
+            {/* Rules status chips: abilities removed, locks, stolen control, added types, solved, paired, saddled */}
+            <PermanentRulesStatusBadges perm={raw} scale={scale} players={players} allPerms={allBattlefieldPerms || perms} />
 
             {/* Charge counters — prominent badge for Station planets/spacecraft */}
             {(() => {
@@ -745,6 +754,8 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
                     ptSources,
                     damageMarked,
                     effectiveToughness: tDisp,
+                    conditionalLines: conditionalPtBonusLines(raw),
+                    variableLines: variablePtLines(raw),
                   })}
                 >
                   <span style={{
@@ -870,11 +881,12 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
                 showOnHover={false}
                 maxVisible={5}
                 position="left"
+                manaAbilitiesOnly={isActivationManaOnly(raw)}
               />
             )}
 
             {/* Planeswalker Loyalty Ability Buttons - inline on left side */}
-            {showActivatedAbilityButtons && raw.controller === playerId && isPlaneswalker && (
+            {showActivatedAbilityButtons && raw.controller === playerId && isPlaneswalker && !activationFullyLocked && !isActivationManaOnly(raw) && (
               <>
                 <ActivatedAbilityButtons
                   perm={raw}

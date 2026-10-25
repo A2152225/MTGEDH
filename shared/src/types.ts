@@ -7,6 +7,8 @@ import type { CardFace, CardRef, ImageUris, KnownCardRef } from './types-handler
 import type { PlayerRef } from './types-handlers/playerRef.js';
 import type { BattlefieldPermanent } from './types-handlers/battlefieldPermanent.js';
 import type { ManaPool } from './types-handlers/manaPoolTypes.js';
+import type { LastingEffectStamp } from './lastingEffects.js';
+import type { DrawReplacementLogEntry, SkippedExtraTurnEntry, DamageReplacementLogRecord } from './replacementLogs.js';
 
 export type { GameID, PlayerID, SeatIndex, GameFormat } from './types-handlers/identityTypes.js';
 
@@ -400,6 +402,12 @@ export interface DurablePermission {
 /* Game state authoritative snapshot */
 export interface GameState {
   id: GameID;
+  /** This-turn / until-your-next-turn grants (see lastingEffects.ts). */
+  lastingEffects?: LastingEffectStamp[];
+  /** Client toast feeds (see replacementLogs.ts). */
+  batch18DrawReplacements?: DrawReplacementLogEntry[];
+  skippedExtraTurns?: SkippedExtraTurnEntry[];
+  damageReplacementLog?: DamageReplacementLogRecord[];
   format: GameFormat | string;
   players: PlayerRef[];
   startingLife: number;
@@ -467,6 +475,10 @@ export interface GameState {
   speedIncreasedThisTurn?: Record<PlayerID, boolean>;
   /** CR 702.195: permanent player designation granted by Storied. */
   enduringStory?: Record<PlayerID, boolean>;
+  /** Static "play with ... revealed" designations, refreshed each SBA pass (revealedInformationFlags). */
+  revealedInformation?: { handsRevealed: PlayerID[]; libraryTopRevealed: PlayerID[]; sources: string[] };
+  /** Turns each player has started this game (firstTurnsCastRestriction). */
+  turnsStartedByPlayer?: Record<PlayerID, number>;
   /** CR 702.177a: each Exhaust ability may be activated only once per turn. */
   exhaustAbilitiesActivatedThisTurn?: Record<string, boolean>;
   // Mana pool for each player

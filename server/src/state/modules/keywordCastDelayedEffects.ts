@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { getNextEndStepFireTurnNumber } from './triggerDelayedEffectUtils.js';
+import { scheduleEvokeSacrificeOnPermanentEntry } from './evokeKeyword.js';
 import { persistBattlefieldPermanentPatchAfterMutation } from '../effects/battlefieldPermanentReplayPersistence.js';
 
 export function spellWasCastWithDashPaid(stackItem?: any, card?: any): boolean {
@@ -148,4 +149,5 @@ export function scheduleKeywordCastDelayedEffectsOnPermanentEntry(
 ): void {
   scheduleDashDelayedReturnOnPermanentEntry(ctx, permanent, controller, sourceName, stackItem);
   scheduleBlitzDelayedSacrificeOnPermanentEntry(ctx, permanent, controller, sourceName, stackItem);
+  scheduleEvokeSacrificeOnPermanentEntry(ctx, permanent, controller, sourceName, stackItem);
 }

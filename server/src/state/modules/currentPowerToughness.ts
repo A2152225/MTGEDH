@@ -21,6 +21,7 @@ import { syncDerivedContinuousEffects } from "./staticEffectSpec.js";
 import { registerStaticConditionCurrentPowerResolver } from "./staticEffectSpecConditionEval.js";
 import { applyLayer7bSetBasePowerToughness } from "./setBasePtTimestampResolution.js";
 import { sumLongDurationPtModifiers } from "./longDurationPtModifiers.js";
+import { countActivePowerToughnessSwitches, evaluateLayer7PowerToughness } from "./layer7PowerToughness.js";
 import { registerCurrentPowerToughnessResolver } from "../../../../rules-engine/src/currentPowerToughnessHook.js";
 
 export interface CurrentPowerToughness {
@@ -36,74 +37,8 @@ export interface CurrentPowerToughness {
  * continuous effects on `state` (view.ts does this once per build).
  */
 export function computeCurrentPowerToughnessWithSources(perm: any, state: any): CurrentPowerToughness | undefined {
-  const card = perm?.card as any;
-  let baseP = typeof perm?.basePower === "number" ? perm.basePower : parsePT(card?.power);
-  let baseT = typeof perm?.baseToughness === "number" ? perm.baseToughness : parsePT(card?.toughness);
-
-  // Variable P/T (*/*) creatures like Morophon
-  if (baseP === undefined || baseT === undefined) {
-    const variablePT = calculateVariablePT({ ...card, controller: perm?.controller }, state);
-    if (variablePT) {
-      baseP = baseP ?? variablePT.power;
-      baseT = baseT ?? variablePT.toughness;
-    }
-  }
-
-  // Layer 7b set-base effects: Auras, static specs (lords) and rules-engine "becomes an X/Y" /
-  // "has base P/T X/Y" modifiers (type setPowerToughness) ordered by timestamp, last one wins.
-  // Applied before counters and modifications (anthems, equipment, pumps), added below.
-  const layer7b = applyLayer7bSetBasePowerToughness(perm, state, { power: baseP, toughness: baseT });
-  baseP = layer7b.power;
-  baseT = layer7b.toughness;
-
-  if (typeof baseP !== "number" || typeof baseT !== "number") return undefined;
-
-  // Same counter keys as getActualPowerToughness (legacy aliases: plusOne, p1p1, ...).
-  const counters = perm?.counters || {};
-  const plus = Number(counters["+1/+1"] || counters.plus_one || counters.plusOne || counters.p1p1 || 0) || 0;
-  const minus = Number(counters["-1/-1"] || counters.minus_one || counters.minusOne || counters.m1m1 || 0) || 0;
-  const counterDelta = plus - minus;
-
-  // +1/+0, +0/+1, +2/+2, -2/-2 ... counters
-  let otherCounterPower = 0;
-  let otherCounterToughness = 0;
-  if (perm?.counters) {
-    for (const [counterType, count] of Object.entries(perm.counters)) {
-      if (counterType === "+1/+1" || counterType === "-1/-1") continue;
-      const counterMatch = counterType.match(/^([+-]?\d+)\/([+-]?\d+)$/);
-      if (counterMatch) {
-        otherCounterPower += parseInt(counterMatch[1], 10) * (count as number);
-        otherCounterToughness += parseInt(counterMatch[2], 10) * (count as number);
-      }
-    }
-  }
-
-  // Equipment, auras, anthems, lords, emblems, pump fields (with source tracking)
-  const allBonusesResult = calculateAllPTBonusesWithSources(perm, state);
-  const temporaryPtBonus = sumActiveTemporaryPTMods(perm);
-  // Pumps lasting longer than end of turn (until your next turn, until end of combat, permanent).
-  const longPtBonus = sumLongDurationPtModifiers(perm, state);
-
-  const sources: PTBonusSource[] = [];
-  if (counterDelta !== 0) {
-    sources.push({ name: '+1/+1 counters', power: counterDelta, toughness: counterDelta, type: 'counter' });
-  }
-  if (otherCounterPower !== 0 || otherCounterToughness !== 0) {
-    sources.push({ name: 'Other counters', power: otherCounterPower, toughness: otherCounterToughness, type: 'counter' });
-  }
-  if (temporaryPtBonus.power !== 0 || temporaryPtBonus.toughness !== 0) {
-    sources.push({ name: 'Until end of turn', power: temporaryPtBonus.power, toughness: temporaryPtBonus.toughness, type: 'modifier' });
-  }
-  if (longPtBonus.power !== 0 || longPtBonus.toughness !== 0) {
-    sources.push({ name: 'Lasting effects', power: longPtBonus.power, toughness: longPtBonus.toughness, type: 'modifier' });
-  }
-  sources.push(...allBonusesResult.sources);
-
-  return {
-    power: baseP + counterDelta + otherCounterPower + allBonusesResult.power + temporaryPtBonus.power + longPtBonus.power,
-    toughness: baseT + counterDelta + otherCounterToughness + allBonusesResult.toughness + temporaryPtBonus.toughness + longPtBonus.toughness,
-    sources,
-  };
+  // Layer 7a-7d live in one evaluator so the view tooltip and combat read the same numbers.
+  return evaluateLayer7PowerToughness(perm, state);
 }
 
 /**
@@ -166,9 +101,11 @@ export function getCurrentPowerToughness(perm: any, state: any): { power: number
   const current = computeCurrentPowerToughnessWithSources(perm, state);
   if (!current) return undefined;
   const pending = sumUnmirroredOracleIrPtModifiers(perm);
+  // Pending pumps are layer 7c, so under an active 7d switch they land on the other side.
+  const switched = countActivePowerToughnessSwitches(perm) % 2 === 1;
   return {
-    power: current.power + pending.power,
-    toughness: current.toughness + pending.toughness,
+    power: current.power + (switched ? pending.toughness : pending.power),
+    toughness: current.toughness + (switched ? pending.power : pending.toughness),
   };
 }
 // Rules-engine readers with a game state but no server access (AI evaluation, combat scoring) read the
@@ -180,7 +117,8 @@ registerCurrentPowerToughnessResolver((state, permanent) => getCurrentPowerTough
 registerStaticConditionCurrentPowerResolver((permanent, state) => {
   const current = computeCurrentPowerToughnessWithSources(permanent, state);
   if (!current) return undefined;
-  return current.power + sumUnmirroredOracleIrPtModifiers(permanent).power;
+  const pending = sumUnmirroredOracleIrPtModifiers(permanent);
+  return current.power + (countActivePowerToughnessSwitches(permanent) % 2 === 1 ? pending.toughness : pending.power);
 });
 
 /**

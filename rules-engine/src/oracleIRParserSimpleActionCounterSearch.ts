@@ -627,7 +627,7 @@ export function tryParseSimpleActionCounterSearchClauses(args: SimpleActionClaus
     }
 
     const staticLandAnimationWithAbility = clause.match(/^(.+?)\s+becomes?\s+a\s+(\d+)\/(\d+)\s+(.+?)\s+creature(?:\s+with\s+(.+?))?(?:\s+that(?:'|â€™)?s\s+still\s+a\s+land)?$/i);
-    if (staticLandAnimationWithAbility && !/^until\s+end\s+of\s+turn,/i.test(clause) && /\bland\b/i.test(String(staticLandAnimationWithAbility[1] || ''))) {
+    if (staticLandAnimationWithAbility && !/^until\s+end\s+of\s+turn,/i.test(clause) && (/\bland\b/i.test(String(staticLandAnimationWithAbility[1] || '')) || /^(?:it|~|this (?:permanent|enchantment|artifact|creature|land))$/i.test(String(staticLandAnimationWithAbility[1] || '').trim()))) {
       const abilityText = String(staticLandAnimationWithAbility[5] || '').replace(/\s+that(?:'|â€™)?s\s+still\s+a\s+land$/i, '').trim().toLowerCase();
       const abilities = abilityText === 'haste' ? ['haste'] : [];
       const typeText = String(staticLandAnimationWithAbility[4] || '').trim();

@@ -1,3 +1,6 @@
+import { landwalkIgnoredByBattlefield } from './combatLandwalkOverrides.js';
+import { getDefenderControlsUnblockableReason } from './combatDefenderControlsUnblockable.js';
+
 export const LANDWALK_TYPES = [
   { keyword: 'plainswalk', subtype: 'plains', label: 'Plains' },
   { keyword: 'islandwalk', subtype: 'island', label: 'Island' },
@@ -78,9 +81,10 @@ export function getLandwalkUnblockableReason(
 ): string | undefined {
   for (const entry of LANDWALK_TYPES) {
     if (!permanentHasLandwalk(attacker, entry.keyword, battlefield)) continue;
+    if (landwalkIgnoredByBattlefield(battlefield, entry.keyword)) continue;
     if (playerControlsLandWithSubtype(battlefield, defendingPlayerId, entry.subtype)) {
       return `Attacker has ${entry.keyword} and defending player controls a ${entry.label}`;
     }
   }
-  return undefined;
+  return getDefenderControlsUnblockableReason(attacker, defendingPlayerId, battlefield);
 }

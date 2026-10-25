@@ -1,13 +1,14 @@
 import type { BattlefieldPermanent, PlayerID } from '../../../../shared/src/index.js';
+import { addIntrinsicAlsoCreatureTypes } from './intrinsicAlsoCreatureTypes.js';
 import { permanentHasCreatureType } from '../../../../shared/src/creatureTypes.js';
-import { computeContinuousEffects, type ContinuousEffectResult } from '../../rules-engine/staticEffects.js';
+import type { ContinuousEffectResult } from '../../rules-engine/staticEffects.js';
+import { buildContinuousEffectsBase } from './continuousEffectsBase.js';
 import {
   extractOracleCardLookupKeys,
   resolveCompiledOverlayForCard,
 } from './oracleIrCompiledOverlayLookup.js';
 import { hydrateBattlefieldOracleText } from './cardOracleHydration.js';
 import {
-  collectDeclarativeStaticSourcePermanentIds,
   parseStaticEffectSpecsFromOraclePermanent,
 } from './staticEffectSpecOracleParsing.js';
 import { getEffectiveOracleText } from './effectiveOracleText.js';
@@ -19,9 +20,12 @@ import {
   type StaticKeywordResolver,
 } from './staticEffectSpecConditionEval.js';
 import { controllerHasLeftTheGame } from '../../../../rules-engine/src/playerInGameStatus.js';
+import { staticSourceAbilitiesRemoved } from '../../../../rules-engine/src/permanentKeywordAbilities.js';
 import { expireSourceLinkedPtModifiers } from './sourceLinkedPtModifiers.js';
-import { readPermanentTimestamp, stampMissingPermanentTimestamps } from '../../../../rules-engine/src/permanentTimestamps.js';
+import { stampMissingPermanentTimestamps } from '../../../../rules-engine/src/permanentTimestamps.js';
+import { syncAuraControlChanges } from './staticEffectSpecAuraControl.js';
 import { collectActivatedAbilitiesExiledWithSource } from './staticEffectSpecCopyExiledActivated.js';
+import { stampAttachedTypeSettingOverrides, typeSetOverrideIsCreature, typeSetOverrideSubtypes } from './attachedTypeSettingStamp.js';
 import {
   recordDeclarativeTypeAdditions,
   seedContinuousTypeAdditionsForStaticPass,
@@ -40,17 +44,25 @@ export type {
   StaticEffectSpec,
 } from './staticEffectSpecTypes.js';
 import type {
+  StaticEffectCondition,
   StaticEffectGrant,
   StaticEffectLayer,
+  StaticEffectScope,
   StaticEffectSpec,
   StaticEffectSublayer,
 } from './staticEffectSpecTypes.js';
 import { syncClassLevelGating } from './classLevelGating.js';
+import { permanentMatchesScopeQualifier } from './staticEffectSpecScopeQualifier.js';
+import { grantedAbilitiesSurvivingAbilityLoss, recordDeclarativeColorAdditions } from './staticEffectSpecGrantRecipientWrite.js';
+import { resolvePhase5CountMultiplier } from './staticEffectSpecPhase5Eval.js';
 
 
 function isCreaturePermanent(permanent: BattlefieldPermanent): boolean {
+  const typeSet = typeSetOverrideIsCreature(permanent);
+  if (typeSet !== undefined) return typeSet;
+  if ((permanent as any).isCreatureFromAttachment === true) return true;
   const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
-  return typeLine.includes('creature') || typeLine.includes('kindred') || typeLine.includes('tribal');
+  return typeLine.includes('creature') || typeLine.includes('kindred') || typeLine.includes('tribal') || ((permanent as any).layer4AddedTypes || []).includes('Creature');
 }
 
 function isPlaneswalkerPermanent(permanent: BattlefieldPermanent): boolean {
@@ -64,11 +76,15 @@ function isLandPermanent(permanent: BattlefieldPermanent): boolean {
 }
 
 function hasCreatureType(permanent: BattlefieldPermanent, creatureType: string): boolean {
+  const setSubtypes = typeSetOverrideSubtypes(permanent); // layer 4 type-setting replaced its subtypes
+  if (setSubtypes) return setSubtypes.includes(String(creatureType || '').toLowerCase());
   // Use shared helper so changeling / "every creature type" / granted types count.
   return permanentHasCreatureType(permanent as any, creatureType);
 }
 
 function getCreatureSubtypeWords(permanent: BattlefieldPermanent): string[] {
+  const setSubtypes = typeSetOverrideSubtypes(permanent);
+  if (setSubtypes) return setSubtypes;
   const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
   const dashSplit = typeLine.split(/—|\s-\s/);
   const subtypePart = dashSplit.length > 1 ? dashSplit.slice(1).join(' ') : '';
@@ -118,6 +134,7 @@ function resolveStaticCountMultiplier(
   spec: StaticEffectSpec,
   target: BattlefieldPermanent,
   battlefield: readonly BattlefieldPermanent[],
+  state?: unknown,
 ): number {
   if (!grant.countBasis) return 1;
   switch (grant.countBasis) {
@@ -126,151 +143,19 @@ function resolveStaticCountMultiplier(
     case 'other_creatures_matching_scope':
       return countOtherCreaturesMatchingScope(target, spec, battlefield);
     default:
-      return 1;
+      return resolvePhase5CountMultiplier(spec, battlefield, state);
   }
 }
 
-const SUBLAYER_SORT_ORDER: Record<StaticEffectSublayer, number> = {
-  '7a': 0,
-  '7b': 1,
-  '7c': 2,
-  '7d': 3,
-};
-
-function specHasPowerToughnessGrant(spec: StaticEffectSpec): boolean {
-  return Number(spec.grant.power || 0) !== 0 || Number(spec.grant.toughness || 0) !== 0
-    || spec.grant.setPower !== undefined || spec.grant.setToughness !== undefined;
-}
-
-function inferStaticEffectLayer(spec: StaticEffectSpec): StaticEffectLayer {
-  if (spec.layer) return spec.layer;
-  if (Array.isArray(spec.grant.typeAdditions) && spec.grant.typeAdditions.length > 0) return 4;
-  if (specHasPowerToughnessGrant(spec)) return 7;
-  if (Array.isArray(spec.grant.abilities) && spec.grant.abilities.length > 0) return 6;
-  if (Array.isArray(spec.grant.removeAbilities) && spec.grant.removeAbilities.length > 0) return 6;
-  if (Array.isArray(spec.grant.asThoughNoAbilities) && spec.grant.asThoughNoAbilities.length > 0) {
-    return 6;
-  }
-  if (Array.isArray(spec.grant.asThoughNoAbilitiesForController) && spec.grant.asThoughNoAbilitiesForController.length > 0) {
-    return 6;
-  }
-  if (spec.grant.playerHexproof || spec.grant.playerShroud) return 6;
-  if (spec.grant.copyActivatedFromExiledWithCardType) return 6;
-  return 7;
-}
-
-function inferStaticEffectSublayer(spec: StaticEffectSpec): StaticEffectSublayer {
-  if (spec.sublayer) return spec.sublayer;
-  return specHasPowerToughnessGrant(spec) ? '7b' : '7a';
-}
-
-/**
- * Continuous-effect timestamp of a static effect's source: its real entry timestamp when the permanent has
- * one (permanentTimestamps.ts), otherwise the battlefield index proxy (Phase 5.4, legacy/un-stamped states).
- */
-export function getStaticEffectSourceTimestamp(
-  state: { battlefield?: readonly BattlefieldPermanent[] },
-  sourcePermanentId: string,
-  options?: { forceIndexProxy?: boolean },
-): number {
-  const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
-  const index = battlefield.findIndex((perm) => String(perm?.id || '') === String(sourcePermanentId || ''));
-  if (index < 0) return Number.MAX_SAFE_INTEGER;
-  if (options?.forceIndexProxy) return index;
-  return readPermanentTimestamp(battlefield[index]) ?? index;
-}
-
-export function compareStaticEffectSpecsForApplication(
-  left: StaticEffectSpec,
-  right: StaticEffectSpec,
-  state: { battlefield?: readonly BattlefieldPermanent[] },
-): number {
-  const leftLayer = inferStaticEffectLayer(left);
-  const rightLayer = inferStaticEffectLayer(right);
-  if (leftLayer !== rightLayer) return leftLayer - rightLayer;
-
-  if (leftLayer === 7) {
-    const leftSub = SUBLAYER_SORT_ORDER[inferStaticEffectSublayer(left)];
-    const rightSub = SUBLAYER_SORT_ORDER[inferStaticEffectSublayer(right)];
-    if (leftSub !== rightSub) return leftSub - rightSub;
-  }
-
-  const leftTs = getStaticEffectSourceTimestamp(state, String(left.sourcePermanentId || ''));
-  const rightTs = getStaticEffectSourceTimestamp(state, String(right.sourcePermanentId || ''));
-  return leftTs - rightTs;
-}
-
-function sortStaticEffectSpecsForApplication(
-  specs: readonly StaticEffectSpec[],
-  state: { battlefield?: readonly BattlefieldPermanent[] },
-): StaticEffectSpec[] {
-  return [...specs].sort((left, right) => compareStaticEffectSpecsForApplication(left, right, state));
-}
-
-function parseStaticEffectLayer(value: unknown): StaticEffectLayer | undefined {
-  const layer = Number(value);
-  if (layer === 4 || layer === 5 || layer === 6 || layer === 7) return layer;
-  return undefined;
-}
-
-function parseStaticEffectSublayer(value: unknown): StaticEffectSublayer | undefined {
-  const sublayer = String(value || '').trim() as StaticEffectSublayer;
-  if (sublayer === '7a' || sublayer === '7b' || sublayer === '7c' || sublayer === '7d') return sublayer;
-  return undefined;
-}
-
-function normalizeOverlayStaticSpec(
-  raw: unknown,
-  source: { sourcePermanentId: string; sourceController: string; sourceName: string },
-): StaticEffectSpec | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const record = raw as Record<string, unknown>;
-  const id = String(record.id || '').trim();
-  const scope = (record.scope && typeof record.scope === 'object')
-    ? record.scope as StaticEffectScope
-    : null;
-  const grant = (record.grant && typeof record.grant === 'object')
-    ? record.grant as StaticEffectGrant
-    : null;
-  if (!id || !scope?.kind || !grant) return null;
-
-  const conditionRaw = (record.condition && typeof record.condition === 'object')
-    ? record.condition as StaticEffectCondition
-    : undefined;
-  const condition = conditionRaw?.kind ? conditionRaw : undefined;
-  const layer = parseStaticEffectLayer(record.layer);
-  const sublayer = parseStaticEffectSublayer(record.sublayer);
-
-  return {
-    id: `${source.sourcePermanentId}:${id}`,
-    scope,
-    grant,
-    condition,
-    layer,
-    sublayer,
-    sourcePermanentId: source.sourcePermanentId,
-    sourceController: source.sourceController,
-    sourceName: source.sourceName,
-  };
-}
-
-function readOverlayStaticSpecs(ability: {
-  ability_type?: string;
-  static_specs?: readonly unknown[];
-  staticSpecs?: readonly unknown[];
-}): readonly unknown[] {
-  const specs = ability.static_specs ?? ability.staticSpecs;
-  return Array.isArray(specs) ? specs : [];
-}
-
-function overlayHasStaticSpecs(overlay: { abilities?: readonly any[] } | null | undefined): boolean {
-  if (!overlay?.abilities?.length) return false;
-  for (const ability of overlay.abilities) {
-    if (String(ability.ability_type || '').toUpperCase() !== 'STATIC') continue;
-    if (readOverlayStaticSpecs(ability).length > 0) return true;
-  }
-  return false;
-}
+import {
+  compareStaticEffectSpecsForApplication,
+  getStaticEffectSourceTimestamp,
+  normalizeOverlayStaticSpec,
+  overlayHasStaticSpecs,
+  readOverlayStaticSpecs,
+  sortStaticEffectSpecsForApplication,
+} from './staticEffectSpecLayerOrdering.js';
+export { compareStaticEffectSpecsForApplication, getStaticEffectSourceTimestamp } from './staticEffectSpecLayerOrdering.js';
 
 /** Battlefield lords do not function from GY; Anger/Wonder-style specs set this condition. */
 function staticSpecFunctionsFromGraveyard(spec: StaticEffectSpec): boolean {
@@ -289,7 +174,7 @@ export function collectStaticEffectSpecsFromState(state: unknown): StaticEffectS
     const sourceController = String(perm.controller || '').trim();
     const sourceName = String(perm.card?.name || perm.name || 'Unknown').trim();
     if (!sourcePermanentId) continue;
-    if (controllerHasLeftTheGame(state, sourceController)) continue;
+    if (controllerHasLeftTheGame(state, sourceController) || staticSourceAbilitiesRemoved(perm, battlefield)) continue;
 
     const lookupKeys = extractOracleCardLookupKeys({ card: perm.card, effectiveCard: perm.card });
     const overlay = resolveCompiledOverlayForCard(lookupKeys);
@@ -388,6 +273,9 @@ function permanentMatchesScope(
   spec: StaticEffectSpec,
 ): boolean {
   const controller = String(spec.sourceController || '');
+  if (spec.scope.qualifier && !permanentMatchesScopeQualifier(permanent, spec.scope.qualifier)) return false;
+  const mine = String(permanent.controller || '') === controller;
+  const notSelf = String(permanent.id || '') !== String(spec.sourcePermanentId || '');
   switch (spec.scope.kind) {
     case 'player_you':
     case 'player_opponents':
@@ -397,40 +285,40 @@ function permanentMatchesScope(
     case 'all_permanents':
       return true;
     case 'permanents_you_control':
-      return String(permanent.controller || '') === controller;
+      return mine;
     case 'other_permanents_you_control':
-      return String(permanent.controller || '') === controller
-        && String(permanent.id || '') !== String(spec.sourcePermanentId || '');
+      return mine
+        && notSelf;
     case 'all_creatures':
       return isCreaturePermanent(permanent);
     case 'creatures_you_control':
       return isCreaturePermanent(permanent)
-        && String(permanent.controller || '') === controller
+        && mine
         && (!spec.scope.creatureType || hasCreatureType(permanent, spec.scope.creatureType));
     case 'other_creatures_you_control':
       return isCreaturePermanent(permanent)
-        && String(permanent.controller || '') === controller
-        && String(permanent.id || '') !== String(spec.sourcePermanentId || '')
+        && mine
+        && notSelf
         && (!spec.scope.creatureType || hasCreatureType(permanent, spec.scope.creatureType));
     case 'planeswalkers_you_control':
       return isPlaneswalkerPermanent(permanent)
-        && String(permanent.controller || '') === controller;
+        && mine;
     case 'creature_type':
       return isCreaturePermanent(permanent)
-        && String(permanent.controller || '') === controller
+        && mine
         && hasCreatureType(permanent, String(spec.scope.creatureType || ''));
     case 'all_creatures_of_type':
       return isCreaturePermanent(permanent)
         && hasCreatureType(permanent, String(spec.scope.creatureType || ''));
     case 'other_all_creatures_of_type':
       return isCreaturePermanent(permanent)
-        && String(permanent.id || '') !== String(spec.sourcePermanentId || '')
+        && notSelf
         && hasCreatureType(permanent, String(spec.scope.creatureType || ''));
     case 'other_all_creatures':
       return isCreaturePermanent(permanent)
-        && String(permanent.id || '') !== String(spec.sourcePermanentId || '');
+        && notSelf;
     case 'other_all_permanents':
-      return String(permanent.id || '') !== String(spec.sourcePermanentId || '');
+      return notSelf;
     case 'opponent_creatures_of_type':
       return isCreaturePermanent(permanent)
         && String(permanent.controller || '') !== controller
@@ -442,7 +330,7 @@ function permanentMatchesScope(
       return String(permanent.controller || '') !== controller;
     case 'lands_you_control':
       return isLandPermanent(permanent)
-        && String(permanent.controller || '') === controller;
+        && mine;
     default:
       return false;
   }
@@ -585,7 +473,7 @@ export function applyDeclarativeStaticSpecs(
       const permanentId = String(permanent.id || '');
       if (!permanentId) continue;
 
-      const multiplier = resolveStaticCountMultiplier(spec.grant, spec, permanent, battlefield);
+      const multiplier = resolveStaticCountMultiplier(spec.grant, spec, permanent, battlefield, state);
       const power = Number(spec.grant.power || 0) * multiplier;
       const toughness = Number(spec.grant.toughness || 0) * multiplier;
       if (power !== 0 || toughness !== 0) {
@@ -610,24 +498,13 @@ export function applyDeclarativeStaticSpecs(
             return result.perPermanent.get(permanentId)!.abilities;
           })()
           : ensurePermanentAbilities(result, permanentId);
-        for (const ability of [...grantedAbilities, ...copiedActivated]) {
-          const normalized = String(ability || '').trim().toLowerCase();
-          if (normalized) abilitySet.add(normalized);
-        }
+        const all = [...grantedAbilities, ...copiedActivated];
+        for (const a of grantedAbilitiesSurvivingAbilityLoss(spec, permanent, all, battlefield)) abilitySet.add(a);
       }
 
-      recordDeclarativeTypeAdditions(result, permanent, spec.grant.typeAdditions);
+      recordDeclarativeTypeAdditions(result, permanent, spec.grant.typeAdditions, spec.grant.loseOtherCreatureTypes);
 
-      const colorAdds = Array.isArray(spec.grant.colorAdditions) ? spec.grant.colorAdditions : [];
-      if (colorAdds.length > 0) {
-        const existing = result.colorAdditions.get(permanentId) || [];
-        const merged = [...existing];
-        for (const color of colorAdds) {
-          const symbol = String(color || '').trim().toUpperCase();
-          if (symbol && !merged.includes(symbol)) merged.push(symbol);
-        }
-        result.colorAdditions.set(permanentId, merged);
-      }
+      recordDeclarativeColorAdditions(result as any, permanentId, spec.grant.colorAdditions);
     }
   }
 
@@ -671,8 +548,9 @@ export function recomputeContinuousEffects(state: {
 }): ContinuousEffectResult {
   const specs = collectStaticEffectSpecsFromState(state);
   cacheDerivedStaticEffectSpecs(state, specs);
-  const skipDeclarativeStaticForSourceIds = collectDeclarativeStaticSourcePermanentIds(specs);
-  const base = computeContinuousEffects(state as any, { skipDeclarativeStaticForSourceIds });
+  const base = buildContinuousEffectsBase(state);
+  // CDA "is also a Cleric, Rogue..." must apply even when no declarative spec exists on the battlefield.
+  addIntrinsicAlsoCreatureTypes(Array.isArray(state.battlefield) ? state.battlefield : [], base.typeAdditions as Map<string, string[]>);
   return applyDeclarativeStaticSpecs(base, specs, state);
 }
 
@@ -748,7 +626,7 @@ export function getOverlayStaticPTBonusForPermanent(
   for (const spec of specs) {
     if (!permanentMatchesScope(permanent, spec)) continue;
     if (!specMatchesStaticCondition(permanent, spec, state as StaticConditionState, keywordResolver)) continue;
-    const multiplier = resolveStaticCountMultiplier(spec.grant, spec, permanent, battlefield);
+    const multiplier = resolveStaticCountMultiplier(spec.grant, spec, permanent, battlefield, state);
     const p = Number(spec.grant.power || 0) * multiplier;
     const t = Number(spec.grant.toughness || 0) * multiplier;
     if (p === 0 && t === 0) continue;
@@ -872,6 +750,8 @@ export function syncDerivedContinuousEffects(state: unknown): ContinuousEffectRe
   try {
     // Real timestamps (CR 613.7) for anything that entered/attached through a path without explicit stamping.
     stampMissingPermanentTimestamps(state);
+    syncAuraControlChanges(state); // layer 2 control Auras
+    stampAttachedTypeSettingOverrides(state); // layer 4/5 type-setting Auras (Imprisoned in the Moon)
   } catch {
     // best-effort only
   }

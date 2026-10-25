@@ -37,3 +37,4 @@ export {
 } from './parseFamilies.js';
 export type { ParsedTriggerEventSentence, ParsedTriggerClause, TriggerDelayedRider, TriggerReflexiveRider } from './parseFamilies.js';
 export { triggerConditionMatches } from './match.js';
+export { normalizeSelfNameInTriggerSentence, selfNameVariants } from './selfNameNormalize.js';

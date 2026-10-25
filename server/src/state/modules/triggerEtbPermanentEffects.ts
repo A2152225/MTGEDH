@@ -1,4 +1,4 @@
-import { recordTurnLimitedEtbTriggerQueued, shouldSkipTurnLimitedEtbTrigger } from './triggerDoThisOnlyOnceEachTurn.js';
+import { oracleTextHasTriggersOnlyOnceEachTurn, recordTurnLimitedEtbTriggerQueued, shouldSkipTurnLimitedEtbTrigger } from './triggerDoThisOnlyOnceEachTurn.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
@@ -34,6 +34,7 @@ import { isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetad
 import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggers/triggerConditionFamilyMatch.js';
 import { filterOneOrMoreEntryDuplicates } from './triggers/simultaneousEntryBatch.js';
 import { syncClassLevelGating } from './classLevelGating.js';
+import { permanentHasTriggeredAbilities } from './triggers/triggeredAbilitySuppression.js';
 
 function pushPendingEtbTriggerIfNotAutoDeclined(
   state: any,
@@ -256,6 +257,7 @@ export function triggerETBEffectsForPermanent(
   const etbTriggerCache = options?.etbTriggerCache;
   for (const perm of state.battlefield) {
     if (!perm || perm.id === permanent.id) continue;
+    if (!permanentHasTriggeredAbilities(perm, state, { event: 'etb', eventSubject: permanent })) continue;
     const watcherId = String(perm?.id || '').trim();
     let otherTriggers = watcherId && etbTriggerCache ? etbTriggerCache.get(watcherId) : undefined;
     if (!otherTriggers) {
@@ -717,6 +719,12 @@ export function triggerETBEffectsForPermanent(
         if (String(item?.source || '') !== String(perm.id)) return false;
         return parsedEffectDuplicates([item?.effect, item?.description], line);
       });
+      // "This ability triggers only once each turn." (Caretaker's Talent) applies to the parsed line too.
+      const onceLimited = String(perm.card.oracle_text || '').split(/\n+/).some((ability: string) =>
+        oracleTextHasTriggersOnlyOnceEachTurn(ability) && ability.toLowerCase().includes(normalizedEffect.replace(/\.$/, '')));
+      const onceTrigger = { oncePerTurn: onceLimited, triggerType: 'parsed_enters', permanentId: perm.id };
+      if (onceLimited && shouldSkipTurnLimitedEtbTrigger(state, onceTrigger, String(perm.id || ''))) continue;
+      if (onceLimited && normalizedEffect) recordTurnLimitedEtbTriggerQueued(state, onceTrigger, String(perm.id || ''));
       if (alreadyQueued || !normalizedEffect) continue;
       pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, {
         id: uid('trigger'),

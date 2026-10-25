@@ -5,6 +5,7 @@
  * Public: tryEvaluateInterveningIfOwnControlNamedClauses
  */
 
+import { evaluateDevotionThreshold } from "../../../../../shared/src/devotionReference.js";
 import {
   findBattlefieldPermanent,
   parseMaybeNumber,
@@ -196,7 +197,14 @@ export function tryEvaluateInterveningIfOwnControlNamedClauses(args: Intervening
     return v === 0 && !tl.includes('creature');
   }
 
-  // "if your devotion to white and black is seven or greater"
+  // "if your devotion to <colors> is N or greater / less than N" (CR 700.5;
+  // a hybrid {W/B} counts once toward "white and black").
+  if (/^if\s+your\s+devotion\s+to\s+[a-z ,]+\s+is\s+/i.test(clause)) {
+    const battlefield = (ctx as any).state?.battlefield;
+    if (!Array.isArray(battlefield)) return null;
+    const verdict = evaluateDevotionThreshold(battlefield, String(controllerId), clause);
+    if (verdict !== null) return verdict;
+  }
   if (/^if\s+your\s+devotion\s+to\s+white\s+and\s+black\s+is\s+seven\s+or\s+greater$/i.test(clause)) {
     const battlefield = (ctx as any).state?.battlefield;
     if (!Array.isArray(battlefield)) return null;

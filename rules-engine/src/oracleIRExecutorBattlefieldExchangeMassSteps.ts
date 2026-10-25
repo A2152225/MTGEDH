@@ -11,6 +11,7 @@ import type { OracleEffectStep, OracleObjectSelector } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { resolveDirectBattlefieldPermanents } from './oracleIRExecutorBattlefieldPermanentSelectors';
 import type { BattlefieldStepHandlerResult } from './oracleIRExecutorBattlefieldStepTypes';
+import { allocateTimestamp } from './permanentTimestamps';
 
 function isMassExchangeSelector(selector: OracleObjectSelector | undefined): boolean {
   if (!selector || selector.kind !== 'raw') return false;
@@ -53,6 +54,7 @@ function stampUntilEndOfTurnControl(
   permanentId: string,
   originalController: string,
   newController: string,
+  ceTimestamp?: number,
 ): any[] {
   const remaining = existingEffects.filter(
     (effect) =>
@@ -73,6 +75,7 @@ function stampUntilEndOfTurnControl(
     newController: newController as PlayerID,
     duration: 'until_end_of_turn',
     appliedAt: Date.now(),
+    ...(ceTimestamp !== undefined ? { ceTimestamp } : {}),
   });
   return remaining;
 }
@@ -132,6 +135,7 @@ export function tryApplyMassExchangeControlStep(
         permanentId,
         currentController,
         newController,
+        allocateTimestamp(state as any),
       );
     }
 
@@ -139,6 +143,7 @@ export function tryApplyMassExchangeControlStep(
       ...permanent,
       controller: newController,
       summoningSickness: true,
+      ...(stampUntilEot && !(permanent as any).controlBase ? { controlBase: currentController } : {}),
     } as BattlefieldPermanent;
   });
 

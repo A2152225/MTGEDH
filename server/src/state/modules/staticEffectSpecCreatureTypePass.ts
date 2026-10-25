@@ -13,6 +13,8 @@ export function seedContinuousTypeAdditionsForStaticPass(
     (permanent as { continuousTypeAdditions?: string[] }).continuousTypeAdditions = [
       ...(typeAdditions.get(id) || []),
     ];
+    // Re-derived every pass; set again by recordDeclarativeTypeAdditions while the effect applies.
+    delete (permanent as { continuousCreatureTypesReplaced?: boolean }).continuousCreatureTypesReplaced;
   }
 }
 
@@ -20,11 +22,14 @@ export function recordDeclarativeTypeAdditions(
   result: { typeAdditions: Map<string, string[]> },
   permanent: { id?: string },
   typeAdds: readonly string[] | undefined,
+  loseOtherCreatureTypes?: boolean,
 ): void {
   const adds = Array.isArray(typeAdds) ? typeAdds : [];
   if (adds.length === 0) return;
   const permanentId = String(permanent?.id || '');
   if (!permanentId) return;
+  // CR 205.1b: "is a Dragon" on a creature replaces its printed creature types (getCreatureTypesNow reads this).
+  if (loseOtherCreatureTypes) (permanent as { continuousCreatureTypesReplaced?: boolean }).continuousCreatureTypesReplaced = true;
   const existing = result.typeAdditions.get(permanentId) || [];
   const merged = [...existing];
   for (const typeName of adds) {

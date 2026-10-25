@@ -11,6 +11,8 @@
 //   canPermanentAttack, canBlockAttacker.
 // These stay module-private to combat.ts (imported there, not re-exported).
 
+import { moreCreaturesBlockRestrictionReason } from "./combatBatch33AttackRestrictions.js"; // B33
+import { artifactOrColorBlockOnlyReason } from "./combatBatch31BlockRestrictions.js"; // B31
 import {
   isStationPermanentCreatureNow,
   isStationPermanentTypeLine,
@@ -31,8 +33,17 @@ import { sanitizeOracleTextForStaticEffectScan } from "../../../../rules-engine/
 import { protectionPreventsSource } from "../../state/modules/combat-mechanics.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/staticEffectSpec.js";
 import { blockerCantBlockCreaturesYouControl } from "../../state/modules/staticEffectSpecAttackYouTax.js";
-import { getEffectivePower } from "../util.js";
+import { getEffectivePower, getEffectiveToughness } from "../util.js";
+import { getColorBlockRestrictionReason } from "./combatColorBlockRestriction.js";
+import { getExceptColorBlockRestrictionReason } from './combatExceptColorBlockRestriction.js';
+import { getQualifierBlockRestrictionReason } from "./combatQualifierBlockRestriction.js";
+import { getBatch25BlockRestrictionReason } from "./combatBatch25BlockRestrictions.js";
+import { canBlockAsThoughReach } from "./combatBatch26BlockRestrictions.js";
+import { conditionalUnblockableReason } from "./combatBatch28ConditionalUnblockable.js"; // B28
+import { attachedBlockOnlyFlyingReason } from "./combatBatch30AttachedBlockRestrictions.js"; // B30
+import { canAttackDespiteDefender as canAttackDespiteDefenderFn, cowardsCantBlockWarriorsReason } from "./combatDefenderAttackPermission.js";
 import { debug } from "../../utils/debug.js";
+import { canBlockShadowAsThough } from "../../state/modules/blockAsThoughShadow.js";
 import { permanentHasKeywordAbility, permanentLosesKeyword } from "../../../../rules-engine/src/permanentKeywordAbilities.js";
 
 /**
@@ -302,7 +313,10 @@ export function hasEffectiveAbility(
       
       // Check for "as though" granting this specific ability
       const asThoughPattern = new RegExp(`as though (?:it|they) had ${lowerAbility}`, 'i');
-      if (asThoughPattern.test(permOracle)) {
+      // "~ can block Dragons as though it had reach" is a subtype-limited block permission
+      // (canBlockAsThoughReach), not the ability itself.
+      const subtypeLimited = new RegExp(`can block (?!creatures\\b)[a-z]+ as though (?:it|they) had ${lowerAbility}`, 'i').test(permOracle);
+      if (!subtypeLimited && asThoughPattern.test(permOracle)) {
         // Check if this effect applies to this permanent
         // Most "as though" effects are for "creatures you control"
         if (permOracle.includes('you control') && permController === controllerId) {
@@ -457,32 +471,8 @@ export function canPermanentAttack(
   
   if (defenderCheck.hasAbility) {
     // Check if there's an "as though it didn't have defender" effect
-    let canAttackDespiteDefender = false;
-    
-    // Check grantedAbilities for "can attack as though it didn't have defender"
-    const grantedAbilities = Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [];
-    if (grantedAbilities.some((a: string) => a.toLowerCase().includes('can attack'))) {
-      canAttackDespiteDefender = true;
-    }
-    
-    // Check for Assault Formation-style effects on battlefield
-    for (const perm of battlefield) {
-      if (!perm.card?.oracle_text) continue;
-      const permOracle = sanitizeOracleTextForStaticEffectScan(perm.card.oracle_text).toLowerCase();
-      const permController = perm.controller;
-      
-      // Pattern: "creatures you control can attack as though they didn't have defender"
-      // Assault Formation: "Each creature you control assigns combat damage equal to its toughness rather than its power."
-      // and has activated ability for "Creatures you control can attack as though they didn't have defender"
-      if (permOracle.includes("as though they didn't have defender") ||
-          permOracle.includes("as though it didn't have defender")) {
-        if (permOracle.includes('you control') && permController === controllerId) {
-          canAttackDespiteDefender = true;
-          break;
-        }
-      }
-    }
-    
+    // Batch 15: self-only and conditional permissions are scoped (combatDefenderAttackPermission).
+    const canAttackDespiteDefender = canAttackDespiteDefenderFn(permanent, battlefield, controllerId, gameState);
     if (!canAttackDespiteDefender) {
       return { canAttack: false, reason: 'Has defender' };
     }
@@ -515,6 +505,8 @@ export function canBlockAttacker(
   if (creatureGate.illegal) {
     return { canBlock: false, reason: creatureGate.reason || 'Creature-count combat gate' };
   }
+  const cowardReason = cowardsCantBlockWarriorsReason(blocker, attacker, battlefield);
+  if (cowardReason) return { canBlock: false, reason: cowardReason };
 
   // Check for counters that prevent blocking (e.g., bribery counters with Gwafa Hazid)
   // Uses scalable pattern matching instead of hardcoded card checks
@@ -567,6 +559,15 @@ export function canBlockAttacker(
     };
   }
 
+  const conditionalUnblockable = conditionalUnblockableReason(attacker, gameState, battlefield); // B28/B29
+  if (conditionalUnblockable) return { canBlock: false, reason: conditionalUnblockable };
+  const attachedBlockReason = attachedBlockOnlyFlyingReason(blocker, attacker, battlefield); // B30
+  if (attachedBlockReason) return { canBlock: false, reason: attachedBlockReason };
+  const b31ExceptReason = artifactOrColorBlockOnlyReason(blocker, attacker); // B31
+  if (b31ExceptReason) return { canBlock: false, reason: b31ExceptReason };
+  const b33BlockCount = moreCreaturesBlockRestrictionReason(blocker, attacker, battlefield); // B33
+  if (b33BlockCount) return { canBlock: false, reason: b33BlockCount };
+
   const landwalkReason = getLandwalkUnblockableReason(attacker, blockerControllerId, battlefield);
   if (landwalkReason) {
     return {
@@ -575,13 +576,36 @@ export function canBlockAttacker(
     };
   }
 
+  const colorBlockReason = getColorBlockRestrictionReason(attacker, blocker, attackerRestrictionTexts);
+  if (colorBlockReason) {
+    return { canBlock: false, reason: colorBlockReason };
+  }
+
+  const exceptColorBlockReason = getExceptColorBlockRestrictionReason(attacker, blocker, attackerRestrictionTexts, battlefield);
+  if (exceptColorBlockReason) {
+    return { canBlock: false, reason: exceptColorBlockReason };
+  }
+
   const blockerPower = getEffectivePower(blocker, gameState);
+  {
+    const attackerContinuous = getContinuousGrantedAbilitiesForPermanent(attacker, continuousGrantState(battlefield, gameState));
+    const qualifierReason = getQualifierBlockRestrictionReason(attacker, blocker, [...attackerRestrictionTexts, ...attackerContinuous], {
+      blockerPower,
+      blockerAbilities: continuousBlockAbilities,
+      blockerToughness: getEffectiveToughness(blocker, gameState),
+    });
+    if (qualifierReason) return { canBlock: false, reason: qualifierReason };
+  }
   if (attackerRestrictionTexts.some((entry) => entry.includes("can't be blocked by creatures with power 2 or less")) && blockerPower <= 2) {
     return {
       canBlock: false,
       reason: 'Attacker cannot be blocked by creatures with power 2 or less',
     };
   }
+
+  const batch25BlockReason = getBatch25BlockRestrictionReason(attacker, blocker, battlefield, attackerRestrictionTexts,
+    (perm, keyword) => hasEffectiveAbility(perm, keyword, battlefield, blockerControllerId).hasAbility);
+  if (batch25BlockReason) return { canBlock: false, reason: batch25BlockReason };
 
   const attackerPower = getEffectivePower(attacker, gameState);
   if (attackerRestrictionTexts.some((entry) => entry.includes("can't be blocked by creatures with greater power")) && blockerPower > attackerPower) {
@@ -596,7 +620,7 @@ export function canBlockAttacker(
   if (attackerFlying.hasAbility) {
     const blockerFlying = hasEffectiveAbility(blocker, 'flying', battlefield, blockerControllerId);
     const blockerReach = hasEffectiveAbility(blocker, 'reach', battlefield, blockerControllerId);
-    if (!blockerFlying.hasAbility && !blockerReach.hasAbility) {
+    if (!blockerFlying.hasAbility && !blockerReach.hasAbility && !canBlockAsThoughReach(blocker, attacker)) {
       return { canBlock: false, reason: 'Attacker has flying' };
     }
   }
@@ -604,7 +628,7 @@ export function canBlockAttacker(
   // Check shadow - shadow can only be blocked by shadow
   const attackerShadow = hasEffectiveAbility(attacker, 'shadow', battlefield, attacker.controller);
   const blockerShadow = hasEffectiveAbility(blocker, 'shadow', battlefield, blockerControllerId);
-  if (attackerShadow.hasAbility && !blockerShadow.hasAbility) {
+  if (attackerShadow.hasAbility && !blockerShadow.hasAbility && !canBlockShadowAsThough(blocker, battlefield)) {
     return { canBlock: false, reason: 'Attacker has shadow' };
   }
   if (blockerShadow.hasAbility && !attackerShadow.hasAbility) {

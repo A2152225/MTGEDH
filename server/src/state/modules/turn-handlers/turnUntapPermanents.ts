@@ -12,6 +12,8 @@ import { isPermanentPreventedFromUntapping } from "../triggered-abilities.js";
 import { queueBecomesUntappedTriggers } from "../triggers/tap-untap.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 import { expireSourceLinkedPtModifiers } from "../sourceLinkedPtModifiers.js";
+import { getUntapStepLimits } from "../untapStepLimits.js";
+import { applyUntapStepCaps } from "../untapStepCapChoice.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -26,6 +28,10 @@ export function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
     let untappedCount = 0;
     let stunCountersRemoved = 0;
     let skippedDueToEffects = 0;
+    // Winter Orb / Imi Statue caps are read before anything untaps ("as long as ~ is untapped").
+    const untapLimits = getUntapStepLimits((ctx as any).state, playerId);
+    const cappedCandidates: any[] = [];
+    const isCapped = (perm: any) => untapLimits.some((l) => l.kind === 'permanent' || new RegExp('\\b' + l.kind + '\\b').test(String(perm?.card?.type_line || perm?.type_line || '').toLowerCase()));
 
     for (const permanent of battlefield) {
       if (permanent && permanent.controller === playerId && permanent.tapped) {
@@ -60,11 +66,23 @@ export function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
           continue;
         }
 
+        // Capped permanents are chosen together after the loop (CR 502.3: the player picks which).
+        if (untapLimits.length > 0 && isCapped(permanent)) {
+          cappedCandidates.push(permanent);
+          continue;
+        }
+
         // Normal untap
         permanent.tapped = false;
         queueBecomesUntappedTriggers(ctx, permanent);
         untappedCount++;
       }
+    }
+
+    if (cappedCandidates.length > 0) {
+      const capped = applyUntapStepCaps(ctx as any, playerId, cappedCandidates, untapLimits, (perm) => queueBecomesUntappedTriggers(ctx, perm));
+      untappedCount += capped.untapped;
+      if (!capped.queued) skippedDueToEffects += capped.skipped;
     }
 
     // Clear any "doesn't untap next turn" flags that were set by spells like Sleep

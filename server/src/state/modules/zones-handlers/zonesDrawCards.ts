@@ -23,6 +23,9 @@ import { queueDredgeDrawReplacementStep } from "./zonesDrawReplacementDredgeQueu
 import { queueSkipDrawReplacementStep } from "./zonesDrawReplacementSkipDrawQueue.js";
 import { queueZursWeirdingDrawReplacementStep } from "./zonesDrawReplacementZursQueue.js";
 import { applyOrQueueOpponentLibraryDrawReplacement } from "./zonesDrawReplacementOpponentLibraryExile.js";
+import { applyBatch18EmptyLibraryDrawInstead } from "../replacementBatch18DrawInstead.js";
+import { applyBatch19DrawInstead } from "../replacementBatch19DrawInstead.js";
+import { isCardDrawProhibited } from "../playersCantDrawCards.js";
 
 export type DrawCardsOptions = {
   /** Parent event (nextStep / dredge|zur choice resolve) already restores draws on replay. */
@@ -68,6 +71,10 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
   const zones = ctx.state.zones = ctx.state.zones || {};
   const drawn: KnownCardRef[] = [];
   const normalizedCount = Math.max(0, Math.floor(Number(count || 0)));
+  if (normalizedCount > 0 && isCardDrawProhibited(ctx.state, String(playerId))) {
+    debug(2, '[drawCards] draw prohibited ("can\'t draw cards")', { playerId, count: normalizedCount });
+    return drawn;
+  }
   
   // Track draws this turn for miracle abilities (Rule 702.94)
   (ctx.state as any).cardsDrawnThisTurn = (ctx.state as any).cardsDrawnThisTurn || {};
@@ -159,6 +166,13 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
       const originalPlayerId = String(playerId);
       const currentStep = String((ctx.state as any).step || (ctx.state as any).phase || '').toLowerCase();
       const drawNumber = getPreviousDrawCount(originalPlayerId) + (drawnByPlayer[originalPlayerId]?.length || 0) + 1;
+      {
+        const mapLib = ctx.libraries.get(originalPlayerId as PlayerID);
+        const zoneLib = (zones[originalPlayerId] as { library?: unknown[] } | undefined)?.library;
+        const libCount = Math.max(Array.isArray(mapLib) ? mapLib.length : 0, Array.isArray(zoneLib) ? zoneLib.length : 0);
+        if (applyBatch18EmptyLibraryDrawInstead(ctx.state, originalPlayerId, libCount)) continue;
+      }
+      if (applyBatch19DrawInstead(ctx, originalPlayerId, { drawNumber, isDrawStep: currentStep.includes('draw') }, (pid) => drawOneForPlayer(pid, false))) continue;
       const replacement = evaluateDrawReplacementEvent({
         state: ctx.state,
         playerId: originalPlayerId,
@@ -413,7 +427,12 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
     return snapshotPermanentForTriggerContext(permanent);
   };
 
-  const drawTriggers = orderTriggersByAPNAP(ctx, getCardDrawTriggers(ctx, String(drawingPlayerId)));
+  // Draw numbers for this batch: cardsDrawnThisTurn is already updated by the callers.
+  const drawnThisTurn = Number((ctx.state as any)?.cardsDrawnThisTurn?.[String(drawingPlayerId)] || 0);
+  const firstDrawNumber = Math.max(1, drawnThisTurn - Number(cardsDrawn || 0) + 1);
+  const drawnHand: any[] = Array.isArray((ctx.state as any)?.zones?.[String(drawingPlayerId)]?.hand) ? (ctx.state as any).zones[String(drawingPlayerId)].hand : [];
+  const drawnCardFor = (drawNumber: number) => drawnHand[drawnHand.length - Number(cardsDrawn || 0) + (drawNumber - firstDrawNumber)];
+  const drawTriggersFor = (drawNumber: number) => orderTriggersByAPNAP(ctx, getCardDrawTriggers(ctx, String(drawingPlayerId), undefined, drawNumber, drawnCardFor(drawNumber)));
   const queueGenericDrawTrigger = (trigger: any, drawIndex: number) => {
     const effect = String(trigger?.effect || '').trim();
     const targetMetadata = inferGenericTriggeredAbilityTargetMetadata(effect);
@@ -482,9 +501,9 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
     }
   };
 
-  if (cardsDrawn > 0 && drawTriggers.length > 0) {
+  if (cardsDrawn > 0) {
     for (let index = 0; index < cardsDrawn; index++) {
-      for (const trigger of drawTriggers) {
+      for (const trigger of drawTriggersFor(firstDrawNumber + index)) {
         queueGenericDrawTrigger(trigger, index + 1);
       }
     }

@@ -48,7 +48,14 @@ function subjectEvent(
   effect: string,
   extra: Partial<TriggerConditionIR> = {},
 ): LateTriggerSentence | null {
-  const subject = parseSubjectPhrase(prepareSubjectPhrase(rawSubject), event);
+  const attached = /^(enchanted|equipped)\s+(.+)$/.exec(rawSubject.trim());
+  let subject = parseSubjectPhrase(prepareSubjectPhrase(rawSubject), event);
+  if (!subject && attached) {
+    const inner = parseSubjectPhrase(prepareSubjectPhrase(attached[2]), event);
+    subject = inner
+      ? { ...inner, alternatives: inner.alternatives.map((alternative) => ({ ...alternative, source: attached[1] as 'enchanted' | 'equipped' })) }
+      : null;
+  }
   const trimmed = effect.trim();
   if (!subject || !trimmed) return null;
   return { condition: { ...subject, ...extra, event }, effect: trimmed };
@@ -135,7 +142,7 @@ export function parseLateTriggerSentence(text: string): LateTriggerSentence | nu
     const parsed = subjectEvent('cycles', 'a card', cycleOrDiscard[2], { pairedEvent: 'discards' });
     return parsed ? { condition: withController(parsed.condition, actorController(cycleOrDiscard[1])), effect: parsed.effect } : null;
   }
-  const cycle = /^(?:whenever|when)\s+(you|an opponent|a player)\s+cycles\s+(?:a|another|one or more)\s+cards?,\s*(.+)$/.exec(text);
+  const cycle = /^(?:whenever|when)\s+(you|an opponent|a player)\s+cycles?\s+(?:a|another|one or more)\s+cards?,\s*(.+)$/.exec(text);
   if (cycle && !/\bcycle or discard\b/.test(text)) {
     const parsed = subjectEvent('cycles', 'a card', cycle[2]);
     return parsed ? { condition: withController(parsed.condition, actorController(cycle[1])), effect: parsed.effect } : null;
@@ -162,13 +169,20 @@ export function parseLateTriggerSentence(text: string): LateTriggerSentence | nu
   const saddled = /^(?:whenever|when)\s+this creature becomes saddled( for the first time each turn)?,\s*(.+)$/.exec(text);
   if (saddled) return subjectEvent('becomes_saddled', 'this creature', saddled[2], saddled[1] ? { onceEachTurn: true } : {});
 
+  const youDealt = /^(?:whenever|when)\s+you(?:'re| are)\s+dealt (combat |noncombat )?damage,\s*(.+)$/.exec(text);
+  if (youDealt) {
+    const damageKind = youDealt[1]?.trim() === 'combat' ? 'combat' : youDealt[1]?.trim() === 'noncombat' ? 'noncombat' : 'any';
+    const parsed = subjectEvent('dealt_damage', 'a permanent', youDealt[2], { damageKind, playerSubject: true });
+    return parsed ? { condition: withController(parsed.condition, 'you'), effect: parsed.effect } : null;
+  }
+
   const dealt = /^(?:whenever|when)\s+(.+?)\s+is dealt (combat |noncombat )?damage,\s*(.+)$/.exec(text);
   if (dealt) {
     const damageKind = dealt[2]?.trim() === 'combat' ? 'combat' : dealt[2]?.trim() === 'noncombat' ? 'noncombat' : 'any';
     return subjectEvent('dealt_damage', dealt[1], dealt[3], { damageKind });
   }
 
-  const playsLand = /^(?:whenever|when)\s+(you|an opponent|a player)\s+plays a land,\s*(.+)$/.exec(text);
+  const playsLand = /^(?:whenever|when)\s+(you|an opponent|a player)\s+plays? a land,\s*(.+)$/.exec(text);
   if (playsLand) {
     const parsed = subjectEvent('plays_land', 'a land', playsLand[2]);
     return parsed ? { condition: withController(parsed.condition, actorController(playsLand[1])), effect: parsed.effect } : null;

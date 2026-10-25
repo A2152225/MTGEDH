@@ -421,6 +421,7 @@ export function renderAppPlayOverlaysMid(p: Record<string, any>) {
           return Array.isArray(exile) ? (exile.filter((c: any) => c && c.name) as KnownCardRef[]) : [];
         }, [safeView, exileModalPlayerId])}
         playerId={exileModalPlayerId || ''}
+        currentTurn={(safeView as any)?.turnNumber ?? (safeView as any)?.turn}
         canActivate={you === exileModalPlayerId}
         onClose={() => {
           setExileModalOpen(false);

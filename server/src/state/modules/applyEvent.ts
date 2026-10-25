@@ -83,6 +83,8 @@ import { applyPlayerChoiceEvents } from "./apply-event-handlers/applyEventPlayer
 import { applyEffectProgramZoneEvents } from "./apply-event-handlers/applyEventEffectProgramZoneEvents.js";
 import { applyActivateBattlefieldAbilityEvents } from "./apply-event-handlers/applyEventActivateBattlefieldAbilityEvents.js";
 import { applyManualActionEvents } from "./apply-event-handlers/applyEventManualActionEvents.js";
+import { applyUpkeepPaidUntapEvents } from "./apply-event-handlers/applyEventUpkeepPaidUntapEvents.js";
+import { applyUntapCapChoiceEvents } from "./apply-event-handlers/applyEventUntapCapChoiceEvents.js";
 export { reset, skip, unskip, remove };
 
 
@@ -126,6 +128,8 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     if (applyEffectProgramZoneEvents(ctx, e)) return;
     if (applyActivateBattlefieldAbilityEvents(ctx, e)) return;
     if (applyManualActionEvents(ctx, e)) return;
+    if (applyUpkeepPaidUntapEvents(ctx, e)) return;
+    if (applyUntapCapChoiceEvents(ctx, e)) return;
     switch (e.type) {
 
       default: {

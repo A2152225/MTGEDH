@@ -8,7 +8,11 @@
 
 import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import type { ReplacementEffectSpec } from './replacementEffectSpecTypes.js';
+import { BATCH16_DAMAGE_TEMPLATES } from '../replacementBatch16LongTail.js';
+import { collectBatch21DamageScalingSpecs } from '../replacementBatch21DamageScaling.js';
+import { collectBatch23DamageCapSpecs, damageSourceIsInstantOrSorcerySpell } from '../replacementBatch23DamageCap.js';
 import { normalizeOraclePatternText, readCardOracleText } from './replacementEffectSpecOracleTextUtils.js';
+import { collectOraclePatternDamagePreventionSpecsFromState, matchesDamagePreventionExtras } from './replacementEffectSpecDamagePreventionOracleTemplates.js';
 
 interface OracleDamageReplacementTemplate {
   templateId: string;
@@ -156,6 +160,7 @@ export function collectOraclePatternDamageReplacementSpecsFromState(state: unkno
     const permRecord = perm as {
       id?: string;
       controller?: string;
+      counters?: unknown;
       card?: { name?: string; oracle_text?: string; oracleText?: string };
     };
     const oracle = normalizeOraclePatternText(readCardOracleText(permRecord.card)).toLowerCase();
@@ -166,7 +171,7 @@ export function collectOraclePatternDamageReplacementSpecsFromState(state: unkno
     const sourceName = String(permRecord.card?.name || 'Unknown').trim();
     if (!sourcePermanentId) continue;
 
-    for (const template of ORACLE_DAMAGE_REPLACEMENT_TEMPLATES) {
+    for (const template of [...ORACLE_DAMAGE_REPLACEMENT_TEMPLATES, ...BATCH16_DAMAGE_TEMPLATES]) {
       if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
       specs.push({
         ...template.spec,
@@ -176,6 +181,9 @@ export function collectOraclePatternDamageReplacementSpecsFromState(state: unkno
         sourceName,
       });
     }
+
+    specs.push(...collectBatch21DamageScalingSpecs(oracle, { sourcePermanentId, sourceController, sourceName, counters: permRecord.counters }, state));
+    specs.push(...collectBatch23DamageCapSpecs(oracle, { sourcePermanentId, sourceController, sourceName }));
 
     const preventAllBut = parsePreventAllButAnotherTypeDamageSpec(oracle);
     if (preventAllBut) {
@@ -223,6 +231,7 @@ export function collectOraclePatternDamageReplacementSpecsFromState(state: unkno
     }
   }
 
+  specs.push(...collectOraclePatternDamagePreventionSpecsFromState(state));
   return specs;
 }
 
@@ -426,6 +435,12 @@ export function overlaySpecsMatchDamage(
   if (match.combatDamageOnly === true && !input.isCombatDamage) {
     return false;
   }
+  if (match.damageSourceIsSource === true) {
+    const damageSourceId = String(input.damageSourcePermanentId || '').trim();
+    if (!damageSourceId || damageSourceId !== String(spec.sourcePermanentId || '').trim()) return false;
+  }
+  if (match.damageSourceIsInstantOrSorcerySpell === true
+    && !damageSourceIsInstantOrSorcerySpell(state, String(input.damageSourcePermanentId || ''))) return false;
   if (match.damageSourceIsEnchantedBySource === true) {
     const damageSourceId = String(input.damageSourcePermanentId || '').trim();
     const auraId = String(spec.sourcePermanentId || '').trim();
@@ -486,5 +501,6 @@ export function overlaySpecsMatchDamage(
       return false;
     }
   }
+  if (!matchesDamagePreventionExtras(spec, input, state)) return false;
   return true;
 }

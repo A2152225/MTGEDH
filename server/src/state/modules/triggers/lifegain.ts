@@ -457,6 +457,8 @@ export function detectLifegainTriggers(
       sourcePermanent: perm,
     })) {
       const normalized = line.effect.toLowerCase();
+      const onceEachTurn = (line as any).condition?.onceEachTurn === true;
+      if (onceEachTurn && state.lifegainTriggersFiredThisTurn?.[`${String(perm.card?.name || '').toLowerCase()}_${perm.id}`]) continue;
       if (triggers.some((existing) => (
         String(existing.permanentId || '') === String(perm.id || '')
         && parsedEffectDuplicates(existing.effect || '', line)
@@ -468,6 +470,7 @@ export function detectLifegainTriggers(
         effect: line.effect,
         effectType: 'custom',
         isMayAbility: /\byou may\b/i.test(line.effect) && !/^you may pay\b/i.test(line.effect),
+        ...(onceEachTurn ? { oncePerTurn: true } : {}),
       });
     }
   }

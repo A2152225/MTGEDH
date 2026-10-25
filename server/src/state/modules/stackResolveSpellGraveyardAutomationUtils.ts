@@ -3,7 +3,8 @@ import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { hasSpellMastery } from './game-state-effects.js';
-import { executeSpellEffect } from './executeSpellEffect.js';
+import { executeSpellEffectRecorded } from './executeSpellEffectRecorded.js';
+import { targetIdsOf } from './replacementResolvingSpellSource.js';
 import { addCreatureType } from './triggerDelayedEffectUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
@@ -104,8 +105,9 @@ export function applyInstantSorceryGraveyardZoneChangeAutomation(
     if (gainLifeMatch) {
       const lifeGain = Number(gainLifeMatch[1] || 0);
       if (lifeGain > 0) {
-        executeSpellEffect(
+        executeSpellEffectRecorded(
           ctx,
+          { id: String(item?.id || card?.id || ''), cardId: String(card?.id || ''), card: effectiveCard, targets: targetIdsOf(targets) },
           { kind: 'GainLife', playerId: controller, amount: lifeGain } as any,
           controller,
           effectiveCard.name || 'spell',
@@ -122,8 +124,9 @@ export function applyInstantSorceryGraveyardZoneChangeAutomation(
     ) {
       const lifeLoss = targetManaValues.reduce((sum, n) => sum + Math.max(0, n), 0);
       if (lifeLoss > 0) {
-        executeSpellEffect(
+        executeSpellEffectRecorded(
           ctx,
+          { id: String(item?.id || card?.id || ''), cardId: String(card?.id || ''), card: effectiveCard, targets: targetIdsOf(targets) },
           { kind: 'LoseLife', playerId: controller, amount: lifeLoss } as any,
           controller,
           effectiveCard.name || 'spell',

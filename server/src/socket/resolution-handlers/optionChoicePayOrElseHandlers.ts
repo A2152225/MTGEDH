@@ -18,6 +18,7 @@
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import { cardIsBlueForPitchCost } from "../../state/modules/alternate-costs.js";
+import { cardMatchesEvokeExileColor } from "../../state/modules/evokeKeyword.js";
 import { sacrificePermanent } from "../../state/modules/upkeep-triggers.js";
 import type {
   ResolutionStep,
@@ -214,8 +215,9 @@ export async function handleForceOfWillExileChoice(
   }
 
   const chosenCard = (playerZones.hand as any[])[handIndex];
-  if (!cardIsBlueForPitchCost(chosenCard)) {
-    emitToPlayer(io, playerId, 'error', { code: 'CANNOT_PAY_COST', message: 'Selected card is not blue.' });
+  const pitchColor = String(stepData?.forcePitchColor || '');
+  if (pitchColor ? !cardMatchesEvokeExileColor(chosenCard, pitchColor) : !cardIsBlueForPitchCost(chosenCard)) {
+    emitToPlayer(io, playerId, 'error', { code: 'CANNOT_PAY_COST', message: `Selected card is not ${pitchColor ? String(stepData?.forcePitchColorWord || pitchColor) : 'blue'}.` });
     return;
   }
 

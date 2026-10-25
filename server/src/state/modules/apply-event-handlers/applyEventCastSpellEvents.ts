@@ -35,6 +35,7 @@ import {
 } from "../stackReplayUtils.js";
 import { consumeChosenTypeFlashGrantsAfterCast, consumeConvokeGrantsAfterCast } from "../casting-modifiers.js";
 import { consumeNextSpellCostReductionAfterCast } from "../nextSpellCostReduction.js";
+import { delayedNextCastEntryMatches } from "../nextCastDelayedRiders.js";
 
 export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -597,16 +598,11 @@ export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
             ? stateAny.delayedSpellCopiesThisTurn
             : [];
           const playerId = String((e as any).playerId || '').trim();
-          const spellTypeLine = String((spellCardData as any)?.type_line || (e as any)?.card?.type_line || '').toLowerCase();
-          if (
-            delayedEntries.length > 0
-            && playerId
-            && (spellTypeLine.includes('instant') || spellTypeLine.includes('sorcery'))
-          ) {
-            stateAny.delayedSpellCopiesThisTurn = delayedEntries.filter((entry: any) => !(
-              String(entry?.controllerId || '').trim() === playerId
-              && String(entry?.spellType || '').trim() === 'instant_or_sorcery'
-            ));
+          const replaySpellCard = { ...((e as any)?.card || {}), ...((spellCardData as any) || {}) };
+          if (delayedEntries.length > 0 && playerId) {
+            stateAny.delayedSpellCopiesThisTurn = delayedEntries.filter(
+              (entry: any) => !delayedNextCastEntryMatches(entry, replaySpellCard, playerId),
+            );
           }
         } catch {
           // best-effort only

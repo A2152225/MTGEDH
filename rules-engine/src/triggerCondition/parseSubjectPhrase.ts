@@ -56,6 +56,45 @@ const NON_CARD_TYPE: Readonly<Record<string, string>> = {
   nonsorcery: 'sorcery',
 };
 
+/** Non-creature subtypes that name a spell or permanent ("a Spirit or Arcane spell", "this Siege"). */
+const NONCREATURE_SUBTYPE_WORDS: Readonly<Record<string, string>> = {
+  arcane: 'arcane',
+  siege: 'siege',
+  spacecraft: 'spacecraft',
+  class: 'class',
+  case: 'case',
+  room: 'room',
+  sieges: 'siege',
+  lesson: 'lesson',
+  lessons: 'lesson',
+  trap: 'trap',
+  clue: 'clue',
+  clues: 'clue',
+  food: 'food',
+  foods: 'food',
+  blood: 'blood',
+  cartouche: 'cartouche',
+  cartouches: 'cartouche',
+  shrine: 'shrine',
+  shrines: 'shrine',
+  traps: 'trap',
+  forest: 'forest',
+  forests: 'forest',
+  island: 'island',
+  islands: 'island',
+  swamp: 'swamp',
+  swamps: 'swamp',
+  mountain: 'mountain',
+  mountains: 'mountain',
+  plains: 'plains',
+  gate: 'gate',
+  gates: 'gate',
+  desert: 'desert',
+  deserts: 'desert',
+  cave: 'cave',
+  caves: 'cave',
+};
+
 const SUPERTYPES = new Set(['legendary', 'basic', 'snow', 'world']);
 
 const COLOR_LETTERS: Readonly<Record<string, string>> = {
@@ -111,6 +150,7 @@ interface SubjectQualifiers {
   owner: 'any' | 'you' | 'not_you';
   historic: boolean;
   colors: string[];
+  colorCount?: 'multicolored' | 'monocolored' | 'colorless';
 }
 
 function emptyQualifiers(): SubjectQualifiers {
@@ -142,6 +182,7 @@ function applyQualifiers(subject: TriggerSubjectFilter, qualifiers: SubjectQuali
     ...(qualifiers.owner !== 'any' ? { owner: qualifiers.owner } : {}),
     ...(qualifiers.historic ? { historic: true } : {}),
     ...(qualifiers.colors.length ? { colors: qualifiers.colors } : {}),
+    ...(qualifiers.colorCount ? { colorCount: qualifiers.colorCount } : {}),
   };
 }
 
@@ -155,7 +196,8 @@ function qualifiersAreRestrictive(qualifiers: SubjectQualifiers): boolean {
     || qualifiers.attackingOrBlocking
     || qualifiers.commander
     || qualifiers.historic
-    || qualifiers.colors.length > 0;
+    || qualifiers.colors.length > 0
+    || Boolean(qualifiers.colorCount);
 }
 
 function stripSubjectQualifiers(tokens: readonly string[]): { tokens: string[]; qualifiers: SubjectQualifiers } | null {
@@ -179,6 +221,11 @@ function stripSubjectQualifiers(tokens: readonly string[]): { tokens: string[]; 
     }
     if (token === 'historic') {
       qualifiers.historic = true;
+      continue;
+    }
+    if (token === 'multicolored' || token === 'monocolored' || token === 'colorless') {
+      if (qualifiers.colorCount) return null;
+      qualifiers.colorCount = token;
       continue;
     }
     if (COLOR_LETTERS[token]) {
@@ -221,7 +268,7 @@ function stripSubjectQualifiers(tokens: readonly string[]): { tokens: string[]; 
     if (token === 'with' && next === 'counters') {
       qualifiers.counters.push({ minimum: 1 });
       index += 1;
-      if (tokens[index + 1] === 'on' && tokens[index + 2] === 'it') index += 2;
+      if (tokens[index + 1] === 'on' && (tokens[index + 2] === 'it' || tokens[index + 2] === 'them')) index += 2;
       continue;
     }
     if (token === 'with' && (next === 'a' || next === 'an') && tokens[index + 3] === 'counter') {
@@ -229,7 +276,7 @@ function stripSubjectQualifiers(tokens: readonly string[]): { tokens: string[]; 
       if (!name || name === 'or') return null;
       qualifiers.counters.push({ name, minimum: 1 });
       index += 3;
-      if (tokens[index + 1] === 'on' && tokens[index + 2] === 'it') index += 2;
+      if (tokens[index + 1] === 'on' && (tokens[index + 2] === 'it' || tokens[index + 2] === 'them')) index += 2;
       continue;
     }
     kept.push(token);
@@ -243,6 +290,26 @@ export function normalizeTriggerClause(clause: string): string {
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+const MID_CONTROLLER_PHRASES: readonly (readonly string[])[] = [
+  ['you', "don't", 'control'],
+  ['you', 'do', 'not', 'control'],
+  ['an', 'opponent', 'controls'],
+  ['you', 'control'],
+];
+
+/** "a creature you control with power 4 or greater" -> "a creature with power 4 or greater you control". */
+function moveControllerBeforeQualifiers(tokens: readonly string[]): string[] {
+  for (const phrase of MID_CONTROLLER_PHRASES) {
+    for (let index = 1; index + phrase.length < tokens.length; index += 1) {
+      if (!phrase.every((word, offset) => tokens[index + offset] === word)) continue;
+      const after = tokens[index + phrase.length];
+      if (after !== 'with' && after !== 'without') continue;
+      return [...tokens.slice(0, index), ...tokens.slice(index + phrase.length), ...phrase];
+    }
+  }
+  return [...tokens];
 }
 
 function consumeController(tokens: readonly string[]): { controller: TriggerControllerRelation; owner: 'any' | 'you' | 'not_you'; rest: string[] } | null {
@@ -354,6 +421,7 @@ function parseOneSubject(clause: string, event: TriggerConditionEvent, quantity:
     tokens = tokens.slice(1);
   }
 
+  tokens = moveControllerBeforeQualifiers(tokens);
   const controllerParsed = consumeController(tokens);
   if (!controllerParsed) return null;
   tokens = controllerParsed.rest;
@@ -424,7 +492,7 @@ function parseOneSubject(clause: string, event: TriggerConditionEvent, quantity:
       chunk.types.push(typeWord);
       continue;
     }
-    const subtype = normalizeCreatureTypeWord(token);
+    const subtype = NONCREATURE_SUBTYPE_WORDS[token] ?? normalizeCreatureTypeWord(token);
     if (!subtype) return null;
     chunk.subtypes.push(subtype);
   }

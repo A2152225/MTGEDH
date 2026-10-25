@@ -1,6 +1,7 @@
 import type { GameContext } from '../context.js';
 import { isCreatureNow } from '../creatureTypeNow.js';
 import { destroyPermanent, runSBA } from './counters_tokens.js';
+import { notifyNoncombatPlayerDamage } from './triggers/player-dealt-damage-ir.js';
 
 function getDivineReckoningChoiceBatches(state: any): Record<string, any> {
   if (
@@ -340,6 +341,7 @@ export function applyPrisonersDilemmaBatchResult(
     state.damageTakenThisTurnByPlayer = state.damageTakenThisTurnByPlayer || {};
     state.damageTakenThisTurnByPlayer[playerId] =
       Number(state.damageTakenThisTurnByPlayer[playerId] || 0) + damageAmount;
+    notifyNoncombatPlayerDamage(ctx, playerId, damageAmount);
     state.lifeLostThisTurn = state.lifeLostThisTurn || {};
     state.lifeLostThisTurn[playerId] = Number(state.lifeLostThisTurn[playerId] || 0) + damageAmount;
   }

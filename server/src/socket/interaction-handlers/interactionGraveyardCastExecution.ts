@@ -11,6 +11,7 @@
  *   getEncoreTargetPlayerIds, createEncoreToken.
  */
 
+import { opponentTurnCastProhibitionReason, zoneCastProhibitionReason } from "../../state/modules/batch31CastLocks.js"; // B31
 import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { appendEvent } from "../../db";
@@ -257,6 +258,14 @@ export function continueCastFromGraveyardAbility(params: {
     })
   ) {
     return 'error';
+  }
+  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast', 'harmonize'].includes(normalizedAbilityId)) {
+    const b31GraveLock = zoneCastProhibitionReason(params.game.state, String(params.playerId), 'graveyard')
+      || opponentTurnCastProhibitionReason(params.game.state, String(params.playerId));
+    if (b31GraveLock) {
+      params.emitError({ code: 'CAST_PROHIBITED', message: `${cardName}: ${b31GraveLock}` });
+      return 'error';
+    }
   }
   const recordedManaCost = String(activationCost.manaCost || '').trim();
   const recordedLifeCost = Number(activationCost.lifeCost || 0);

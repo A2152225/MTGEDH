@@ -7,6 +7,7 @@
  * Public entry symbols: applyActivateBattlefieldAbilityPersist.
  */
 
+import { notifyNoncombatPlayerDamage } from '../../state/modules/triggers/player-dealt-damage-ir.js';
 import { appendEvent } from "../../db";
 import { pushWheneverYouExertTriggersOntoStack } from "../exert-triggers.js";
 import { broadcastGame, getPlayerName } from "../util";
@@ -131,6 +132,7 @@ export async function applyActivateBattlefieldAbilityPersist(
         (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
         (game.state as any).damageTakenThisTurnByPlayer[String(pid)] =
           Number((game.state as any).damageTakenThisTurnByPlayer[String(pid)] || 0) + pendingManaLifeLossAmount;
+        notifyNoncombatPlayerDamage(game as any, String(pid), pendingManaLifeLossAmount);
       }
 
       (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};

@@ -271,6 +271,7 @@ export function renderAppPlayOverlaysChoice(p: Record<string, any>) {
         targets={targetModalData?.targets || []}
         minTargets={targetModalData?.minTargets ?? 1}
         maxTargets={targetModalData?.maxTargets ?? 1}
+        costPerTarget={targetModalData?.costPerTarget}
         targetGroups={targetModalData?.targetGroups}
         perOpponent={targetModalData?.perOpponent}
         opponents={targetModalData?.opponents}

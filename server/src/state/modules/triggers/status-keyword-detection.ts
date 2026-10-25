@@ -9,7 +9,9 @@ import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
 import { ENTERS_OR_OTHER_EVENT_PREFIX } from "./enters-or-other-event-prefix.js";
 import { detectRoomUnlockDoorTriggers } from "./room.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
-export function detectMonstrousTriggers(card: any, permanent?: any): TriggeredAbility[] {
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
+export function detectMonstrousTriggers(card: any, permanent?: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'counters' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const oracleText = String(card?.oracle_text || '');
   const cardName = String(card?.name || 'Unknown');
@@ -34,11 +36,12 @@ export function detectMonstrousTriggers(card: any, permanent?: any): TriggeredAb
   return triggers;
 }
 
-export function detectRoomTriggers(card: any, permanent?: any) {
-  return detectRoomUnlockDoorTriggers(card, permanent);
+export function detectRoomTriggers(card: any, permanent?: any, gameState?: any) {
+  return detectRoomUnlockDoorTriggers(card, permanent, gameState);
 }
 
-export function detectTransformTriggers(card: any, permanent?: any): TriggeredAbility[] {
+export function detectTransformTriggers(card: any, permanent?: any, gameState?: any): TriggeredAbility[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
   const oracleText = String(card?.oracle_text || '');
   const cardName = String(card?.name || 'Unknown');
@@ -55,7 +58,7 @@ export function detectTransformTriggers(card: any, permanent?: any): TriggeredAb
     new RegExp(`when this creature transforms into (?:${transformNameVariants.join('|')}),?\\s*([^.]+)`, 'i'),
     /when this creature transforms into [^,]+,?\s*([^.]+)/i,
     new RegExp(`when you have \\d+ or more life,?\\s*flip (?:${transformNameVariants.join('|')})`, 'i'),
-    /when you have (\d+) or less life,?\s*(?:if [^,]+,\s*)?([^.]+)/i,
+    /when you have (\d+) or less life,?\s*(?:if [^,]+,\s*)?([^.]*\b(?:transform|flip)\b[^.]*)/i,
   ];
   for (const pattern of transformPatterns) {
     const match = oracleText.match(pattern);
@@ -69,6 +72,20 @@ export function detectTransformTriggers(card: any, permanent?: any): TriggeredAb
       description: effectText,
       effect: effectText,
       mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
+  // Life-threshold state trigger (Opal Avenger): reported, but typed so the transform event never queues it.
+  const lifeThreshold = oracleText.match(/when you have (\d+) or less life,?\s*(?:if [^,]+,\s*)?([^.]+)/i);
+  const lifeEffect = String(lifeThreshold?.[2] || '').trim();
+  if (lifeEffect && !triggers.some((trigger) => trigger.effect === lifeEffect)) {
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'life_threshold' as any,
+      description: lifeEffect,
+      effect: lifeEffect,
+      mandatory: !lifeEffect.toLowerCase().includes('you may'),
     });
   }
 

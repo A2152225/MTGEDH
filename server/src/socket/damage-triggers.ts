@@ -6,6 +6,7 @@ import { ResolutionQueueManager, ResolutionStepType } from '../state/resolution/
 import { triggerLifeGainEffects } from '../state/utils.js';
 import { debug, debugWarn } from '../utils/debug.js';
 import { excludedCreatureTypeFromDamageTargetType } from '../state/modules/triggers/damage-redirect-target-type.js';
+import { notifyNoncombatPlayerDamage } from '../state/modules/triggers/player-dealt-damage-ir.js';
 
 function syncPlayerLife(state: any, playerId: string, lifeTotal: number): void {
   state.life = state.life || {};
@@ -176,6 +177,7 @@ export function emitPendingDamageTriggers(
             (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
             (game.state as any).damageTakenThisTurnByPlayer[String(p.id)] =
               ((game.state as any).damageTakenThisTurnByPlayer[String(p.id)] || 0) + dmg;
+            notifyNoncombatPlayerDamage(game as any, String(p.id), dmg, sourcePerm);
 
             (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
             (game.state as any).lifeLostThisTurn[String(p.id)] = ((game.state as any).lifeLostThisTurn[String(p.id)] || 0) + dmg;

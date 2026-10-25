@@ -226,7 +226,7 @@ function collectForcedAttackEntries(game: any, playerId: PlayerID): ForcedAttack
 
     if (
       permanentHasMustAttackRequirement(perm, battlefield) &&
-      hasLegalMustAttackDefender(perm, playerId, players)
+      hasLegalMustAttackDefender(perm, playerId, players, game?.state)
     ) {
       entries.push({ perm, kind: 'mustAttack' });
     }

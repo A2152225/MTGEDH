@@ -135,7 +135,7 @@ function describeQualifier(qualifier: EquipQualifier): string {
   }
 }
 
-export function parseEquipAbilitiesFromOracle(oracleText: string): ParsedEquipAbility[] {
+function parseManaEquipAbilities(oracleText: string): ParsedEquipAbility[] {
   const abilities: ParsedEquipAbility[] = [];
   const text = String(oracleText || '');
   EQUIP_ABILITY_RE.lastIndex = 0;
@@ -162,6 +162,7 @@ export function parseEquipAbilitiesFromOracle(oracleText: string): ParsedEquipAb
       label,
       targetDescription,
     });
+    (abilities[abilities.length - 1] as any).__pos = match.index;
     index += 1;
   }
   return abilities;
@@ -243,4 +244,32 @@ export function permanentMatchesEquipQualifier(permanent: any, qualifier: EquipQ
     default:
       return true;
   }
+}
+
+// B33: non-mana Equip costs ("Equip\u2014Pay 3 life."). Cost string is "Pay N life"; the server pays it
+// after the target is chosen (state/modules/equipNonManaCosts.ts). UI34: "Equip\u2014Sacrifice a creature." parses as cost "Sacrifice a creature".
+const EQUIP_LIFE_RE = /\bequip\b(?!\s+abilit)(?:\s+([^\n{.:\u2014\u2013]+?))?\s*[\u2014\u2013]\s*pay (\d+) life\b/gi;
+
+const EQUIP_SAC_RE = /\bequip\b(?!\s+abilit)(?:\s+([^\n{.:\u2014\u2013]+?))?\s*[\u2014\u2013]\s*sacrifice an? (creature|artifact|enchantment|land)\b/gi;
+
+export function parseEquipAbilitiesFromOracle(oracleText: string): ParsedEquipAbility[] {
+  const text = String(oracleText || '');
+  const merged: Array<ParsedEquipAbility & { __pos?: number }> = parseManaEquipAbilities(text) as any;
+  EQUIP_LIFE_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = EQUIP_LIFE_RE.exec(text)) !== null) {
+    const rawQualifier = normalizeSpaces(match[1] || '') || null;
+    const qualifier = parseEquipQualifier(rawQualifier);
+    const cost = `Pay ${match[2]} life`;
+    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), __pos: match.index });
+  }
+  EQUIP_SAC_RE.lastIndex = 0;
+  while ((match = EQUIP_SAC_RE.exec(text)) !== null) {
+    const rawQualifier = normalizeSpaces(match[1] || '') || null;
+    const qualifier = parseEquipQualifier(rawQualifier);
+    const cost = `Sacrifice ${/^[aeiou]/i.test(match[2]) ? 'an' : 'a'} ${match[2].toLowerCase()}`;
+    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), __pos: match.index });
+  }
+  merged.sort((x, y) => Number(x.__pos ?? 0) - Number(y.__pos ?? 0));
+  return merged.map(({ __pos, ...rest }, index) => ({ ...rest, index }));
 }

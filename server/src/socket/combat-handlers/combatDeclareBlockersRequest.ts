@@ -24,6 +24,9 @@ import {
   isCurrentlyCreature,
 } from "./combatLegalityGates.js";
 import { findMustBeBlockedIfAbleViolation } from "./combatMustBeBlockedIfAble.js";
+import { findBlockerCapacityViolation } from "./combatBlockerCapacity.js";
+import { findMinimumBlockersViolation } from "./combatMinimumBlockers.js";
+import { findMaximumBlockersViolation } from "./combatBatch30BlockLimits.js"; // B30
 import {
   collectBlockLifeTax,
   collectBlockTax,
@@ -192,7 +195,7 @@ export async function executeDeclareBlockers(
       battlefield.find((perm: any) => perm.id === b.blockerId)
     ).filter(Boolean);
 
-    if (blockingCreatures.length > 0) {
+    {
       const ctx = {
         state: game.state,
         bumpSeq: () => {
@@ -222,7 +225,11 @@ export async function executeDeclareBlockers(
         blockedCreatures,
         playerId
       );
-      const triggers = orderTriggersByAPNAP(ctx as any, [...blockTriggers, ...blockedTriggers]);
+      const { getParsedAttacksUnblockedTriggers, claimAttacksUnblockedEmission } = await import("../../state/modules/triggers/combatBlockedIrTriggers.js");
+      const unblockedTriggers = claimAttacksUnblockedEmission(game.state, String(playerId))
+        ? getParsedAttacksUnblockedTriggers(ctx as any, playerId)
+        : [];
+      const triggers = orderTriggersByAPNAP(ctx as any, [...blockTriggers, ...blockedTriggers, ...unblockedTriggers]);
 
       if (triggers.length > 0) {
         debug(2, `[combat] Found ${triggers.length} block trigger(s) for game ${gameId}`);
@@ -240,6 +247,8 @@ export async function executeDeclareBlockers(
               const oracleLower = String(sourcePerm?.card?.oracle_text || '').toLowerCase();
               if (triggerTypeForEval === 'blocked' || triggerTypeForEval === 'afflict' || triggerTypeForEval === 'flanking' || triggerTypeForEval === 'rampage') {
                 textForEval = `Whenever ~ becomes blocked, ${textForEval}`;
+              } else if (triggerTypeForEval === 'attacks_unblocked') {
+                textForEval = `Whenever ~ attacks and isn't blocked, ${textForEval}`;
               } else if (triggerTypeForEval === 'bushido') {
                 textForEval = `Whenever ~ blocks or becomes blocked, ${textForEval}`;
               } else if (oracleLower.includes('blocks a creature')) {
@@ -481,6 +490,15 @@ export async function handleDeclareBlockers(
       return;
     }
 
+    const capacityViolation = findBlockerCapacityViolation((game.state as any)?.battlefield || [], resolvedBlockers);
+    if (capacityViolation) {
+      socket.emit("error", {
+        code: "BLOCKER_CAPACITY_EXCEEDED",
+        message: `${capacityViolation.name} can block at most ${capacityViolation.capacity} creature(s) this combat.`,
+      });
+      return;
+    }
+
     const mustBlockViolation = findMustBeBlockedIfAbleViolation({
       state: game.state,
       defendingPlayerId: playerId,
@@ -609,6 +627,24 @@ export async function handleDeclareBlockers(
           return;
         }
       }
+    }
+
+    const minimumViolation = findMinimumBlockersViolation(battlefield, resolvedBlockers);
+    if (minimumViolation) {
+      socket.emit("error", {
+        code: "TOO_FEW_BLOCKERS",
+        message: `${minimumViolation.name} can't be blocked except by ${minimumViolation.required} or more creatures.`,
+      });
+      return;
+    }
+
+    const maximumViolation = findMaximumBlockersViolation(battlefield, resolvedBlockers); // B30
+    if (maximumViolation) {
+      socket.emit("error", {
+        code: "TOO_MANY_BLOCKERS",
+        message: `${maximumViolation.name} can't be blocked by more than ${maximumViolation.max} creature${maximumViolation.max === 1 ? '' : 's'}.`,
+      });
+      return;
     }
 
     const perBlockerTax = collectBlockTax(game.state);

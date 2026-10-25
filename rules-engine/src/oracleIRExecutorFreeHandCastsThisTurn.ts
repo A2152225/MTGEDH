@@ -55,8 +55,8 @@ export function tryApplyFreeHandCastsThisTurnGrant(
     };
   }
 
-  const existing = Array.isArray((state as { lastingEffects?: unknown[] }).lastingEffects)
-    ? [...((state as { lastingEffects: unknown[] }).lastingEffects)]
+  const existing = Array.isArray(state.lastingEffects)
+    ? [...state.lastingEffects]
     : [];
   const sourceName = String(ctx.sourceName || '').trim() || 'this turn';
   const sourceId = String(ctx.sourceId || '').trim();
@@ -83,9 +83,9 @@ export function tryApplyFreeHandCastsThisTurnGrant(
   return {
     applied: true,
     state: {
-      ...(state as object),
+      ...state,
       lastingEffects: [...existing, stamp],
-    } as GameState,
+    },
     log: [`Granted this-turn free hand casts to ${controllerId} via ${sourceName}`],
   };
 }

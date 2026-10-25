@@ -22,6 +22,8 @@ import { permanentHasIndestructible } from '../../rules-engine/index.js';
 import { processPlayerDealtDamageTriggers } from './triggers/dealt-damage-watchers.js';
 import { evaluateLifeLossReplacementEvent } from './replacement-effects.js';
 import { getCurrentPowerToughness } from './currentPowerToughness.js';
+import { emitNoncombatDamageEvent } from './triggers/noncombat-deals-damage.js';
+import { recordCreatureCombatDamageDealer } from './turn-handlers/turnCombatDamageRecipientVariantTriggers.js';
 
 export function applyPoisonCountersToPlayer(ctx: GameContext, playerId: string, amount: number): void {
   const normalized = Math.max(0, Number(amount || 0));
@@ -343,10 +345,12 @@ export function applyCreatureCombatDamageFromSource(
   amount: number,
   damageField: 'damage' | 'markedDamage' | 'damageMarked' = 'markedDamage',
 ): { prevented: boolean; appliedAmount: number; usedMinusCounters: boolean; damageReplaced?: boolean } {
-  return applyCreatureDamageFromSource(ctx, sourcePermanent, targetPermanent, amount, damageField, {
+  const dealt = applyCreatureDamageFromSource(ctx, sourcePermanent, targetPermanent, amount, damageField, {
     skipAmountReplacements: true,
     isCombatDamage: true,
   });
+  if (dealt && !dealt.prevented && dealt.appliedAmount > 0) recordCreatureCombatDamageDealer(ctx, String(sourcePermanent?.id || ''));
+  return dealt;
 }
 
 export function applyFightDamageBetweenCreatures(
@@ -357,11 +361,18 @@ export function applyFightDamageBetweenCreatures(
   damageBToA: number,
   damageField: 'damage' | 'markedDamage' | 'damageMarked' = 'damageMarked',
 ): void {
+  // Fight damage is noncombat: each creature's damage is its own deals_damage event.
   if (creatureA && creatureB && damageAToB > 0) {
-    applyCreatureDamageFromSource(ctx, creatureA, creatureB, damageAToB, damageField);
+    const dealt = applyCreatureDamageFromSource(ctx, creatureA, creatureB, damageAToB, damageField);
+    if (dealt && !dealt.prevented && dealt.appliedAmount > 0) {
+      emitNoncombatDamageEvent(ctx, { sourcePermanentId: String(creatureA.id || ''), permanentIds: [String(creatureB.id || '')] });
+    }
   }
   if (creatureB && creatureA && damageBToA > 0) {
-    applyCreatureDamageFromSource(ctx, creatureB, creatureA, damageBToA, damageField);
+    const dealt = applyCreatureDamageFromSource(ctx, creatureB, creatureA, damageBToA, damageField);
+    if (dealt && !dealt.prevented && dealt.appliedAmount > 0) {
+      emitNoncombatDamageEvent(ctx, { sourcePermanentId: String(creatureB.id || ''), permanentIds: [String(creatureA.id || '')] });
+    }
   }
 }
 

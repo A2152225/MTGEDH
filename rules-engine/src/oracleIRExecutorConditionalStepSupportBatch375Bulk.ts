@@ -1,3 +1,4 @@
+import { evaluateDevotionThreshold } from '../../shared/src/devotionReference.js';
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
@@ -321,6 +322,16 @@ export function evaluateBatch375BulkConditionalClause(params: Batch375BulkParams
       (ctx as any)?.damagePreventedFromBlackSourceThisWay;
     if (flag === 'B' || flag === 'black') return true;
     return typeof flag === 'boolean' ? flag : null;
+  }
+
+  {
+    const devotionVerdict = evaluateDevotionThreshold(
+      getProcessedBattlefield(nextState) as any[],
+      String(controllerId || '').trim(),
+      normalizedRaw,
+    );
+    // A false verdict falls through so precomputed state counters (legacy path) still apply.
+    if (devotionVerdict === true && /^your devotion to [a-z ,]+ is /.test(normalizedRaw)) return true;
   }
 
   if (normalizedRaw === 'your devotion to white and black is seven or greater') {

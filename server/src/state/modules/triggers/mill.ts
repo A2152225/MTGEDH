@@ -3,6 +3,7 @@ import { timingTriggerEffect } from './timing-effect-extraction.js';
 
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export interface MillTrigger {
   permanentId: string;
@@ -49,7 +50,8 @@ function parseMillCondition(
   return null;
 }
 
-export function detectMillTriggers(card: any, permanent: any): MillTrigger[] {
+export function detectMillTriggers(card: any, permanent: any, gameState?: any): MillTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'zone' })) return []; // Humility / Torpor Orb gate
   const triggers: MillTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
   const cardName = String(card?.name || 'Unknown');
@@ -116,7 +118,7 @@ export function getMillTriggers(
     if (!permanent || !permanent.card) continue;
 
     const permController = String(permanent.controller || '');
-    const permTriggers = detectMillTriggers(permanent.card, permanent);
+    const permTriggers = detectMillTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of permTriggers) {
       const interveningText = String(trigger.oracleClause || trigger.effect || '').trim();
       const needsThatPlayerRef = /\bthat player\b/i.test(interveningText) || /\btheir\b/i.test(interveningText);

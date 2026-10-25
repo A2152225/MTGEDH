@@ -7,6 +7,7 @@ import { detectSpellCastTriggers } from "./spell-cast-detection.js";
 import { getSpellCastTriggers } from "./spell-cast-get-triggers.js";
 import { spellCastTriggerIRVerdict } from "./triggerIRVerdict.js";
 import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
+import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export type { SpellCastUntapEffect } from "./types.js";
 export type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
@@ -355,7 +356,8 @@ function pushUniqueOpponentCastTrigger(
   }
 }
 
-export function detectOpponentSpellCastTriggers(card: any, permanent: any): DetectedOpponentSpellCastTrigger[] {
+export function detectOpponentSpellCastTriggers(card: any, permanent: any, gameState?: any): DetectedOpponentSpellCastTrigger[] {
+  if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'cast' })) return []; // Humility / Torpor Orb gate
   const triggers: DetectedOpponentSpellCastTrigger[] = [];
   const oracleText = String(card?.oracle_text || '');
   const lowerOracle = oracleText.toLowerCase();
@@ -675,7 +677,7 @@ export function getOpponentSpellCastTriggers(
     if (!permanent || !permanent.card) continue;
     
     const controller = permanent.controller;
-    const permTriggers = detectOpponentSpellCastTriggers(permanent.card, permanent);
+    const permTriggers = detectOpponentSpellCastTriggers(permanent.card, permanent, { battlefield });
     
     for (const trigger of permTriggers) {
       if (trigger.casterScope === 'opponent' && casterId === controller) continue;

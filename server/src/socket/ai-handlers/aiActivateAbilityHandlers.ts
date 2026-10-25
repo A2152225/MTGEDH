@@ -18,16 +18,16 @@ import { executeAILegacyActivateAbility } from "./aiLegacyActivateAbilityHandler
 import { executePassPriority } from "./aiPriorityPassCombatExecutors.js";
 import { scheduleAIPriority } from "./aiScheduler.js";
 
-function buildAIActivatedAbilityResolverCandidates(permanent: any): AIActivatedAbilityResolverCandidate[] {
-  return getAIHandlerDeps().buildAIActivatedAbilityResolverCandidates(permanent);
+function buildAIActivatedAbilityResolverCandidates(permanent: any, battlefield?: readonly any[]): AIActivatedAbilityResolverCandidate[] {
+  return getAIHandlerDeps().buildAIActivatedAbilityResolverCandidates(permanent, battlefield);
 }
 
 function didAIAbilityActivationProgress(before: any, after: any): boolean {
   return getAIHandlerDeps().didAIAbilityActivationProgress(before, after);
 }
 
-function resolveAIActivatedAbilityId(action: any, permanent: any): string | undefined {
-  return getAIHandlerDeps().resolveAIActivatedAbilityId(action, permanent);
+function resolveAIActivatedAbilityId(action: any, permanent: any, battlefield?: readonly any[]): string | undefined {
+  return getAIHandlerDeps().resolveAIActivatedAbilityId(action, permanent, battlefield);
 }
 
 async function requestAISharedBattlefieldAbilityActivation(
@@ -39,7 +39,7 @@ async function requestAISharedBattlefieldAbilityActivation(
   return getAIHandlerDeps().requestAISharedBattlefieldAbilityActivation(io, gameId, playerId, request);
 }
 
-export function isAIManaBatteryChargeInvestAction(permanent: any, action: any): boolean {
+export function isAIManaBatteryChargeInvestAction(permanent: any, action: any, battlefield?: readonly any[]): boolean {
   const battery = permanentHasManaBatteryCounterLoop(permanent);
   if (!battery.invests) return false;
 
@@ -48,13 +48,13 @@ export function isAIManaBatteryChargeInvestAction(permanent: any, action: any): 
   ];
   const abilityId = String(action?.abilityId || '').trim();
   if (abilityId) {
-    for (const candidate of buildAIActivatedAbilityResolverCandidates(permanent)) {
+    for (const candidate of buildAIActivatedAbilityResolverCandidates(permanent, battlefield)) {
       if (String(candidate?.id || '') === abilityId || String(candidate?.id || '').endsWith(abilityId)) {
         texts.push(String(candidate?.text || ''), String(candidate?.effect || ''));
       }
     }
   } else {
-    for (const candidate of buildAIActivatedAbilityResolverCandidates(permanent)) {
+    for (const candidate of buildAIActivatedAbilityResolverCandidates(permanent, battlefield)) {
       texts.push(String(candidate?.text || ''), String(candidate?.effect || ''));
     }
   }
@@ -114,7 +114,7 @@ export async function executeAIActivateAbility(
     return progressedReturn;
   }
 
-  const resolvedAbilityId = resolveAIActivatedAbilityId(action, permanent);
+  const resolvedAbilityId = resolveAIActivatedAbilityId(action, permanent, game.state?.battlefield);
   if (resolvedAbilityId) {
     const progressed = await requestAISharedBattlefieldAbilityActivation(io, gameId, playerId, {
       permanentId: String(action.permanentId || ''),

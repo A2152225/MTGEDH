@@ -40,6 +40,8 @@ export interface CombatSelectionModalProps {
   errorMessage?: string | null;
   /** If true, the modal is view-only (for spectators or non-active players) */
   readOnly?: boolean;
+  /** Per-player zones from the game view (graveyard-gated attackers such as Deep-Sea Terror). */
+  zones?: Record<string, any>;
   /** Whether it's the current player's turn (for attackers mode) */
   isYourTurn?: boolean;
 }

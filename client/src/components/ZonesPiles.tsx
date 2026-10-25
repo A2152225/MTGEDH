@@ -1,4 +1,5 @@
 import React from "react";
+import { revealedByLabel, isLibraryTopRevealedToAll } from '../utils/revealedInformationLabel';
 import type { PlayerZones, CommanderInfo, KnownCardRef } from "../../../shared/src";
 import { showCardPreview, hideCardPreview } from "./CardPreviewLayer";
 import type { AppearanceSettings } from "../utils/appearanceSettings";
@@ -279,7 +280,14 @@ export function ZonesPiles(props: {
     <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
       {/* Command zone now rendered before Library for expected layout */}
       {isCommanderFormat && commander ? <CommandSlots /> : null}
-      {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, true /* hideTopCard */, libraryAction, undefined, libraryPlayable, true)}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+        {renderPile("Library", (zones.libraryCount ?? libArr.length ?? 0), libraryTop, !isLibraryTopRevealedToAll(libraryTop) /* hideTopCard */, libraryAction, undefined, libraryPlayable, true)}
+        {revealedByLabel((libraryTop as any)?.revealedBy) && (
+          <div data-testid="library-top-revealed-by" style={{ fontSize: 10, color: "#fbbf24", maxWidth: 90, textAlign: "center" }}>
+            {revealedByLabel((libraryTop as any)?.revealedBy)}
+          </div>
+        )}
+      </div>
       {/* Graveyard supports both click and double-click - double-click opens the full graveyard modal */}
       {renderPile("Graveyard", (zones.graveyardCount ?? grArr.length ?? 0), graveTop, false, undefined, onViewGraveyard, graveyardPlayable, false, graveyardContextMenu)}
       {renderPile("Exile", ((zones as any).exile?.length ?? exArr.length ?? 0), exileTop, exileTopHidden, undefined, onViewExile, exilePlayable)}

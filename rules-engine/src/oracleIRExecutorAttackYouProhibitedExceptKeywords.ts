@@ -91,8 +91,8 @@ export function tryApplyAttackYouProhibitedExceptKeywordsGrant(
     };
   }
 
-  const existing = Array.isArray((state as { lastingEffects?: unknown[] }).lastingEffects)
-    ? [...((state as { lastingEffects: unknown[] }).lastingEffects)]
+  const existing = Array.isArray(state.lastingEffects)
+    ? [...state.lastingEffects]
     : [];
   const sourceName = String(ctx.sourceName || '').trim();
   const source = sourceName || 'Until-next-turn lock';
@@ -128,9 +128,9 @@ export function tryApplyAttackYouProhibitedExceptKeywordsGrant(
   return {
     applied: true,
     state: {
-      ...(state as object),
+      ...state,
       lastingEffects: nextEffects,
-    } as GameState,
+    },
     log: [`Stamped until-next-turn ${STAMP_TYPE} for ${playerIds.join(', ')}`],
   };
 }

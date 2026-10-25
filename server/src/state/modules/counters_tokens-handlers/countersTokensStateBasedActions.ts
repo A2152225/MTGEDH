@@ -7,6 +7,7 @@ import type { PlayerID } from "../../../../../shared/src/index.js";
 import type { GameContext } from "../../context.js";
 import { parsePT, uid } from "../../utils.js";
 import { applyStateBasedActions } from "../../../rules-engine/index.js";
+import { reconcileSoulbondPairing } from "../soulbond.js";
 import {
   findOracleScannerImmediateWin,
   stampOracleScannerWinOnState,
@@ -23,12 +24,17 @@ import { ensureInitialDayNightDesignationFromBattlefield } from "../day-night.js
 import { cleanupCardLeavingExile } from "../playable-from-exile.js";
 import { syncDerivedContinuousEffects } from "../staticEffectSpec.js";
 import { applyStatefulPaperKeywordSBAs } from "../statefulPaperKeywords.js";
+import { refreshRevealedInformationFlags } from "../revealedInformationFlags.js";
 import { hydrateGameStateOracleText } from "../cardOracleHydration.js";
 import { movePermanentToGraveyard } from "./countersTokensMoveToGraveyard.js";
+import { tryStaticRegenerateInsteadOfDestroy } from "../replacementBatch16LongTail.js";
 import { getCountersTokensHandlerDeps } from "./countersTokensHandlerDeps.js";
 import { markPlayerOutOfPriority } from "../priorityEligibility.js";
 import { removeLeavingPlayerGameObjects } from "../playerLeavingGame.js";
 import { runWithSimultaneousEntryBatch } from "../triggers/simultaneousEntryBatch.js";
+import { queueControlsNoneStateTriggers } from "../triggerStateAndLevelEmitters.js";
+import { queueLifeThresholdStateTriggers } from "../triggers/lifeThresholdStateTriggers.js";
+import { pollIrEventWatchers } from "../triggers/irEventWatchers.js";
 
 function updateGodCreatureStatus(ctx: GameContext): void {
   getCountersTokensHandlerDeps().updateGodCreatureStatus(ctx);
@@ -128,6 +134,12 @@ function runSBAUnbatched(ctx: GameContext) {
     hydrateGameStateOracleText(state, ctx.libraries);
   } catch {}
 
+  // CR 702.95e: pairing ends when either creature leaves, stops being a creature,
+  // or changes controller (covers live control changes outside the replay path).
+  try {
+    reconcileSoulbondPairing(state);
+  } catch {}
+
   try {
     syncDerivedContinuousEffects(state);
   } catch {}
@@ -136,6 +148,13 @@ function runSBAUnbatched(ctx: GameContext) {
   // Start Your Engines! gives initial speed and Storied grants enduring story.
   try {
     if (applyStatefulPaperKeywordSBAs(state)) {
+      bumpSeq();
+    }
+  } catch {}
+
+  // Hands / library-top revealed designations exposed to the client as state flags.
+  try {
+    if (refreshRevealedInformationFlags(state)) {
       bumpSeq();
     }
   } catch {}
@@ -153,6 +172,13 @@ function runSBAUnbatched(ctx: GameContext) {
   // Day/Night: if a daybound/nightbound permanent exists while the game is neither day nor night, it gains the appropriate designation.
   try {
     ensureInitialDayNightDesignationFromBattlefield(state as any);
+  } catch {}
+
+  // State triggers (CR 603.8): "when you control no X" while the state holds.
+  try {
+    if (queueControlsNoneStateTriggers(ctx).length > 0) bumpSeq();
+    try { if (queueLifeThresholdStateTriggers(ctx).length > 0) bumpSeq(); } catch { /* best-effort */ }
+    try { if (pollIrEventWatchers(ctx) > 0) bumpSeq(); } catch { /* best-effort */ }
   } catch {}
   
   // FIRST: Handle bestow/reconfigure creatures that need to unattach and restore stats
@@ -284,6 +310,10 @@ function runSBAUnbatched(ctx: GameContext) {
   }
   if (res.destroys.length) {
     for (const id of res.destroys) {
+      if (tryStaticRegenerateInsteadOfDestroy(ctx.state, String(id), { lethalDamageOnly: true })) {
+        changed = true;
+        continue;
+      }
       if (movePermanentToGraveyard(ctx, String(id), true)) {
         changed = true;
       }

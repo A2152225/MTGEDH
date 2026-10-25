@@ -15,6 +15,7 @@ import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { queueGenericTriggeredAbility } from '../triggerEmissionFamilyUtils.js';
+import { queuePlayerDealtNoncombatDamageIR } from './player-dealt-damage-ir.js';
 import {
   DelayedTriggerTiming,
   checkDelayedTriggers,
@@ -155,7 +156,7 @@ function isPairedWith(watcher: any, damaged: any): boolean {
 
 function isPlayerDamageOnlyClause(clause: string): boolean {
   return (
-    /whenever an opponent is dealt (?:combat )?damage/.test(clause)
+    /whenever an opponent is dealt (?:combat |noncombat )?damage/.test(clause)
     || /whenever damage is dealt to you/.test(clause)
     || /deals damage to you/.test(clause)
     || /deals noncombat damage to (?:a creature|an opponent)/.test(clause)
@@ -382,6 +383,9 @@ export function dealtDamageWatcherAppliesToPlayer(
   if (/opponent is dealt combat damage by one or more creatures you control/.test(clause)) {
     return Boolean(options.isCombatDamage) && damagedIsOpponent && sourceYouControl && sourceIsCreature;
   }
+  if (/whenever an opponent is dealt noncombat damage/.test(clause)) {
+    return !options.isCombatDamage && Boolean(damagedIsOpponent);
+  }
   if (/whenever an opponent is dealt damage/.test(clause)) {
     return Boolean(damagedIsOpponent);
   }
@@ -600,6 +604,15 @@ export function processPlayerDealtDamageTriggers(
       sourcePermanentId: String(options.sourcePermanent?.id || ''),
     });
     if (item) queued.push(item);
+  }
+
+  if (options.isCombatDamage !== true) {
+    queued.push(...queuePlayerDealtNoncombatDamageIR(ctx, {
+      damagedPlayerId,
+      damageAmount,
+      sourcePermanent: options.sourcePermanent,
+      legacyHits: hits.map(({ watcher, trigger }) => ({ permanentId: String(watcher?.id || ''), effect: String(trigger?.effect || trigger?.description || '') })),
+    }));
   }
 
   return queued;

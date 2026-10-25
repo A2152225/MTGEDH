@@ -28,6 +28,13 @@ import {
 } from "./death-emission-helpers.js";
 import { collectDelayedDiesWatcherTriggers } from "./delayed-dies-watchers.js";
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
+import { findTriggerEventSuppressor, dropTriggersFromAbilitylessSources } from './triggeredAbilitySuppression.js';
+
+function isCombatPhaseNow(state: any): boolean {
+  const phase = String(state?.phase || '').toLowerCase();
+  const step = String(state?.step || '').toLowerCase();
+  return phase.includes('combat') || /attack|block|damage|endcombat|end_combat|begincombat|begin_combat/.test(step);
+}
 
 export type { DeathTriggerResult } from "./death-emission-helpers.js";
 
@@ -77,6 +84,7 @@ export function getDeathTriggers(
   dyingCreatureController: string
 ): DeathTriggerResult[] {
   const results: DeathTriggerResult[] = [];
+  if (findTriggerEventSuppressor(ctx.state, 'dies', dyingCreature)) return results; // Hushbringer-style
   const battlefield = ctx.state?.battlefield || [];
   try {
     hydrateBattlefieldOracleText(battlefield);
@@ -88,6 +96,7 @@ export function getDeathTriggers(
   const isCreature = dyingTypeLine.includes('creature');
 
   results.push(...collectDelayedDiesWatcherTriggers(ctx, dyingCreature));
+  const delayedCount = results.length; // delayed triggers aren't the permanent's abilities
 
   appendDetectedSelfDeathTriggers(results, dyingCreature, dyingCreatureController, ctx.state);
 
@@ -111,7 +120,7 @@ export function getDeathTriggers(
 
   if (!isCreature) {
     appendHauntLeaveDeathTriggers(ctx, results, dyingCreature);
-    return results;
+    return dropTriggersFromAbilitylessSources(results, ctx.state, (r) => String(r?.source?.permanentId || ''), { event: 'dies', lastKnown: [dyingCreature], keepFirst: delayedCount });
   }
   const extractChooseOneModalOptions = (effectText: string): string[] | undefined => {
     const effect = String(effectText || '').trim();
@@ -136,9 +145,18 @@ export function getDeathTriggers(
     return inlineOptions.length > 0 ? inlineOptions : undefined;
   };
   const selfDiesPattern = new RegExp(
-    `when(?:ever)?\\s+(?:~|this creature|${escapeCardNameForRegex(dyingCardName)})(?:\\s+or\\s+another\\s+(?:nontoken\\s+)?creature(?:s)?(?:\\s+you\\s+control)?)?\\s+dies,?\\s*([^.]+)`,
+    `when(?:ever)?\\s+(?:~|this creature|${escapeCardNameForRegex(dyingCardName)})(?:\\s+or\\s+another\\s+(?:nontoken\\s+)?creature(?:s)?(?:\\s+you\\s+control)?)?\\s+dies(?:\\s+during\\s+combat)?,?\\s*([^.]+)`,
     'ig'
   );
+  // Last-known blocking for "each creature it blocked this combat" once the blocker is gone.
+  try {
+    const blocking = (dyingCreature as any)?.blocking;
+    const blockedIds = (Array.isArray(blocking) ? blocking : (blocking ? [blocking] : [])).map((id: any) => String(id || '').trim()).filter(Boolean);
+    if (blockedIds.length > 0 && ctx?.state) {
+      const lki = ((ctx.state as any).lastKnownBlockingById = (ctx.state as any).lastKnownBlockingById || {});
+      lki[String(dyingCreature?.id || '')] = blockedIds;
+    }
+  } catch { /* best-effort */ }
   const seenSelfEffects = new Set<string>();
   const normalizeDeathEffectKey = (text: string): string =>
     String(text || '')
@@ -156,6 +174,8 @@ export function getDeathTriggers(
     const textForScan = stripReminderParentheticals(rulesText);
     const matches = textForScan.matchAll(selfDiesPattern);
     for (const match of matches) {
+      // "When ~ dies during combat": only while the game is in the combat phase.
+      if (/\sdies\s+during\s+combat/i.test(String(match?.[0] || '')) && !isCombatPhaseNow(ctx.state)) continue;
       let effect = collectDeathTriggerEffectText(textForScan, match as RegExpMatchArray, 1);
       if (/^choose one\b/i.test(effect)) {
         const matchText = String(match?.[0] || '');
@@ -298,7 +318,7 @@ export function getDeathTriggers(
       // Ignore quoted granted abilities ('gains "When this creature dies, ..."'): they belong to
       // the creature that received them and fire from its own self-dies scan.
       const ownOracleText = oracleText.replace(/"[^"\n]*"|\u201c[^\u201d\n]*\u201d/g, '""');
-      const genericDiesMatch = ownOracleText.match(/when(?:ever)?\s+([^.]+?)\s+dies,?\s*([^.]+)/i);
+      const genericDiesMatch = ownOracleText.match(/when(?:ever)?\s+([^.]+?)\s+dies(?!\s+during\s+combat),?\s*([^.]+)/i);
       if (
         genericDiesMatch &&
         deathTriggerClauseMatchesDyingCreature(ctx, genericDiesMatch[1], permanent, dyingCreature, dyingCreatureController) &&
@@ -487,7 +507,7 @@ export function getDeathTriggers(
   }
 
   appendHauntLeaveDeathTriggers(ctx, results, dyingCreature);
-  return dedupeDeathTriggerResults(results, String(dyingCreature?.id || ''));
+  return dedupeDeathTriggerResults(dropTriggersFromAbilitylessSources(results, ctx.state, (r) => String(r?.source?.permanentId || ''), { event: 'dies', lastKnown: [dyingCreature], keepFirst: delayedCount }), String(dyingCreature?.id || ''));
 }
 
 function deathEffectsOverlap(left: string, right: string): boolean {

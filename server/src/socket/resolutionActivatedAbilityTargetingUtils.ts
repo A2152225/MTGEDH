@@ -6,6 +6,7 @@
  */
 
 import { appendEvent } from "../db/index.js";
+import { graveyardCardsAreUntargetable } from '../state/modules/graveyardTargetingRestriction.js';
 import { canPlayerBeTargetedByPlayer, detectAnotherTargetRestriction, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, parseTargetRequirements } from "../rules-engine/targeting";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../state/modules/triggers/ability-activated.js";
 import {
@@ -246,7 +247,7 @@ export function buildActivatedAbilityValidTargets(
           : [controllerId]) as string[];
         for (const ownerId of graveyardOwnerIds) {
           const playerZones = stateZones?.[ownerId] || {};
-          const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
+          const graveyard = graveyardCardsAreUntargetable(game.state, String(controllerId), String(ownerId)) ? [] : (Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : []);
           validTargets.push(...graveyard
             .filter((card: any) => {
               if (!matchesGraveyardCardTargetType(card, targetType)) {

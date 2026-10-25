@@ -11,6 +11,12 @@ import {
   parseAbilitiesFromTail,
   type StaticEffectSpecSource,
 } from './staticEffectSpecOracleParseHelpers.js';
+import { parseResourceDesignationCondition } from './staticEffectSpecResourceDesignationConditions.js';
+import { parseExtraSelfCondition } from '../staticEffectSpecExtraConditions.js';
+import { parseZoneCountCondition } from '../staticEffectSpecZoneCountConditions.js';
+import { parseCommanderCondition } from '../staticEffectSpecCommanderCondition.js';
+import { parseEntryLifeCondition } from '../staticEffectSpecEntryLifeConditions.js';
+import { parseOtherwiseGrant, splitOtherwiseClause } from './staticEffectSpecOtherwiseClause.js';
 
 const COUNT_WORDS: Record<string, number> = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -36,8 +42,18 @@ function singular(noun: string): string {
 /** Map a condition phrase (text after "as long as") to an evaluable static condition. */
 export function parseStaticSelfCondition(raw: string): StaticEffectCondition | null {
   const c = String(raw || '').toLowerCase().replace(/\u2019/g, "'").trim().replace(/[.,]+$/, '');
+  const resource = parseResourceDesignationCondition(c);
+  if (resource) return resource;
+  const zoneCount = parseZoneCountCondition(c);
+  if (zoneCount) return zoneCount;
   if (/^it(?:'s| is) your turn$/.test(c)) return { kind: 'during_source_controller_turn' };
   if (/^seven or more cards are in your graveyard$/.test(c)) return { kind: 'source_controller_has_threshold' };
+  const graveyardCount = c.match(/^(?:there are (\w+) or more cards in your graveyard|(\w+) or more cards are in your graveyard)$/);
+  if (graveyardCount) {
+    const amount = countWord(graveyardCount[1] || graveyardCount[2]);
+    if (amount === undefined) return null;
+    return amount === 7 ? { kind: 'source_controller_has_threshold' } : { kind: 'source_controller_graveyard_at_least', amount };
+  }
   if (/^you have the city's blessing$/.test(c)) return { kind: 'source_controller_has_citys_blessing' };
   if (/^(?:it|this creature|~)(?:'s| is) attacking$/.test(c)) return { kind: 'target_is_attacking' };
   if (/^(?:it|this creature|~)(?:'s| is) untapped$/.test(c)) return { kind: 'target_is_untapped' };
@@ -50,6 +66,10 @@ export function parseStaticSelfCondition(raw: string): StaticEffectCondition | n
   }
   const counter = c.match(/^(?:it|this creature|~) has (?:a|an|one or more) ([+\-\d/a-z ]+?) counters? on it$/);
   if (counter) return { kind: 'target_has_counter', counterType: counter[1].trim() };
+  const commander = parseCommanderCondition(c);
+  if (commander) return commander as StaticEffectCondition;
+  const entryLife = parseEntryLifeCondition(c);
+  if (entryLife) return entryLife as StaticEffectCondition;
   const control = c.match(/^you control (?:(a|an|another)|(?:at least )?(\w+)(?: or more)?)( other)? ([a-z' -]+?)$/);
   if (control) {
     const other = control[1] === 'another' || Boolean(control[3]);
@@ -66,13 +86,16 @@ export function parseStaticSelfCondition(raw: string): StaticEffectCondition | n
       return { kind: 'source_controller_controls_matching', creatureType: single, count, other, creaturesOnly: isCreatureSuffix };
     }
   }
-  return null;
+  return parseExtraSelfCondition(c);
 }
 
 function selfSubject(sourceName: string): string {
   const name = String(sourceName || '').toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const short = name.split(',')[0];
-  return `(?:this creature|this permanent|~|it${name ? `|${name}` : ''}${short && short !== name ? `|${short}` : ''})`;
+  // Legendary short names: "Svyelun" for Svyelun of Sea and Sky (first word of the name).
+  const first = short.split(/\s+/)[0];
+  const firstAlt = first && first.length >= 3 && first !== short ? `|${first}` : '';
+  return `(?:this creature|this permanent|~|it${name ? `|${name}` : ''}${short && short !== name ? `|${short}` : ''}${firstAlt})`;
 }
 
 /** Push self-scoped specs for conditional "has X" / "gets +X/+Y" statics. */
@@ -84,13 +107,14 @@ export function pushConditionalSelfGrantSpecs(
   const subject = selfSubject(source.sourceName);
   const lines = String(oracle || '').toLowerCase().split(/\n+/);
   const leading = new RegExp(
-    String.raw`^\s*(?:[a-z' ]+\s*(?:\u2014|--|-)\s*)?as long as ([^,]+),\s*${subject}\s+(?:gets\s+([+-]\d+)\/([+-]\d+)(?:\s+and\s+(?:has|gains)\s+([^.]+))?|(?:has|gains)\s+([^.]+))`,
+    String.raw`^\s*(?:[a-z' ]+\s*(?:\u2014|--|-)\s*)?(?:as long as ([^,]+)|(during your turn)),\s*${subject}\s+(?:gets\s+([+-]\d+)\/([+-]\d+)(?:\s+and\s+(?:has|gains)\s+([^.]+))?|(?:has|gains)\s+([^.]+))`,
   );
   const trailing = new RegExp(
-    String.raw`(?:^|[.]\s*)${subject}\s+(?:gets\s+([+-]\d+)\/([+-]\d+)\s+and\s+)?has\s+(.+?)\s+as long as ([^.]+)`,
+    String.raw`(?:^|[.]\s*|\u2014\s*)${subject}\s+(?:gets\s+([+-]\d+)\/([+-]\d+)(?:\s+and\s+has\s+(.+?))?|has\s+(.+?))\s+as long as ([^.]+)`,
   );
   let index = 0;
-  for (const line of lines) {
+  for (const fullLine of lines) {
+    const [line, otherwiseText] = splitOtherwiseClause(fullLine);
     if (/^\s*(?:when|whenever|at the beginning)\b/.test(line) || line.replace(/"[^"]*"/g, '').includes(':')) continue;
     let conditionText = '';
     let power = 0;
@@ -98,21 +122,18 @@ export function pushConditionalSelfGrantSpecs(
     let abilityTail = '';
     const lead = line.match(leading);
     if (lead) {
-      conditionText = lead[1];
-      power = Number(lead[2] || 0);
-      toughness = Number(lead[3] || 0);
-      abilityTail = lead[4] || lead[5] || '';
+      // "During your turn, ~ has first strike" reads as "as long as it's your turn".
+      conditionText = lead[2] ? "it's your turn" : lead[1];
+      power = Number(lead[3] || 0);
+      toughness = Number(lead[4] || 0);
+      abilityTail = lead[5] || lead[6] || '';
     } else {
       const trail = line.match(trailing);
       if (!trail) continue;
-      // Svyelun-style "has indestructible as long as you control at least two other Merfolk" is
-      // owned by the legacy static path; this handler covers the generic shapes it doesn't.
-      if (/as long as you control at least \w+ other/.test(line) && /has indestructible/.test(line)) continue;
-      if (/unspent mana/.test(line)) continue;
       power = Number(trail[1] || 0);
       toughness = Number(trail[2] || 0);
-      abilityTail = trail[3] || '';
-      conditionText = trail[4];
+      abilityTail = trail[3] || trail[4] || '';
+      conditionText = trail[5];
     }
     const condition = parseStaticSelfCondition(conditionText);
     if (!condition) continue;
@@ -128,5 +149,9 @@ export function pushConditionalSelfGrantSpecs(
       },
       condition,
     ));
+    const otherwise = otherwiseText ? parseOtherwiseGrant(otherwiseText, subject) : null;
+    if (otherwise) {
+      specs.push({ ...buildSpec(source, `conditional-self-grant-otherwise-${index++}`, { kind: 'self' }, otherwise, condition), conditionNegated: true });
+    }
   }
 }

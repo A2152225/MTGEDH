@@ -25,6 +25,7 @@ import { getFilteredValidTargetsForStep } from "./resolutionTargetSelectionDisti
 import { hydrateSpellPaymentPresentationFieldsForClient } from "./spellPaymentPresentationSanitizeUtils.js";
 import { resolveResolutionPromptCause } from "../../state/modules/resolutionPromptCause.js";
 import { getAffordableXHintForCostPerX } from "../../state/modules/spellXCastUtils.js";
+import { flagbearerRequiredTargetIds } from "../../state/modules/flagbearerTargeting.js";
 
 export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any {
   const oracleText = getOracleTextFromResolutionStep(step);
@@ -36,6 +37,13 @@ export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any
     const filtered = getFilteredValidTargetsForStep(gameId, targetStep);
     if (filtered !== targetStep.validTargets) {
       (typeSpecificFields as any).validTargets = filtered;
+    }
+    try {
+      const game = ensureGame(gameId);
+      const required = game ? flagbearerRequiredTargetIds(game.state, String(step.playerId || ''), { ...targetStep, validTargets: filtered }) : [];
+      if (required.length > 0) (typeSpecificFields as any).requiredFlagbearerIds = required;
+    } catch {
+      // presentation only
     }
   }
 

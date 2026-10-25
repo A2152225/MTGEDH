@@ -20,8 +20,10 @@ import {
   findOracleScannerUpkeepWin,
 } from './stateBasedActionsOracleScannerWins';
 import { consumeNextDrawStepSkipEffect, findStaticSkipDrawStepSource } from '../phaseTransitionTriggers';
+import { applyOptionalDrawStepSkipLifeToState } from '../optionalDrawStepSkipLife';
 import { clearFutureSpellEffects } from '../futureSpellEffects';
 import { removeExpiredShields } from '../keywordAbilities/regeneration';
+import { removeControlEffects, syncControlFromRegistry } from '../controlEffectRegistry';
 
 function normalizeOptionalUntapText(value: unknown): string {
   return String(value || '')
@@ -223,7 +225,9 @@ export function executeDrawStep(
   const staticSkipSource = findStaticSkipDrawStepSource(state, activePlayerId);
   if (staticSkipSource) {
     logs.push(`${activePlayerId} skips their draw step due to ${staticSkipSource}`);
-    return { state, logs };
+    const skipLife = applyOptionalDrawStepSkipLifeToState(state, activePlayerId);
+    logs.push(...skipLife.logs);
+    return { state: skipLife.state, logs };
   }
 
   const player = state.players.find(p => p.id === activePlayerId);
@@ -365,32 +369,23 @@ export function executeCleanupStep(
         effect => String(effect?.duration || '').trim() === 'until_end_of_turn'
       )
     : [];
-  const remainingControlChangeEffects = Array.isArray((state as any).controlChangeEffects)
-    ? ((state as any).controlChangeEffects as any[]).filter(
-        effect => String(effect?.duration || '').trim() !== 'until_end_of_turn'
-      )
-    : [];
-  const revertedPermanentIds = new Set(
-    expiringControlChangeEffects
-      .map(effect => String(effect?.permanentId || '').trim())
-      .filter(Boolean)
-  );
-  const battlefieldAfterControlRevert = updatedBattlefield.map((perm: any) => {
-    const effect = expiringControlChangeEffects.find(
-      (entry: any) => String(entry?.permanentId || '').trim() === String(perm?.id || '').trim()
-    );
-    if (!effect) {
-      return perm;
-    }
-
-    return {
-      ...perm,
-      controller: effect.originalController,
-      summoningSickness: true,
-    };
-  });
-  if (revertedPermanentIds.size > 0) {
-    logs.push(`Control reverts for ${revertedPermanentIds.size} permanent(s)`);
+  // Layer 2: control is derived from the registry. Drop the expiring entries and re-derive; a permanent still
+  // under a newer effect (e.g. a Control Magic attached after the Threaten) keeps that controller.
+  const controlState: any = {
+    ...state,
+    battlefield: updatedBattlefield.map((perm: any) => ({ ...perm })),
+    controlChangeEffects: Array.isArray((state as any).controlChangeEffects) ? [...(state as any).controlChangeEffects] : undefined,
+    permanentControlEffects: Array.isArray((state as any).permanentControlEffects) ? [...(state as any).permanentControlEffects] : undefined,
+  };
+  if (expiringControlChangeEffects.length > 0) {
+    const expiring = new Set(expiringControlChangeEffects);
+    removeControlEffects(controlState, (entry: any) => expiring.has(entry));
+  }
+  const controlChanges = syncControlFromRegistry(controlState);
+  const battlefieldAfterControlRevert = controlState.battlefield;
+  const remainingControlChangeEffects = Array.isArray(controlState.controlChangeEffects) ? controlState.controlChangeEffects : [];
+  if (controlChanges.length > 0) {
+    logs.push(`Control reverts for ${controlChanges.length} permanent(s)`);
   }
   
   logs.push('Damage removed from all permanents');
@@ -400,6 +395,7 @@ export function executeCleanupStep(
       ...state,
       battlefield: battlefieldAfterControlRevert,
       controlChangeEffects: remainingControlChangeEffects,
+      ...(controlState.permanentControlEffects ? { permanentControlEffects: controlState.permanentControlEffects } : {}),
     } as GameState)
   );
   const remainingRegenerationShields = removeExpiredShields(

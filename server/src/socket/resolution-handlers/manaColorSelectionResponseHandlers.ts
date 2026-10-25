@@ -9,6 +9,7 @@
  * Wired through resolutionHandlerDeps. Must not import resolution.ts.
  */
 
+import { notifyNoncombatPlayerDamage } from '../../state/modules/triggers/player-dealt-damage-ir.js';
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import { queueLifePaymentTriggers } from "../../state/modules/triggers/pay-life.js";
@@ -392,6 +393,7 @@ export async function handleManaColorSelectionResponse(
           (game.state as any).damageTakenThisTurnByPlayer = (game.state as any).damageTakenThisTurnByPlayer || {};
           (game.state as any).damageTakenThisTurnByPlayer[String(pid)] =
             Number((game.state as any).damageTakenThisTurnByPlayer[String(pid)] || 0) + manaLifeLossAmount;
+          notifyNoncombatPlayerDamage(game as any, String(pid), manaLifeLossAmount);
         }
 
         (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};

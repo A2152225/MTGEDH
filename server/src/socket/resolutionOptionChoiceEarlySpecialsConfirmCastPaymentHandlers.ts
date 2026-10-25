@@ -458,6 +458,11 @@ export async function tryHandleOptionChoiceEarlySpecialsConfirmCastPayment(
       return true;
     }
 
+    const maxTimes = Math.floor(Number(stepData?.reflexiveManaPaymentMaxTimes || 0));
+    if (maxTimes > 0 && paidAmount > maxTimes) {
+      emitToPlayer(io, controllerId as any, 'error', { code: 'INVALID_CHOICE', message: `${sourceName}: you may pay at most ${maxTimes} time(s).` });
+      return true;
+    }
     const available = getAvailableReflexiveManaAmountFromPool(game.state, controllerId, paymentUnit);
     if (paidAmount > available) {
       emitToPlayer(io, controllerId as any, 'error', {
@@ -927,6 +932,9 @@ export async function tryHandleOptionChoiceEarlySpecialsConfirmCastPayment(
         resolvedStepId: String(step.id || '').trim() || undefined,
         choiceId: String(choiceId || '').trim() || undefined,
         echoChoice: stepData?.echoChoice === true || undefined,
+        cumulativeUpkeepChoice: stepData?.cumulativeUpkeepChoice === true || undefined,
+        lifeCost: Number(stepData?.lifeCost || 0) || undefined,
+        cumulativeUpkeepAddMana: String(stepData?.cumulativeUpkeepAddMana || '').trim() || undefined,
         optionalPaymentValidationKind: String(stepData?.optionalPaymentValidationKind || '').trim() || undefined,
         manaCost: String(stepData?.optionalPaymentManaCost || stepData?.manaCost || '').trim() || undefined,
         energyCost: Number(stepData?.optionalPaymentEnergyAmount || stepData?.energyCost || 0) || undefined,

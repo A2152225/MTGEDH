@@ -17,6 +17,7 @@ import {
 } from "../state/resolution/index.js";
 import { debug, debugWarn } from "../utils/debug.js";
 import { processPendingLimDulsVault } from "./resolutionProcessPendingHandlers.js";
+import { hasPendingAdditionalVote, queueExtraVoteOffer } from "../state/modules/voteAdditionalVotes.js"; // B28/B29 extra votes
 import { appendGameEvent, getPlayerName } from "./util.js";
 
 /**
@@ -204,8 +205,42 @@ export function handleVoteResponse(
     // Ignore persistence failures
   }
 
+  continueVoteAfterSubmission(io, game, gameId, { ...voteStep, votesSubmitted }, String(pid), response);
+}
+
+/**
+ * B29: post-vote continuation (next voter, optional extra-vote offer, or tally + Oracle IR resume).
+ * Shared by handleVoteResponse and the extra-vote decline path.
+ */
+export function continueVoteAfterSubmission(
+  io: Server,
+  game: any,
+  gameId: string,
+  voteStep: any,
+  pid: string,
+  response: ResolutionStepResponse,
+): void {
+  const voteId = voteStep.voteId;
+  const choices = voteStep.choices || [];
+  const votesSubmitted: any[] = Array.isArray(voteStep.votesSubmitted) ? voteStep.votesSubmitted : [];
+  const voterOrder: string[] = Array.isArray(voteStep.oracleIrVoterOrder)
+    ? voteStep.oracleIrVoterOrder.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const secret = Boolean(voteStep.secret);
+  const extraVoteDeclinedBy: string[] = Array.isArray(voteStep.extraVoteDeclinedBy)
+    ? voteStep.extraVoteDeclinedBy.map((id: unknown) => String(id || ''))
+    : [];
+  const voteState = (game.state as any).activeVotes = (game.state as any).activeVotes || {};
+  if (!voteState[voteId]) voteState[voteId] = { choices, votes: [...votesSubmitted] };
+
   const submittedPlayerIds = new Set(votesSubmitted.map((v: any) => String(v?.playerId || '').trim()));
-  const remainingVoters = voterOrder.filter((id) => !submittedPlayerIds.has(id));
+  // B28: "while voting, you may vote an additional time" keeps the same voter up next.
+  const extraVotePending = voterOrder.length > 0
+    && !extraVoteDeclinedBy.includes(String(pid))
+    && hasPendingAdditionalVote(game.state, String(pid), votesSubmitted);
+  const remainingVoters = extraVotePending
+    ? [String(pid)]
+    : voterOrder.filter((id) => !submittedPlayerIds.has(id));
   if (remainingVoters.length > 0) {
     const nextVoter = String(remainingVoters[0] || '').trim();
     // Rebuild voter-relative ballots (Secret council "another player" excludes the voter).
@@ -229,7 +264,7 @@ export function handleVoteResponse(
     } catch {
       // keep prior choices
     }
-    ResolutionQueueManager.addStep(gameId, {
+    const nextVoteStep: any = {
       type: ResolutionStepType.VOTE,
       playerId: nextVoter,
       description: String(voteStep.description || 'Vote'),
@@ -247,7 +282,13 @@ export function handleVoteResponse(
       oracleIrSourceName: voteStep.oracleIrSourceName,
       oracleIrResumeStepsJson: voteStep.oracleIrResumeStepsJson,
       oracleIrXValue: voteStep.oracleIrXValue,
-    } as any);
+      extraVoteDeclinedBy,
+    };
+    if (extraVotePending) {
+      queueExtraVoteOffer(gameId, nextVoter, nextVoteStep); // B29: "you may" vote again
+    } else {
+      ResolutionQueueManager.addStep(gameId, nextVoteStep);
+    }
     if (typeof game.bumpSeq === "function") {
       game.bumpSeq();
     }

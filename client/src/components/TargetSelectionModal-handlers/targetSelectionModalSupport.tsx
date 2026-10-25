@@ -34,6 +34,8 @@ export interface TargetOption {
   owner?: string;
   ownerName?: string;
   card?: KnownCardRef | BattlefieldPermanent;
+  /** Flagbearer the caster must choose among their targets if able. */
+  flagbearerRequired?: boolean;
 }
 
 export interface TargetSelectionGroup {
@@ -222,6 +224,8 @@ export interface TargetSelectionModalProps {
   targets: TargetOption[];
   minTargets: number;
   maxTargets: number;
+  /** Paid per chosen target (Magnetic Mountain untap); shows a running total. */
+  costPerTarget?: number;
   /** Controller-grouped targeting, including each-player effects. */
   targetGroups?: TargetSelectionGroup[];
   /** When true, targets are chosen per opponent (up to N each). */
@@ -245,3 +249,12 @@ export {
   PermanentOwnershipBadge,
   PermanentTargetCaption,
 };
+
+/** Marks a Flagbearer the player must target if able. */
+export function FlagbearerRequiredBadge() {
+  return (
+    <div title="You must choose at least one Flagbearer" style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', background: 'rgba(251,191,36,0.15)', border: '1px solid #fbbf24', borderRadius: 4, padding: '1px 4px', marginTop: 2, display: 'inline-block' }}>
+      Flagbearer — must target
+    </div>
+  );
+}

@@ -11,6 +11,24 @@ import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { games } from '../src/socket/socket.js';
 import { createInitialGameState } from '../src/state/index.js';
 
+// "You may copy" triggers ask yes/no when they resolve; accept so the copy is made.
+async function acceptOptionalCopyPrompt(handlers: any, gameId: string) {
+  const step: any = ResolutionQueueManager.getQueue(gameId).steps.find((s: any) => (
+    s?.type === 'option_choice' && s?.retargetSpellCopy !== true && (s?.options || []).some((o: any) => o?.id === 'yes')
+  ));
+  expect(step).toBeDefined();
+  await handlers['submitResolutionResponse']({ gameId, stepId: String(step.id), selections: ['yes'], cancelled: false });
+}
+
+// Copy triggers go on the stack (CR 603.3); resolve them so the copy is created.
+function resolveCopyTriggers(game: any) {
+  for (let i = 0; i < 5; i++) {
+    const stack = (game.state as any).stack || [];
+    if (String(stack[stack.length - 1]?.type || '') !== 'triggered_ability') return;
+    game.resolveTopOfStack();
+  }
+}
+
 function createNoopIo() {
   return {
     to: (_room: string) => ({
@@ -307,6 +325,7 @@ describe('spell-cast copy replay integration', () => {
       cardId: 'wizard_spell_1',
       targets: [],
     });
+    resolveCopyTriggers(game);
 
     expect((game.state as any).stack).toHaveLength(2);
     const originalSpell = ((game.state as any).stack || []).find((item: any) => !item?.copiedFromStackItemId);
@@ -345,6 +364,7 @@ describe('spell-cast copy replay integration', () => {
     }
 
     replayGame.replay(replayEvents as any);
+    resolveCopyTriggers(replayGame);
 
     expect((replayGame.state as any).stack).toHaveLength(2);
     const replayOriginalSpell = ((replayGame.state as any).stack || []).find((item: any) => !item?.copiedFromStackItemId);
@@ -386,6 +406,7 @@ describe('spell-cast copy replay integration', () => {
       cardId: 'wizard_bolt_1',
       targets: [{ id: 'p2', kind: 'player' }],
     });
+    resolveCopyTriggers(game);
 
     expect((game.state as any).stack).toHaveLength(2);
     const copiedSpell = ((game.state as any).stack || []).find((item: any) => item?.copiedFromStackItemId);
@@ -403,15 +424,15 @@ describe('spell-cast copy replay integration', () => {
 
     const replayEvents = toReplayEvents(gameId, eventStart);
     expect(replayEvents.map((event: any) => event.type)).toEqual(
-      expect.arrayContaining(['castSpell', 'copyTriggeredSpellResolve', 'castSpellContinuation']),
+      expect.arrayContaining(['castSpell', 'pushTriggeredAbility', 'copyTriggeredSpellResolve', 'resolveTopOfStackPrompt']),
     );
 
     const promptEvent = replayEvents.find((event: any) => {
-      if (event.type !== 'castSpellContinuation') return false;
-      return (event as any)?.queuedResolutionStep?.retargetSpellCopy === true;
+      if (event.type !== 'resolveTopOfStackPrompt') return false;
+      return [(event as any)?.queuedResolutionStep, ...((event as any)?.queuedResolutionSteps || [])].some((step: any) => step?.retargetSpellCopy === true);
     });
     expect(promptEvent).toBeDefined();
-    expect((promptEvent as any)?.queuedResolutionStep?.retargetSpellCopyStackItemId).toBe(copiedSpell?.id);
+    expect([(promptEvent as any)?.queuedResolutionStep, ...((promptEvent as any)?.queuedResolutionSteps || [])].find((step: any) => step?.retargetSpellCopy === true)?.retargetSpellCopyStackItemId).toBe(copiedSpell?.id);
 
     const replayGameId = `${gameId}_replay`;
     const replayGame = createInitialGameState(replayGameId);
@@ -428,6 +449,7 @@ describe('spell-cast copy replay integration', () => {
     }
 
     replayGame.replay(replayEvents as any);
+    resolveCopyTriggers(replayGame);
 
     expect((replayGame.state as any).stack).toHaveLength(2);
     const replayCopiedSpell = ((replayGame.state as any).stack || []).find((item: any) => item?.copiedFromStackItemId);
@@ -468,6 +490,7 @@ describe('spell-cast copy replay integration', () => {
       cardId: 'wizard_bolt_1',
       targets: [{ id: 'p2', kind: 'player' }],
     });
+    resolveCopyTriggers(game);
 
     const copiedSpell = ((game.state as any).stack || []).find((item: any) => item?.copiedFromStackItemId);
     expect(copiedSpell).toBeDefined();
@@ -520,6 +543,7 @@ describe('spell-cast copy replay integration', () => {
     }
 
     replayGame.replay(replayEvents as any);
+    resolveCopyTriggers(replayGame);
 
     const replayCopiedSpell = ((replayGame.state as any).stack || []).find((item: any) => item?.copiedFromStackItemId);
     expect(replayCopiedSpell?.targets).toEqual(['p1']);
@@ -584,6 +608,7 @@ describe('spell-cast copy replay integration', () => {
       cardId: 'wizard_aura_1',
       targets: [{ id: 'enemy_creature_1', kind: 'permanent' }],
     });
+    resolveCopyTriggers(game);
 
     expect((game.state as any).stack).toHaveLength(2);
     const copiedSpell = ((game.state as any).stack || []).find((item: any) => item?.copiedFromStackItemId);
@@ -600,7 +625,7 @@ describe('spell-cast copy replay integration', () => {
 
     const replayEvents = toReplayEvents(gameId, eventStart);
     expect(replayEvents.map((event: any) => event.type)).toEqual(
-      expect.arrayContaining(['castSpell', 'copyTriggeredSpellResolve', 'castSpellContinuation']),
+      expect.arrayContaining(['castSpell', 'pushTriggeredAbility', 'copyTriggeredSpellResolve', 'resolveTopOfStackPrompt']),
     );
 
     const replayGameId = `${gameId}_replay`;
@@ -652,6 +677,7 @@ describe('spell-cast copy replay integration', () => {
     }
 
     replayGame.replay(replayEvents as any);
+    resolveCopyTriggers(replayGame);
 
     expect((replayGame.state as any).stack).toHaveLength(2);
     const replayRetargetChoiceStep = ResolutionQueueManager
@@ -693,6 +719,8 @@ describe('spell-cast copy replay integration', () => {
       cardId: 'wizard_bolt_1',
       targets: [{ id: 'p2', kind: 'player' }],
     });
+    resolveCopyTriggers(game);
+    await acceptOptionalCopyPrompt(handlers, gameId);
 
     expect((game.state as any).stack).toHaveLength(2);
     const copiedSpell = ((game.state as any).stack || []).find((item: any) => item?.copiedFromStackItemId);
@@ -709,7 +737,7 @@ describe('spell-cast copy replay integration', () => {
 
     const replayEvents = toReplayEvents(gameId, eventStart);
     expect(replayEvents.map((event: any) => event.type)).toEqual(
-      expect.arrayContaining(['castSpell', 'copyTriggeredSpellResolve', 'castSpellContinuation']),
+      expect.arrayContaining(['castSpell', 'pushTriggeredAbility', 'copyTriggeredSpellResolve', 'resolveTopOfStackPrompt']),
     );
 
     const replayGameId = `${gameId}_replay`;
@@ -732,6 +760,7 @@ describe('spell-cast copy replay integration', () => {
     }
 
     replayGame.replay(replayEvents as any);
+    resolveCopyTriggers(replayGame);
 
     expect((replayGame.state as any).stack).toHaveLength(2);
     const replayRetargetChoiceStep = ResolutionQueueManager
@@ -786,6 +815,7 @@ describe('spell-cast copy replay integration', () => {
       cardId: 'wizard_bolt_1',
       targets: [{ id: 'p2', kind: 'player' }],
     });
+    resolveCopyTriggers(game);
 
     expect((game.state as any).stack).toHaveLength(2);
     const copiedSpell = ((game.state as any).stack || []).find((item: any) => item?.copiedFromStackItemId);
@@ -802,7 +832,7 @@ describe('spell-cast copy replay integration', () => {
 
     const replayEvents = toReplayEvents(gameId, eventStart);
     expect(replayEvents.map((event: any) => event.type)).toEqual(
-      expect.arrayContaining(['castSpell', 'copyTriggeredSpellResolve', 'castSpellContinuation']),
+      expect.arrayContaining(['castSpell', 'pushTriggeredAbility', 'copyTriggeredSpellResolve', 'resolveTopOfStackPrompt']),
     );
 
     const replayGameId = `${gameId}_replay`;
@@ -838,6 +868,7 @@ describe('spell-cast copy replay integration', () => {
     }
 
     replayGame.replay(replayEvents as any);
+    resolveCopyTriggers(replayGame);
 
     expect((replayGame.state as any).stack).toHaveLength(2);
     const replayRetargetChoiceStep = ResolutionQueueManager
@@ -879,6 +910,7 @@ describe('spell-cast copy replay integration', () => {
       cardId: 'colorless_bolt_1',
       targets: [{ id: 'p2', kind: 'player' }],
     });
+    resolveCopyTriggers(game);
 
     expect((game.state as any).stack).toHaveLength(2);
     const copiedSpell = ((game.state as any).stack || []).find((item: any) => item?.copiedFromStackItemId);
@@ -895,7 +927,7 @@ describe('spell-cast copy replay integration', () => {
 
     const replayEvents = toReplayEvents(gameId, eventStart);
     expect(replayEvents.map((event: any) => event.type)).toEqual(
-      expect.arrayContaining(['castSpell', 'copyTriggeredSpellResolve', 'castSpellContinuation']),
+      expect.arrayContaining(['castSpell', 'pushTriggeredAbility', 'copyTriggeredSpellResolve', 'resolveTopOfStackPrompt']),
     );
 
     const replayGameId = `${gameId}_replay`;
@@ -918,6 +950,7 @@ describe('spell-cast copy replay integration', () => {
     }
 
     replayGame.replay(replayEvents as any);
+    resolveCopyTriggers(replayGame);
 
     expect((replayGame.state as any).stack).toHaveLength(2);
     const replayRetargetChoiceStep = ResolutionQueueManager
@@ -958,6 +991,7 @@ describe('spell-cast copy replay integration', () => {
       cardId: 'hand_bolt_1',
       targets: [{ id: 'p2', kind: 'player' }],
     });
+    resolveCopyTriggers(game);
 
     expect((game.state as any).stack).toHaveLength(1);
     expect((((game.state as any).stack || []) as any[]).some((item: any) => item?.copiedFromStackItemId)).toBe(false);
@@ -998,6 +1032,7 @@ describe('spell-cast copy replay integration', () => {
       fromZone: 'library',
       targets: [{ id: 'p2', kind: 'player' }],
     });
+    resolveCopyTriggers(game);
 
     expect((game.state as any).stack).toHaveLength(2);
     const copiedSpell = ((game.state as any).stack || []).find((item: any) => item?.copiedFromStackItemId);
@@ -1014,7 +1049,7 @@ describe('spell-cast copy replay integration', () => {
 
     const replayEvents = toReplayEvents(gameId, eventStart);
     expect(replayEvents.map((event: any) => event.type)).toEqual(
-      expect.arrayContaining(['castSpell', 'copyTriggeredSpellResolve', 'castSpellContinuation']),
+      expect.arrayContaining(['castSpell', 'pushTriggeredAbility', 'copyTriggeredSpellResolve', 'resolveTopOfStackPrompt']),
     );
 
     const replayGameId = `${gameId}_replay`;
@@ -1040,6 +1075,7 @@ describe('spell-cast copy replay integration', () => {
     }
 
     replayGame.replay(replayEvents as any);
+    resolveCopyTriggers(replayGame);
 
     expect((replayGame.state as any).stack).toHaveLength(2);
     const replayRetargetChoiceStep = ResolutionQueueManager
@@ -1099,6 +1135,7 @@ describe('spell-cast copy replay integration', () => {
       cardId: 'flashback_draw_1',
       abilityId: 'flashback',
     });
+    resolveCopyTriggers(game);
 
     expect((game.state as any).stack).toHaveLength(2);
     const copiedSpell = ((game.state as any).stack || []).find((item: any) => item?.copiedFromStackItemId);
@@ -1144,6 +1181,7 @@ describe('spell-cast copy replay integration', () => {
     }
 
     replayGame.replay(replayEvents as any);
+    resolveCopyTriggers(replayGame);
 
     expect((replayGame.state as any).stack).toHaveLength(2);
     expect(((replayGame.state as any).stack || []).some((item: any) => item?.copiedFromStackItemId)).toBe(true);
