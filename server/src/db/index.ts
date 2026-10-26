@@ -48,7 +48,8 @@ export async function initDb(): Promise<void> {
       starting_life INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       created_by_socket_id TEXT,
-      created_by_player_id TEXT
+      created_by_player_id TEXT,
+      game_over INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS events (
@@ -125,6 +126,20 @@ export async function initDb(): Promise<void> {
       const errMsg = String(e?.message || '');
       if (!errMsg.toLowerCase().includes('duplicate column')) {
         debugWarn(1, '[DB] Migration warning for events.phase:', errMsg);
+      }
+    }
+  }
+
+  try {
+    db.prepare('SELECT game_over FROM games LIMIT 1').get();
+  } catch {
+    try {
+      db.exec('ALTER TABLE games ADD COLUMN game_over INTEGER NOT NULL DEFAULT 0');
+      debug(2, '[DB] Added games.game_over column');
+    } catch (e: any) {
+      const errMsg = String(e?.message || '');
+      if (!errMsg.toLowerCase().includes('duplicate column')) {
+        debugWarn(1, '[DB] Migration warning for games.game_over:', errMsg);
       }
     }
   }
@@ -429,9 +444,10 @@ export function listGames(): {
   created_at: number;
   created_by_socket_id: string | null;
   created_by_player_id: string | null;
+  game_over: number;
 }[] {
   ensureDB();
-  const stmt = db!.prepare(`SELECT game_id, format, starting_life, created_at, created_by_socket_id, created_by_player_id FROM games ORDER BY created_at DESC`);
+  const stmt = db!.prepare(`SELECT game_id, format, starting_life, created_at, created_by_socket_id, created_by_player_id, game_over FROM games ORDER BY created_at DESC`);
   return stmt.all() as { 
     game_id: string; 
     format: string; 
@@ -439,7 +455,21 @@ export function listGames(): {
     created_at: number;
     created_by_socket_id: string | null;
     created_by_player_id: string | null;
+    game_over: number;
   }[];
+}
+
+/** Remember that this game has ended so the lobby can hide it after a restart. */
+export function markGameOver(gameId: string): boolean {
+  if (!gameId) return false;
+  ensureDB();
+  try {
+    db!.prepare(`UPDATE games SET game_over = 1 WHERE game_id = ? AND IFNULL(game_over, 0) = 0`).run(gameId);
+    return true;
+  } catch (err) {
+    debugWarn(1, '[DB] markGameOver failed:', (err as Error).message);
+    return false;
+  }
 }
 
 /**

@@ -378,8 +378,16 @@ export function applyPlayerChoiceEvents(ctx: GameContext, e: GameEvent): boolean
                 (permanent as any).ownerId = choosingPlayerId;
               }
               (permanent as any).chosenPlayer = selectedPlayerId;
+              const resolvedName = String((e as any).selectedPlayerName || (e as any).chosenPlayerName || '').trim()
+                || String((ctx.state?.players || []).find((p: any) => String(p?.id || '') === String(selectedPlayerId))?.name || '').trim();
+              if (resolvedName && resolvedName !== selectedPlayerId) {
+                (permanent as any).chosenPlayerName = resolvedName;
+              }
               if (permanent.card && typeof permanent.card === 'object') {
                 (permanent.card as any).chosenPlayer = selectedPlayerId;
+                if (resolvedName && resolvedName !== selectedPlayerId) {
+                  (permanent.card as any).chosenPlayerName = resolvedName;
+                }
               }
             } else {
               debugWarn(2, `[applyEvent] playerSelection(control_change): permanent ${permanentId} not found`);

@@ -24,6 +24,7 @@ import { handleAIGameFlow } from "./aiGameFlowHandlers.js";
 import { createConfiguredGame } from "./aiGameSetupHandlers.js";
 import { persistAIPlayerDeckSource, resolveAIDeckEntries } from "./aiPregameHandlers.js";
 import { registerAIPlayer, unregisterAIPlayer } from "./aiPlayerRegistry.js";
+import { joinAiPlayerSeat } from "../join-handlers/playerSeatIds.js";
 import {
   aiPlayers,
   scheduleAIPriority,
@@ -127,24 +128,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       // This will generate a playerId and properly initialize the player
       const difficulty = typeof aiDifficulty === 'number' ? aiDifficulty : 0.5; // Default to medium difficulty
       const aiPlayerName = typeof aiName === 'string' && aiName.trim() ? aiName : 'AI Opponent';
-      let joinResult: any;
-      let aiPlayerId: string;
-      
-      if (typeof (game as any).join === 'function') {
-        try {
-          // Use a fake socket ID for the AI player
-          const aiSocketId = `ai_socket_${Date.now().toString(36)}`;
-          joinResult = (game as any).join(aiSocketId, aiPlayerName, false);
-          aiPlayerId = joinResult?.playerId || `ai_${Date.now().toString(36)}`;
-          debug(1, '[AI] AI player joined game via game.join():', { aiPlayerId, aiPlayerName });
-        } catch (err) {
-          debugWarn(1, '[AI] game.join failed for AI, using fallback:', err);
-          aiPlayerId = `ai_${Date.now().toString(36)}`;
-        }
-      } else {
-        // Fallback if game.join is not available
-        aiPlayerId = `ai_${Date.now().toString(36)}`;
-      }
+      const joinedAi = joinAiPlayerSeat(game, aiPlayerName);
+      const aiPlayerId = joinedAi.playerId;
+      debug(1, '[AI] AI player joined game via game.join():', { aiPlayerId, aiPlayerName });
       
       // Mark the player as AI in the game state and save strategy/difficulty for replay
       game.state.players = game.state.players || [];
@@ -288,7 +274,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
       // Persist AI join event as a regular 'join' event so it can be properly replayed after server restart
       // Include isAI flag and seatToken from the join result
       try {
-        const seatToken = joinResult?.seatToken || `ai_token_${randomBytes(6).toString('hex')}`;
+        const seatToken = joinedAi.seatToken || `ai_token_${randomBytes(6).toString('hex')}`;
         await appendEvent(gameId, (game as any).seq || 0, 'join', {
           playerId: aiPlayerId,
           name: aiPlayerName,
@@ -404,24 +390,9 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         
         // Join the AI player to the game first
         // This will generate a playerId and properly initialize the player
-        let joinResult: any;
-        let aiPlayerId: string;
-        
-        if (typeof (game as any).join === 'function') {
-          try {
-            // Use a fake socket ID for the AI player
-            const aiSocketId = `ai_socket_${Date.now().toString(36)}_${i}`;
-            joinResult = (game as any).join(aiSocketId, aiName, false);
-            aiPlayerId = joinResult?.playerId || `ai_${Date.now().toString(36)}_${i}`;
-            debug(1, `[AI] AI player joined game via game.join():`, { aiPlayerId, aiName });
-          } catch (err) {
-            debugWarn(1, `[AI] game.join failed for ${aiName}, using fallback:`, err);
-            aiPlayerId = `ai_${Date.now().toString(36)}_${i}`;
-          }
-        } else {
-          // Fallback if game.join is not available
-          aiPlayerId = `ai_${Date.now().toString(36)}_${i}`;
-        }
+        const joinedAi = joinAiPlayerSeat(game, aiName, `_${i}`);
+        const aiPlayerId = joinedAi.playerId;
+        debug(1, `[AI] AI player joined game via game.join():`, { aiPlayerId, aiName });
         
         // Mark the player as AI in the game state and save strategy/difficulty for replay
         const playerInState = game.state.players?.find((p: any) => p.id === aiPlayerId);
@@ -544,7 +515,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
         // Persist AI join event as a regular 'join' event so it can be properly replayed after server restart
         // Include isAI flag and seatToken from the join result
         try {
-          const seatToken = joinResult?.seatToken || `ai_token_${randomBytes(6).toString('hex')}`;
+          const seatToken = joinedAi.seatToken || `ai_token_${randomBytes(6).toString('hex')}`;
           await appendEvent(gameId, (game as any).seq || 0, 'join', {
             playerId: aiPlayerId,
             name: aiName,

@@ -27,6 +27,7 @@ type GameRow = {
   turn: number | null;
   phase: string | null;
   status: string | null;
+  gameOver?: boolean;
   isRestoring?: boolean;
   resumeProgress?: ResumeProgress | null;
 };
@@ -85,6 +86,7 @@ function ResumeProgressBar({ progress }: { progress: ResumeProgress }) {
 export default function GameList(props: GameListProps) {
   const { onJoin, pollMs = 5000, onRefresh, currentPlayerId, isAdmin } = props;
   const [games, setGames] = useState<GameRow[]>([]);
+  const [lobbyFilter, setLobbyFilter] = useState<"active" | "finished" | "all">("active");
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [resumeOverrides, setResumeOverrides] = useState<
@@ -384,6 +386,17 @@ export default function GameList(props: GameListProps) {
     }
   };
 
+  const visibleGames = games.filter((game) => {
+    if (lobbyFilter === "finished") return !!game.gameOver;
+    if (lobbyFilter === "active") return !game.gameOver;
+    return true;
+  });
+  const emptyLabel = lobbyFilter === "finished"
+    ? "No finished games"
+    : lobbyFilter === "active"
+      ? "No games in progress"
+      : "No games";
+
   return (
     <div style={{ 
       border: "1px solid rgba(255,255,255,0.1)", 
@@ -392,9 +405,31 @@ export default function GameList(props: GameListProps) {
       maxWidth: 760,
       background: "rgba(0,0,0,0.2)",
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <div style={{ fontWeight: 600, color: "#e5e5e5", fontSize: 12 }}>Active Games</div>
-        <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        <div style={{ fontWeight: 600, color: "#e5e5e5", fontSize: 12 }}>Games</div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          {([
+            ["active", `In progress (${games.filter((g) => !g.gameOver).length})`],
+            ["finished", `Finished (${games.filter((g) => g.gameOver).length})`],
+            ["all", "All"],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setLobbyFilter(id)}
+              style={{
+                padding: "3px 8px",
+                borderRadius: 4,
+                border: lobbyFilter === id ? "1px solid rgba(167,139,250,0.7)" : "1px solid rgba(255,255,255,0.2)",
+                background: lobbyFilter === id ? "rgba(167,139,250,0.25)" : "rgba(0,0,0,0.3)",
+                color: lobbyFilter === id ? "#ddd6fe" : "#9ca3af",
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              {label}
+            </button>
+          ))}
           <button 
             onClick={() => void fetchGames()} 
             disabled={loading}
@@ -413,7 +448,7 @@ export default function GameList(props: GameListProps) {
         </div>
       </div>
       <div style={{ maxHeight: 180, overflow: "auto" }}>
-        {games.length === 0 && !loading && <div style={{ color: "#9ca3af", fontSize: 12 }}>No games</div>}
+        {visibleGames.length === 0 && !loading && <div style={{ color: "#9ca3af", fontSize: 12 }}>{emptyLabel}</div>}
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: "#e5e5e5" }}>
           <thead>
             <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
@@ -427,7 +462,7 @@ export default function GameList(props: GameListProps) {
             </tr>
           </thead>
           <tbody>
-            {games.map(g => {
+            {visibleGames.map(g => {
               const resume = getResumeForGame(g);
               return (
               <tr key={g.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
@@ -439,6 +474,8 @@ export default function GameList(props: GameListProps) {
                 <td style={{ padding: "4px 6px" }}>
                   {resume ? (
                     <ResumeProgressBar progress={resume} />
+                  ) : g.gameOver ? (
+                    "Finished"
                   ) : (
                     g.status ?? "-"
                   )}
@@ -459,6 +496,8 @@ export default function GameList(props: GameListProps) {
                       title={
                         resume
                           ? "Game is restoring — join will wait until replay finishes"
+                          : g.gameOver
+                            ? "Game is over. You can still open the table."
                           : hasGameStarted(g)
                             ? "Join as inactive player (will join on next reset)"
                             : "Join game"

@@ -8,6 +8,7 @@ import { AbilitySelectionModal } from './AbilitySelectionModal';
 import { parseActivatedAbilities, getActivatedAbilityActivationStatus, type ParsedActivatedAbility, type ActivationContext } from '../utils/activatedAbilityParser';
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 import { textAllowsAnyPlayerActivation } from '../../../shared/src/anyPlayerActivatedAbility';
+import { resolvePlayerBadgeLabel } from '../utils/playerBadgeLabel';
 
 function canonicalLandKey(typeLine?: string, name?: string) {
   const tl = (typeLine || '').toLowerCase();
@@ -105,6 +106,7 @@ export function LandRow(props: {
   showActivatedAbilityButtons?: boolean;
   playableCards?: string[];
   appearanceSettings?: any;
+  players?: readonly { id?: string; name?: string }[];
 }) {
   const {
     lands,
@@ -129,6 +131,7 @@ export function LandRow(props: {
     showActivatedAbilityButtons = false,
     playableCards = [],
     appearanceSettings,
+    players,
   } = props;
 
   const items = useMemo(() => lands.map(p => {
@@ -447,7 +450,7 @@ export function LandRow(props: {
               }
               
               if (itAny.chosenPlayer) {
-                const chosenPlayerLabel = String(itAny.chosenPlayerName || itAny.chosenPlayer);
+                const chosenPlayerLabel = resolvePlayerBadgeLabel(itAny.chosenPlayer, players, itAny.chosenPlayerName);
                 badges.push(
                   <div
                     key="player"

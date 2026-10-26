@@ -10,6 +10,7 @@ import type { Server } from "socket.io";
 import type { InMemoryGame } from "../../state/types.js";
 import { emitPendingCombatDamageChat } from "../combatLogUtils.js";
 import { isGameReplayLocked } from "../../gameRestoreState.js";
+import { markGameOver } from "../../db/index.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import {
   clearScheduledAutomationResume,
@@ -108,6 +109,10 @@ export function runBroadcastGame(
   // Loop-shortcut batch runs suppress mid-batch broadcasts; caller emits once at end.
   if (Number((game.state as any)?._suppressBroadcastCount || 0) > 0) {
     return;
+  }
+
+  if ((game.state as any)?.gameOver && !(game as any)._gameOverPersisted) {
+    if (markGameOver(gameId)) (game as any)._gameOverPersisted = true;
   }
 
   repairMissingPriorityIfStuck(game, gameId, '[broadcastGame]');

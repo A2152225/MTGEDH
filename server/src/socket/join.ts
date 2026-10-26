@@ -1,5 +1,4 @@
 import type { Server, Socket } from "socket.io";
-import { randomBytes } from "crypto";
 import { ensureGameAsync, broadcastGame, schedulePriorityTimeout, getOrInitManaPool, getTotalManaInPool, checkAndTriggerAI } from "./util";
 import {
   emitIgnoredCardsUpdatedToSocket,
@@ -15,6 +14,14 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { defaultPlayerZones, ensureStateZonesForPlayers } from "./join-handlers/joinEnsureStateZones.js";
 import { clearDeferredLeaveOnReconnect, refreshConnectedHumanClockOnReconnect } from "./join-handlers/joinReconnectPlayer.js";
 import { findExistingSeatForSocket, tryConvertPreGameSeat, syncOwnPreGameSeatRole } from "./join-handlers/joinConvertSeat.js";
+import {
+  findPlayerByName,
+  findPlayerBySeatToken,
+  makeSeatToken,
+  safeParticipants,
+  upsertParticipantBinding,
+} from "./join-handlers/joinRosterLookup.js";
+import { decideLoggedInSeat } from "./join-handlers/playerSeatIds.js";
 
 /**
  * Register join handlers.
@@ -28,115 +35,6 @@ import { findExistingSeatForSocket, tryConvertPreGameSeat, syncOwnPreGameSeatRol
  * Change: when a forcedFixedPlayerId is present we DO NOT call game.join(...) so reconnects cannot be
  *         overridden by custom join implementations that create new players.
  */
-
-/* --- Helpers --- */
-function safeParticipants(game: any) {
-  try {
-    if (!game) return [];
-    if (typeof game.participants === "function") return game.participants();
-    if (Array.isArray((game as any).participantsList))
-      return (game as any).participantsList;
-    return game.state && Array.isArray(game.state.players)
-      ? game.state.players.map((p: any) => ({
-          playerId: p.id,
-          socketId: (p as any).socketId ?? undefined,
-          spectator: !!(p.spectator || p.isSpectator),
-        }))
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-function isReconnectablePlayer(player: any) {
-  return !player?.leftGame && !player?.conceded && !player?.hasLost && !player?.eliminated;
-}
-
-/** Find a roster entry by display name (case-insensitive, trimmed) */
-function findPlayerByName(game: any, name?: string) {
-  if (!name) return undefined;
-  try {
-    const nm = String(name).trim().toLowerCase();
-    if (!game || !game.state || !Array.isArray(game.state.players))
-      return undefined;
-    return (game.state.players as any[]).find(
-      (p) => isReconnectablePlayer(p) && String(p?.name || "").trim().toLowerCase() === nm
-    );
-  } catch {
-    return undefined;
-  }
-}
-
-/** Find a roster entry by seatToken */
-function findPlayerBySeatToken(game: any, token?: string) {
-  if (!token) return undefined;
-  try {
-    if (!game || !game.state || !Array.isArray(game.state.players))
-      return undefined;
-    return (game.state.players as any[]).find(
-      (p) => isReconnectablePlayer(p) && p?.seatToken && String(p.seatToken) === String(token)
-    );
-  } catch {
-    return undefined;
-  }
-}
-
-/** Generate a short seat token */
-function makeSeatToken() {
-  return randomBytes(6).toString("hex"); // 12 hex chars, reasonably unique for local use
-}
-
-function upsertParticipantBinding(
-  game: any,
-  socketId: string,
-  playerId: string,
-  spectator: boolean
-) {
-  const participant = {
-    socketId,
-    playerId,
-    spectator: Boolean(spectator),
-  };
-
-  try {
-    if ((game as any)?.joinedBySocket instanceof Map) {
-      for (const [existingSocketId, existingParticipant] of (game as any)
-        .joinedBySocket as Map<string, { socketId: string; playerId: string; spectator: boolean }>) {
-        if (
-          existingSocketId === socketId ||
-          existingParticipant?.playerId === playerId
-        ) {
-          (game as any).joinedBySocket.delete(existingSocketId);
-        }
-      }
-      (game as any).joinedBySocket.set(socketId, participant);
-    }
-  } catch {
-    // non-fatal
-  }
-
-  try {
-    if (Array.isArray((game as any)?.participantsList)) {
-      for (
-        let index = (game as any).participantsList.length - 1;
-        index >= 0;
-        index--
-      ) {
-        const existing = (game as any).participantsList[index];
-        if (
-          existing?.socketId === socketId ||
-          existing?.playerId === playerId
-        ) {
-          (game as any).participantsList.splice(index, 1);
-        }
-      }
-      (game as any).participantsList.push(participant);
-    }
-  } catch {
-    // non-fatal
-  }
-}
-
 
 /**
  * Normalize a view object before emitting to clients. Also mirrors per-player zone defaults
@@ -478,6 +376,29 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               );
             }
 
+            // Logged-in accounts take U_<username>. Guests stay on the random p_ path.
+            // A reconnect that already chose a seat (token or display name) is left alone.
+            let preferredNewSeatId: string | undefined;
+            const loggedInSeat = decideLoggedInSeat({
+              game,
+              gameId,
+              spectator: Boolean(spectator),
+              username: (socket.data as any)?.accountUsername,
+              currentSocketId: socket.id,
+              alreadyForcedId: forcedFixedPlayerId,
+              joiningName: playerName,
+            });
+            if (loggedInSeat.action === "nameInUse") {
+              socket.emit("nameInUse", loggedInSeat.payload);
+              return;
+            }
+            if (loggedInSeat.action === "reuse") {
+              forcedFixedPlayerId = loggedInSeat.playerId;
+              resolvedToken = loggedInSeat.seatToken || resolvedToken;
+            } else if (loggedInSeat.action === "assign") {
+              preferredNewSeatId = loggedInSeat.playerId;
+            }
+
             // Perform join using game.join() when available; otherwise fallback.
             // IMPORTANT: if we have a forcedFixedPlayerId (reconnect intent), DO NOT call game.join
             // because some implementations may create a new player despite the fixed id. Use the
@@ -493,7 +414,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
                   socket.id,
                   playerName,
                   Boolean(spectator),
-                  forcedFixedPlayerId ?? undefined,
+                  preferredNewSeatId ?? forcedFixedPlayerId ?? undefined,
                   seatToken
                 );
                 playerId =
@@ -691,7 +612,7 @@ export function registerJoinHandlers(io: Server, socket: Socket) {
               }
 
               // create new
-              const newId = `p_${Math.random().toString(36).slice(2, 9)}`;
+              const newId = preferredNewSeatId || `p_${Math.random().toString(36).slice(2, 9)}`;
               const tokenToUse = seatToken || makeSeatToken();
               
               // Check if game has started (not in pre_game phase)

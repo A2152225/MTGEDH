@@ -3,6 +3,7 @@ import type { BattlefieldPermanent, KnownCardRef } from '../../../shared/src';
 import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { displayTypeLine } from './PermanentRulesStatusBadges';
 import { getKeywordInfo } from '../utils/keywordGlossary';
+import { resolvePlayerBadgeLabel } from '../utils/playerBadgeLabel';
 
 export type ImagePref = 'small' | 'normal' | 'art_crop';
 type LayoutMode = 'grid' | 'row';
@@ -88,6 +89,7 @@ export function BattlefieldGrid(props: {
   tileWidth?: number;     // default 110
   rowOverlapPx?: number;  // for layout='row'; default 0
   gapPx?: number;         // grid gap; default 10
+  players?: readonly { id?: string; name?: string }[];
 }) {
   const {
     perms, imagePref, onRemove, onCounter,
@@ -95,7 +97,8 @@ export function BattlefieldGrid(props: {
     layout = 'grid',
     tileWidth,
     rowOverlapPx = 0,
-    gapPx = 10
+    gapPx = 10,
+    players,
   } = props;
 
   const [hovered, setHovered] = useState<string | null>(null);
@@ -435,9 +438,7 @@ export function BattlefieldGrid(props: {
               
               // Player choice badge
               if (pAny.chosenPlayer) {
-                // Try to find player name
-                let playerDisplay = pAny.chosenPlayerName || pAny.chosenPlayer;
-                // Could enhance this by looking up player name from game state if available
+                const playerDisplay = resolvePlayerBadgeLabel(pAny.chosenPlayer, players, pAny.chosenPlayerName);
                 badges.push(
                   <div
                     key="player"

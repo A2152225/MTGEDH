@@ -21,6 +21,7 @@ import type { GameContext } from '../../context.js';
 import { processMillTriggers } from '../zones.js';
 import { recordCardPutIntoGraveyardThisTurn } from '../turn-tracking.js';
 import { checkGraveyardTrigger } from '../zone-manipulation.js';
+import { offerCommanderZoneChoiceForArrivals } from '../commanderZoneChoiceOnEntry.js';
 import { scheduleExiledCardReturnToBattlefield } from '../executeSpellEffect.js';
 import { scheduleDelayedDrawAtNextUpkeep } from '../triggerDelayedEffectUtils.js';
 import { delayedUpkeepDrawIsUpToFromStep } from '../triggerDelayedDrawUpToUtils.js';
@@ -543,6 +544,10 @@ export function syncOracleIRPlayerZonesToContext(
       playerZones.graveyardCount = player.graveyard.length;
       changed = true;
 
+      if (newlyMilled.length > 0) {
+        offerCommanderZoneChoiceForArrivals(ctx, playerId, newlyMilled, 'graveyard');
+      }
+
       for (const card of newlyMilled) {
         recordCardPutIntoGraveyardThisTurn(ctx, playerId, card, { fromBattlefield: false });
         checkGraveyardTrigger(
@@ -562,9 +567,21 @@ export function syncOracleIRPlayerZonesToContext(
     }
 
     if (Array.isArray(player.exile)) {
+      const previousExileIds = new Set(
+        (Array.isArray(playerZones.exile) ? playerZones.exile : [])
+          .map((card: any) => String(card?.id || '').trim())
+          .filter(Boolean),
+      );
+      const newlyExiled = player.exile.filter((card: any) => {
+        const cardId = String(card?.id || '').trim();
+        return cardId && !previousExileIds.has(cardId);
+      });
       playerZones.exile = [...player.exile];
       playerZones.exileCount = player.exile.length;
       changed = true;
+      if (newlyExiled.length > 0) {
+        offerCommanderZoneChoiceForArrivals(ctx, playerId, newlyExiled, 'exile');
+      }
     }
 
     if (Array.isArray(player.commandZone)) {

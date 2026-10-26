@@ -86,6 +86,11 @@ export function join(
       if (byName) playerId = byName.id as PlayerID;
     }
     if (playerId) {
+      const alreadySeated = (state.players as any as PlayerRef[]).some((p) => p.id === playerId);
+      if (!alreadySeated) {
+        seat = addPlayerIfMissing(ctx, playerId, normalizedName);
+        added = true;
+      }
       const existingToken = playerToToken.get(playerId);
       if (existingToken) seatToken = existingToken;
       else {

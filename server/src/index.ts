@@ -10,6 +10,7 @@ import {
   initDb,
   listGames as dbListGames,
   deleteGame as dbDeleteGame,
+  markGameOver,
 } from "./db/index.js";
 import { addSuggestion, loadSuggestions } from "./db/houseRuleSuggestions.js";
 import { ensureLocalCardLookupIndex, lookupLocalCards } from "./services/localCardLookup.js";
@@ -263,6 +264,11 @@ app.get("/api/games", (req, res) => {
           ? inMem.state.status
           : null
         : null;
+      const inMemoryOver = Boolean(inMem && (inMem.state as any)?.gameOver);
+      if (inMemoryOver) {
+        try { markGameOver(id); } catch { /* lobby list still reports the in-memory flag */ }
+      }
+      const gameOver = inMemoryOver || Number((row as any).game_over) === 1;
       // Get count of active socket connections for this game
       // This allows the client to show delete button when no players are connected
       const activeConnectionsCount = GameManager.getActiveConnectionsCount(id);
@@ -279,6 +285,7 @@ app.get("/api/games", (req, res) => {
         turn,
         phase,
         status,
+        gameOver,
         isRestoring,
         resumeProgress: resume
           ? {

@@ -18,6 +18,7 @@ import { AI_THINK_TIME_MS } from "./aiConstants.js";
 import { handleAIGameFlow } from "./aiGameFlowHandlers.js";
 import { persistAIPlayerDeckSource, resolveAIDeckEntries } from "./aiPregameHandlers.js";
 import { registerAIPlayer } from "./aiPlayerRegistry.js";
+import { joinAiPlayerSeat } from "../join-handlers/playerSeatIds.js";
 
 /** Matches CreateGameModal: 9 AI seats + the host. */
 export const MAX_TOTAL_AI_TABLE_SEATS = 10;
@@ -237,21 +238,9 @@ export async function addAIOpponentToExistingGame(
   game.state = (game.state || {}) as any;
   game.state.players = game.state.players || [];
 
-  let joinResult: any;
-  let aiPlayerId: string;
-  if (typeof (game as any).join === "function") {
-    try {
-      const aiSocketId = `ai_socket_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-      joinResult = (game as any).join(aiSocketId, aiDisplayName, false);
-      aiPlayerId = joinResult?.playerId || `ai_${Date.now().toString(36)}`;
-      debug(1, "[AI] AI player joined game via game.join():", { aiPlayerId, aiName: aiDisplayName });
-    } catch (err) {
-      debugWarn(1, "[AI] game.join failed for AI, using fallback:", err);
-      aiPlayerId = `ai_${Date.now().toString(36)}`;
-    }
-  } else {
-    aiPlayerId = `ai_${Date.now().toString(36)}`;
-  }
+  const joinedAi = joinAiPlayerSeat(game, aiDisplayName);
+  const aiPlayerId = joinedAi.playerId;
+  debug(1, "[AI] AI player joined game via game.join():", { aiPlayerId, aiName: aiDisplayName });
 
   let playerInState = game.state.players.find((p: any) => p.id === aiPlayerId);
   if (!playerInState) {
@@ -300,7 +289,7 @@ export async function addAIOpponentToExistingGame(
   const strategy = registerAIPlayer(gameId, aiPlayerId, aiDisplayName, difficulty);
 
   try {
-    const seatToken = joinResult?.seatToken || `ai_token_${randomBytes(6).toString("hex")}`;
+    const seatToken = joinedAi.seatToken || `ai_token_${randomBytes(6).toString("hex")}`;
     await appendEvent(gameId, (game as any).seq || 0, "join", {
       playerId: aiPlayerId,
       name: aiDisplayName,

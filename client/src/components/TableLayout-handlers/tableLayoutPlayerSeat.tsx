@@ -441,6 +441,7 @@ export function renderTableLayoutPlayerSeat({
                             </div>
                             <LandRow
                               lands={manaSources}
+                              players={players}
                               allBattlefieldPerms={allBattlefieldPerms}
                               imagePref={imagePref || 'small'}
                               tileWidth={Math.round(TILE_W * 0.85)}
@@ -486,6 +487,7 @@ export function renderTableLayoutPlayerSeat({
                             </div>
                             <LandRow
                               lands={lands}
+                              players={players}
                               allBattlefieldPerms={allBattlefieldPerms}
                               imagePref={imagePref || 'small'}
                               tileWidth={TILE_W}

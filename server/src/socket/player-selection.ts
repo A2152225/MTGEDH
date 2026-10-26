@@ -9,6 +9,18 @@ import { ResolutionStepType } from "../state/resolution/types.js";
 import { getAsEntersChoiceRequirements } from "../state/modules/asEntersChoiceRequirements.js";
 import { mustAttackEachCombat, cantAttackOwner } from "../state/modules/triggers/control-change.js";
 
+function stampChosenPlayer(game: { state?: any }, permanent: any, playerId: string): void {
+  const id = String(playerId || '').trim();
+  if (!permanent || !id) return;
+  const name = String(getPlayerName(game as any, id as PlayerID) || '').trim();
+  permanent.chosenPlayer = id;
+  if (name && name !== id) permanent.chosenPlayerName = name;
+  if (permanent.card && typeof permanent.card === 'object') {
+    permanent.card.chosenPlayer = id;
+    if (name && name !== id) permanent.card.chosenPlayerName = name;
+  }
+}
+
 /**
  * Generic player selection system
  * 
@@ -218,10 +230,11 @@ export function handleDeclinedPlayerSelection(
       delete (permanent as any).pendingPlayerSelection;
       delete (permanent as any).pendingControlChange;
       if (effectData.type === 'control_change') {
-        (permanent as any).chosenPlayer = String(permanent.controller || playerId || '').trim() || playerId;
-        if (permanent.card && typeof permanent.card === 'object') {
-          (permanent.card as any).chosenPlayer = (permanent as any).chosenPlayer;
-        }
+        stampChosenPlayer(
+          game,
+          permanent,
+          String(permanent.controller || playerId || '').trim() || playerId,
+        );
       }
     }
   }
@@ -276,8 +289,7 @@ export function applyPlayerSelectionEffect(
       if (effectData.permanentId) {
         const permanent = battlefield.find((p: any) => p && p.id === effectData.permanentId);
         if (permanent) {
-          (permanent as any).chosenPlayer = selectedPlayerId;
-          (permanent as any).chosenPlayerName = getPlayerName(game, selectedPlayerId);
+          stampChosenPlayer(game, permanent, selectedPlayerId);
           delete (permanent as any).pendingPlayerSelection;
           delete (permanent as any).pendingControlChange;
           debug(2, `[playerSelection] Set chosenPlayer for ${cardName} to ${selectedPlayerId}`);
@@ -298,10 +310,7 @@ export function applyPlayerSelectionEffect(
           const previousController = String(permanent.controller || '');
           permanent.controller = selectedPlayerId;
           syncPreparedPermanentAfterControlChange(game.state, permanent, previousController);
-          (permanent as any).chosenPlayer = selectedPlayerId;
-          if (permanent.card && typeof permanent.card === 'object') {
-            (permanent.card as any).chosenPlayer = selectedPlayerId;
-          }
+          stampChosenPlayer(game, permanent, selectedPlayerId);
           delete (permanent as any).pendingPlayerSelection;
           delete (permanent as any).pendingControlChange;
 

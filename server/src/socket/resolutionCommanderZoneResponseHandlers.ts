@@ -20,6 +20,24 @@ import type { PlayerID } from "../../../shared/src/types.js";
 import { debug, debugWarn } from "../utils/debug.js";
 import { getPlayerName } from "./util.js";
 
+function removeCardFromPlayerZoneMirror(
+  game: any,
+  playerId: string,
+  zone: string,
+  commanderId: string | undefined,
+  cardId: string | undefined,
+): void {
+  const players = Array.isArray(game?.state?.players) ? game.state.players : [];
+  const player = players.find((entry: any) => String(entry?.id || '') === String(playerId));
+  const list = player?.[zone];
+  if (!Array.isArray(list)) return;
+  const index = list.findIndex((entry: any) =>
+    entry
+    && (String(entry.id || '') === String(commanderId || '') || String(entry.id || '') === String(cardId || '')),
+  );
+  if (index !== -1) list.splice(index, 1);
+}
+
 /**
  * Handle commander zone choice response
  */
@@ -124,6 +142,7 @@ export function handleCommanderZoneResponse(
       }
       zones.commandZone.push({ ...(removedFromZone || card), zone: 'command' });
       zones.commandZoneCount = zones.commandZone.length;
+      removeCardFromPlayerZoneMirror(game, pid, destinationZone, commanderId, card?.id);
     }
     
     // Also remove from battlefield if present

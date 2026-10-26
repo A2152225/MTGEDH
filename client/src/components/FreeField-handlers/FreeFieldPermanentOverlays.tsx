@@ -11,6 +11,7 @@ import {
   isCounterPreventingBlock,
 } from '../../../../shared/src/counterCombatRestrictions';
 import { textAllowsAnyPlayerActivation } from '../../../../shared/src/anyPlayerActivatedAbility';
+import { resolvePlayerBadgeLabel } from '../../utils/playerBadgeLabel';
 import { ActivatedAbilityButtons } from '../ActivatedAbilityButtons';
 import {
   parseStationThreshold,
@@ -628,7 +629,7 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
               }
               
               if (pAny.chosenPlayer) {
-                const chosenPlayerLabel = String(pAny.chosenPlayerName || pAny.chosenPlayer);
+                const chosenPlayerLabel = resolvePlayerBadgeLabel(pAny.chosenPlayer, players, pAny.chosenPlayerName);
                 badges.push(
                   <div
                     key="player"

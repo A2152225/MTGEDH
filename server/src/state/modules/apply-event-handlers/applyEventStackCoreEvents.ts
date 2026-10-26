@@ -18,6 +18,7 @@ import { pushStack } from "../stackPushUtils.js";
 import { resolveTopOfStack } from "../stackResolveTopOfStackUtils.js";
 import { getMatchingGraveyardCastingPermission } from "../graveyard-permissions.js";
 import { shouldExileStackCardInsteadOfGraveyard } from "../stack-zone-replacements.js";
+import { offerCommanderZoneChoiceForArrivals } from "../commanderZoneChoiceOnEntry.js";
 import { processSpellCounteredTriggers } from "../spellCounteredTriggerUtils.js";
 import {
   getDurableLandPlayPermissionForCard,
@@ -344,13 +345,17 @@ export function applyStackCoreEvents(ctx: GameContext, e: GameEvent): boolean {
                         // Copied spells cease to exist instead of changing zones.
                       } else if (shouldExileStackCardInsteadOfGraveyard(countered)) {
                         const exile = (zones[controller] as any).exile = (zones[controller] as any).exile || [];
-                        exile.push({ ...(countered as any).card, zone: 'exile' });
+                        const exiledCard = { ...(countered as any).card, zone: 'exile' };
+                        exile.push(exiledCard);
                         (zones[controller] as any).exileCount = exile.length;
+                        offerCommanderZoneChoiceForArrivals(ctx as any, String(controller), [exiledCard], 'exile');
                       } else {
                         const gy = (zones[controller] as any).graveyard = (zones[controller] as any).graveyard || [];
-                        gy.push({ ...(countered as any).card, zone: 'graveyard' });
+                        const graveyardCard = { ...(countered as any).card, zone: 'graveyard' };
+                        gy.push(graveyardCard);
                         recordCardPutIntoGraveyardThisTurn(ctx as any, String(controller), (countered as any).card, { fromBattlefield: false });
                         (zones[controller] as any).graveyardCount = gy.length;
+                        offerCommanderZoneChoiceForArrivals(ctx as any, String(controller), [graveyardCard], 'graveyard');
                       }
                     }
                     try {

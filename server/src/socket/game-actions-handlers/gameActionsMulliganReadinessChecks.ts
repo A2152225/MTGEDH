@@ -9,6 +9,7 @@
  * checkAllPlayersKeptHands, checkAllPlayersHaveDecks.
  */
 import { debug, debugWarn } from "../../utils/debug.js";
+import { isAiSeatId } from "../join-handlers/playerSeatIds.js";
 
 /**
  * Check if a hand qualifies for a free mulligan under "no lands or all lands" house rule.
@@ -40,7 +41,7 @@ function checkAllHumanPlayersMulliganed(game: any): boolean {
     const mulliganState = (game.state as any)?.mulliganState || {};
 
     const humanPlayers = players.filter((p: any) =>
-      p && !p.spectator && !p.isSpectator && !p.isAI && p.id && !String(p.id).startsWith("ai_")
+      p && !p.spectator && !p.isSpectator && !p.isAI && p.id && !isAiSeatId(p.id)
     );
 
     if (humanPlayers.length === 0) return false;
