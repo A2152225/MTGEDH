@@ -88,7 +88,14 @@ describe('open issue reports 23-31', () => {
       cardName: 'Keen-Eyed Curator',
       abilityText: '{1}: Exile target card from a graveyard.',
     };
-    const game = (activatedThisTurn: boolean, commanderInZone: boolean) => ({
+    const flashback = {
+      id: 'faithless',
+      name: 'Faithless Looting',
+      type_line: 'Sorcery',
+      cmc: 1,
+      oracle_text: 'Draw two cards, then discard two cards.\nFlashback {2}{R}',
+    };
+    const game = (activatedThisTurn: boolean, commanderInZone: boolean, graveyard: any[] = [flashback]) => ({
       state: {
         turnPlayer: 'ai',
         phase: 'precombatMain',
@@ -96,6 +103,7 @@ describe('open issue reports 23-31', () => {
         stack: [],
         manaPool: { ai: { white: 0, blue: 0, black: 0, red: 0, green: 4, colorless: 0 } },
         commandZone: commanderInZone ? { ai: { inCommandZone: ['omnath'] } } : { ai: { inCommandZone: [] } },
+        zones: { opp: { graveyard } },
         battlefield: [{
           id: 'curator',
           controller: 'ai',
@@ -113,5 +121,6 @@ describe('open issue reports 23-31', () => {
     expect(canAIActivateBattlefieldAbilityNow(game(false, true), 'ai' as PlayerID, action, 'main')).toBe(true);
     expect(canAIActivateBattlefieldAbilityNow(game(true, true), 'ai' as PlayerID, action, 'main')).toBe(false);
     expect(canAIActivateBattlefieldAbilityNow(game(true, false), 'ai' as PlayerID, action, 'main')).toBe(true);
+    expect(canAIActivateBattlefieldAbilityNow(game(false, true, []), 'ai' as PlayerID, action, 'main')).toBe(false);
   });
 });

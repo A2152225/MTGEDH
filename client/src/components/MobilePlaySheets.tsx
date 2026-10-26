@@ -45,6 +45,7 @@ export type MobilePlaySheetsProps = MobileToolsHubProps & {
   stack: StackItem[];
   battlefield?: BattlefieldPermanent[];
   players?: PlayerRef[];
+  zones?: Record<string, { graveyard?: readonly any[]; exile?: readonly any[] } | undefined>;
   you?: PlayerID;
   priority?: PlayerID | null;
   onPassPriority?: () => void;
@@ -98,6 +99,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
     stack,
     battlefield,
     players,
+    zones,
     you,
     priority,
     onPassPriority,
@@ -215,6 +217,7 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
               stack={stack}
               battlefield={battlefield}
               players={players}
+              zones={zones}
               you={you}
               priorityPlayer={priority ?? undefined}
               onPass={onPassPriority}

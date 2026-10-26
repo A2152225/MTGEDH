@@ -5,11 +5,14 @@ import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { openReportIssueMenu } from '../utils/reportIssueStore';
 import { countIdenticalTopTriggerRun } from '../utils/identicalTriggerRun';
 import { IdenticalTriggerBulkProgressBadge } from './IdenticalTriggerBulkProgressBadge';
+import { lookupStackZoneTarget } from '../utils/stackZoneTargetLookup';
 
 interface Props {
   stack: StackItem[];
   battlefield?: BattlefieldPermanent[];
   players?: PlayerRef[]; // For looking up player names from IDs
+  /** Graveyard and exile lists live here, not on PlayerRef. */
+  zones?: Record<string, { graveyard?: readonly any[]; exile?: readonly any[] } | undefined>;
   you?: PlayerID;
   priorityPlayer?: PlayerID;
   onPass?: () => void;
@@ -37,6 +40,7 @@ export function CentralStack({
   stack, 
   battlefield, 
   players,
+  zones,
   you, 
   priorityPlayer, 
   onPass,
@@ -83,14 +87,9 @@ export function CentralStack({
   const findZoneCard = (
     targetId: string,
   ): { card: any; ownerId: string; zone: 'graveyard' | 'exile' } | undefined => {
-    for (const player of players || []) {
-      for (const zone of ['graveyard', 'exile'] as const) {
-        const cards = Array.isArray(player[zone]) ? player[zone] : [];
-        const card = cards.find((entry: any) => String(entry?.id || '') === targetId);
-        if (card) return { card, ownerId: player.id, zone };
-      }
-    }
-    return undefined;
+    const hit = lookupStackZoneTarget({ targetId, players, zones, stack });
+    if (!hit) return undefined;
+    return { card: hit.card, ownerId: hit.ownerId, zone: hit.zone };
   };
 
   const zoneCardName = (card: any): string | undefined => {
@@ -405,6 +404,17 @@ export function CentralStack({
                     controllerName: getPlayerName(targetStackItem.controller),
                   };
                 }
+                const zoneHit = lookupStackZoneTarget({ targetId, players, zones, stack });
+                if (zoneHit) {
+                  return {
+                    id: targetId,
+                    type: 'card' as const,
+                    name: zoneHit.name,
+                    controllerId: zoneHit.ownerId,
+                    controllerName: getPlayerName(zoneHit.ownerId),
+                    zone: zoneHit.zone,
+                  };
+                }
                 const permanent = battlefield?.find((entry) => String(entry.id) === targetId);
                 return {
                   id: targetId,
@@ -412,6 +422,7 @@ export function CentralStack({
                   name: permanent?.card?.name || (typeof rawTarget === 'object' ? rawTarget?.name : undefined),
                   controllerId: permanent?.controller || (typeof rawTarget === 'object' ? rawTarget?.controllerId || rawTarget?.controller : undefined),
                   controllerName: permanent?.controller ? getPlayerName(permanent.controller) : rawTarget?.controllerName,
+                  zone: typeof rawTarget === 'object' ? rawTarget?.zone : undefined,
                 };
               });
           const targetDisplayDetails = rawTargetDetails.map((target: any) => {
@@ -562,7 +573,7 @@ export function CentralStack({
                       {targetDisplayDetails.map((t: any) => {
                         const targetCard = t.type === 'player' ? undefined : findTargetCard(t.id);
                         // Access extended target info properties
-                        const extendedTarget = t as { id: string; type: string; name?: string; controllerId?: string; controllerName?: string };
+                        const extendedTarget = t as { id: string; type: string; name?: string; controllerId?: string; controllerName?: string; zone?: 'graveyard' | 'exile' };
                         
                         if (t.type === 'player') {
                           // Player target - just show name (like declare attackers)
@@ -618,16 +629,20 @@ export function CentralStack({
                         } else {
                           // Permanent target - format with controller info and add hover preview
                           const zoneLookup = findPermanentName(t.id);
-                          const displayText = formatTargetDisplay(extendedTarget.name, undefined, undefined, t.id);
+                          const detailZone = extendedTarget.zone === 'graveyard' || extendedTarget.zone === 'exile'
+                            ? extendedTarget.zone
+                            : zoneLookup?.zone;
+                          const displayText = formatTargetDisplay(extendedTarget.name || zoneLookup?.name, undefined, undefined, t.id);
                           const controllerLabel = formatStackTargetControllerLabel(
                             extendedTarget.controllerId,
                             extendedTarget.controllerName || zoneLookup?.controllerName,
                             getPlayerName,
                           );
-                          const zoneLabel = zoneLookup?.zone === 'graveyard'
-                            ? `in ${zoneLookup.controllerName || 'unknown'}'s graveyard`
-                            : zoneLookup?.zone === 'exile'
-                              ? `in ${zoneLookup.controllerName || 'unknown'}'s exile`
+                          const zoneOwner = zoneLookup?.controllerName || controllerLabel;
+                          const zoneLabel = detailZone === 'graveyard'
+                            ? `in ${zoneOwner || 'unknown'}'s graveyard`
+                            : detailZone === 'exile'
+                              ? `in ${zoneOwner || 'unknown'}'s exile`
                               : undefined;
                           const targetsYou = Boolean(you && extendedTarget.controllerId === you);
                           return (

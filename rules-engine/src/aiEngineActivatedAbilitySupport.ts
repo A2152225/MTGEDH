@@ -3,6 +3,7 @@ import { appendGrantedLoyaltyAbilityLines } from '../../shared/src/planeswalkerG
 import { getGrantedVehicleCrewValue, resolveCrewPowerRequirement } from './grantedVehicleCrew';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { cardAnalyzer, CardCategory, SynergyArchetype } from './CardAnalyzer';
+import { classifySingleCardGraveyardExile, isSingleCardGraveyardExileAbility } from './aiGraveyardExileActivation';
 import type { AIPlayerConfig } from './AIEngine';
 import {
   battlefieldHasManaRetention,
@@ -472,7 +473,13 @@ export function evaluateActivatedAbilityValue(
     value += 5;
   }
 
-  if (effectText.includes('destroy') || effectText.includes('exile')) {
+  if (isSingleCardGraveyardExileAbility(abilityText)) {
+    // Flat "exile" value was spending {2} to exile a spent fetchland. Only pay when
+    // the exile sets up a cast from this permanent, or stops a graveyard recovery.
+    const exileReason = classifySingleCardGraveyardExile(gameState, String(playerId), perm, abilityText);
+    if (exileReason === 'deny-recovery') value += 18;
+    else if (exileReason === 'setup') value += 8;
+  } else if (effectText.includes('destroy') || effectText.includes('exile')) {
     value += 7;
   }
 

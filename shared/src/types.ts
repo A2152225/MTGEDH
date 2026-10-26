@@ -195,12 +195,14 @@ export interface StackItem {
 /* Target information for display purposes */
 export interface TargetInfo {
   id: string;
-  type: 'permanent' | 'player' | 'spell' | 'ability';
+  type: 'permanent' | 'player' | 'spell' | 'ability' | 'card';
   name?: string;
-  /** For permanent targets, the controller's ID */
+  /** For permanent targets, the controller's ID. For a graveyard or exile card, the zone owner. */
   controllerId?: string;
-  /** For permanent targets, the controller's name */
+  /** For permanent targets, the controller's name. For a graveyard or exile card, the zone owner. */
   controllerName?: string;
+  /** Set when the target is a card in a zone rather than a battlefield permanent. */
+  zone?: 'graveyard' | 'exile';
 }
 
 /* Life totals mapping */

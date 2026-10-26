@@ -437,6 +437,7 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
             stack={(safeView.stack as any) || []}
             battlefield={safeView?.battlefield}
             players={safeView.players}
+            zones={safeView.zones}
             you={you || undefined}
             priority={safeView.priority}
             onPassPriority={() => you && socket.emit("passPriority", { gameId: safeView.id, by: you })}

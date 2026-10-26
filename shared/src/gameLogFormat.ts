@@ -1,9 +1,10 @@
 export type GameLogTargetInfo = {
   id: string;
-  type: 'permanent' | 'player';
+  type: 'permanent' | 'player' | 'spell' | 'ability' | 'card';
   name?: string;
   controllerId?: string;
   controllerName?: string;
+  zone?: 'graveyard' | 'exile';
 };
 
 export function formatNameList(names: readonly string[]): string {
@@ -27,6 +28,9 @@ export function formatStackTargets(
     const controller = String(
       target.controllerName || (target.controllerId ? resolveName(target.controllerId) : ''),
     ).trim();
+    if (target.zone === 'graveyard' || target.zone === 'exile') {
+      return `${name} in ${controller || 'unknown'}'s ${target.zone}`;
+    }
     if (controller && controller !== target.controllerId) {
       return `${name} (${controller}'s)`;
     }

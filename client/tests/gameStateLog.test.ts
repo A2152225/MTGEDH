@@ -544,6 +544,29 @@ describe('stack item log wording', () => {
     expect(added).toContain('Bob activates Evolving Wilds targeting Alice');
   });
 
+  it('names a graveyard card targeted by an activated ability', () => {
+    const next = {
+      ...base,
+      stack: [{
+        id: 'act_gy',
+        type: 'ability',
+        controller: 'p2',
+        source: 'paleo',
+        sourceName: 'Intrepid Paleontologist',
+        card: { id: 'paleo', name: 'Intrepid Paleontologist (ability)' },
+        targetDetails: [{
+          id: 'terrain',
+          type: 'card',
+          name: 'Treacherous Terrain',
+          controllerId: 'p1',
+          zone: 'graveyard',
+        }],
+      }],
+    };
+    const added = buildGameStateLogEntries(base, next, name).map((entry) => entry.message);
+    expect(added).toContain("Bob activates Intrepid Paleontologist targeting Treacherous Terrain in Alice's graveyard");
+  });
+
   it('uses the front-face name for an unnamed multi-face spell card', () => {
     const next = {
       ...base,

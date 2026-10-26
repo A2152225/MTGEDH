@@ -923,6 +923,7 @@ export function TableLayout(props: {
             stack={stackItems}
             battlefield={chatView?.battlefield}
             players={chatView?.players}
+            zones={chatView?.zones}
             you={you}
             priorityPlayer={chatView?.priority}
             onPass={() => {

@@ -33,6 +33,7 @@ import {
   scoreCardForAIAcquisition,
   scoreHostileGraveyardCardDisruption,
 } from "./aiDeckProfileHandlers.js";
+import { scoreGraveyardExileTarget } from "../../../../rules-engine/src/aiGraveyardExileActivation.js";
 import { aiEngine } from "./aiScheduler.js";
 import { isTargetPlayerMillText, scoreAIMillTargetPlayer } from "./aiMillTargetChoice.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
@@ -325,6 +326,10 @@ function scoreChoiceCardTarget(
       if (destination === 'battlefield' && analysis.details.hasETBTrigger) score += 10;
       if (destination === 'battlefield' && analysis.details.producesMana) score += 6;
       return score;
+    }
+
+    if (hostileGraveyardEffect && /exile target card from (?:a|target) graveyard/i.test(oracleText)) {
+      return scoreGraveyardExileTarget(game?.state, String(playerId), sourceCard, card, ownerId);
     }
 
     if (hostileGraveyardEffect) {

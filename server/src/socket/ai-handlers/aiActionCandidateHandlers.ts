@@ -17,6 +17,10 @@ import type { PlayerID } from "../../../../shared/src/types.js";
 import { abilityAllowsAnyPlayerActivation } from "../../../../shared/src/anyPlayerActivatedAbility.js";
 import { AIDecisionType } from "../../../../rules-engine/src/AIEngine.js";
 import { isHandOnlyDiscardThisCardActivatedAbility } from "../../../../rules-engine/src/aiEngineActivatedAbilitySupport.js";
+import {
+  classifySingleCardGraveyardExile,
+  isSingleCardGraveyardExileAbility,
+} from "../../../../rules-engine/src/aiGraveyardExileActivation.js";
 import { canRespond } from "../../state/modules/can-respond.js";
 import { parseManaCost, type ParsedManaCost } from "../../state/modules/mana-check.js";
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
@@ -197,11 +201,6 @@ function aiCommanderIsInCommandZone(game: any, playerId: PlayerID): boolean {
   return info.inCommandZone.some((id: unknown) => String(id || '').trim().length > 0);
 }
 
-/** "{1}: Exile target card from a graveyard" and the same shape with a colored cost. */
-function isSingleGraveyardCardExileAbility(abilityText: string): boolean {
-  return /exile target card from (?:a|target) graveyard/i.test(abilityText);
-}
-
 function isAIPureManaAbilityAction(action: any): boolean {
   const abilityText = String(action?.abilityText || '').trim();
   if (!abilityText) return false;
@@ -229,14 +228,23 @@ export function canAIActivateBattlefieldAbilityNow(
     return false;
   }
 
-  // Repeatable single-card graveyard exile (Keen-Eyed Curator) will otherwise
-  // spend every mana the AI could have used to cast its commander.
-  if (
-    isSingleGraveyardCardExileAbility(String(action?.abilityText || ''))
-    && (permanent as any).activatedThisTurn === true
-    && aiCommanderIsInCommandZone(game, playerId)
-  ) {
-    return false;
+  // Repeatable single-card graveyard exile (Keen-Eyed Curator, Intrepid Paleontologist)
+  // is not a mana sink. Activate only to set up a cast from cards exiled with this
+  // permanent, or to stop an opponent recovering a graveyard card. Setup waits for
+  // the main phase so draw-step priority does not tap lands before a hand spell.
+  if (isSingleCardGraveyardExileAbility(String(action?.abilityText || ''))) {
+    if ((permanent as any).activatedThisTurn === true && aiCommanderIsInCommandZone(game, playerId)) {
+      return false;
+    }
+    const exileReason = classifySingleCardGraveyardExile(
+      game.state,
+      String(playerId),
+      permanent,
+      String(action?.abilityText || ''),
+    );
+    if (exileReason === 'none' || (exileReason === 'setup' && mode === 'response')) {
+      return false;
+    }
   }
 
   // Never treat pure mana taps as activate-ability candidates. Floating mana empties
@@ -372,11 +380,23 @@ export async function enumerateAIActionCandidates(
         : false;
       // Battery charge is spare-mana / color-fixing — sit below real casts (base 320+)
       // and commanders (650+), but above "nothing" so leftover mana still stocks the battery.
-      const basePriority = query.mode === 'response'
-        ? 820
-        : (willNeedToDiscard
-          ? 220
-          : (isBatteryChargeInvest ? 250 : 720));
+      // Graveyard exile that only sets up a later cast also sits below hand spells.
+      // Denying a recovery stays at the normal ability rank so it answers the threat.
+      const exileReason = isSingleCardGraveyardExileAbility(String(abilityCandidate.action?.abilityText || ''))
+        ? classifySingleCardGraveyardExile(
+          game.state,
+          String(playerId),
+          abilityPermanent,
+          String(abilityCandidate.action?.abilityText || ''),
+        )
+        : null;
+      const basePriority = exileReason && exileReason !== 'deny-recovery'
+        ? (query.mode === 'response' ? 210 : 190)
+        : query.mode === 'response'
+          ? 820
+          : (willNeedToDiscard
+            ? 220
+            : (isBatteryChargeInvest ? 250 : 720));
 
       candidates.push({
         kind: 'activate_ability',

@@ -35,6 +35,30 @@ import {
 import { finalizeBattlefieldAbilitySelfExertCost } from "../resolutionGraveyardSelectionHelperUtils.js";
 import { broadcastGame, emitToPlayer, getPlayerName, parseManaCost } from "../util.js";
 
+function battlefieldAbilityTargetDetails(
+  selectedTargetIds: readonly string[],
+  validTargets: readonly any[],
+): Array<{ id: string; type: 'card' | 'player' | 'permanent'; name?: string; controllerId?: string; zone?: 'graveyard' | 'exile' }> {
+  return selectedTargetIds.map((rawId) => {
+    const id = String(rawId || '');
+    const match = validTargets.find((target) => String(target?.id || '') === id);
+    const rawType = String(match?.type || '').toLowerCase();
+    const zone = rawType.includes('graveyard')
+      ? 'graveyard' as const
+      : rawType.includes('exile')
+        ? 'exile' as const
+        : undefined;
+    const controllerId = match?.zoneOwnerId || match?.controller;
+    return {
+      id,
+      type: zone ? 'card' as const : rawType === 'player' ? 'player' as const : 'permanent' as const,
+      name: match?.name ? String(match.name) : undefined,
+      controllerId: controllerId ? String(controllerId) : undefined,
+      zone,
+    };
+  });
+}
+
 /** TARGET_SELECTION with `battlefieldAbilityTargetSelection`: finish activating the ability. */
 export async function handleBattlefieldAbilityTargetSelection(
   io: Server,
@@ -185,6 +209,7 @@ export async function handleBattlefieldAbilityTargetSelection(
     description: abilityText,
     activatedAbilityText: activatedAbilityText || undefined,
     targets: selectedTargetIds,
+    targetDetails: battlefieldAbilityTargetDetails(selectedTargetIds, validTargets),
     copyRetargetValidTargets: validTargets.map((target: any) => ({ ...target })),
     copyRetargetTargetTypes: Array.isArray(targetStepData.targetTypes) ? [...targetStepData.targetTypes] : [],
     copyRetargetMinTargets: minTargets,
@@ -252,6 +277,7 @@ export async function handleBattlefieldAbilityTargetSelection(
         abilityText,
         activatedAbilityText: activatedAbilityText || undefined,
         targets: selectedTargetIds,
+        targetDetails: battlefieldAbilityTargetDetails(selectedTargetIds, validTargets),
         copyRetargetValidTargets: validTargets.map((target: any) => ({ ...target })),
         copyRetargetTargetTypes: Array.isArray(targetStepData.targetTypes) ? [...targetStepData.targetTypes] : [],
         copyRetargetMinTargets: minTargets,
