@@ -8,7 +8,7 @@
 // Handles: passPriority, mulligan, keepHand, unkeepHand, mulliganPutToBottom, setLife, adjustLife, cleanupDiscard, increasePlayerSpeed, discardEffect, mill, zursWeirdingDrawReplacementResolve, dredgeDrawReplacementResolve, skipDrawReplacementResolve, opponentLibraryDrawReplacementResolve, playOpeningHandCards, skipOpeningHandActions
 import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
-import { applyDeferredGraveyardEntryTriggers, pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
+import { applyDeferredGraveyardEntryTriggers, pushCardToGraveyardFromLibrary, pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
 import {
   shuffleLibrary,
   drawCards,
@@ -453,9 +453,24 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
             remainder = lib;
           }
           writePlayerLibrary(ctx, pid, remainder);
+          // Every milled card has to be in the graveyard before Kozilek or
+          // Gaea's Blessing shuffles it. Firing per card would shuffle Kozilek
+          // away and leave the rest of the mill in the graveyard.
+          const deferredGraveyardEntries: Array<{ card: any; ownerId: string; sourceZone: string }> = [];
           for (const card of milled) {
-            pushCardToPlayerGraveyardWithReplacements(ctx as any, String(pid), card, graveyard);
+            const before = graveyard.length;
+            const entered = pushCardToGraveyardFromLibrary(ctx as any, String(pid), card, graveyard, {
+              deferGraveyardTriggers: true,
+            });
+            if (entered && graveyard.length > before) {
+              deferredGraveyardEntries.push({
+                card: graveyard[graveyard.length - 1],
+                ownerId: String(pid),
+                sourceZone: 'library',
+              });
+            }
           }
+          applyDeferredGraveyardEntryTriggers(ctx as any, deferredGraveyardEntries);
 
           z.graveyardCount = graveyard.length;
           ctx.bumpSeq();

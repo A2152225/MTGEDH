@@ -380,7 +380,11 @@ export function applyOracleIRStepsOnServer(
     // best-effort: extra land play / top-of-library caches after IR zone moves
   }
   syncCounterReplacementEffectsAfterOracleIR(ctx, state, countersBefore, counterModifiersAppliedTo);
-  syncAllOracleIRPlayerZonesAfterResolution(ctx);
+  syncAllOracleIRPlayerZonesAfterResolution(ctx, {
+    graveyardBefore,
+    // emitTriggersAfterOracleIRApply already queued "a player mills" triggers.
+    skipProcessMillTriggers: true,
+  });
   syncImpulseExilePlayPermissionsToState(state);
   bridgeScheduleDelayedFlickerReturnsFromOracleIRResult(ctx, state, result, exileBefore, {
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',

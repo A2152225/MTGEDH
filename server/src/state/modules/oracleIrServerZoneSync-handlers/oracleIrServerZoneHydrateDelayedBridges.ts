@@ -491,11 +491,17 @@ export function bridgeScheduleDelayedFlickerReturnsFromOracleIRResult(
   }
 }
 
+export interface SyncOracleIRPlayerZonesOptions {
+  /** Direct IR apply already queued mill triggers before this sync. */
+  readonly skipProcessMillTriggers?: boolean;
+}
+
 export function syncOracleIRPlayerZonesToContext(
   ctx: GameContext,
   state: any,
   controller: PlayerID,
   graveyardBefore: Map<string, Set<string>>,
+  options?: SyncOracleIRPlayerZonesOptions,
 ): void {
   const libraries = (ctx as any).libraries as Map<string, any[]> | undefined;
   const canSyncLibraries = Boolean(libraries && typeof libraries.set === 'function');
@@ -530,6 +536,16 @@ export function syncOracleIRPlayerZonesToContext(
       } else if (typeof playerZones.handCount !== 'number') {
         playerZones.handCount = 0;
       }
+      changed = true;
+    }
+
+    // Copy the post-mill library before graveyard-from-anywhere shuffles.
+    // Kozilek and Gaea's Blessing shuffle into ctx.libraries; copying
+    // player.library afterwards puts the milled library back.
+    if (canSyncLibraries && Array.isArray(player.library)) {
+      libraries!.set(playerId as PlayerID, [...player.library]);
+      playerZones.library = [...player.library];
+      playerZones.libraryCount = player.library.length;
       changed = true;
     }
 
@@ -577,7 +593,7 @@ export function syncOracleIRPlayerZonesToContext(
           String((card as any)?.putIntoGraveyardFrom || ''),
         );
       }
-      if (newlyMilled.length > 0) {
+      if (newlyMilled.length > 0 && options?.skipProcessMillTriggers !== true) {
         try {
           processMillTriggers(ctx, playerId, newlyMilled, controller);
         } catch {
@@ -610,14 +626,6 @@ export function syncOracleIRPlayerZonesToContext(
       changed = true;
     }
 
-    if (!canSyncLibraries) continue;
-
-    if (Array.isArray(player.library)) {
-      libraries.set(playerId as PlayerID, [...player.library]);
-      playerZones.library = [...player.library];
-      playerZones.libraryCount = player.library.length;
-      changed = true;
-    }
   }
 
   if (syncOracleIREmblemsToState(state)) {
@@ -631,14 +639,20 @@ export function syncOracleIRPlayerZonesToContext(
   }
 }
 
-export function syncAllOracleIRPlayerZonesAfterResolution(ctx: GameContext): void {
+export function syncAllOracleIRPlayerZonesAfterResolution(
+  ctx: GameContext,
+  options?: SyncOracleIRPlayerZonesOptions & {
+    /** Graveyard ids from before the effect. A snapshot taken after the mill hides new cards. */
+    readonly graveyardBefore?: Map<string, Set<string>>;
+  },
+): void {
   const state = (ctx as any).state;
   if (!state) return;
-  const graveyardBefore = snapshotGraveyardCardIds(state);
+  const graveyardBefore = options?.graveyardBefore ?? snapshotGraveyardCardIds(state);
   for (const player of state.players || []) {
     const playerId = String(player?.id || '').trim() as PlayerID;
     if (playerId) {
-      syncOracleIRPlayerZonesToContext(ctx, state, playerId, graveyardBefore);
+      syncOracleIRPlayerZonesToContext(ctx, state, playerId, graveyardBefore, options);
     }
   }
 }

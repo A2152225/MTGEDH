@@ -96,8 +96,11 @@ export function shuffleZoneIntoLibrary(
       [newLibrary[i], newLibrary[j]] = [newLibrary[j], newLibrary[i]];
     }
 
-    // Update library
+    // Update library. zones.library and the player copy must follow ctx.libraries;
+    // a later Oracle IR zone sync copies player.library and would otherwise
+    // restore the post-mill library over this shuffle.
     ctx.libraries.set(playerId, newLibrary);
+    zones.library = newLibrary;
     zones.libraryCount = newLibrary.length;
     shuffledFromSourceCount = cardsToShuffle.length;
   }
@@ -128,6 +131,19 @@ export function shuffleZoneIntoLibrary(
   if (movedCount === 0) {
     debug(2, `[shuffleZoneIntoLibrary] No cards to shuffle from ${sourceZone} for ${playerId}`);
     return 0;
+  }
+
+  const syncedLibrary = ctx.libraries.get(playerId) || [];
+  zones.library = syncedLibrary;
+  zones.libraryCount = syncedLibrary.length;
+  const owner = (Array.isArray(state.players) ? state.players : []).find(
+    (entry: any) => String(entry?.id || '') === String(playerId),
+  );
+  if (owner) {
+    owner.library = syncedLibrary;
+    if (sourceZone === 'graveyard' && !filter) {
+      owner.graveyard = zones.graveyard;
+    }
   }
 
   debug(1, `[shuffleZoneIntoLibrary] Shuffled ${movedCount} cards from ${sourceZone} into ${playerId}'s library (new library size: ${finalLibrarySize})`);

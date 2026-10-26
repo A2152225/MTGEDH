@@ -29,7 +29,6 @@ import { queueDealsDamageToPlayerTriggersFromPermanent } from './triggerLifeDama
 import { emitNoncombatDamageEvent, queueNoncombatDealsDamageTriggers } from './triggers/noncombat-deals-damage.js';
 import { detectCombatDamageTriggers } from './triggers/index.js';
 import { processMillTriggers } from './zones.js';
-import { checkGraveyardTrigger } from './zone-manipulation.js';
 
 export type BattlefieldTriggerSnapshot = {
   readonly lifeByPlayer: ReadonlyMap<string, number>;
@@ -299,9 +298,9 @@ export function emitTriggersAfterOracleIRApply(
           return cardId && !beforeGy.has(cardId) && !beforeHand.has(cardId);
         });
         if (milledCards.length > 0) {
-          for (const milledCard of milledCards) {
-            checkGraveyardTrigger(ctx, milledCard, playerId, 'library');
-          }
+          // Kozilek / Gaea's Blessing shuffle after zone sync. Doing it here
+          // clears the graveyard, then the sync copies the unshuffled IR
+          // graveyard and post-mill library back over that shuffle.
           processMillTriggers(ctx, playerId, milledCards, irController || undefined);
         }
       }
