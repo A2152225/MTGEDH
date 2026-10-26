@@ -8,7 +8,7 @@
 // Handles: passPriority, mulligan, keepHand, unkeepHand, mulliganPutToBottom, setLife, adjustLife, cleanupDiscard, increasePlayerSpeed, discardEffect, mill, zursWeirdingDrawReplacementResolve, dredgeDrawReplacementResolve, skipDrawReplacementResolve, opponentLibraryDrawReplacementResolve, playOpeningHandCards, skipOpeningHandActions
 import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
-import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
+import { applyDeferredGraveyardEntryTriggers, pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
 import {
   shuffleLibrary,
   drawCards,
@@ -253,18 +253,29 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
           z.exile = Array.isArray(z.exile) ? z.exile : [];
           const exile = z.exile as any[];
           
-          // Move each selected card from hand to graveyard
+          // Move each selected card from hand to graveyard, then fire
+          // from-anywhere triggers so a titan sees the rest of the discard.
           let discardedCount = 0;
+          const deferredGraveyardEntries: Array<{ card: any; ownerId: string; sourceZone: string }> = [];
           for (const cardId of cardIds) {
             const idx = hand.findIndex((c: any) => c.id === cardId);
             if (idx !== -1) {
               const [card] = hand.splice(idx, 1);
-              pushCardToPlayerGraveyardWithReplacements(ctx as any, String(pid), card, graveyard, {
+              const entered = pushCardToPlayerGraveyardWithReplacements(ctx as any, String(pid), card, graveyard, {
                 asDiscard: true,
+                deferGraveyardTriggers: true,
               });
+              if (entered) {
+                deferredGraveyardEntries.push({
+                  card: graveyard[graveyard.length - 1],
+                  ownerId: String(pid),
+                  sourceZone: 'hand',
+                });
+              }
               discardedCount++;
             }
           }
+          applyDeferredGraveyardEntryTriggers(ctx as any, deferredGraveyardEntries);
 
           for (const cardId of exiledCardIds) {
             const idx = hand.findIndex((c: any) => c.id === cardId);
@@ -275,9 +286,9 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
             }
           }
           
-          // Update counts
+          // Update counts. A graveyard shuffle replaces the zone array.
           z.handCount = hand.length;
-          z.graveyardCount = graveyard.length;
+          z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : 0;
           z.exileCount = exile.length;
 
           // Turn-tracking for intervening-if: "if a player discarded a card this turn" / "if an opponent discarded a card this turn".
@@ -347,6 +358,7 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
           const exile = z.exile as any[];
           const currentTurn = Number((ctx.state as any)?.turnNumber ?? (ctx.state as any)?.turn ?? 0) || 0;
           let movedCount = 0;
+          const deferredGraveyardEntries: Array<{ card: any; ownerId: string; sourceZone: string }> = [];
 
           for (const cardId of cardIds) {
             const idx = hand.findIndex((c: any) => c && String(c.id || '') === cardId);
@@ -365,17 +377,26 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
               continue;
             }
 
-            pushCardToPlayerGraveyardWithReplacements(ctx as any, pid, card, graveyard, {
+            const entered = pushCardToPlayerGraveyardWithReplacements(ctx as any, pid, card, graveyard, {
+              deferGraveyardTriggers: true,
               extraFields: {
                 discardedByPlayerId: pid,
                 discardedOnTurn: currentTurn,
               },
             });
+            if (entered) {
+              deferredGraveyardEntries.push({
+                card: graveyard[graveyard.length - 1],
+                ownerId: pid,
+                sourceZone: 'hand',
+              });
+            }
             movedCount++;
           }
+          applyDeferredGraveyardEntryTriggers(ctx as any, deferredGraveyardEntries);
 
           z.handCount = hand.length;
-          z.graveyardCount = graveyard.length;
+          z.graveyardCount = Array.isArray(z.graveyard) ? z.graveyard.length : 0;
           z.exileCount = exile.length;
 
           if (movedCount > 0) {

@@ -191,7 +191,7 @@ export function useAppPlayStateEarly(p: Record<string, any>) {
     sourceId: string;
     sourceName: string;
     imageUrl?: string;
-    optionsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string; leaveBattlefieldReplacementDestination?: 'exile'; leaveBattlefieldReplacementSourceName?: string; leaveBattlefieldReplacementLifeGain?: number }>;
+    optionsToChoose: Array<{ permanentId: string; cardName: string; imageUrl?: string; tapped?: boolean; leaveBattlefieldReplacementDestination?: 'exile'; leaveBattlefieldReplacementSourceName?: string; leaveBattlefieldReplacementLifeGain?: number }>;
     title?: string;
     subtitle?: string;
     oracleText?: string;

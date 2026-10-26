@@ -6,7 +6,7 @@ import {
 } from './oracleIrTriggerUncategorizedFallback.js';
 import { shouldSkipTriggerUncategorizedFallback } from './oracleIrTriggerLegacyRouting.js';
 import { applyCopyPermanentTriggerStep, queueOptionalSelfCopyFromControlledCreature } from './trigger-copy-permanent.js';
-import { resolveTriggeredAbilityTargetPlayerId } from './triggerSourceUtils.js';
+import { readTriggerEffectCastXValue, resolveTriggeredAbilityTargetPlayerId } from './triggerSourceUtils.js';
 import { buildStackOracleIRContext } from './oracleIrStackContextUtils.js';
 import { inferOracleIrTargetBinding } from '../../../../rules-engine/src/oracleIrTargetBinding.js';
 import { tryApplyEachOpponentDamageTrigger, tryApplyTargetedDamageFromEffectText } from './triggerLifeDamageUtils.js';
@@ -182,8 +182,11 @@ export function applyOracleIRFallbackForTriggeredEffect(
   ]));
   const targetBinding = inferOracleIrTargetBinding((ctx as any).state, chosenObjectIds, controller);
 
+  const explicitX = typeof triggerItem?.xValue === 'number' && Number.isFinite(triggerItem.xValue)
+    ? triggerItem.xValue
+    : undefined;
   const irCtx = buildStackOracleIRContext(controller, {
-    xValue: typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined,
+    xValue: explicitX ?? readTriggerEffectCastXValue((ctx as any).state, triggerItem),
     sourceId: sourcePermanentId || sourceId,
     sourceName,
     targetPlayerId: (targetPlayerId || losingPlayerId || undefined) as PlayerID | undefined,

@@ -6,6 +6,8 @@ import type { TriggeredAbilityStackResolveOptions } from './stackResolveSharedTy
 import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.js';
 import { maybeSacrificeSagaAfterChapterResolve } from './triggerSagaLoreUtils.js';
 import { resolveTriggeredAbilityControllerId } from './triggerSourceUtils.js';
+import { contextHasBlockingNonPaymentResolutionSteps } from '../resolution/resolutionQueueGameIds.js';
+import { runSBA } from './counters_tokens-handlers/countersTokensStateBasedActions.js';
 import { scheduleParsedTriggerRiders } from './parsedTriggerRiderSchedule.js';
 import { tryResolveCaseSolveTrigger } from './caseSolve.js';
 
@@ -73,6 +75,15 @@ export function resolveTriggeredAbilityStackItem(
   executeTriggerEffect(ctx, triggerController as PlayerID, sourceName, effectText, item);
   scheduleParsedTriggerRiders(ctx, item, String(triggerController || ''));
   maybeSacrificeSagaAfterChapterResolve(ctx, triggerController as PlayerID, item);
+  // CR 704.3: after the ability finishes and before the next player gets priority.
+  // Skip while a resolution choice is still open — the ability has not finished.
+  if (!contextHasBlockingNonPaymentResolutionSteps(ctx)) {
+    try {
+      runSBA(ctx);
+    } catch (err) {
+      debugWarn(1, '[resolveTopOfStack] Error running SBA after trigger:', err);
+    }
+  }
   bumpSeq();
   return true;
 }

@@ -18,6 +18,8 @@ export interface SelectionOption {
   name: string;
   imageUrl?: string;
   description?: string;
+  /** When set, the picker shows whether this permanent is tapped. */
+  tapped?: boolean;
   disabled?: boolean;
   disabledReason?: string;
 }
@@ -184,19 +186,22 @@ export function CardSelectionModal({
           {options.map((option) => {
             const isSelected = selectedIds.has(option.id);
             const isDisabled = option.disabled;
+            const tapLabel = option.tapped === true ? 'Tapped' : option.tapped === false ? 'Untapped' : undefined;
             
             return (
               <div
                 key={option.id}
                 onClick={() => toggleSelection(option.id)}
                 {...(!isDisabled ? getCardPreviewHandlers({ imageUrl: option.imageUrl, name: option.name }) : {})}
-                title={isDisabled ? option.disabledReason : option.name}
+                title={isDisabled ? option.disabledReason : tapLabel ? `${option.name} (${tapLabel})` : option.name}
                 style={{
                   cursor: isDisabled ? 'not-allowed' : 'pointer',
                   borderRadius: 8,
                   border: isSelected 
                     ? '3px solid #3b82f6' 
-                    : '3px solid transparent',
+                    : option.tapped
+                      ? '3px solid #f59e0b'
+                      : '3px solid transparent',
                   padding: 4,
                   backgroundColor: isSelected 
                     ? 'rgba(59, 130, 246, 0.2)' 
@@ -211,34 +216,56 @@ export function CardSelectionModal({
                   gap: 4,
                 }}
               >
-                {option.imageUrl ? (
-                  <img
-                    src={option.imageUrl}
-                    alt={option.name}
-                    style={{
-                      width: '100%',
-                      height: 'auto',
-                      borderRadius: 6,
-                    }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: '100%',
-                      aspectRatio: '0.72',
-                      backgroundColor: '#2a2a4a',
-                      borderRadius: 6,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 11,
-                      textAlign: 'center',
-                      padding: 6,
-                    }}
-                  >
-                    {option.name}
-                  </div>
-                )}
+                <div style={{ width: '100%', position: 'relative' }}>
+                  {option.imageUrl ? (
+                    <img
+                      src={option.imageUrl}
+                      alt={option.name}
+                      style={{
+                        width: '100%',
+                        height: 'auto',
+                        borderRadius: 6,
+                        filter: option.tapped ? 'grayscale(0.25) brightness(0.82)' : undefined,
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: '100%',
+                        aspectRatio: '0.72',
+                        backgroundColor: '#2a2a4a',
+                        borderRadius: 6,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 11,
+                        textAlign: 'center',
+                        padding: 6,
+                        filter: option.tapped ? 'grayscale(0.25) brightness(0.82)' : undefined,
+                      }}
+                    >
+                      {option.name}
+                    </div>
+                  )}
+                  {tapLabel && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: 4,
+                        bottom: 4,
+                        padding: '1px 5px',
+                        borderRadius: 4,
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: 0.3,
+                        background: option.tapped ? 'rgba(245, 158, 11, 0.92)' : 'rgba(22, 163, 74, 0.9)',
+                        color: option.tapped ? '#111' : '#fff',
+                      }}
+                    >
+                      {option.tapped ? 'TAPPED' : 'UNTAPPED'}
+                    </div>
+                  )}
+                </div>
                 <div
                   style={{
                     fontSize: 11,
@@ -251,6 +278,18 @@ export function CardSelectionModal({
                 >
                   {option.name}
                 </div>
+                {tapLabel && (
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      textAlign: 'center',
+                      color: option.tapped ? '#fbbf24' : '#86efac',
+                    }}
+                  >
+                    {tapLabel}
+                  </div>
+                )}
                 {option.description && (
                   <div
                     style={{

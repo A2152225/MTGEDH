@@ -35,6 +35,7 @@ import {
 import { nextTurn, nextStep, passPriority } from "./turn";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../resolution/index.js";
+import { dropPromptsCompletedBeforeReplayEnd } from "../resolution/replayCompletedPromptSteps.js";
 import {
   consumeReplayedTriggeredAbilityStackItems,
   consumeReplayedActivatedAbilityStackItems,
@@ -300,6 +301,11 @@ function endReplayPass(ctx: GameContext, events: GameEvent[]): void {
     (ctx as any)._replayPenultimateEvent = events.length > 1 ? events[events.length - 2] : undefined;
   } catch {
     // ignore
+  }
+  try {
+    dropPromptsCompletedBeforeReplayEnd(String((ctx as any)?.gameId || ''), events);
+  } catch {
+    // best-effort only
   }
   try {
     finalizeGameStateAfterReplay(ctx);

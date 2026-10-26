@@ -14,7 +14,7 @@ import {
 } from "../state/resolution/index.js";
 import { appendEvent } from "../db/index.js";
 import { parseMadnessCost } from "../state/modules/alternate-costs.js";
-import { pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
+import { applyDeferredGraveyardEntryTriggers, pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
 import { materializeReflexiveSourceText } from "../state/modules/reflexive-triggers.js";
 import { anyDiscardedCardMatchesTypeFilter } from "../state/modules/reflexiveDiscardTypeFilter.js";
 import { resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution, maybeResumeOracleIRStepsAfterResolution } from "../state/modules/oracleIrServerZoneSync.js";
@@ -302,6 +302,7 @@ export async function handleDiscardResponse(
 
   const movedCards: any[] = [];
   const movedCardsToGraveyard: any[] = [];
+  const deferredGraveyardEntries: Array<{ card: any; ownerId: string; sourceZone: string }> = [];
   const movedCardsToExile: any[] = [];
   const queuedMadnessPrompts: any[] = [];
   const shouldOfferMadnessPrompt =
@@ -371,18 +372,25 @@ export async function handleDiscardResponse(
         movedCardsToExile.push(exiledCard);
       } else {
         const enteredGraveyard = pushCardToPlayerGraveyardWithReplacements(discardTrackingCtx, String(pid), card, zones.graveyard, {
+          deferGraveyardTriggers: true,
           extraFields: {
             discardedByPlayerId: String(pid),
             discardedOnTurn: currentTurn,
           },
         });
         if (enteredGraveyard) {
-          movedCardsToGraveyard.push(zones.graveyard[zones.graveyard.length - 1]);
+          const gyCard = zones.graveyard[zones.graveyard.length - 1];
+          movedCardsToGraveyard.push(gyCard);
+          deferredGraveyardEntries.push({ card: gyCard, ownerId: String(pid), sourceZone: 'hand' });
         }
       }
     }
   }
   
+  // All selected cards are in the graveyard before from-anywhere triggers
+  // (Kozilek must shuffle the other cards discarded at the same time).
+  applyDeferredGraveyardEntryTriggers(discardTrackingCtx, deferredGraveyardEntries);
+
   // Update counts
   zones.handCount = zones.hand.length;
   zones.graveyardCount = zones.graveyard.length;

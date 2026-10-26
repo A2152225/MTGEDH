@@ -374,7 +374,13 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
         open={resolutionPromptOpen(returnControlledPermanentModalOpen, returnControlledPermanentData?.stepId)}
         sourceName={returnControlledPermanentData?.sourceName || ''}
         sourceImageUrl={returnControlledPermanentData?.imageUrl}
-        optionsToChoose={returnControlledPermanentData?.optionsToChoose || []}
+        optionsToChoose={(returnControlledPermanentData?.optionsToChoose || []).map((option) => {
+          const permanent = ((safeView?.battlefield || []) as BattlefieldPermanent[]).find(
+            (entry) => String(entry.id) === String(option.permanentId),
+          );
+          if (!permanent) return option;
+          return { ...option, tapped: permanent.tapped === true };
+        })}
         title={returnControlledPermanentData?.title}
         subtitle={returnControlledPermanentData?.subtitle}
         oracleText={returnControlledPermanentData?.oracleText}

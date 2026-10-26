@@ -66,6 +66,8 @@ export type OracleIRReplayMutation =
       readonly permanentId?: string;
       readonly fromPermanentId?: string;
       readonly libraryPlacement?: 'top' | 'bottom';
+      /** Replay of an already-resolved destroy. Do not re-fire graveyard-from-anywhere triggers per permanent. */
+      readonly skipGraveyardEntryTriggers?: boolean;
     }
   | {
       readonly kind: 'exilePermanent';
@@ -395,6 +397,45 @@ function collectExileReplayMutations(
     ...(sourcePermanentId ? { sourcePermanentId } : {}),
     ...(sourceName ? { sourceName } : {}),
   }));
+}
+
+/**
+ * Cards and tokens that left the battlefield to a destroy effect.
+ * Undo replays these zone moves; a controller-null patch is not a removal.
+ */
+export function buildBattlefieldDestroyReplayMutations(
+  permanents: readonly any[],
+): OracleIRReplayMutation[] {
+  const mutations: OracleIRReplayMutation[] = [];
+  for (const perm of permanents) {
+    const fromPermanentId = String(perm?.id || '').trim();
+    if (!fromPermanentId) continue;
+    const rawCard = perm?.card && typeof perm.card === 'object' && !Array.isArray(perm.card)
+      ? perm.card
+      : null;
+    const owner = String(
+      perm?.owner || perm?.ownerId || rawCard?.owner || rawCard?.ownerId || perm?.controller || perm?.controllerId || '',
+    ).trim();
+    if (!owner) continue;
+    const isToken = perm?.isToken === true || rawCard?.isToken === true;
+    const card = {
+      ...(rawCard ? { ...rawCard } : { id: fromPermanentId, name: String(perm?.name || 'Permanent') }),
+      zone: 'graveyard',
+      ...(isToken ? { isToken: true } : {}),
+    };
+    mutations.push({
+      kind: 'effectProgramZoneMove',
+      playerId: owner as PlayerID,
+      fromPlayerId: owner as PlayerID,
+      cardId: String((card as any).id || fromPermanentId),
+      fromZone: 'battlefield',
+      toZone: 'graveyard',
+      card,
+      fromPermanentId,
+      skipGraveyardEntryTriggers: true,
+    });
+  }
+  return mutations;
 }
 
 export function collectReplayMutationsFromAppliedStep(

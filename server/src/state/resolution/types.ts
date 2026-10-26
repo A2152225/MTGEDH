@@ -913,6 +913,7 @@ export interface ReturnControlledPermanentChoiceStep extends BaseResolutionStep 
     permanentId: string;
     cardName: string;
     imageUrl?: string;
+    tapped?: boolean;
     leaveBattlefieldReplacementDestination?: 'exile';
     leaveBattlefieldReplacementSourceName?: string;
     leaveBattlefieldReplacementLifeGain?: number;

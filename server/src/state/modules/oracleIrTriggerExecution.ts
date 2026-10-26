@@ -43,6 +43,7 @@ import {
 } from './joinForcesResolutionQueue.js';
 import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
 import { findTriggeringSpellOnStack, stackObjectIdsMatch } from './triggerCastSpellStackBinding.js';
+import { readTriggerEffectCastXValue } from './triggerSourceUtils.js';
 
 export { isOracleIrTriggerPrimaryEnabled } from './oracleIrFeatureFlags.js';
 
@@ -331,6 +332,10 @@ function resolveTriggerTargetBinding(
       && typeof spellManaValue === 'number'
     ) {
       xValue = spellManaValue;
+    }
+    if (typeof xValue !== 'number' || !Number.isFinite(xValue)) {
+      const castX = readTriggerEffectCastXValue(state, triggerItem);
+      if (typeof castX === 'number') xValue = castX;
     }
   }
 

@@ -13,6 +13,12 @@ export interface PushCardToGraveyardOptions {
   readonly extraFields?: Record<string, unknown>;
   /** Stamp Mayhem / Jump-start discard provenance onto the graveyard card. */
   readonly asDiscard?: boolean;
+  /**
+   * Put the card in the graveyard without firing from-anywhere triggers yet.
+   * Batch discards must move every selected card first, then flush triggers,
+   * so Kozilek sees the other discarded cards.
+   */
+  readonly deferGraveyardTriggers?: boolean;
 }
 
 function inferGraveyardSourceZone(card: any, options: PushCardToGraveyardOptions): ReplacementZone {
@@ -89,8 +95,22 @@ export function pushCardToPlayerGraveyardWithReplacements(
     originZone: sourceZone,
     ...(options.controllerId ? { controllerId: options.controllerId } : {}),
   });
-  checkGraveyardTrigger(ctx, card, ownerId, sourceZone);
+  if (!options.deferGraveyardTriggers) {
+    const entered = graveyard[graveyard.length - 1] || card;
+    checkGraveyardTrigger(ctx, entered, ownerId, sourceZone);
+  }
   return true;
+}
+
+/** Fire from-anywhere graveyard triggers after a simultaneous discard/mill batch. */
+export function applyDeferredGraveyardEntryTriggers(
+  ctx: GameContext,
+  entries: ReadonlyArray<{ card: any; ownerId: string; sourceZone?: string }>,
+): void {
+  for (const entry of entries) {
+    if (!entry?.card || !entry.ownerId) continue;
+    checkGraveyardTrigger(ctx, entry.card, entry.ownerId, entry.sourceZone);
+  }
 }
 
 /** Library → graveyard (mill, explore, put-rest). Stamps sourceZone so Gaea's Blessing can fire. */

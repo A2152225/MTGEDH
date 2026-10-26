@@ -17,7 +17,7 @@ import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import { parseMadnessCost } from "../../state/modules/alternate-costs.js";
 import { updateCounters } from "../../state/modules/counters_tokens.js";
-import { pushCardToPlayerGraveyardWithReplacements } from "../../state/modules/graveyardEntryUtils.js";
+import { applyDeferredGraveyardEntryTriggers, pushCardToPlayerGraveyardWithReplacements } from "../../state/modules/graveyardEntryUtils.js";
 import {
   ResolutionQueueManager,
   ResolutionStepType,
@@ -281,6 +281,7 @@ export async function handleAdditionalCostPaymentResponse(
       rng: (game as any).rng,
       gameId,
     } as any;
+    const deferredGraveyardEntries: Array<{ card: any; ownerId: string; sourceZone: string }> = [];
 
     for (const discardId of selectedIds) {
       const idx = (zones.hand as any[]).findIndex((c: any) => c && c.id === discardId);
@@ -324,11 +325,16 @@ export async function handleAdditionalCostPaymentResponse(
         continue;
       }
 
-      const enteredGraveyard = pushCardToPlayerGraveyardWithReplacements(discardTrackingCtx, String(pid), discarded, zones.graveyard as any[]);
+      const enteredGraveyard = pushCardToPlayerGraveyardWithReplacements(discardTrackingCtx, String(pid), discarded, zones.graveyard as any[], {
+        deferGraveyardTriggers: true,
+      });
       if (enteredGraveyard) {
-        movedDiscardedCardsToGraveyard.push(zones.graveyard[zones.graveyard.length - 1]);
+        const gyCard = (zones.graveyard as any[])[(zones.graveyard as any[]).length - 1];
+        movedDiscardedCardsToGraveyard.push(gyCard);
+        deferredGraveyardEntries.push({ card: gyCard, ownerId: String(pid), sourceZone: 'hand' });
       }
     }
+    applyDeferredGraveyardEntryTriggers(discardTrackingCtx, deferredGraveyardEntries);
 
     zones.handCount = (zones.hand as any[]).length;
     zones.graveyardCount = (zones.graveyard as any[]).length;

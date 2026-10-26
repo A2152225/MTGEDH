@@ -240,8 +240,12 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
             z[toZone] = Array.isArray(z[toZone]) ? z[toZone] : [];
             const destList = z[toZone] as any[];
             if (!destList.some((entry: any) => entry && String(entry.id || '') === String(card.id || ''))) {
-              if (toZone === 'graveyard') {
-                pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, card, destList);
+              if (toZone === 'graveyard' && fromZone === 'battlefield' && card?.isToken === true) {
+                // Tokens cease to exist off the battlefield. The splice above is the replay.
+              } else if (toZone === 'graveyard') {
+                pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, card, destList, {
+                  deferGraveyardTriggers: (e as any).skipGraveyardEntryTriggers === true,
+                });
               } else {
                 destList.push({ ...card, zone: toZone });
                 if (toZone === 'exile' && fromZone === 'graveyard') {

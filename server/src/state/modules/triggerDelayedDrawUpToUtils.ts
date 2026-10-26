@@ -2,7 +2,8 @@
  * Origin parent: triggerDelayedCleanupUtils.ts / triggerDelayedEffectUtils.ts
  * Cluster moved: delayed next-upkeep "may draw up to N" picker queue + apply.
  * Public entry symbols: delayedUpkeepDrawIsUpToFromStep, queueDelayedDrawUpToChoice,
- *   isDelayedDrawUpToSelectionStep, applyDelayedDrawUpToChoice, chooseDelayedDrawUpToCount.
+ *   isDelayedDrawUpToSelectionStep, delayedDrawUpToPromptAlreadyAnsweredInReplay,
+ *   applyDelayedDrawUpToChoice, chooseDelayedDrawUpToCount.
  *
  * "Up to N" is choose 0..N at resolve time (CR 609.3), not a mandatory draw of N.
  * The caster's delayed "You draw a card" stays a mandatory count-1 draw.
@@ -11,6 +12,8 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import type { GameContext } from '../context.js';
+import { appendEvent } from '../../db/index.js';
+import { debugWarn } from '../../utils/debug.js';
 import { ResolutionStepType } from '../resolution/index.js';
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import { drawCards } from './zones.js';
@@ -41,6 +44,46 @@ export function delayedUpkeepDrawIsUpToFromStep(
 
 export function isDelayedDrawUpToSelectionStep(step: any): boolean {
   return step?.delayedDrawUpTo === true;
+}
+
+/**
+ * The up-to-N prompt is mandatory, so it stays the last persisted event until the
+ * player answers. A later event (the drawCards that recorded the choice, or
+ * delayedDrawUpToResolve when they chose 0) means the choice already happened.
+ * Re-queueing the same step after undo would offer the draw again.
+ */
+export function delayedDrawUpToPromptAlreadyAnsweredInReplay(ctx: GameContext, step: any): boolean {
+  if ((ctx as any)?.isReplaying !== true) return false;
+  if (!isDelayedDrawUpToSelectionStep(step)) return false;
+  const events = (ctx as any)._replayEvents;
+  const index = Number((ctx as any)._replayEventIndex);
+  if (!Array.isArray(events) || !Number.isFinite(index)) return false;
+  return index < events.length - 1;
+}
+
+function persistDelayedDrawUpToResolve(
+  ctx: GameContext,
+  playerId: string,
+  resolvedStepId: string,
+  count: number,
+): void {
+  if ((ctx as any)?.isReplaying) return;
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown' || !resolvedStepId) return;
+  try {
+    appendEvent(
+      gameId,
+      Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (ctx.state as any)?.seq ?? 0),
+      'delayedDrawUpToResolve',
+      {
+        playerId,
+        resolvedStepId,
+        count,
+      },
+    );
+  } catch (err) {
+    debugWarn(1, '[delayedDrawUpTo] appendEvent(delayedDrawUpToResolve) failed:', err);
+  }
 }
 
 export function queueDelayedDrawUpToChoice(params: {
@@ -88,10 +131,12 @@ export function applyDelayedDrawUpToChoice(
   selectedCount: number | null,
 ): void {
   const count = clampChosenDrawCount(step, selectedCount);
-  if (count <= 0) return;
   const playerId = String(step?.playerId || '').trim();
-  if (!playerId) return;
-  drawCards(ctx, playerId as PlayerID, count);
+  const resolvedStepId = String(step?.id || '').trim();
+  if (playerId && count > 0) {
+    drawCards(ctx, playerId as PlayerID, count);
+  }
+  persistDelayedDrawUpToResolve(ctx, playerId, resolvedStepId, count);
 }
 
 export function chooseDelayedDrawUpToCount(game: any, playerId: string, step: any): number {

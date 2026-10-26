@@ -14,6 +14,7 @@ import {
 } from './oracleIrTriggerExecutionHelpers.js';
 import { debugWarn } from '../../utils/debug.js';
 import { queueExploreDecisionStep } from './triggerExploreUtils.js';
+import { readTriggerEffectCastXValue } from './triggerSourceUtils.js';
 
 export interface TriggerUncategorizedFallbackDeps {
   applyCopyPermanentTriggerStep(
@@ -164,7 +165,10 @@ export function applyOracleIRTriggerUncategorizedFallback(
   const text = String(description || '').trim();
   if (!text) return 0;
 
-  const xValue = typeof triggerItem?.xValue === 'number' ? triggerItem.xValue : undefined;
+  const explicitX = typeof triggerItem?.xValue === 'number' && Number.isFinite(triggerItem.xValue)
+    ? triggerItem.xValue
+    : undefined;
+  const xValue = explicitX ?? readTriggerEffectCastXValue((ctx as any).state, triggerItem);
   const sourcePermanentId = String(
     triggerItem?.source || triggerItem?.permanentId || '',
   ).trim();

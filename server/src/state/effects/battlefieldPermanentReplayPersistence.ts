@@ -113,6 +113,10 @@ export function diffBattlefieldPermanentReplayPatches(
   const permanentIds = new Set([...before.keys(), ...after.keys()]);
 
   for (const permanentId of permanentIds) {
+    // A permanent that left (or has not entered yet) is a zone change, not a
+    // field patch. Diffing it against {} nulls controller and leaves the
+    // object on the battlefield, so destroyed creatures stay targetable.
+    if (!before.has(permanentId) || !after.has(permanentId)) continue;
     const patch = diffPermanentReplayPatch(before.get(permanentId) || {}, after.get(permanentId) || {});
     if (patch) {
       changes.push({ permanentId, patch });

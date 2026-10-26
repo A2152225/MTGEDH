@@ -173,6 +173,7 @@ describe('resolveTopOfStack prompt persistence (integration)', () => {
         id: 'forest_1',
         controller: 'p1',
         owner: 'p1',
+        tapped: true,
         card: { id: 'forest_card', name: 'Forest', type_line: 'Basic Land — Forest' },
       },
     ];
@@ -194,6 +195,10 @@ describe('resolveTopOfStack prompt persistence (integration)', () => {
     expect(queue.steps).toHaveLength(1);
     expect((queue.steps[0] as any)?.type).toBe(ResolutionStepType.RETURN_CONTROLLED_PERMANENT_CHOICE);
     expect((queue.steps[0] as any)?.stackItemId).toBe('trigger_bounce_1');
+    expect((queue.steps[0] as any)?.returnControlledPermanentOptions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ permanentId: 'forest_1', cardName: 'Forest', tapped: true }),
+      expect.objectContaining({ permanentId: 'bounce_land', cardName: 'Simic Growth Chamber', tapped: false }),
+    ]));
 
     const promptEvent = getEvents(bounceLandGameId).find(
       (event: any) => String(event?.type || '') === 'resolveTopOfStackPrompt'

@@ -164,6 +164,25 @@ describe('battlefield permanent replay persistence', () => {
     });
   });
 
+  it('does not turn a permanent that left the battlefield into a null controller patch', () => {
+    const before = snapshotBattlefieldPermanentReplayPatches({
+      battlefield: [
+        { id: 'mogg_1', controller: 'p1', tapped: false, summoningSickness: false },
+        { id: 'bear_1', controller: 'p2', tapped: true },
+      ],
+    });
+    const after = snapshotBattlefieldPermanentReplayPatches({
+      battlefield: [
+        { id: 'bear_1', controller: 'p2', tapped: false },
+      ],
+    });
+
+    expect(diffBattlefieldPermanentReplayPatches(before, after)).toEqual([{
+      permanentId: 'bear_1',
+      patch: { tapped: false },
+    }]);
+  });
+
   it('removes fields when patch value is null', () => {
     const permanent: any = {
       id: 'bear_1',

@@ -104,4 +104,16 @@ export function propagateCastMetadataToEnteringPermanent(item: any, effectiveCar
     (newPermanent as any).escapedFrom = 'graveyard';
     (newPermanent.card as any).escapedFrom = 'graveyard';
   }
+
+  // CR 107.3m: an enters-the-battlefield ability that refers to X uses the X
+  // chosen for the spell that became this permanent (Spiteful Banditry).
+  const rawCastX = (item as any)?.xValue ?? (effectiveCard as any)?.xValue ?? (item as any)?.card?.xValue;
+  const castX = Number(rawCastX);
+  if (typeof rawCastX === 'number' && Number.isFinite(castX)) {
+    const xValue = Math.max(0, Math.floor(castX));
+    (newPermanent as any).xValue = xValue;
+    if (newPermanent.card && typeof newPermanent.card === 'object') {
+      (newPermanent.card as any).xValue = xValue;
+    }
+  }
 }

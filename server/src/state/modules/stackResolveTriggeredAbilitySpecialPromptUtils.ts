@@ -64,6 +64,7 @@ export function tryDeferTriggeredAbilitySpecialPrompts(
             cardName: permanent.card?.name || 'Land',
             imageUrl: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
             ...getDeclarativeLeaveBattlefieldReplacementHint(permanent, 'hand', state),
+            tapped: permanent.tapped === true,
           })),
           stackItemId: item.id,
         } as any);

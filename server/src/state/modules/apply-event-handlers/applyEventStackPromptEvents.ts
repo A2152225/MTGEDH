@@ -4,7 +4,7 @@
 // Cluster: Cast continuation and top-of-stack prompt resolution, miracle/mutate/optional-payment choices.
 // Public entry: applyStackPromptEvents(ctx, e) -> true when it handled the event.
 //
-// Handles: castSpellContinuation, resolveTopOfStackPrompt, optionalTriggeredAbilityChoice, optionalPaymentPromptResolve, miraclePromptResolve, mutateCastModeChoiceResolve, mirrormindCrownTokenReplacementChoiceResolve
+// Handles: castSpellContinuation, resolveTopOfStackPrompt, delayedDrawUpToResolve, optionalTriggeredAbilityChoice, optionalPaymentPromptResolve, miraclePromptResolve, mutateCastModeChoiceResolve, mirrormindCrownTokenReplacementChoiceResolve
 import type { GameContext } from "../../context";
 import type { PlayerID, GameEvent } from "../../types";
 import { repairAllDualZoneGhosts } from "../stackReplayUtils.js";
@@ -36,6 +36,7 @@ import { applyEffectProgramChoiceBindingOnReplay } from "../../effects/effectPro
 import { ensureDeferredOracleIrStackItem } from "../oracleIrDeferredStackFinalize.js";
 import { replayEnsureAsEntersPermanentFromPromptSteps } from "../replay-prompt-cleanup.js";
 import { resolvePromptZoneHandRestore } from "../promptZoneHandSnapshot.js";
+import { delayedDrawUpToPromptAlreadyAnsweredInReplay } from "../triggerDelayedDrawUpToUtils.js";
 
 export function applyStackPromptEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -314,6 +315,11 @@ export function applyStackPromptEvents(ctx: GameContext, e: GameEvent): boolean 
               const queuedStepId = String((queuedStep as any)?.id || '').trim();
               const queuedStepType = String((queuedStep as any)?.type || '').trim();
               if (!queuedStepType) continue;
+
+              if (delayedDrawUpToPromptAlreadyAnsweredInReplay(ctx, queuedStep)) {
+                if (queuedStepId) clearReplayQueuedStepById(replayGameId, queuedStepId);
+                continue;
+              }
 
               const alreadyPresent = Boolean(
                 (queue?.activeStep && String((queue.activeStep as any)?.id || '') === queuedStepId) ||
@@ -649,6 +655,20 @@ export function applyStackPromptEvents(ctx: GameContext, e: GameEvent): boolean 
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(mirrormindCrownTokenReplacementChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "delayedDrawUpToResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          if (replayGameId && resolvedStepId) {
+            clearReplayQueuedStepById(replayGameId, resolvedStepId);
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(delayedDrawUpToResolve): failed', err);
         }
         break;
       }

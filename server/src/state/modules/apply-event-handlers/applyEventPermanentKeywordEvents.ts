@@ -8,6 +8,7 @@
 import type { GameContext } from "../../context";
 import type { PlayerID, GameEvent } from "../../types";
 import { updateCounters, movePermanentToGraveyard } from "../counters_tokens";
+import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
 import { applyRoomDoorLockOrUnlockChoice } from "../triggers/room.js";
 import { applyTemporaryGraveyardKeywordGrantFromText } from "../graveyard-permissions.js";
 import {
@@ -70,6 +71,25 @@ export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boo
 
           const idx = ctx.state.battlefield.findIndex((p: any) => String(p?.id || '') === permanentId);
           if (idx < 0) break;
+
+          // Historical destroy replay stored "permanent left" as controller:null.
+          // That hid the creature on the board but left it as a legal target.
+          if ((patch as any).controller === null) {
+            const [perm] = ctx.state.battlefield.splice(idx, 1);
+            const isToken = perm?.isToken === true || perm?.card?.isToken === true;
+            const owner = String(perm?.owner || perm?.card?.owner || perm?.controller || '').trim();
+            if (!isToken && owner && perm?.card) {
+              const zones = (ctx.state as any).zones = (ctx.state as any).zones || {};
+              const z = zones[owner] = zones[owner] || { hand: [], graveyard: [], handCount: 0, graveyardCount: 0 };
+              z.graveyard = Array.isArray(z.graveyard) ? z.graveyard : [];
+              pushCardToPlayerGraveyardWithReplacements(ctx, owner as PlayerID, { ...perm.card, zone: 'graveyard' }, z.graveyard, {
+                deferGraveyardTriggers: true,
+              });
+              z.graveyardCount = z.graveyard.length;
+            }
+            ctx.bumpSeq();
+            break;
+          }
 
           applyBattlefieldPermanentReplayPatch(ctx.state.battlefield[idx] as any, patch as any);
           ctx.bumpSeq();

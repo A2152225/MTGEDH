@@ -28,9 +28,38 @@ export function buildTriggerSourcePermanentSnapshot(permanent: any): any | undef
     enteredFromCast: permanent.enteredFromCast,
     castSourceZone: permanent.castSourceZone,
     castFromHand: permanent.castFromHand,
+    xValue: typeof permanent.xValue === 'number' && Number.isFinite(permanent.xValue)
+      ? Math.max(0, Math.floor(permanent.xValue))
+      : undefined,
     counters: permanent.counters && typeof permanent.counters === 'object' ? { ...(permanent.counters as any) } : undefined,
     card: permanent.card && typeof permanent.card === 'object' ? { ...(permanent.card as any) } : undefined,
   };
+}
+
+function readFiniteX(raw: unknown): number | undefined {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+  return Math.max(0, Math.floor(raw));
+}
+
+/**
+ * X chosen when the source spell was cast. Used by enters-the-battlefield
+ * abilities that say "X" without "where X is …" (CR 107.3m).
+ */
+export function readTriggerEffectCastXValue(state: any, triggerItem: any): number | undefined {
+  const effect = `${String(triggerItem?.effect || '')} ${String(triggerItem?.description || '')}`;
+  if (!/\bx\b/i.test(effect)) return undefined;
+  if (/where\s+x\s+is\b/i.test(effect)) return undefined;
+
+  const sourceId = String(triggerItem?.source || triggerItem?.permanentId || '').trim();
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const live = sourceId
+    ? battlefield.find((entry: any) => String(entry?.id || '') === sourceId)
+    : undefined;
+  return readFiniteX(live?.xValue)
+    ?? readFiniteX(live?.card?.xValue)
+    ?? readFiniteX(triggerItem?.sourcePermanentSnapshot?.xValue)
+    ?? readFiniteX(triggerItem?.sourcePermanentSnapshot?.card?.xValue)
+    ?? readFiniteX(triggerItem?.card?.xValue);
 }
 
 export function getTriggerSourcePermanent(state: any, triggerItem: any, sourcePermanent?: any): any | null {

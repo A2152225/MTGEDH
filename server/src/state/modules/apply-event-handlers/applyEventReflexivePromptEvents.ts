@@ -9,7 +9,7 @@ import { notifyNoncombatPlayerDamage } from '../triggers/player-dealt-damage-ir.
 import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
 import { recordCardLeftGraveyardThisTurn } from "../turn-tracking.js";
-import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
+import { applyDeferredGraveyardEntryTriggers, pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
 import { cleanupCardLeavingExile } from "../playable-from-exile";
 import { transformPermanentToFace } from "../day-night.js";
 import {
@@ -212,22 +212,32 @@ export function applyReflexivePromptEvents(ctx: GameContext, e: GameEvent): bool
             playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
             const graveyard = playerZones.graveyard as any[];
             let movedCount = 0;
+            const deferredGraveyardEntries: Array<{ card: any; ownerId: string; sourceZone: string }> = [];
 
             for (const cardId of cardIds) {
               const handIndex = hand.findIndex((card: any) => card && String(card.id || '') === cardId);
               if (handIndex === -1) continue;
               const [card] = hand.splice(handIndex, 1);
-              pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, card, graveyard, {
+              const entered = pushCardToPlayerGraveyardWithReplacements(ctx as any, playerId, card, graveyard, {
+                deferGraveyardTriggers: true,
                 extraFields: {
                   discardedByPlayerId: playerId,
                   discardedOnTurn: Number((ctx.state as any)?.turnNumber ?? (ctx.state as any)?.turn ?? 0) || 0,
                 },
               });
+              if (entered) {
+                deferredGraveyardEntries.push({
+                  card: graveyard[graveyard.length - 1],
+                  ownerId: playerId,
+                  sourceZone: 'hand',
+                });
+              }
               movedCount++;
             }
+            applyDeferredGraveyardEntryTriggers(ctx as any, deferredGraveyardEntries);
 
             playerZones.handCount = hand.length;
-            playerZones.graveyardCount = graveyard.length;
+            playerZones.graveyardCount = Array.isArray(playerZones.graveyard) ? playerZones.graveyard.length : 0;
             if (movedCount > 0) {
               const stateAny = ctx.state as any;
               stateAny.discardedCardThisTurn = stateAny.discardedCardThisTurn || {};

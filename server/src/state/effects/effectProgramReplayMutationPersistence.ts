@@ -133,6 +133,7 @@ function persistReplayMutation(
         ...(mutation.permanentId ? { permanentId: mutation.permanentId } : {}),
         ...(mutation.fromPermanentId ? { fromPermanentId: mutation.fromPermanentId } : {}),
         ...(mutation.libraryPlacement ? { libraryPlacement: mutation.libraryPlacement } : {}),
+        ...(mutation.skipGraveyardEntryTriggers ? { skipGraveyardEntryTriggers: true } : {}),
         ...mutationPayload,
       });
       return;

@@ -14,6 +14,7 @@ export interface ReturnControlledPermanentOption {
   permanentId: string;
   cardName: string;
   imageUrl?: string;
+  tapped?: boolean;
   leaveBattlefieldReplacementDestination?: 'exile';
   leaveBattlefieldReplacementSourceName?: string;
   leaveBattlefieldReplacementLifeGain?: number;
@@ -46,6 +47,7 @@ export function ReturnControlledPermanentChoiceModal({
     id: option.permanentId,
     name: option.cardName,
     imageUrl: option.imageUrl,
+    tapped: typeof option.tapped === 'boolean' ? option.tapped : undefined,
     description: option.leaveBattlefieldReplacementDestination === 'exile'
       ? 'Will be exiled instead'
       : undefined,

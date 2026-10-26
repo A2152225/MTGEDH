@@ -23,6 +23,7 @@ import {
 import { trySpecialDestroyStep } from './oracleIRExecutorSpecialTargetHandlers';
 import { bridgedZoneStepResult } from './oracleIRStepLedgerRuntime';
 import { executorPermanentHasIndestructible } from './oracleIRExecutorBattlefieldIndestructible';
+import { buildBattlefieldDestroyReplayMutations } from './oracleIRReplayMutations';
 
 export function applyDestroyStep(
   state: GameState,
@@ -200,10 +201,12 @@ export function applyDestroyStep(
   const movedCards = removed
     .filter(perm => !(perm as any).isToken)
     .map(perm => buildPermanentCardWithStats(perm, 'graveyard'));
+  const replayMutations = buildBattlefieldDestroyReplayMutations(removed);
   return bridgedZoneStepResult(ctx, {
     applied: true,
     state: result.state,
     log: [...log, ...result.log],
     ...(movedCards.length > 0 ? { lastMovedCards: movedCards } : {}),
+    ...(replayMutations.length > 0 ? { replayMutations } : {}),
   });
 }
