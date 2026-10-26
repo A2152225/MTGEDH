@@ -539,13 +539,33 @@ export function syncOracleIRPlayerZonesToContext(
         const cardId = String(card?.id || '').trim();
         return cardId && !previousIds.has(cardId);
       });
+      // Counter spell writes the card onto player.graveyard before this sync.
+      // The post-resolution id snapshot already contains it, so compare against
+      // the zone copy that has not been overwritten yet. Backgrounds are
+      // enchantments; the offer itself does not require a creature.
+      const zoneIdsBeforeCopy = new Set(
+        (Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [])
+          .map((card: any) => String(card?.id || '').trim())
+          .filter(Boolean),
+      );
+      const arrivedInGraveyard = player.graveyard.filter((card: any) => {
+        const cardId = String(card?.id || '').trim();
+        return cardId && !zoneIdsBeforeCopy.has(cardId);
+      });
+      const commanderArrivals = [...arrivedInGraveyard];
+      for (const card of newlyMilled) {
+        const cardId = String(card?.id || '').trim();
+        if (cardId && !commanderArrivals.some((entry: any) => String(entry?.id || '').trim() === cardId)) {
+          commanderArrivals.push(card);
+        }
+      }
 
       playerZones.graveyard = [...player.graveyard];
       playerZones.graveyardCount = player.graveyard.length;
       changed = true;
 
-      if (newlyMilled.length > 0) {
-        offerCommanderZoneChoiceForArrivals(ctx, playerId, newlyMilled, 'graveyard');
+      if (commanderArrivals.length > 0) {
+        offerCommanderZoneChoiceForArrivals(ctx, playerId, commanderArrivals, 'graveyard');
       }
 
       for (const card of newlyMilled) {

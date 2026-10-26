@@ -558,9 +558,16 @@ export function applyCounterSpellStep(
       };
     }
     const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+    const commanderSpell = (movedCard as any)?.isCommander === true
+      || (movedCard as any)?.commander === true
+      || (targetStackItem as any)?.isCommander === true
+      || (targetStackItem as any)?.commander === true;
+    const graveyardCard = commanderSpell
+      ? { ...(movedCard as any), isCommander: true }
+      : movedCard;
     return {
       ...player,
-      graveyard: [...graveyard, ...stampCardsPutIntoGraveyardThisTurn(state, [movedCard])],
+      graveyard: [...graveyard, ...stampCardsPutIntoGraveyardThisTurn(state, [graveyardCard])],
     };
   });
 

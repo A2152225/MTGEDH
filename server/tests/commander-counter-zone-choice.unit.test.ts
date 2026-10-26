@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 import { offerCommanderZoneChoiceForArrivals } from '../src/state/modules/commanderZoneChoiceOnEntry.js';
-import { syncOracleIRPlayerZonesToContext } from '../src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerZoneHydrateDelayedBridges.js';
+import { snapshotGraveyardCardIds, syncOracleIRPlayerZonesToContext } from '../src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerZoneHydrateDelayedBridges.js';
 
 const gameId = 'test_commander_counter_zone_choice';
 
@@ -58,6 +58,27 @@ describe('countered commander offers the command zone', () => {
     const ctx = ctxWithBackground(card);
     offerCommanderZoneChoiceForArrivals(ctx, 'p_owner', [card], 'graveyard');
     expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(0);
+  });
+
+  it('prompts for a Background after the post-resolution snapshot already includes it', () => {
+    const card = {
+      id: 'bg_1',
+      name: 'Haunted One',
+      type_line: 'Legendary Enchantment — Background',
+      isCommander: true,
+      zone: 'graveyard',
+    };
+    const ctx = ctxWithBackground(card);
+    ctx.state.players[0].graveyard = [card];
+    const lateSnapshot = snapshotGraveyardCardIds(ctx.state);
+    expect(lateSnapshot.get('p_owner')?.has('bg_1')).toBe(true);
+
+    syncOracleIRPlayerZonesToContext(ctx, ctx.state, 'p_owner', lateSnapshot);
+
+    const step = ResolutionQueueManager.getQueue(gameId).steps.find((entry: any) => entry.commanderZoneChoice === true);
+    expect(step).toBeTruthy();
+    expect((step as any).commanderName).toBe('Haunted One');
+    expect(String((step as any).card?.type_line || '')).not.toMatch(/creature/i);
   });
 
   it('prompts when Oracle IR copies a countered commander from the player graveyard onto zones', () => {
