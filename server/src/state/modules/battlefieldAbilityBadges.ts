@@ -1,4 +1,8 @@
 import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
+import {
+  KEYWORD_COUNTER_NAMES,
+  permanentHasKeywordAbility,
+} from '../../../../rules-engine/src/permanentKeywordAbilities.js';
 import { persistedGrantedAbilitiesSurvivingLoss } from './persistedGrantedAbilityLoss.js';
 
 /** Keywords shown as compact battlefield badges (IND, Dth, etc.). */
@@ -31,6 +35,17 @@ export function isCommanderGrantBackgroundOracle(oracleText: string): boolean {
 
 function normalizeAbilityBadge(value: unknown): string {
   return String(value || '').trim().toLowerCase();
+}
+
+function keywordFromCounterKey(key: string): string | null {
+  const name = String(key || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s*counters?$/, '')
+    .trim();
+  if (!name || !KEYWORD_COUNTER_NAMES.includes(name)) return null;
+  if (!BATTLEFIELD_KEYWORD_BADGES.has(name)) return null;
+  return name;
 }
 
 function readTemporaryAbilityBadge(entry: unknown): string | null {
@@ -78,6 +93,17 @@ export function collectBattlefieldAbilityBadgesForView(
       if (normalized && BATTLEFIELD_KEYWORD_BADGES.has(normalized)) {
         abilities.add(normalized);
       }
+    }
+  }
+
+  const counters = (perm as { counters?: Record<string, unknown> }).counters;
+  if (counters && typeof counters === 'object') {
+    for (const [key, value] of Object.entries(counters)) {
+      if (!(Number(value) > 0)) continue;
+      const keyword = keywordFromCounterKey(key);
+      if (!keyword) continue;
+      if (!permanentHasKeywordAbility(perm, keyword, battlefield)) continue;
+      abilities.add(keyword);
     }
   }
 

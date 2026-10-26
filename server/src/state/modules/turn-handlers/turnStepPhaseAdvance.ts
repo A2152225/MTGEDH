@@ -8,6 +8,7 @@
 // turn-handlers/index.ts. dealCombatDamage is passed in to avoid a cycle.
 
 import type { GameContext } from "../../context.js";
+import { permanentHasKeywordAbility } from "../../../../../rules-engine/src/permanentKeywordAbilities.js";
 import { queueCombatDamageChat } from "../combatDamageChat.js";
 import { hasExtraCombat, consumeExtraCombat } from "./turnScheduledStepsAndExtras.js";
 import { clearCombatState } from "./turnClearCombatState.js";
@@ -127,16 +128,10 @@ export function computeNextStepPhaseAdvance(
         const attackers = battlefield.filter((perm: any) => perm && perm.attacking);
         const blockers = battlefield.filter((perm: any) => perm && perm.blocking && perm.blocking.length > 0);
         
-        const hasFirstStrikeOrDoubleStrike = [...attackers, ...blockers].some((perm: any) => {
-          const oracleText = (perm.card?.oracle_text || '').toLowerCase();
-          const keywords = perm.card?.keywords || [];
-          const grantedAbilities = perm.grantedAbilities || [];
-          const allKeywords = [...keywords, ...grantedAbilities].map((k: any) => 
-            typeof k === 'string' ? k.toLowerCase() : ''
-          ).join(' ');
-          const allText = oracleText + ' ' + allKeywords;
-          return allText.includes('first strike') || allText.includes('double strike');
-        });
+        const hasFirstStrikeOrDoubleStrike = [...attackers, ...blockers].some((perm: any) =>
+          permanentHasKeywordAbility(perm, 'first strike', battlefield)
+          || permanentHasKeywordAbility(perm, 'double strike', battlefield),
+        );
         
         if (hasFirstStrikeOrDoubleStrike) {
           debug(2, `${ts()} [COMBAT_STEP] ========== TRANSITIONING TO FIRST_STRIKE_DAMAGE (first/double strike detected) ==========`);

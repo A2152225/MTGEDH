@@ -244,6 +244,23 @@ export function resolveGoadTargetCreatureIds(
 ): string[] {
   const battlefield = getProcessedBattlefield(state).filter(permanent => isExecutorCreature(permanent));
 
+  // "Goad each creature that had a … counter put on it this way" follows the
+  // counters just placed (Spectacular Showdown, including its overloaded "each").
+  if (target.kind === 'raw') {
+    const thisWayRaw = normalizeOracleText(target.text);
+    if (/\bhad a .+ counters? put on (?:it|them) this way\b/i.test(thisWayRaw)) {
+      const movedIds = Array.isArray(ctx.lastMovedBattlefieldPermanentIds)
+        ? ctx.lastMovedBattlefieldPermanentIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+      if (movedIds.length === 0) return [];
+      const movedSet = new Set(movedIds);
+      return battlefield
+        .filter((permanent) => movedSet.has(String((permanent as any)?.id || '').trim()))
+        .map((permanent) => String((permanent as any)?.id || '').trim())
+        .filter(Boolean);
+    }
+  }
+
   const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
     ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
     : [];

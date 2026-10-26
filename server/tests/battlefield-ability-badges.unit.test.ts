@@ -50,4 +50,16 @@ describe('battlefieldAbilityBadges', () => {
       expect(BATTLEFIELD_KEYWORD_BADGES.has(badge)).toBe(true);
     }
   });
+
+  it('shows keyword counters as the abilities they grant', () => {
+    const bear = {
+      id: 'bear',
+      controller: 'p1',
+      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+      counters: { flying: 1, trample: 1, 'double strike': 1, charge: 2 },
+    };
+    const badges = collectBattlefieldAbilityBadgesForView(bear as any, [], [bear]);
+    expect(badges).toEqual(expect.arrayContaining(['flying', 'trample', 'double strike']));
+    expect(badges).not.toContain('charge');
+  });
 });

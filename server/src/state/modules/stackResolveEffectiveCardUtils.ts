@@ -1,4 +1,26 @@
 import { debug } from '../../utils/debug.js';
+import { getOverloadedText } from '../../../../rules-engine/src/keywordAbilities/overload.js';
+
+function wasCastWithOverload(stackItem: any, card: any): boolean {
+  const values = [
+    stackItem?.alternateCostId,
+    stackItem?.alternativeCost,
+    card?.alternateCostId,
+    card?.alternativeCost,
+  ];
+  return values.some((value) => String(value || '').trim().toLowerCase() === 'overload');
+}
+
+/** CR 702.96a: an overloaded spell's text replaces every "target" with "each". */
+function applyOverloadTextChange(card: any, stackItem: any): any {
+  if (!card || !wasCastWithOverload(stackItem, card)) return card;
+  const oracleText = String(card.oracle_text || card.oracleText || '');
+  if (!/\btarget\b/i.test(oracleText)) return card;
+  return {
+    ...card,
+    oracle_text: getOverloadedText(oracleText),
+  };
+}
 
 export function resolveStackItemEffectiveCard(
   stackItem: any,
@@ -79,5 +101,8 @@ export function resolveStackItemEffectiveCard(
     }
   }
 
-  return { effectiveCard, effectiveTypeLine };
+  return {
+    effectiveCard: applyOverloadTextChange(effectiveCard, stackItem),
+    effectiveTypeLine,
+  };
 }
