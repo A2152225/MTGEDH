@@ -66,6 +66,7 @@ const HALT_ON_PLAYER_CHOICE_STEP_KINDS = new Set<string>([
   // Council / Secret council — resume must re-run vote + follow-on votes_received effects.
   'vote',
   'each_player_choose_then_destroy_rest',
+  'each_player_choose_then_sacrifice_rest',
   'secret_opponent_choice_damage',
   'secret_each_player_number',
   'may_cast_from_among',
@@ -195,13 +196,32 @@ export function applyOracleIRStepsToGameStateImpl(
       readonly stepKind: OracleEffectStep['kind'];
       readonly count?: number;
     } | null;
+    readonly lastAntecedentBattlefieldPermanentIds?: readonly string[];
+    readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   }): void => {
-    if (!nestedResult.lastStepOutcome) return;
-    lastStepOutcome = nestedResult.lastStepOutcome;
-    const kind = nestedResult.lastStepOutcome.kind;
-    if (kind === 'applied' || kind === 'choice_required' || kind === 'impossible') {
-      lastActionOutcome = nestedResult.lastStepOutcome;
+    if (nestedResult.lastStepOutcome) {
+      lastStepOutcome = nestedResult.lastStepOutcome;
+      const kind = nestedResult.lastStepOutcome.kind;
+      if (kind === 'applied' || kind === 'choice_required' || kind === 'impossible') {
+        lastActionOutcome = nestedResult.lastStepOutcome;
+      }
     }
+    const antecedentIds = [
+      ...(Array.isArray(nestedResult.lastAntecedentBattlefieldPermanentIds)
+        ? nestedResult.lastAntecedentBattlefieldPermanentIds
+        : []),
+      ...(Array.isArray(nestedResult.lastMovedBattlefieldPermanentIds)
+        ? nestedResult.lastMovedBattlefieldPermanentIds
+        : []),
+    ].map((id) => String(id || '').trim()).filter(Boolean);
+    if (antecedentIds.length === 0) return;
+    const uniqueAntecedentIds = Array.from(new Set(antecedentIds));
+    lastMovedBattlefieldPermanentIds = uniqueAntecedentIds;
+    currentCtx = {
+      ...currentCtx,
+      lastAntecedentBattlefieldPermanentIds: uniqueAntecedentIds,
+      lastMovedBattlefieldPermanentIds: uniqueAntecedentIds,
+    };
   };
 
   const inferSkippedStepOutcome = (
@@ -724,6 +744,7 @@ export function applyOracleIRStepsToGameStateImpl(
         break;
       }
       case 'each_player_choose_then_destroy_rest':
+      case 'each_player_choose_then_sacrifice_rest':
       case 'secret_opponent_choice_damage':
       case 'secret_each_player_number':
       case 'may_cast_from_among':
@@ -830,5 +851,12 @@ export function applyOracleIRStepsToGameStateImpl(
     ...(lastRevealedCardCount > 0 ? { lastRevealedCardCount } : {}),
     ...(lastMovedCountByPlayer ? { lastMovedCountByPlayer } : {}),
     ...(replayMutations.length > 0 ? { replayMutations } : {}),
+    ...(Array.isArray(currentCtx.lastAntecedentBattlefieldPermanentIds)
+      && currentCtx.lastAntecedentBattlefieldPermanentIds.length > 0
+      ? { lastAntecedentBattlefieldPermanentIds: currentCtx.lastAntecedentBattlefieldPermanentIds }
+      : {}),
+    ...(lastMovedBattlefieldPermanentIds.length > 0
+      ? { lastMovedBattlefieldPermanentIds }
+      : {}),
   };
 }

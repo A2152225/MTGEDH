@@ -67,7 +67,7 @@ export function applyTapOrUntapStep(
         : {}),
     };
   }
-  if (/^(?:each of )?those permanents$/i.test(targetText)) {
+  if (/^(?:(?:each of )?those permanents|those creatures|them|they)$/i.test(targetText)) {
     const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
     const battlefieldIds = new Set(
       battlefield.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean),

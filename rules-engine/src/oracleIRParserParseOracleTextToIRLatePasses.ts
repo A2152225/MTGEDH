@@ -37,6 +37,7 @@ import { lowerCurrentResidualUnknownAbilities } from './oracleIRParserPostproces
 import { expandKeywordActionUnknownAbilities } from './oracleIRParserPostprocessKeywordActionUnknownSteps';
 import { expandChooseLeftOrRightLoyaltyAbilities } from './oracleIRParserLoyaltyDirectionChoice';
 import { rewritePhase4ChoiceFamilyAbilities } from './oracleIRParserPhase4ChoiceFamilyLatePass';
+import { rewriteEachPlayerChooseThenSacrificeRestSteps } from './oracleIRParserEachPlayerChooseSacrificeRest';
 import { rewriteDiscardHandAndDrawAbilities } from './oracleIRParserDiscardHandAndDrawLatePass';
 import { expandWinIfCastSameNameThisGameAbilities } from './oracleIRParserWinIfCastSameNameThisGame';
 import { expandWinIfControlDifferentNamesAbilities } from './oracleIRParserWinIfControlDifferentNames';
@@ -375,6 +376,10 @@ export function applyParseOracleTextToIRLatePasses(params: {
   abilities = mergeChangeTargetRestrictionFollowupAbilities(abilities);
   abilities = expandChooseLeftOrRightLoyaltyAbilities(abilities);
   abilities = rewritePhase4ChoiceFamilyAbilities(abilities, normalizedOracleText);
+  abilities = abilities.map((ability) => {
+    const steps = rewriteEachPlayerChooseThenSacrificeRestSteps(ability.steps || []);
+    return steps === ability.steps ? ability : { ...ability, steps: [...steps] };
+  });
   abilities = rewriteDiscardHandAndDrawAbilities(abilities);
   abilities = expandWinIfControlDifferentNamesAbilities(abilities);
   abilities = expandWinIfCastSameNameThisGameAbilities(abilities);

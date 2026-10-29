@@ -27,6 +27,7 @@ import {
   queueEachPlayerChooseThenDestroyRestPrompts,
   queueSecretOpponentChoiceDamagePrompts,
 } from './oracleIrServerChooseDestroyRestSecretDamagePrompts.js';
+import { queueEachPlayerChooseThenSacrificeRestPrompts } from './oracleIrServerChooseSacrificeRestPrompts.js';
 import { queueSecretEachPlayerNumberPrompts } from './oracleIrServerSecretEachPlayerNumberPrompts.js';
 
 function resolveMaxManaValue(amount: OracleQuantity | undefined, irCtx?: OracleIRExecutionContext): number {
@@ -65,7 +66,8 @@ export function queueChoiceFamilyPromptsFromOracleIRResult(
     const stepKind = String(gap.stepKind || '');
     if (
       stepKind !== 'each_player_choose_then_destroy_rest'
-      &&       stepKind !== 'secret_opponent_choice_damage'
+      && stepKind !== 'each_player_choose_then_sacrifice_rest'
+      && stepKind !== 'secret_opponent_choice_damage'
       && stepKind !== 'secret_each_player_number'
       && stepKind !== 'may_cast_from_among'
       && stepKind !== 'may_reveal_hand_then_win_if_own_named_in_zones'
@@ -85,6 +87,20 @@ export function queueChoiceFamilyPromptsFromOracleIRResult(
         effectiveCard: params.effectiveCard || { name: sourceName },
         item: params.item || { id: sourceId, source: sourceId },
         gameId,
+      });
+      continue;
+    }
+
+    if (step.kind === 'each_player_choose_then_sacrifice_rest') {
+      queueEachPlayerChooseThenSacrificeRestPrompts(ctx, {
+        controller: params.controller,
+        card: params.card || { id: sourceId, name: sourceName },
+        effectiveCard: params.effectiveCard || { name: sourceName },
+        item: params.item || { id: sourceId, source: sourceId },
+        gameId,
+        step,
+        result,
+        irCtx: params.irCtx,
       });
       continue;
     }

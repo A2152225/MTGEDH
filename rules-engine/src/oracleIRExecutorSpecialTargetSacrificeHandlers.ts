@@ -103,6 +103,9 @@ export function trySpecialSacrificeStep(
         .map((id) => String(id || '').trim())
         .filter(Boolean)
     );
+    // No prior choice means "the rest" is not the whole board. Choose-then-sacrifice
+    // spells halt on each_player_choose_then_sacrifice_rest instead of reaching here.
+    if (keptIds.size === 0) return null;
     const victims = battlefield.filter((perm: any) => {
       const id = String(perm?.id || '').trim();
       return id && String(perm?.controller || '').trim() === controllerId && !keptIds.has(id);

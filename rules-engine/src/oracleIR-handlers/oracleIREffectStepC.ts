@@ -187,6 +187,22 @@ export type OracleEffectStepC =
     }
   | {
       /**
+       * "Each player chooses [up to] N [types] they control, then sacrifices the rest."
+       * (Planetary Annihilation / Razia's Purification family). Server queues
+       * TARGET_SELECTION per chooser who controls more than N, then sacrifices
+       * the other matching permanents.
+       */
+      readonly kind: 'each_player_choose_then_sacrifice_rest';
+      readonly choosers: OraclePlayerSelector;
+      readonly keepTypes: readonly string[];
+      readonly keepCount: number;
+      readonly upTo?: boolean;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
+      /**
        * Secret each-opponent binary choice plus all-same / mixed damage matrix
        * (Prisoner's Dilemma family). Server queues existing OPTION_CHOICE.
        */

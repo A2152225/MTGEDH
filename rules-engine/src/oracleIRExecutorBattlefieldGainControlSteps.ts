@@ -72,6 +72,39 @@ function resolveSelfGainControlPermanentId(
   return '';
 }
 
+function permanentIsGoaded(permanent: any): boolean {
+  const goadedBy = Array.isArray(permanent?.goadedBy)
+    ? permanent.goadedBy.map((value: unknown) => String(value || '').trim()).filter(Boolean)
+    : [];
+  if (goadedBy.length > 0) return true;
+  if (Array.isArray(permanent?.staticGoadedBy) && permanent.staticGoadedBy.length > 0) return true;
+  if (permanent?.goaded === true) return true;
+  if (permanent?.goaded && typeof permanent.goaded === 'object' && !Array.isArray(permanent.goaded)) {
+    return Object.values(permanent.goaded).some(Boolean);
+  }
+  return false;
+}
+
+function permanentIsSuspected(permanent: any): boolean {
+  return Boolean(
+    permanent?.suspected
+    || permanent?.isSuspected
+    || permanent?.card?.suspected
+    || permanent?.card?.isSuspected,
+  );
+}
+
+/** "goaded and/or suspected" matches either status. An empty phrase matches every creature. */
+function creatureMatchesMassControlStatus(permanent: any, statusPhrase: string): boolean {
+  if (!statusPhrase) return true;
+  const goaded = permanentIsGoaded(permanent);
+  const suspected = permanentIsSuspected(permanent);
+  if (statusPhrase.startsWith('goaded and') || statusPhrase.startsWith('goaded or')) return goaded || suspected;
+  if (statusPhrase === 'goaded') return goaded;
+  if (statusPhrase === 'suspected') return suspected;
+  return true;
+}
+
 export function applyGainControlStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'gain_control' }>,
@@ -209,24 +242,27 @@ export function applyGainControlStep(
     };
   }
 
-  // Mob Rule / Insurrection: gain control of all creatures (optionally "with power N or greater/less").
-  const massMatch = /gain\s+control\s+of\s+all\s+creatures(?:\s+with\s+power\s+(\d+)\s+or\s+(greater|less))?(?:\s+until\s+end\s+of\s+turn)?\s*\.?$/i.exec(raw);
+  // Mob Rule / Insurrection / Hot Pursuit: gain control of all creatures,
+  // optionally filtered by power or by goaded/suspected status. An empty set still applies.
+  const massMatch = /gain\s+control\s+of\s+all\s+(?:((?:goaded\s+and\/or\s+suspected|goaded\s+or\s+suspected|goaded|suspected)\s+))?creatures(?:\s+with\s+power\s+(\d+)\s+or\s+(greater|less))?(?:\s+until\s+end\s+of\s+turn)?\s*\.?$/i.exec(raw);
   if (massMatch) {
     const controllerId = String(ctx.controllerId || '').trim();
     if (!controllerId) {
       return { applied: false, message: `Skipped gain-control (no controller): ${step.raw}`, reason: 'no_deterministic_target' };
     }
-    const threshold = massMatch[1] !== undefined ? Number(massMatch[1]) : undefined;
+    const statusPhrase = String(massMatch[1] || '').trim().toLowerCase();
+    const threshold = massMatch[2] !== undefined ? Number(massMatch[2]) : undefined;
     const temporary = step.duration !== 'indefinite';
     const controlChangeEffects = Array.isArray((state as any).controlChangeEffects) ? [...(state as any).controlChangeEffects] : [];
     const permanentControlEffects = Array.isArray((state as any).permanentControlEffects) ? [...(state as any).permanentControlEffects] : [];
     const stolenIds: string[] = [];
     const nextBattlefield = ((state.battlefield || []) as any[]).map((permanent: any) => {
       if (!permanentMatchesType(permanent, 'creature')) return permanent;
+      if (!creatureMatchesMassControlStatus(permanent, statusPhrase)) return permanent;
       if (threshold !== undefined) {
         const power = readCharacteristicNumber(permanent?.effectivePower, permanent?.basePower, permanent?.card?.power, permanent?.power);
         if (power === undefined) return permanent;
-        if (massMatch[2] === 'greater' ? power < threshold : power > threshold) return permanent;
+        if (massMatch[3] === 'greater' ? power < threshold : power > threshold) return permanent;
       }
       const current = String(permanent?.controller || '').trim();
       if (!current) return permanent;

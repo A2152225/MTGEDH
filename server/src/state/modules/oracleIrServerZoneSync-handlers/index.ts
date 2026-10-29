@@ -44,6 +44,8 @@ export {
   queueEachPlayerChooseThenDestroyRestPrompts,
   queueSecretOpponentChoiceDamagePrompts,
 } from "./oracleIrServerChooseDestroyRestSecretDamagePrompts.js";
+// APNAP keep-N TARGET_SELECTION for each_player_choose_then_sacrifice_rest.
+export { queueEachPlayerChooseThenSacrificeRestPrompts } from "./oracleIrServerChooseSacrificeRestPrompts.js";
 
 // TAP_UNTAP_TARGET queues for tap-or-untap and tap-matching-permanents
 // automation gaps.

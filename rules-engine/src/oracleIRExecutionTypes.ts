@@ -531,6 +531,9 @@ export interface OracleIRExecutionResult {
   readonly lastRevealedCardCount?: number;
   /** Per-player "that many" amounts (Warp World) when a later prompt resumes after shuffle. */
   readonly lastMovedCountByPlayer?: Readonly<Record<string, number>>;
+  /** Permanents named by the most recent mass effect, for a following "them" / "those creatures". */
+  readonly lastAntecedentBattlefieldPermanentIds?: readonly string[];
+  readonly lastMovedBattlefieldPermanentIds?: readonly string[];
   /** Structured replay events for server persistence after effect-program IR runs. */
   readonly replayMutations?: readonly import('./oracleIRReplayMutations').OracleIRReplayMutation[];
 }

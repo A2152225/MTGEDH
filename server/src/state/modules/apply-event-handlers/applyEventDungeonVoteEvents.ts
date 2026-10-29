@@ -45,6 +45,10 @@ import {
   applyDungeonTargetPlayerEffect,
 } from "../dungeon-effects.js";
 import { maybeResumeDeferredOracleIrStackSpell } from "../oracleIrDeferredStackFinalize.js";
+import {
+  applyChooseThenSacrificeRestBatchReplay,
+  applyChooseThenSacrificeRestChoiceReplay,
+} from "../chooseThenSacrificeRestBatch.js";
 
 export function applyDungeonVoteEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -665,6 +669,42 @@ export function applyDungeonVoteEvents(ctx: GameContext, e: GameEvent): boolean 
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(dungeonTargetCreatureResolve): failed', err);
+        }
+        break;
+      }
+
+      case "chooseThenSacrificeRestChoiceResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const batchId = String((e as any).batchId || '').trim();
+          if (gameId) {
+            clearReplayQueuedSteps(gameId, (step: any) => {
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return batchId && String(step?.chooseThenSacrificeRestBatchId || '').trim() === batchId
+                && String(step?.playerId || '').trim() === String((e as any).playerId || '').trim();
+            });
+          }
+          applyChooseThenSacrificeRestChoiceReplay(ctx, e);
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(chooseThenSacrificeRestChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "chooseThenSacrificeRestBatchResolve": {
+        try {
+          const gameId = String((ctx as any).gameId || '').trim();
+          const batchId = String((e as any).batchId || '').trim();
+          if (gameId && batchId) {
+            clearReplayQueuedSteps(gameId, (step: any) => String(step?.chooseThenSacrificeRestBatchId || '').trim() === batchId);
+          }
+          applyChooseThenSacrificeRestBatchReplay(ctx, e);
+          ctx.bumpSeq();
+          maybeResumeDeferredOracleIrStackSpell(ctx);
+        } catch (err) {
+          debugWarn(1, 'applyEvent(chooseThenSacrificeRestBatchResolve): failed', err);
         }
         break;
       }

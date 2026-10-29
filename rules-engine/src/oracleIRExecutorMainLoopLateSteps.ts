@@ -106,10 +106,12 @@ export function tryApplyMainLoopLateSteps(
     nestedResult: Parameters<typeof ctx.mergeNestedExecutionOutcome>[0],
   ): void => {
     ctx.mergeNestedExecutionOutcome(nestedResult);
-    // Merge writes lastActionOutcome onto ctx; flushLets() would otherwise
-    // overwrite it with the stale local null and break follow-up "If you do".
+    // Merge writes lastActionOutcome and antecedent ids onto ctx; flushLets()
+    // would otherwise overwrite them with the stale locals.
     lastStepOutcome = ctx.lastStepOutcome;
     lastActionOutcome = ctx.lastActionOutcome;
+    currentCtx = ctx.currentCtx;
+    lastMovedBattlefieldPermanentIds = ctx.lastMovedBattlefieldPermanentIds;
   };
 
   const flushLets = (): void => {

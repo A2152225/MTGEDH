@@ -9,6 +9,7 @@
 
 import type { OracleEffectStep } from './oracleIR';
 import { applyEachPlayerChooseThenDestroyRestStep } from './oracleIRExecutorEachPlayerChooseDestroyRest';
+import { applyEachPlayerChooseThenSacrificeRestStep } from './oracleIRExecutorEachPlayerChooseSacrificeRest';
 import { applyMayCastFromAmongStep } from './oracleIRExecutorMayCastFromAmong';
 import { applyMayRevealHandWinIfOwnNamedStep } from './oracleIRExecutorMayRevealHandWinIfOwnNamed';
 import type { MainLoopStepFamilyCtx } from './oracleIRExecutorMainLoopStepTypes';
@@ -22,6 +23,11 @@ export function tryApplyMainLoopChoiceFamilySteps(
   switch (step.kind) {
     case 'each_player_choose_then_destroy_rest': {
       const result = applyEachPlayerChooseThenDestroyRestStep(ctx.nextState, step, ctx.currentCtx);
+      ctx.applyHandledStepResult(step, result);
+      return true;
+    }
+    case 'each_player_choose_then_sacrifice_rest': {
+      const result = applyEachPlayerChooseThenSacrificeRestStep(ctx.nextState, step, ctx.currentCtx);
       ctx.applyHandledStepResult(step, result);
       return true;
     }

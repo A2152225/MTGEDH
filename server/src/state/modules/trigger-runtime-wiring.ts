@@ -101,6 +101,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'grant_temporary_dies_trigger',
   'grant_temporary_etb_trigger',
   'each_player_choose_then_destroy_rest',
+  'each_player_choose_then_sacrifice_rest',
   'secret_opponent_choice_damage',
   'secret_each_player_number',
   'may_cast_from_among',

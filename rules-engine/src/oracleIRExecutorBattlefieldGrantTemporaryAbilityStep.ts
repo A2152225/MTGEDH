@@ -348,38 +348,48 @@ export function applyGrantTemporaryAbilityStep(
       ? recentMovedTargets
       : directTargets;
 
-  if (targets.length === 0 && /^those creatures$/i.test(normalizedTargetText)) {
+  if (targets.length === 0 && /^(?:those creatures|they|them)$/i.test(normalizedTargetText)) {
     const antecedentIds = Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds)
       ? ctx.lastAntecedentBattlefieldPermanentIds.map(id => String(id || '').trim()).filter(Boolean)
       : [];
-    if (antecedentIds.length > 0) {
-      const antecedentSet = new Set(antecedentIds);
-      const antecedentTargets = battlefield.filter((perm: any) =>
-        antecedentSet.has(String((perm as any)?.id || '').trim())
-      );
-      if (antecedentTargets.length > 0) {
-        const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
-          .map(value => String(value || '').trim())
-          .filter(Boolean);
-        const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
-          .map(value => String(value || '').trim())
-          .filter(Boolean);
-        const descriptions = [...grantedAbilities, ...effectText].filter(Boolean);
-        const controllerId = (String(ctx.controllerId || '').trim() ||
-          String((antecedentTargets[0] as any)?.controller || '').trim()) as PlayerID;
-        const nextState = applyTemporaryEffectToPermanents(state, antecedentTargets, ctx, {
-          descriptions: descriptions.length > 0 ? descriptions : [stepRaw],
-          grantedAbilities,
-          expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
-          ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
-        });
-        return {
-          applied: true,
-          state: nextState,
-          log: [`Granted temporary ability text to ${antecedentTargets.length} antecedent creature(s) until end of turn`],
-        };
-      }
+    if (antecedentIds.length === 0) {
+      return {
+        applied: true,
+        state,
+        log: ['No creatures to grant a temporary ability'],
+      };
     }
+    const antecedentSet = new Set(antecedentIds);
+    const antecedentTargets = battlefield.filter((perm: any) =>
+      antecedentSet.has(String((perm as any)?.id || '').trim())
+    );
+    if (antecedentTargets.length === 0) {
+      return {
+        applied: true,
+        state,
+        log: ['No creatures to grant a temporary ability'],
+      };
+    }
+    const grantedAbilities = (Array.isArray(step.abilities) ? step.abilities : [])
+      .map(value => String(value || '').trim())
+      .filter(Boolean);
+    const effectText = (Array.isArray(step.effectText) ? step.effectText : [])
+      .map(value => String(value || '').trim())
+      .filter(Boolean);
+    const descriptions = [...grantedAbilities, ...effectText].filter(Boolean);
+    const controllerId = (String(ctx.controllerId || '').trim() ||
+      String((antecedentTargets[0] as any)?.controller || '').trim()) as PlayerID;
+    const nextState = applyTemporaryEffectToPermanents(state, antecedentTargets, ctx, {
+      descriptions: descriptions.length > 0 ? descriptions : [stepRaw],
+      grantedAbilities,
+      expiresAt: step.duration === 'until_next_turn' ? 'leaves_battlefield' : 'end_of_turn',
+      ...(step.duration === 'until_next_turn' && controllerId ? { expiresOnControllerTurn: controllerId } : {}),
+    });
+    return {
+      applied: true,
+      state: nextState,
+      log: [`Granted temporary ability text to ${antecedentTargets.length} antecedent creature(s) until end of turn`],
+    };
   }
 
   if (targets.length === 0) {

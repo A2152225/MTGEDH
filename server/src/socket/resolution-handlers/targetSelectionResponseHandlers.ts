@@ -32,6 +32,7 @@ import { BLIGHT_TARGET_SELECTION_STAGES } from "./targetSelectionBlightKeywordHa
 import { handleUpkeepPaidUntapSelection } from "./upkeepPaidUntapSelectionHandler.js";
 import { violatesFlagbearerRequirement } from "../../state/modules/flagbearerTargeting.js"; // B29
 import { handleUntapCapChoiceSelection } from "./untapCapChoiceSelectionHandler.js";
+import { handleChooseThenSacrificeRestTargetSelection } from "./chooseThenSacrificeRestTargetSelection.js";
 
 /** TARGET_SELECTION: validate selections then dispatch to the specialized branch. */
 export async function handleTargetSelectionResponse(
@@ -173,6 +174,11 @@ export async function handleTargetSelectionResponse(
   const stepAny = step as any;
   if (stepAny?.divineReckoningChoice === true) {
     await getResolutionHandlerDeps().handleDivineReckoningChoiceTargetSelection(io, game, gameId, step, response);
+    return;
+  }
+
+  if (stepAny?.chooseThenSacrificeRestChoice === true) {
+    await handleChooseThenSacrificeRestTargetSelection(io, game, gameId, step, response);
     return;
   }
 
