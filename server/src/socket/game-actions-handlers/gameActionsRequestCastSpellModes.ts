@@ -32,8 +32,10 @@ import {
 } from "./gameActionsCastCostFormatting.js";
 import { checkMiracle } from "./gameActionsCastFaceAndMiracleSelection.js";
 import {
+  abandonedCastModeCardUpdates,
   adjustModalSpellInfoForCurrentCast,
   appendManaCost,
+  clearAbandonedCastModeChoice,
   getEntwineCostForSelectedModes,
   getOracleTextForCastMode,
   getSpellModeAdditionalCost,
@@ -240,6 +242,18 @@ export function tryPromptRequestCastSpellModes(
       delete (cardInHand as any).giftPromised;
       delete (cardInHand as any).giftRecipient;
       delete (cardInHand as any).giftType;
+    }
+
+    // A click on the card starts a new cast. Modes saved by an earlier attempt
+    // that never left the hand must not skip Choose one, spree, tiered, entwine,
+    // or Abundant Harvest. Continuations pass no discardStaleCastModes flag.
+    if (options?.discardStaleCastModes === true && clearAbandonedCastModeChoice(cardInHand)) {
+      if (cardForCast && cardForCast !== cardInHand) clearAbandonedCastModeChoice(cardForCast);
+      persistQueuedSpellCastStepContinuation(gameId, game, {
+        playerId,
+        cardId,
+        cardUpdates: abandonedCastModeCardUpdates(),
+      });
     }
 
     const selectedModes = Array.isArray((cardInHand as any).selectedModes)

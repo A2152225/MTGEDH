@@ -29,7 +29,12 @@ export async function handleRequestCastSpellRequest(
   io: Server,
   socket: Socket,
   ensureInGameRoom: EnsureInGameRoom,
-  requestCastSpellForSocket: (io: Server, socket: Socket, payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fromZone?: unknown }) => Promise<void>,
+  requestCastSpellForSocket: (
+    io: Server,
+    socket: Socket,
+    payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fromZone?: unknown },
+    options?: { discardStaleCastModes?: boolean },
+  ) => Promise<void>,
   payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fromZone?: unknown },
 ): Promise<void> {
   const gameId = payload?.gameId;
@@ -78,6 +83,8 @@ export async function handleRequestCastSpellRequest(
       cardId,
       faceIndex: castFaceIndex,
       fromZone: castFromZone,
+    }, {
+      discardStaleCastModes: true,
     });
 
     clearHumanAutoPassPauseOnAction(game as any, playerId, 'requestCastSpell');

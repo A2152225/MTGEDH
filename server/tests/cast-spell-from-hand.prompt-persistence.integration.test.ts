@@ -66,6 +66,7 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
     `${gameId}_target_single`,
     `${gameId}_target_graveyard_dynamic`,
     `${gameId}_modal`,
+    `${gameId}_stale_modes`,
     `${gameId}_target_multi`,
     `${gameId}_target_mixed`,
     `${gameId}_target_exchange`,
@@ -380,6 +381,56 @@ describe('castSpellFromHand prompt persistence (integration)', () => {
     expect(queuedCastEvent?.payload?.cardId).toBe('prismari_command_1');
     expect(queuedCastEvent?.payload?.queuedResolutionStep?.type).toBe('mode_selection');
     expect(queuedCastEvent?.payload?.queuedResolutionStep?.modeSelectionPurpose).toBe('modalSpell');
+  });
+
+  it('asks for modes again when a cancelled cast left the previous choice on the card', async () => {
+    const testGameId = `${gameId}_stale_modes`;
+    const game = await setupBaseGame(testGameId, playerId, opponentId);
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'prismari_command_1',
+            name: 'Prismari Command',
+            mana_cost: '{1}{U}{R}',
+            manaCost: '{1}{U}{R}',
+            type_line: 'Instant',
+            oracle_text: 'Choose two -\n• Prismari Command deals 2 damage to any target.\n• Target player draws two cards, then discards two cards.\n• Target player creates a Treasure token.\n• Destroy target artifact.',
+            selectedModes: ['mode_1', 'mode_2'],
+            selectedAdditionalCostModes: ['spree_1'],
+            selectedSpreeModes: ['spree_1'],
+            castWithEntwine: true,
+            entwineCost: '{2}',
+            abundantChoice: 'land',
+            image_uris: { small: 'https://example.com/prismari-command.jpg' },
+          },
+        ],
+        handCount: 1,
+        exile: [],
+        exileCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+      },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, testGameId, emitted);
+    registerGameActions(createNoopIo() as any, socket as any);
+
+    await handlers.requestCastSpell({ gameId: testGameId, cardId: 'prismari_command_1' });
+
+    const handCard = (game.state as any).zones[playerId].hand[0];
+    expect(handCard.selectedModes).toBeUndefined();
+    expect(handCard.selectedAdditionalCostModes).toBeUndefined();
+    expect(handCard.selectedSpreeModes).toBeUndefined();
+    expect(handCard.castWithEntwine).toBeUndefined();
+    expect(handCard.entwineCost).toBeUndefined();
+    expect(handCard.abundantChoice).toBeUndefined();
+
+    const step = ResolutionQueueManager.getQueue(testGameId).steps.find((entry: any) => entry.type === 'mode_selection') as any;
+    expect(step?.modeSelectionPurpose).toBe('modalSpell');
+    expect(step?.sourceId).toBe('prismari_command_1');
   });
 
   it('queues mode selection before graveyard targeting for single-line modal spells', async () => {

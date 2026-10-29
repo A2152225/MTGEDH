@@ -73,6 +73,30 @@ describe('round 6: conditional attached P/T', () => {
     const a = attach(b, P('Twisted Embrace', 'Enchantment \u2014 Aura', 'Enchant permanent\nAs long as enchanted permanent is a creature, it gets +1/+1.', { attachedTo: b.id }));
     expect(getCurrentPowerToughness(b, st([b, a]))).toEqual({ power: 3, toughness: 3 });
   });
+  it('Tenza grants trample to a red nonlegendary copy, and not to a non-red creature', () => {
+    const tenzaText = "Equipped creature gets +1/+1. As long as it's legendary, it gets an additional +2/+2. As long as it's red, it has trample.\nEquip {1}";
+    const copy = P('The Scorpion God', 'Creature \u2014 God');
+    copy.card.colors = ['B', 'R'];
+    copy.card.mana_cost = '{3}{B}{R}';
+    const tenza = attach(copy, P("Tenza, Godo's Maul", 'Legendary Artifact \u2014 Equipment', tenzaText, { attachedTo: copy.id }));
+    tenza.card.colors = [];
+    const equipped = st([copy, tenza]);
+    expect(getContinuousGrantedAbilitiesForPermanent(copy, equipped)).toContain('trample');
+    expect(getCurrentPowerToughness(copy, equipped)).toEqual({ power: 3, toughness: 3 });
+
+    const colorlessCopy = P('The Scorpion God', 'Creature \u2014 God');
+    colorlessCopy.card.colors = [];
+    colorlessCopy.card.mana_cost = '{3}{B}{R}';
+    const tenzaOnManaCost = attach(colorlessCopy, P("Tenza, Godo's Maul", 'Legendary Artifact \u2014 Equipment', tenzaText, { attachedTo: colorlessCopy.id }));
+    tenzaOnManaCost.card.colors = [];
+    expect(getContinuousGrantedAbilitiesForPermanent(colorlessCopy, st([colorlessCopy, tenzaOnManaCost]))).toContain('trample');
+
+    const bear = P('Bear', CREATURE);
+    const tenzaOnBear = attach(bear, P("Tenza, Godo's Maul", 'Legendary Artifact \u2014 Equipment', tenzaText, { attachedTo: bear.id }));
+    tenzaOnBear.card.colors = [];
+    expect(getContinuousGrantedAbilitiesForPermanent(bear, st([bear, tenzaOnBear]))).not.toContain('trample');
+    expect(getCurrentPowerToughness(bear, st([bear, tenzaOnBear]))).toEqual({ power: 3, toughness: 3 });
+  });
   it('equipment: +2/+0 and first strike only while attacking', () => {
     const b = P('Bear', CREATURE);
     const a = attach(b, P('Lance', 'Artifact \u2014 Equipment', 'Equipped creature gets +2/+0 and has first strike as long as it\'s attacking.', { attachedTo: b.id }));

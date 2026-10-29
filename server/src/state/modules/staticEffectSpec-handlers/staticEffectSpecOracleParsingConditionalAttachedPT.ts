@@ -3,6 +3,8 @@
 //   "Enchanted creature gets +2/+2 as long as an opponent controls a white permanent." (Black Scarab)
 //   "As long as enchanted permanent is a creature, it gets +1/+1." (Twisted Embrace)
 //   "As long as equipped creature is attacking, it gets +2/+0 and has first strike."
+//   "As long as it's red, it has trample." (Tenza, Godo's Maul — "it" is the equipped creature)
+//   "Enchanted creature has shroud as long as it's untapped." (Spectral Cloak)
 // An unrecognized condition yields no spec (never "always on"); the legacy positive-only attached
 // reader skips "as long as" sentences so these are not double counted.
 // Public entry symbols: pushConditionalAttachedPTSpecs, parseAttachedStaticCondition.
@@ -14,8 +16,11 @@ import { parseStaticSelfCondition } from './staticEffectSpecOracleParsingConditi
 import { parseOtherwiseGrant, splitOtherwiseClause } from './staticEffectSpecOtherwiseClause.js';
 
 const HOST = '(?:enchanted|equipped) (?:creature|permanent|land|artifact)';
+const HOST_OR_IT = '(?:' + HOST + '|it)';
 const TRAILING = new RegExp('^(?:[a-z\' ]+ \u2014 )?' + HOST + ' gets (?:an additional )?([+-]\\d+)\\/([+-]\\d+)(?: and has ([^.]+?))? as long as (.+)$');
-const LEADING = new RegExp('^(?:[a-z\' ]+ \u2014 )?as long as (.+?), (?:' + HOST + '|it) gets (?:an additional )?([+-]\\d+)\\/([+-]\\d+)(?: and has ([^.]+))?$');
+const LEADING = new RegExp('^(?:[a-z\' ]+ \u2014 )?as long as (.+?), ' + HOST_OR_IT + ' gets (?:an additional )?([+-]\\d+)\\/([+-]\\d+)(?: and has ([^.]+))?$');
+const KEYWORD_LEADING = new RegExp('^(?:[a-z\' ]+ \u2014 )?as long as (.+?), ' + HOST_OR_IT + ' (?:has|gains) ([^.]+)$');
+const KEYWORD_TRAILING = new RegExp('^(?:[a-z\' ]+ \u2014 )?' + HOST_OR_IT + ' (?:has|gains) ([^.]+?) as long as (.+)$');
 
 export function parseAttachedStaticCondition(raw: string): StaticEffectCondition | null {
   const c = String(raw || '').trim().replace(/[.,]+$/, '');
@@ -52,6 +57,20 @@ export function pushConditionalAttachedPTSpecs(
     let toughness = 0;
     let tail = '';
     let condText = '';
+    const keywordLead = line.match(KEYWORD_LEADING);
+    const keywordTrail = keywordLead ? null : line.match(KEYWORD_TRAILING);
+    if (keywordLead || keywordTrail) {
+      const keywordCondition = parseAttachedStaticCondition(keywordLead ? keywordLead[1] : keywordTrail![2]);
+      const abilities = parseAbilitiesFromTail(keywordLead ? keywordLead[2] : keywordTrail![1]);
+      if (!keywordCondition || abilities.length === 0) return;
+      specs.push({
+        ...buildSpec(source, `attached-conditional-kw:${index}`, { kind: 'self' }, { abilities }, keywordCondition),
+        sourcePermanentId: hostId,
+        effectSourcePermanentId: source.sourcePermanentId,
+        scope: { kind: 'self' },
+      });
+      return;
+    }
     const t = line.match(TRAILING);
     const l = t ? null : line.match(LEADING);
     if (t) {

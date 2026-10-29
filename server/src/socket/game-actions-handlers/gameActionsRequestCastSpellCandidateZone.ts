@@ -56,6 +56,7 @@ export type RequestCastSpellCandidateZoneArgs = {
   };
   options?: {
     skipPriorityCheck?: boolean;
+    discardStaleCastModes?: boolean;
     forcedAlternateCostId?: string;
     skipMutateModePrompt?: boolean;
     castWithoutPayingManaCost?: boolean;

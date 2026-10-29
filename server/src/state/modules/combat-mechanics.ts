@@ -236,16 +236,7 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
         if (attachedTo !== permanent.id) continue;
         
         const attachmentOracle = (attachment.card.oracle_text || '').toLowerCase();
-        const attachmentName = (attachment.card.name || '').toLowerCase();
-        
-        // Tenza, Godo's Maul: "As long as it's red, it has trample."
-        if ((attachmentName.includes('tenza') || attachmentName.includes("godo's maul"))) {
-          const creatureColors = card?.colors || [];
-          if (creatureColors.some((c: string) => c === 'R' || c.toLowerCase() === 'red')) {
-            grantedKeywords.push('trample');
-          }
-        }
-        
+
         // Generic parsing for "equipped/enchanted creature has [keywords]"
         for (const kw of parseAttachmentGrantedKeywordsFromOracle(attachmentOracle)) {
           if (kw && !grantedKeywords.includes(kw)) {

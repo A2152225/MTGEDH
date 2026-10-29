@@ -24,6 +24,10 @@
 import type { Server } from "socket.io";
 import { getValidMutateTargets, parseMutateCost } from "../../state/modules/alternate-costs.js";
 import {
+  abandonedCastModeCardUpdates,
+  clearAbandonedCastModeChoice,
+} from "../game-actions-handlers/gameActionsModalCastModeCosts.js";
+import {
   ResolutionQueueManager,
   ResolutionStepType,
   type ResolutionStep,
@@ -101,6 +105,16 @@ export async function handleSpellPaymentChoiceResponse(
       }
     }
 
+    const fromZone = String(stepData.fromZone || 'hand');
+    const zoneName = fromZone === 'exile' || fromZone === 'graveyard' || fromZone === 'library' ? fromZone : 'hand';
+    const zoneCards: any[] = Array.isArray((game.state as any)?.zones?.[pid]?.[zoneName])
+      ? (game.state as any).zones[pid][zoneName]
+      : [];
+    const spellCard = cardId
+      ? zoneCards.find((card: any) => card && String(card.id) === String(cardId))
+      : undefined;
+    const clearedCastModes = Boolean(spellCard && clearAbandonedCastModeChoice(spellCard));
+
     appendCastSpellContinuationEvent(gameId, game, {
       playerId: pid,
       cardId,
@@ -108,6 +122,7 @@ export async function handleSpellPaymentChoiceResponse(
       resolvedStepId: String((step as any).id || '').trim(),
       resolvedStepType: String((step as any).type || ''),
       cancelled: true,
+      ...(clearedCastModes ? { cardUpdates: abandonedCastModeCardUpdates() } : {}),
     });
 
     io.to(gameId).emit('chat', {

@@ -7,13 +7,58 @@
  *
  * Public entry symbols: getSpellModeAdditionalCost, getOracleTextForCastMode,
  * adjustModalSpellInfoForCurrentCast, getEntwineCostForSelectedModes,
- * appendManaCost, repeatManaCost.
+ * appendManaCost, repeatManaCost, cardHasAbandonedCastModeChoice,
+ * clearAbandonedCastModeChoice, abandonedCastModeCardUpdates.
  */
 import {
   extractAdditionalCostModesFromOracleText,
   getSelectedAdditionalCostOracleText,
 } from "../../state/modules/additionalCostModeOracleText.js";
 import { extractModalModesForSpellCast, matchModalModeOptions } from "../../utils/oraclePromptContext.js";
+
+const ABANDONED_CAST_MODE_KEYS = [
+  'selectedModes',
+  'selectedAdditionalCostModes',
+  'selectedSpreeModes',
+  'castWithEntwine',
+  'entwineCost',
+  'abundantChoice',
+  'castWithOverload',
+  'overloadCost',
+] as const;
+
+/** Choice fields a cancelled cast must not carry into the next attempt. */
+export function abandonedCastModeCardUpdates(): Record<(typeof ABANDONED_CAST_MODE_KEYS)[number], null> {
+  return {
+    selectedModes: null,
+    selectedAdditionalCostModes: null,
+    selectedSpreeModes: null,
+    castWithEntwine: null,
+    entwineCost: null,
+    abundantChoice: null,
+    castWithOverload: null,
+    overloadCost: null,
+  };
+}
+
+export function cardHasAbandonedCastModeChoice(card: any): boolean {
+  if (!card || typeof card !== 'object') return false;
+  if (Array.isArray(card.selectedModes) && card.selectedModes.length > 0) return true;
+  if (Array.isArray(card.selectedAdditionalCostModes) && card.selectedAdditionalCostModes.length > 0) return true;
+  if (Array.isArray(card.selectedSpreeModes) && card.selectedSpreeModes.length > 0) return true;
+  if (card.castWithEntwine === true) return true;
+  if (String(card.entwineCost || '').trim()) return true;
+  if (String(card.abundantChoice || '').trim()) return true;
+  if (card.castWithOverload === true) return true;
+  if (String(card.overloadCost || '').trim()) return true;
+  return false;
+}
+
+export function clearAbandonedCastModeChoice(card: any): boolean {
+  if (!cardHasAbandonedCastModeChoice(card)) return false;
+  for (const key of ABANDONED_CAST_MODE_KEYS) delete card[key];
+  return true;
+}
 
 function getSelectedModalOracleText(oracleText: string, selectedModes?: unknown, spellName = ''): string {
   const selectedModeIds = Array.isArray(selectedModes)

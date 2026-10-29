@@ -136,6 +136,7 @@ export async function requestCastSpellForSocket(
   },
   options?: {
     skipPriorityCheck?: boolean;
+    discardStaleCastModes?: boolean;
     forcedAlternateCostId?: string;
     skipMutateModePrompt?: boolean;
     castWithoutPayingManaCost?: boolean;
