@@ -7,6 +7,7 @@
 // Handles: resolveSpell, pushStack, resolveTopOfStack, resolveAllTriggers, sundialActivated, playLand
 import type { GameContext } from "../../context";
 import type { PlayerID, GameEvent } from "../../types";
+import { nextTurnNumberForPlayer } from "../../../../../rules-engine/src/goadNextTurn.js";
 import { recordCardPutIntoGraveyardThisTurn } from "../turn-tracking.js";
 import { pushCardToGraveyardFromLibrary } from "../graveyardEntryUtils.js";
 import { drawCards, movePermanentToHand } from "../zones";
@@ -326,8 +327,7 @@ export function applyStackCoreEvents(ctx: GameContext, e: GameEvent): boolean {
                   if (!existing.includes(goaderId)) {
                     perm.goadedBy = [...existing, goaderId];
                   }
-                  const currentTurn = Number((ctx.state as any).turnNumber ?? 0) || 0;
-                  const expiryTurn = currentTurn + 1;
+                  const expiryTurn = nextTurnNumberForPlayer(ctx.state, goaderId);
                   perm.goadedUntil = { ...(perm.goadedUntil || {}), [goaderId]: expiryTurn };
                   break;
                 }

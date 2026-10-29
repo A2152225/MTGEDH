@@ -5,6 +5,7 @@ import { triggerLifeGainEffects } from "../utils.js";
 import { processLifeChange } from "./game-state-effects.js";
 import { updateCounters } from "./counters_tokens.js";
 import { applyGoadToCreature } from "./goad-effects.js";
+import { nextTurnNumberForPlayer } from "../../../../rules-engine/src/goadNextTurn.js";
 import { drawCards } from "./zones.js";
 import { ResolutionStepType, type CreateResolutionStepConfig } from "../resolution/index.js";
 
@@ -319,8 +320,7 @@ export function applyDungeonTargetCreatureEffect(
     }
 
     case 'undercity:arena': {
-      const currentTurn = Number(((ctx.state as any)?.turnNumber ?? 0)) || 0;
-      const expiryTurn = currentTurn + 1;
+      const expiryTurn = nextTurnNumberForPlayer(ctx.state, choosingPlayerId);
       battlefield[targetIndex] = applyGoadToCreature(targetPermanent as any, choosingPlayerId, expiryTurn) as any;
       if (typeof ctx.bumpSeq === 'function') {
         ctx.bumpSeq();

@@ -1,4 +1,5 @@
 import type { DamagePreventionEffect, GameState, PlayerID } from '../../shared/src';
+import { cardHasCreatureType } from '../../shared/src/creatureTypes';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import { getStackItems } from './stackOperations';
 import { protectionPreventsDamageToPermanent } from './oracleIRDamageProtection';
@@ -250,14 +251,30 @@ export function previewPreventedDamage(
     }
   }
 
+  const staticCap = capDamageFromStaticPreventAllBut(
+    state,
+    initialAmount,
+    normalizedTargetPermanentId,
+    normalizedTargetPlayerId,
+  );
+  const amountToApply = staticCap.remaining;
+  const staticLog = staticCap.log;
+  if (amountToApply <= 0) {
+    return {
+      prevented: initialAmount,
+      remainingDamage: 0,
+      log: staticLog,
+    };
+  }
+
   const activeEffects = Array.isArray((state as any)?.damagePreventionEffects)
     ? ((state as any).damagePreventionEffects as DamagePreventionEffect[])
     : [];
   if (activeEffects.length === 0) {
     return {
-      prevented: 0,
-      remainingDamage: initialAmount,
-      log: [],
+      prevented: initialAmount - amountToApply,
+      remainingDamage: amountToApply,
+      log: staticLog,
     };
   }
 
@@ -289,8 +306,8 @@ export function previewPreventedDamage(
       ? Math.max(0, numericRemainingAmount)
       : null;
     const prevented = hasCap
-      ? Math.max(0, initialAmount - Math.min(initialAmount, Math.max(0, capTo)))
-      : remainingShieldAmount === null ? initialAmount : Math.min(initialAmount, remainingShieldAmount);
+      ? Math.max(0, amountToApply - Math.min(amountToApply, Math.max(0, capTo)))
+      : remainingShieldAmount === null ? amountToApply : Math.min(amountToApply, remainingShieldAmount);
     if (!hasCap && prevented <= 0) continue;
 
     let nextState: GameState | undefined;
@@ -320,10 +337,12 @@ export function previewPreventedDamage(
       } as GameState;
     }
 
+    const staticPrevented = initialAmount - amountToApply;
     return {
-      prevented,
-      remainingDamage: Math.max(0, initialAmount - prevented),
+      prevented: staticPrevented + prevented,
+      remainingDamage: Math.max(0, amountToApply - prevented),
       log: [
+        ...staticLog,
         effect?.combatOnly === true
           ? `Prevented ${prevented} combat damage from ${normalizedSourceId || 'the source'}`
           : `Prevented ${prevented} damage from ${normalizedSourceId || 'the source'}`,
@@ -333,8 +352,156 @@ export function previewPreventedDamage(
   }
 
   return {
-    prevented: 0,
-    remainingDamage: initialAmount,
-    log: [],
+    prevented: initialAmount - amountToApply,
+    remainingDamage: amountToApply,
+    log: staticLog,
+  };
+}
+
+const PREVENT_ALL_BUT_ANOTHER_TYPE_RE =
+  /if a source would deal damage to another ([a-z][a-z0-9\s/-]*?) you control,?\s*prevent all but (\d+) of that damage/;
+
+const PREVENT_ALL_BUT_YOU_OR_TYPE_RE =
+  /if a source would deal damage to you or an? ([a-z][a-z0-9\s/-]*?) you control,?\s*prevent all but (\d+) of that damage/;
+
+const DAMAGE_RECIPIENT_CARD_TYPES = new Set([
+  'creature',
+  'artifact',
+  'enchantment',
+  'planeswalker',
+  'land',
+  'battle',
+  'kindred',
+  'legendary',
+  'snow',
+  'token',
+]);
+
+function normalizeDamageOracle(text: string): string {
+  return String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function preventAllButTypeTokens(raw: string): string[] {
+  return String(raw || '')
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token && token !== 'a' && token !== 'an' && token !== 'the');
+}
+
+function permanentMatchesPreventTokens(permanent: any, tokens: string[]): boolean {
+  if (!permanent || tokens.length === 0) return false;
+  const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '');
+  const oracle = String(permanent?.card?.oracle_text || permanent?.oracle_text || '');
+  const lower = typeLine.toLowerCase();
+  for (const token of tokens) {
+    const wanted = token.toLowerCase();
+    if (DAMAGE_RECIPIENT_CARD_TYPES.has(wanted)) {
+      if (!lower.includes(wanted)) return false;
+      continue;
+    }
+    if (!cardHasCreatureType(typeLine, oracle, wanted)) return false;
+  }
+  return true;
+}
+
+function tightenCap(current: number | null, next: number | null): number | null {
+  if (next === null) return current;
+  if (current === null) return next;
+  return Math.min(current, next);
+}
+
+function capFromPreventAllButOracle(
+  oracle: string,
+  shieldId: string,
+  shieldController: string,
+  targetPermanent: any,
+  targetPermanentId: string,
+  targetPlayerId: string,
+): number | null {
+  const text = normalizeDamageOracle(oracle);
+  if (!text) return null;
+  let cap: number | null = null;
+  const another = text.match(PREVENT_ALL_BUT_ANOTHER_TYPE_RE);
+  if (another && targetPermanent) {
+    const tokens = preventAllButTypeTokens(another[1]);
+    const capValue = Math.max(0, Math.floor(Number(another[2]) || 0));
+    const targetController = String(targetPermanent?.controller || '').trim();
+    if (
+      shieldController
+      && shieldController === targetController
+      && shieldId !== targetPermanentId
+      && permanentMatchesPreventTokens(targetPermanent, tokens)
+    ) {
+      cap = tightenCap(cap, capValue);
+    }
+  }
+  if (!/you get an emblem with/.test(text)) {
+    const youOr = text.match(PREVENT_ALL_BUT_YOU_OR_TYPE_RE);
+    if (youOr) {
+      const tokens = preventAllButTypeTokens(youOr[1]);
+      const capValue = Math.max(0, Math.floor(Number(youOr[2]) || 0));
+      const targetController = String(targetPermanent?.controller || targetPlayerId || '').trim();
+      const playerHit = !targetPermanentId && Boolean(targetPlayerId) && targetPlayerId === shieldController;
+      const permanentHit = Boolean(targetPermanent)
+        && targetController === shieldController
+        && permanentMatchesPreventTokens(targetPermanent, tokens);
+      if (playerHit || permanentHit) cap = tightenCap(cap, capValue);
+    }
+  }
+  return cap;
+}
+
+function emblemOracleSources(state: GameState): Array<{ id: string; controller: string; oracle: string }> {
+  const sources: Array<{ id: string; controller: string; oracle: string }> = [];
+  const push = (emblem: any, fallbackController: string) => {
+    if (!emblem || typeof emblem !== 'object') return;
+    const abilities = Array.isArray(emblem.abilities)
+      ? emblem.abilities.map((entry: unknown) => String(entry || '')).join(' ')
+      : '';
+    const oracle = String(emblem.effect || emblem.oracle_text || emblem.oracleText || abilities || emblem.card?.oracle_text || '');
+    if (!oracle.trim()) return;
+    sources.push({
+      id: String(emblem.id || `emblem-${sources.length}`).trim(),
+      controller: String(emblem.controller || emblem.owner || fallbackController || '').trim(),
+      oracle,
+    });
+  };
+  const root = Array.isArray((state as any)?.emblems) ? (state as any).emblems : [];
+  for (const emblem of root) push(emblem, '');
+  const players = Array.isArray((state as any)?.players) ? (state as any).players : [];
+  for (const player of players) {
+    const list = Array.isArray(player?.emblems) ? player.emblems : [];
+    for (const emblem of list) push(emblem, String(player?.id || ''));
+  }
+  return sources;
+}
+
+function capDamageFromStaticPreventAllBut(
+  state: GameState,
+  amount: number,
+  targetPermanentId: string,
+  targetPlayerId: string,
+): { remaining: number; log: string[] } {
+  const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+  const targetPermanent = targetPermanentId
+    ? battlefield.find((permanent: any) => String(permanent?.id || '').trim() === targetPermanentId)
+    : undefined;
+  let cap: number | null = null;
+  for (const permanent of battlefield) {
+    const shieldId = String((permanent as any)?.id || '').trim();
+    const shieldController = String((permanent as any)?.controller || '').trim();
+    const oracle = String((permanent as any)?.card?.oracle_text || (permanent as any)?.oracle_text || '');
+    cap = tightenCap(cap, capFromPreventAllButOracle(oracle, shieldId, shieldController, targetPermanent, targetPermanentId, targetPlayerId));
+  }
+  for (const emblem of emblemOracleSources(state)) {
+    cap = tightenCap(cap, capFromPreventAllButOracle(emblem.oracle, emblem.id, emblem.controller, targetPermanent, targetPermanentId, targetPlayerId));
+  }
+  if (cap === null) return { remaining: amount, log: [] };
+  const remaining = Math.min(amount, Math.max(0, cap));
+  if (remaining >= amount) return { remaining: amount, log: [] };
+  return {
+    remaining,
+    log: [`Prevented ${amount - remaining} damage (prevent all but ${cap})`],
   };
 }

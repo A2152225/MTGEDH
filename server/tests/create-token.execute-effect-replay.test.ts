@@ -79,5 +79,36 @@ describe('executeEffect createToken replay semantics', () => {
     const token = (game.state as any).battlefield?.find((perm: any) => perm?.id === 'haste_token_1');
     expect(token).toBeTruthy();
     expect(token?.summoningSickness).toBe(false);
+    expect(token?.grantedAbilities).toEqual(['haste']);
+  });
+
+  it('restores Helm copy haste badges from older createToken events that only stored keywords', () => {
+    const game = createInitialGameState('t_helm_copy_haste_replay');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    game.applyEvent({
+      type: 'executeEffect',
+      effectType: 'createToken',
+      controllerId: p1,
+      tokenData: {
+        id: 'token-copy-scorpion',
+        name: 'The Scorpion God',
+        typeLine: 'Creature — God',
+        power: 6,
+        toughness: 5,
+        colors: ['B', 'R'],
+        abilities: ['haste'],
+        hasHaste: true,
+        isCopyToken: true,
+        copiedFromPermanentId: 'scorpion',
+        oracleText: 'When The Scorpion God dies, return it to its owner\'s hand.\nhaste',
+      },
+    });
+
+    const token = (game.state as any).battlefield?.find((perm: any) => perm?.id === 'token-copy-scorpion');
+    expect(token?.summoningSickness).toBe(false);
+    expect(token?.grantedAbilities).toEqual(['haste']);
+    expect(token?.card?.keywords).toEqual(['haste']);
   });
 });

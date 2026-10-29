@@ -9,6 +9,7 @@ import { getCombinedPermanentText } from './permanentText';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { describeSetterOrdering } from './oracleIRExecutorEffectTimestamps';
 import { stampMissingTimestampsOnBattlefieldCopy } from './permanentTimestamps';
+import { nextTurnNumberForPlayer } from './goadNextTurn';
 import {
   getProcessedBattlefield,
   permanentHasSubtype,
@@ -366,7 +367,6 @@ export function applyGoadToCreatures(
   if (!Array.isArray(creatureIds) || creatureIds.length === 0) return null;
 
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
-  const turnNumber = Number((state as any)?.turnNumber ?? 0) || 0;
   // Rest-of-game: omit expiry so getGoadedBy treats undefined as never-expires (JSON-safe).
   const idSet = new Set(creatureIds.map(id => String(id || '').trim()).filter(Boolean));
   let changed = false;
@@ -389,7 +389,7 @@ export function applyGoadToCreatures(
     if (duration === 'rest_of_game') {
       delete nextGoadedUntil[goaderId];
     } else {
-      nextGoadedUntil[goaderId] = turnNumber + 1;
+      nextGoadedUntil[goaderId] = nextTurnNumberForPlayer(state, goaderId);
     }
 
     battlefield[index] = {

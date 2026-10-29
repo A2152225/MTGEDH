@@ -395,4 +395,252 @@ describe('AI choice target selection', () => {
 
     expect(selections).toEqual(['tutor_gy']);
   });
+
+  it('does not damage its own player when the source also puts a counter', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = damageChoiceGame(playerId, [
+      createPermanent('flaming', playerId, {
+        name: 'Flaming Tyrannosaurus',
+        type_line: 'Creature — Dinosaur',
+        oracle_text: 'Menace\nParadox — Whenever you cast a spell from anywhere other than your hand, this creature deals 3 damage to any target. Then put a +1/+1 counter on this creature.\nWhen this creature dies, it deals damage equal to its power to each opponent.',
+        power: '4',
+        toughness: '4',
+      }),
+      createPermanent('opp_creature', 'opp1', {
+        name: 'Hill Giant',
+        type_line: 'Creature — Giant',
+        oracle_text: '',
+        power: '3',
+        toughness: '3',
+      }),
+    ]);
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, damageStep('flaming', 'Flaming Tyrannosaurus', [
+      { id: playerId, label: 'AI' },
+      { id: 'opp1', label: 'Opponent' },
+      { id: 'opp_creature', label: 'Hill Giant' },
+    ], {
+      description: 'Whenever you cast a spell from anywhere other than your hand, this creature deals 3 damage to any target. Then put a +1/+1 counter on this creature.',
+    }));
+    expect(selections).toEqual(['opp_creature']);
+  });
+
+  it('does not aim damage-received triggers at its own player', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = damageChoiceGame(playerId, [
+      createPermanent('pantlaza', playerId, {
+        name: 'Pantlaza, Sun-Favored',
+        type_line: 'Legendary Creature — Dinosaur',
+        oracle_text: 'Whenever Pantlaza, Sun-Favored or another Dinosaur you control enters, you may discover X, where X is that creature\'s toughness. Do this only once each turn.',
+        power: '4',
+        toughness: '4',
+      }),
+      createPermanent('opp_creature', 'opp1', {
+        name: 'Hill Giant',
+        type_line: 'Creature — Giant',
+        oracle_text: '',
+        power: '3',
+        toughness: '3',
+      }),
+    ]);
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, damageStep('pantlaza', 'Pantlaza, Sun-Favored', [
+      { id: playerId, label: 'AI' },
+      { id: 'opp1', label: 'Opponent' },
+      { id: 'opp_creature', label: 'Hill Giant' },
+    ], {
+      description: 'Pantlaza, Sun-Favored was dealt 5 damage. Choose a target to deal 5 damage to.',
+      damageReceivedTrigger: true,
+      damageTrigger: { damageAmount: 5 },
+    }));
+    expect(selections).toEqual(['opp_creature']);
+  });
+
+  it('deals non-lethal damage to its own creature when that damage triggers an ability', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = damageChoiceGame(playerId, [
+      createPermanent('enrage', playerId, {
+        name: 'Ripjaw Raptor',
+        type_line: 'Creature — Dinosaur',
+        oracle_text: 'Enrage — Whenever this creature is dealt damage, draw a card.',
+        power: '4',
+        toughness: '5',
+      }),
+      createPermanent('vanilla', playerId, {
+        name: 'Grizzly Bears',
+        type_line: 'Creature — Bear',
+        oracle_text: '',
+        power: '2',
+        toughness: '2',
+      }),
+    ]);
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, damageStep('ping', 'Ping', [
+      { id: playerId, label: 'AI' },
+      { id: 'opp1', label: 'Opponent' },
+      { id: 'enrage', label: 'Ripjaw Raptor' },
+      { id: 'vanilla', label: 'Grizzly Bears' },
+    ], {
+      description: 'Choose a target to deal 1 damage to.',
+    }));
+    expect(selections).toEqual(['enrage']);
+  });
+
+  it('does not kill its own dealt-damage creature when another target exists', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = damageChoiceGame(playerId, [
+      createPermanent('enrage', playerId, {
+        name: 'Ripjaw Raptor',
+        type_line: 'Creature — Dinosaur',
+        oracle_text: 'Enrage — Whenever this creature is dealt damage, draw a card.',
+        power: '2',
+        toughness: '2',
+      }),
+    ]);
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, damageStep('blaze', 'Blaze', [
+      { id: playerId, label: 'AI' },
+      { id: 'opp1', label: 'Opponent' },
+      { id: 'enrage', label: 'Ripjaw Raptor' },
+    ], {
+      description: 'Choose a target to deal 5 damage to.',
+    }));
+    expect(selections).toEqual(['opp1']);
+  });
+
+  it('trades a one-shot creature when the trigger kills a threat the ping cannot', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = damageChoiceGame(playerId, [
+      createPermanent('enrage', playerId, {
+        name: 'Glass Fighter',
+        type_line: 'Creature — Dinosaur',
+        oracle_text: 'Whenever this creature is dealt damage, it deals damage equal to its power to any target.',
+        power: '6',
+        toughness: '1',
+      }),
+      createPermanent('threat', 'opp1', {
+        name: 'Hill Giant',
+        type_line: 'Creature — Giant',
+        oracle_text: '',
+        power: '6',
+        toughness: '6',
+      }),
+    ]);
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, damageStep('ping', 'Ping', [
+      { id: playerId, label: 'AI' },
+      { id: 'opp1', label: 'Opponent' },
+      { id: 'enrage', label: 'Glass Fighter' },
+      { id: 'threat', label: 'Hill Giant' },
+    ], {
+      description: 'Choose a target to deal 1 damage to.',
+    }));
+    expect(selections).toEqual(['enrage']);
+  });
+
+  it('keeps a reusable creature when this damage already answers the threat', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = damageChoiceGame(playerId, [
+      createPermanent('enrage', playerId, {
+        name: 'Reusable Fighter',
+        type_line: 'Creature — Dinosaur',
+        oracle_text: 'Whenever this creature is dealt damage, it deals damage equal to its power to any target.',
+        power: '5',
+        toughness: '5',
+      }),
+      createPermanent('threat', 'opp1', {
+        name: 'Hill Giant',
+        type_line: 'Creature — Giant',
+        oracle_text: '',
+        power: '4',
+        toughness: '4',
+      }),
+    ]);
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, damageStep('blaze', 'Blaze', [
+      { id: playerId, label: 'AI' },
+      { id: 'opp1', label: 'Opponent' },
+      { id: 'enrage', label: 'Reusable Fighter' },
+      { id: 'threat', label: 'Hill Giant' },
+    ], {
+      description: 'Choose a target to deal 5 damage to.',
+    }));
+    expect(selections).toEqual(['threat']);
+  });
+
+  it('triggers a dealt-damage ability on another creature you control without killing the recipient', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = damageChoiceGame(playerId, [
+      createPermanent('watcher', playerId, {
+        name: 'Damage Watcher',
+        type_line: 'Creature — Dinosaur',
+        oracle_text: 'Whenever a Dinosaur you control is dealt damage, draw a card.',
+        power: '3',
+        toughness: '3',
+      }),
+      createPermanent('dino', playerId, {
+        name: 'Young Dinosaur',
+        type_line: 'Creature — Dinosaur',
+        oracle_text: '',
+        power: '4',
+        toughness: '4',
+      }),
+    ]);
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, damageStep('ping', 'Ping', [
+      { id: 'opp1', label: 'Opponent' },
+      { id: 'dino', label: 'Young Dinosaur' },
+      { id: 'watcher', label: 'Damage Watcher' },
+    ], {
+      description: 'Choose a target to deal 1 damage to.',
+    }));
+    expect(selections).toEqual(['dino']);
+  });
+
+  it('damages itself when that damage creates tokens and another permanent gains life as creatures enter', () => {
+    const playerId = 'ai1' as PlayerID;
+    const game = damageChoiceGame(playerId, [
+      createPermanent('darien', playerId, {
+        name: 'Darien, King of Kjeldor',
+        type_line: 'Legendary Creature — Human Soldier',
+        oracle_text: "Whenever you're dealt damage, you may create that many 1/1 white Soldier creature tokens.",
+        power: '3',
+        toughness: '3',
+      }),
+      createPermanent('warden', playerId, {
+        name: 'Soul Warden',
+        type_line: 'Creature — Human Cleric',
+        oracle_text: 'Whenever another creature enters, you gain 1 life.',
+        power: '1',
+        toughness: '1',
+      }),
+    ]);
+    const selections = chooseAITargetSelectionsForChoiceStep(game, playerId, damageStep('ping', 'Ping', [
+      { id: playerId, label: 'AI' },
+      { id: 'opp1', label: 'Opponent' },
+    ], {
+      description: 'Choose a target to deal 3 damage to.',
+    }));
+    expect(selections).toEqual([playerId]);
+  });
 });
+
+function damageChoiceGame(playerId: string, battlefield: any[]) {
+  return {
+    state: {
+      players: [
+        createPlayer(playerId, 'AI', 40),
+        createPlayer('opp1', 'Opponent', 40),
+      ],
+      battlefield,
+      zones: { [playerId]: { hand: [] } },
+    },
+  } as any;
+}
+
+function damageStep(sourceId: string, sourceName: string, validTargets: any[], extra: Record<string, unknown> = {}) {
+  return {
+    id: `damage-${sourceId}`,
+    type: 'target_selection',
+    playerId: 'ai1',
+    sourceId,
+    sourceName,
+    minTargets: 1,
+    maxTargets: 1,
+    validTargets,
+    ...extra,
+  };
+}

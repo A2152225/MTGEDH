@@ -1105,6 +1105,6 @@ describe('venture and initiative replay semantics', () => {
     expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(0);
     const targetCreature = ((game.state as any).battlefield || []).find((permanent: any) => permanent.id === targetCreatureId) as any;
     expect(Array.isArray(targetCreature?.goadedBy) ? targetCreature.goadedBy : []).toContain(playerId);
-    expect((targetCreature?.goadedUntil || {})[playerId]).toBe(8);
+    expect((targetCreature?.goadedUntil || {})[playerId]).toBe(9);
   });
 });

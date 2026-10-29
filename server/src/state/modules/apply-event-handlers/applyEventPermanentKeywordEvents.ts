@@ -7,6 +7,7 @@
 // Handles: goadPermanent, battlefieldPermanentPatch, targetSelectionWardPrompt, wardPaymentResolve, targetSelectionTapUntapPrompt, crewVehicle, station_activated, enlist, exertChoice, roomDoorChoice
 import type { GameContext } from "../../context";
 import type { PlayerID, GameEvent } from "../../types";
+import { nextTurnNumberForPlayer } from "../../../../../rules-engine/src/goadNextTurn.js";
 import { updateCounters, movePermanentToGraveyard } from "../counters_tokens";
 import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
 import { applyRoomDoorLockOrUnlockChoice } from "../triggers/room.js";
@@ -52,8 +53,9 @@ export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boo
           }
 
           const persistedExpiryTurn = Number((e as any).expiryTurn ?? 0);
-          const currentTurn = Number((ctx.state as any).turnNumber ?? 0) || 0;
-          const expiryTurn = persistedExpiryTurn > 0 ? persistedExpiryTurn : currentTurn + 1;
+          const expiryTurn = persistedExpiryTurn > 0
+            ? persistedExpiryTurn
+            : nextTurnNumberForPlayer(ctx.state, goaderId);
           perm.goadedUntil = { ...(perm.goadedUntil || {}), [goaderId]: expiryTurn };
 
           ctx.bumpSeq();

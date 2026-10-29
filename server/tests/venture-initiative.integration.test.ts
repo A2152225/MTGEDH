@@ -1855,7 +1855,7 @@ describe('venture and initiative support (integration)', () => {
 
     const targetCreature = ((game.state as any).battlefield || []).find((permanent: any) => permanent.id === targetCreatureId) as any;
     expect(Array.isArray(targetCreature?.goadedBy) ? targetCreature.goadedBy : []).toContain(playerId);
-    expect((targetCreature?.goadedUntil || {})[playerId]).toBe(4);
+    expect((targetCreature?.goadedUntil || {})[playerId]).toBe(5);
 
     const resolveEvent = [...getEvents(ventureArenaChoiceGameId)].reverse().find(
       (event: any) => String(event?.type || '') === 'dungeonTargetCreatureResolve'

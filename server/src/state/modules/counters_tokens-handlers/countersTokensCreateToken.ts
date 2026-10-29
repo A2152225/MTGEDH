@@ -67,6 +67,24 @@ export type CreateTokenOptions = {
   skipEventPersistence?: boolean;
 };
 
+function readGrantedAbilityTexts(permanent: any): string[] {
+  const raw = Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [];
+  const out: string[] = [];
+  for (const entry of raw) {
+    const text = typeof entry === 'string'
+      ? entry.trim()
+      : String(entry?.ability || entry?.keyword || entry?.name || '').trim();
+    if (!text) continue;
+    if (out.some((existing) => existing.toLowerCase() === text.toLowerCase())) continue;
+    out.push(text);
+  }
+  return out;
+}
+
+function listsExactHaste(values: readonly string[]): boolean {
+  return values.some((value) => String(value || '').trim().toLowerCase() === 'haste');
+}
+
 function buildCreateTokenReplayPayload(controllerId: PlayerID, tokenPermanent: any): Record<string, unknown> {
   const keywords = Array.isArray(tokenPermanent?.card?.keywords) ? tokenPermanent.card.keywords : [];
   const rawPower = tokenPermanent?.basePower ?? tokenPermanent?.card?.power;
@@ -81,6 +99,8 @@ function buildCreateTokenReplayPayload(controllerId: PlayerID, tokenPermanent: a
   const chosenPlayer = String(tokenPermanent?.chosenPlayer || tokenPermanent?.card?.chosenPlayer || '').trim();
   const copiedFromPermanentId = String(tokenPermanent?.copiedFromPermanentId || '').trim();
   const oracleText = String(tokenPermanent?.card?.oracle_text || '').trim();
+  const abilityTexts = keywords.map((keyword: unknown) => String(keyword || ''));
+  const grantedAbilities = readGrantedAbilityTexts(tokenPermanent);
 
   return {
     effectType: 'createToken',
@@ -92,8 +112,9 @@ function buildCreateTokenReplayPayload(controllerId: PlayerID, tokenPermanent: a
       ...(power != null ? { power } : {}),
       ...(toughness != null ? { toughness } : {}),
       colors: Array.isArray(tokenPermanent?.card?.colors) ? [...tokenPermanent.card.colors] : [],
-      abilities: keywords.map((keyword: unknown) => String(keyword || '')),
-      hasHaste: keywords.some((keyword: unknown) => String(keyword || '').toLowerCase() === 'haste'),
+      abilities: abilityTexts,
+      hasHaste: listsExactHaste(abilityTexts) || listsExactHaste(grantedAbilities),
+      ...(grantedAbilities.length > 0 ? { grantedAbilities } : {}),
       ...(chosenCreatureType ? { chosenCreatureType } : {}),
       ...(chosenColor ? { chosenColor } : {}),
       ...(chosenCardName ? { chosenCardName } : {}),

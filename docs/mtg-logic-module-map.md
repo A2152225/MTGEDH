@@ -229,6 +229,9 @@ Coordinator merges owed extract-family rows there.
 | `oracleIRExecutorFreeHandCastsThisTurn.ts` | This-turn `grant_static_ability` stamps `lastingEffects.freeHandCastsThisTurn`. Entry: `tryApplyFreeHandCastsThisTurnGrant`. |
 | `oracleTextParserPreprocess.ts` | Same-paragraph `Flip a coin` / `Flip that many coins` continues the prior ability so Yusri’s attack trigger is not split after “choose a number between 1 and 5.” |
 | `manualActionApply.ts` / `manualAction-handlers/` / `socket/manual-action.ts` | Kitchen-table Manual Mode. Physical table mutations (no triggers) persisted as `manualAction` for replay. Catalog: `shared/src/manualAction.ts`. Replay: `applyEventManualActionEvents.ts`. |
+| `rules-engine/src/goadNextTurn.ts` | `nextTurnNumberForPlayer`. Goad “until your next turn” expires on the goader’s next turn. Used by Oracle IR goad, goad replay mutations, and server `GoadPermanent`. |
+| `server/src/socket/ai-handlers/aiDamageTargetPolicy.ts` | Damage-target scoring. Self is a bad damage target except a you-redirect, or damage that creates tokens while another permanent gains life when creatures enter. Own creatures are pinged for dealt-damage triggers when the hit leaves them alive. A lethal hit is a trade only when that trigger removes a threat the ping cannot and the creature had little chance of a later smaller ping. |
+| `rules-engine/src/oracleIRDamagePrevention.ts` | `previewPreventedDamage` applies static “prevent all but N” (another type you control, or you or a type you control) before registered shields. |
 
 ## Card data and SQLite connections (`server/src/services/`)
 

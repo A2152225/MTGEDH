@@ -171,7 +171,7 @@ describe('Vengeful Ancestor goad ETB replay integration', () => {
 
     const liveTarget = (game.state as any).battlefield.find((entry: any) => entry?.id === 'opponent_creature');
     expect(Array.isArray(liveTarget?.goadedBy) ? liveTarget.goadedBy.includes(playerId) : false).toBe(true);
-    expect(liveTarget?.goadedUntil?.[playerId]).toBe(5);
+    expect(liveTarget?.goadedUntil?.[playerId]).toBe(6);
     expect(ResolutionQueueManager.getStepsForPlayer(gameId, playerId)).toEqual([]);
 
     const replayEvents = toReplayEvents(gameId, eventStart);
@@ -205,7 +205,7 @@ describe('Vengeful Ancestor goad ETB replay integration', () => {
 
     const replayTarget = (replayGame.state as any).battlefield.find((entry: any) => entry?.id === 'opponent_creature');
     expect(Array.isArray(replayTarget?.goadedBy) ? replayTarget.goadedBy.includes(playerId) : false).toBe(true);
-    expect(replayTarget?.goadedUntil?.[playerId]).toBe(5);
+    expect(replayTarget?.goadedUntil?.[playerId]).toBe(6);
     expect(ResolutionQueueManager.getStepsForPlayer(replayGameId, playerId)).toEqual([]);
     expect(ResolutionQueueManager.getStepsForPlayer(replayGameId, playerId)
       .some((step: any) => step?.type === ResolutionStepType.TARGET_SELECTION)).toBe(false);

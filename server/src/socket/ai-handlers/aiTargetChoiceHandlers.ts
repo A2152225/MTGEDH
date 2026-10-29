@@ -39,6 +39,7 @@ import { isTargetPlayerMillText, scoreAIMillTargetPlayer } from "./aiMillTargetC
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { getPermanentCombatStats } from "./aiPermanentCombatStats.js";
 import { classifyAuraPolarity, isAuraLikeSourceText } from "./aiAuraPolarity.js";
+import { cardForDamageChoiceScoring, ownCreatureDamageTargetScore, selfDamageIsWorthTaking } from "./aiDamageTargetPolicy.js";
 
 function getPermanentForTarget(game: any, target: TargetRef): any | null {
   if (target.kind !== 'permanent') return null;
@@ -167,6 +168,13 @@ function scorePermanentTargetForSpell(
     return score;
   }
 
+  if (
+    isOwnPermanent &&
+    (spellSpec.op === 'DAMAGE_TARGET' || spellSpec.op === 'ANY_TARGET_DAMAGE')
+  ) {
+    return ownCreatureDamageTargetScore(game, playerId, permanent, amount);
+  }
+
   score += isOwnPermanent ? -120 : 50;
   score += analysis.removalTargetPriority * 6;
   score += analysis.comboPotential * 8;
@@ -239,6 +247,13 @@ function scorePlayerTargetForSpell(
       score -= 20;
     }
     return score;
+  }
+
+  if (
+    isSelf &&
+    (spellSpec.op === 'DAMAGE_TARGET' || spellSpec.op === 'ANY_TARGET_DAMAGE' || spellSpec.op === 'DAMAGE_TARGET_PLAYER')
+  ) {
+    return selfDamageIsWorthTaking(game, playerId) ? 250 : -400;
   }
 
   score += isSelf ? -120 : 40;
@@ -504,6 +519,12 @@ function scoreChoiceTargetFallback(
     const power = getPermanentCombatStats(permanent, game?.state).power;
     let score = 0;
 
+    if (isOwnPermanent && hostile && /\bdamage\b/.test(oracleText)) {
+      const amountMatch = oracleText.match(/\b(\d+)\s+damage\b/);
+      const amount = amountMatch ? Number.parseInt(amountMatch[1], 10) : 0;
+      return ownCreatureDamageTargetScore(game, playerId, permanent, amount);
+    }
+
     if (helpful) {
       score += isOwnPermanent ? 50 : -50;
       score += calculateCardThemeAlignment(permanent.card || permanent, profile);
@@ -534,6 +555,9 @@ function scoreChoiceTargetFallback(
   if (!player) return -9999;
 
   const isSelf = player.id === playerId;
+  if (isSelf && hostile && /\bdamage\b/.test(oracleText)) {
+    return selfDamageIsWorthTaking(game, playerId) ? 250 : -400;
+  }
   if (helpful) {
     return isSelf ? 80 : -40;
   }
@@ -551,10 +575,10 @@ export function chooseAITargetSelectionsForChoiceStep(
   const validTargets = Array.isArray(step?.validTargets) ? step.validTargets : [];
   const targetGrouping = step?.targetGrouping;
   if (targetGrouping?.groupBy === 'controller' && Array.isArray(targetGrouping.groups)) {
-    const sourceCard = resolveChoiceStepSourceCard(game, step) || {
+    const sourceCard = cardForDamageChoiceScoring(step, resolveChoiceStepSourceCard(game, step) || {
       name: step?.sourceName || 'Effect',
       oracle_text: step?.description || '',
-    };
+    });
     const profile = ensureAIDeckProfile(game, playerId);
     return targetGrouping.groups.flatMap((group: any) => {
       const groupTargets = Array.isArray(group?.targets) ? group.targets : [];
@@ -643,7 +667,10 @@ export function chooseAITargetSelectionsForChoiceStep(
     }
   }
 
-  const sourceCard = resolveChoiceStepSourceCard(game, step) || { name: step?.sourceName || 'Effect', oracle_text: step?.description || '' };
+  const sourceCard = cardForDamageChoiceScoring(
+    step,
+    resolveChoiceStepSourceCard(game, step) || { name: step?.sourceName || 'Effect', oracle_text: step?.description || '' },
+  );
   const oracleText = String(sourceCard?.oracle_text || step?.description || '');
   const spellSpec = categorizeSpell(String(sourceCard?.name || step?.sourceName || ''), oracleText);
   const mappedTargets = validTargets

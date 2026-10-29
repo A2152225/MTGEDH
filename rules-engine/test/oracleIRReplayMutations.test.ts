@@ -43,6 +43,33 @@ describe('oracle IR replay mutations', () => {
     }]);
   });
 
+  it('persists Helm copy haste grants separately from printed keywords', () => {
+    const state = {
+      battlefield: [{
+        id: 'helm_copy',
+        controller: 'p1',
+        isToken: true,
+        isCopyToken: true,
+        copiedFromPermanentId: 'scorpion',
+        grantedAbilities: ['Haste'],
+        basePower: 6,
+        baseToughness: 5,
+        card: {
+          name: 'The Scorpion God',
+          type_line: 'Creature — God',
+          colors: ['B', 'R'],
+          keywords: ['haste'],
+          oracle_text: 'When The Scorpion God dies, return it to its owner\'s hand.\nhaste',
+        },
+      }],
+    } as GameState;
+
+    const [mutation] = buildCreateTokenReplayMutations(state, ['helm_copy']) as any[];
+    expect(mutation.tokenData.hasHaste).toBe(true);
+    expect(mutation.tokenData.grantedAbilities).toEqual(['Haste']);
+    expect(mutation.tokenData.isCopyToken).toBe(true);
+  });
+
   it('builds exilePermanent mutations from exiled battlefield permanent ids', () => {
     expect(collectReplayMutationsFromAppliedStep(
       { kind: 'exile', target: { kind: 'raw', text: 'it' }, raw: 'exile it' } as any,

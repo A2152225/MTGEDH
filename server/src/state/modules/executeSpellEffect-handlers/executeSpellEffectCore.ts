@@ -19,6 +19,7 @@ import { createToken, destroyPermanent, movePermanentToExile, updateCounters, ru
 import { applyCreatureDamageFromSource, resolvePlayerDamage } from '../combat-damage-processing.js';
 import { addExtraCombat } from '../turn.js';
 import { applyGoadToCreature } from '../goad-effects.js';
+import { nextTurnNumberForPlayer } from '../../../../../rules-engine/src/goadNextTurn.js';
 import { shouldExileStackCardInsteadOfGraveyard } from '../stack-zone-replacements.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
 import { appendQueuedResolutionPromptEvent } from '../resolutionPromptEvents.js';
@@ -766,8 +767,7 @@ export function executeSpellEffect(
       const battlefield = state.battlefield || [];
       const idx = battlefield.findIndex((p: any) => p.id === id);
       if (idx < 0) break;
-      const currentTurn = Number((state as any).turnNumber ?? 0) || 0;
-      const expiryTurn = currentTurn + 1;
+      const expiryTurn = nextTurnNumberForPlayer(state, goaderId);
       const updated = applyGoadToCreature(battlefield[idx] as any, goaderId, expiryTurn);
       battlefield[idx] = updated as any;
       ctx.bumpSeq();

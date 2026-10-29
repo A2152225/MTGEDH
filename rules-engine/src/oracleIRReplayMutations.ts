@@ -31,6 +31,8 @@ export type OracleIRReplayMutation =
         readonly colors: readonly string[];
         readonly abilities: readonly string[];
         readonly hasHaste: boolean;
+        /** Except-copy grants (Helm haste) shown as ability badges. Not printed keywords. */
+        readonly grantedAbilities?: readonly string[];
         /** CR 707.2 as-enters choices (Morophon type, etc.) */
         readonly chosenCreatureType?: string;
         readonly chosenColor?: string;
@@ -88,6 +90,24 @@ function normalizeReplayZone(value: unknown): EffectProgramCardZone | null {
     return zone;
   }
   return null;
+}
+
+function readGrantedAbilityTexts(permanent: any): string[] {
+  const raw = Array.isArray(permanent?.grantedAbilities) ? permanent.grantedAbilities : [];
+  const out: string[] = [];
+  for (const entry of raw) {
+    const text = typeof entry === 'string'
+      ? entry.trim()
+      : String(entry?.ability || entry?.keyword || entry?.name || '').trim();
+    if (!text) continue;
+    if (out.some((existing) => existing.toLowerCase() === text.toLowerCase())) continue;
+    out.push(text);
+  }
+  return out;
+}
+
+function listsExactHaste(values: readonly string[]): boolean {
+  return values.some((value) => String(value || '').trim().toLowerCase() === 'haste');
 }
 
 function parsePt(value: unknown): number | undefined {
@@ -242,6 +262,8 @@ export function buildCreateTokenReplayMutations(
     const chosenPlayer = String((permanent as any).chosenPlayer || card?.chosenPlayer || '').trim();
     const copiedFromPermanentId = String((permanent as any).copiedFromPermanentId || '').trim();
     const oracleText = String(card?.oracle_text || '').trim();
+    const grantedAbilities = readGrantedAbilityTexts(permanent);
+    const keywordTexts = keywords.map((keyword: unknown) => String(keyword || ''));
     mutations.push({
       kind: 'createToken',
       controllerId: String((permanent as any).controller || '').trim() as PlayerID,
@@ -252,8 +274,9 @@ export function buildCreateTokenReplayMutations(
         power: parsePt((permanent as any).basePower ?? card?.power),
         toughness: parsePt((permanent as any).baseToughness ?? card?.toughness),
         colors: Array.isArray(card?.colors) ? [...card.colors] : [],
-        abilities: keywords.map((keyword: unknown) => String(keyword || '')),
-        hasHaste: keywords.some((keyword: unknown) => String(keyword || '').toLowerCase() === 'haste'),
+        abilities: keywordTexts,
+        hasHaste: listsExactHaste(keywordTexts) || listsExactHaste(grantedAbilities),
+        ...(grantedAbilities.length > 0 ? { grantedAbilities } : {}),
         ...(chosenCreatureType ? { chosenCreatureType } : {}),
         ...(chosenColor ? { chosenColor } : {}),
         ...(chosenCardName ? { chosenCardName } : {}),
@@ -356,18 +379,18 @@ function collectGoadReplayMutations(
     : [];
   if (creatures.length === 0) return [];
 
-  const turnNumber = Number((state as any)?.turnNumber ?? 0) || 0;
-  const expiryTurn = turnNumber + 1;
-
-  return creatures
-    .map((permanent) => String((permanent as any)?.id || '').trim())
-    .filter(Boolean)
-    .map((permanentId) => ({
+  return creatures.flatMap((permanent) => {
+    const permanentId = String((permanent as any)?.id || '').trim();
+    if (!permanentId) return [];
+    const until = (permanent as any)?.goadedUntil?.[goaderId];
+    const expiryTurn = typeof until === 'number' && Number.isFinite(until) ? until : undefined;
+    return [{
       kind: 'goad' as const,
       permanentId,
       goaderId,
-      expiryTurn,
-    }));
+      ...(expiryTurn !== undefined ? { expiryTurn } : {}),
+    }];
+  });
 }
 
 function collectExileReplayMutations(

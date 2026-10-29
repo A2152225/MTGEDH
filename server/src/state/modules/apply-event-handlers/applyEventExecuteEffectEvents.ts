@@ -28,6 +28,27 @@ import { getOrInitManaPool } from "../../../socket/util.js";
 import { addTemporaryEtbTrigger } from "../triggerEtbEntryEffects-handlers/triggerEtbTemporaryEntryTriggers.js";
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 
+/** Restore except-copy grants. Older createToken events stored Helm haste only on keywords. */
+function replayTokenGrantedAbilities(tokenData: any): string[] {
+  const raw = Array.isArray(tokenData?.grantedAbilities) ? tokenData.grantedAbilities : [];
+  const granted: string[] = [];
+  for (const entry of raw) {
+    const text = typeof entry === 'string'
+      ? entry.trim()
+      : String(entry?.ability || entry?.keyword || entry?.name || '').trim();
+    if (!text) continue;
+    if (granted.some((existing) => existing.toLowerCase() === text.toLowerCase())) continue;
+    granted.push(text);
+  }
+  const abilities = Array.isArray(tokenData?.abilities) ? tokenData.abilities : [];
+  const hasHaste = tokenData?.hasHaste === true
+    || [...granted, ...abilities].some((entry: unknown) => String(entry || '').trim().toLowerCase() === 'haste');
+  if (hasHaste && !granted.some((entry) => entry.toLowerCase() === 'haste')) {
+    granted.push('haste');
+  }
+  return granted;
+}
+
 export function applyExecuteEffectEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
 
@@ -54,6 +75,9 @@ export function applyExecuteEffectEvents(ctx: GameContext, e: GameEvent): boolea
                 const tokenId = tokenData.id || `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
                 const typeLine = String(tokenData.typeLine || '');
                 const isCreature = typeLine.toLowerCase().includes('creature');
+                const grantedAbilities = replayTokenGrantedAbilities(tokenData);
+                const hasReplayHaste = tokenData.hasHaste === true
+                  || grantedAbilities.some((entry) => entry.toLowerCase() === 'haste');
                 const rawPower = tokenData.power;
                 const rawToughness = tokenData.toughness;
                 const power = Number.isFinite(Number(rawPower)) ? Number(rawPower) : undefined;
@@ -74,7 +98,8 @@ export function applyExecuteEffectEvents(ctx: GameContext, e: GameEvent): boolea
                   counters: {},
                   ...(power != null ? { basePower: power } : {}),
                   ...(toughness != null ? { baseToughness: toughness } : {}),
-                  summoningSickness: isCreature && !tokenData.hasHaste,
+                  summoningSickness: isCreature && !hasReplayHaste,
+                  ...(grantedAbilities.length > 0 ? { grantedAbilities } : {}),
                   isToken: true,
                   ...(tokenData.isCopyToken || tokenData.copiedFromPermanentId
                     ? { isCopyToken: true, isCopyOfPrintedCard: true }

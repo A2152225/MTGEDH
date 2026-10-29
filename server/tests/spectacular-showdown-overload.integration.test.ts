@@ -98,6 +98,8 @@ describe('Spectacular Showdown overload', () => {
     expect(byId.mountain.counters?.['double strike']).toBeUndefined();
     expect(byId.mine.goadedBy).toContain('p1');
     expect(byId.theirs.goadedBy).toContain('p1');
+    expect(byId.mine.goadedUntil?.p1).toBe(6);
+    expect(byId.theirs.goadedUntil?.p1).toBe(6);
     expect(byId.mountain.goadedBy).toBeUndefined();
   });
 
