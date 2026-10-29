@@ -11,7 +11,7 @@ import { opponentTurnCastProhibitionReason, zoneCastProhibitionReason } from "..
 import { isCastingLimitedToSorceryTiming } from "../../state/modules/opponentSorceryTimingLock.js"; // B31
 import type { Socket } from "socket.io";
 import { extractAdditionalCostModesFromOracleText } from "../../state/modules/additionalCostModeOracleText.js";
-import { parseMadnessCost, parseMutateCost } from "../../state/modules/alternate-costs.js";
+import { parseKeywordAlternateManaCost, parseMadnessCost, parseMutateCost } from "../../state/modules/alternate-costs.js";
 import { spellOracleUsesTeamworkChooseBoth } from "../../state/modules/marvelMechanicsHelpers.js";
 import {
   expandManaCostWithMultikicker,
@@ -256,9 +256,11 @@ export function tryPromptRequestCastSpellModes(
       || (((cardInHand as any).castWithEntwine === true && String((cardInHand as any).entwineCost || '').trim())
         ? String((cardInHand as any).entwineCost).trim()
         : undefined);
-    const overloadRequested = options?.forcedAlternateCostId === 'overload' || (cardInHand as any).castWithOverload === true;
-    const overloadMatch = baseOracleText.match(/overload\s*\{([^}]+)\}/i);
-    const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
+    // Only this request's forced alternate cost means Overload was already chosen.
+    // A leftover castWithOverload on the hand card is an abandoned earlier attempt
+    // (the spell never left the hand) and must not skip the Normal / Overload prompt.
+    const overloadRequested = options?.forcedAlternateCostId === 'overload';
+    const overloadCost = parseKeywordAlternateManaCost(baseOracleText, 'overload') || null;
     const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested, selectedModes, selectedAdditionalCostModes, cardName).toLowerCase();
     const chosenXValue = Number.isFinite(options?.xValue) ? Math.max(0, Math.floor(Number(options?.xValue))) : undefined;
     const multikickerCost = parseMultikickerManaCost(String(cardInHand?.oracle_text || oracleTextRaw || ''));
@@ -286,6 +288,22 @@ export function tryPromptRequestCastSpellModes(
     }
 
     if (overloadCost && !overloadRequested) {
+      if ((cardInHand as any).castWithOverload === true || (cardInHand as any).overloadCost) {
+        delete (cardInHand as any).castWithOverload;
+        delete (cardInHand as any).overloadCost;
+        if (cardForCast && cardForCast !== cardInHand) {
+          delete (cardForCast as any).castWithOverload;
+          delete (cardForCast as any).overloadCost;
+        }
+        persistQueuedSpellCastStepContinuation(gameId, game, {
+          playerId,
+          cardId,
+          cardUpdates: {
+            castWithOverload: null,
+            overloadCost: null,
+          },
+        });
+      }
       const existing = ResolutionQueueManager
         .getStepsForPlayer(gameId, playerId as any)
         .find((s: any) => s?.type === ResolutionStepType.MODE_SELECTION && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.modeSelectionPurpose || '') === 'overload');

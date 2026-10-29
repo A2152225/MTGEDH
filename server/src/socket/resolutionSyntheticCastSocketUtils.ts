@@ -55,8 +55,32 @@ export async function restartPlayerCastRequest(
     faceIndex?: number;
     fromZone?: 'hand' | 'exile' | 'graveyard' | 'library' | 'command';
   },
+  options?: {
+    skipPriorityCheck?: boolean;
+    forcedAlternateCostId?: string;
+    xValue?: number;
+  },
 ): Promise<void> {
   const { socket, handlers } = createForwardingGameActionSocket(io, gameId, playerId);
+
+  // A chosen alternate cost must reach requestCastSpellForSocket's options.
+  // The socket event wrapper only forwards the payload, so it cannot carry
+  // forcedAlternateCostId into the payment prompt.
+  if (options?.forcedAlternateCostId || options?.skipPriorityCheck === true) {
+    const { requestCastSpellForSocket } = await import("./game-actions.js");
+    await requestCastSpellForSocket(io, socket as any, {
+      gameId,
+      cardId: payload.cardId,
+      faceIndex: payload.faceIndex,
+      fromZone: payload.fromZone,
+    }, {
+      skipPriorityCheck: options?.skipPriorityCheck,
+      forcedAlternateCostId: options?.forcedAlternateCostId,
+      xValue: options?.xValue,
+    });
+    return;
+  }
+
   const { registerGameActions } = await import("./game-actions.js");
   registerGameActions(io, socket as any);
 

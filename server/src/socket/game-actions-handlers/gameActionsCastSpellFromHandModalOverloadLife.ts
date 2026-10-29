@@ -10,6 +10,7 @@ import type { Socket } from "socket.io";
 import type { PaymentItem } from "../../../../shared/src/index.js";
 import type { GameContext } from "../../state/context.js";
 import { extractAdditionalCostModesFromOracleText } from "../../state/modules/additionalCostModeOracleText.js";
+import { parseKeywordAlternateManaCost } from "../../state/modules/alternate-costs.js";
 import { spellOracleUsesTeamworkChooseBoth } from "../../state/modules/marvelMechanicsHelpers.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment } from "../../state/utils";
@@ -183,16 +184,15 @@ export function tryPromptCastSpellModalOverloadLifeFromHand(
       
       // Check if this spell has overload (e.g., Cyclonic Rift)
       // If it does, and player hasn't specified which mode to use, prompt for mode selection
-      const hasOverload = oracleText.includes('overload');
-      const overloadMatch = oracleText.match(/overload\s*\{([^}]+)\}/i);
-      const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
+      const hasOverload = String(baseOracleText || oracleText).toLowerCase().includes('overload');
+      const overloadCost = parseKeywordAlternateManaCost(String(baseOracleText || oracleText), 'overload') || null;
       const overloadModeAlreadySelected = selectedCastMode === 'normal' || selectedCastMode === 'overload';
-      
-      // Check if overload mode was specified in the cast request
+
+      // This call's alternate cost is the choice. A leftover castWithOverload on the
+      // hand card is an abandoned attempt and must not skip the prompt.
       const castWithOverload = alternateCostId === 'overload' ||
-                               (payment as any[])?.some((p: any) => p.overload === true) || 
-                               (targets as any)?.overload === true ||
-                               (cardInHand as any).castWithOverload === true;
+                               (payment as any[])?.some((p: any) => p.overload === true) ||
+                               (targets as any)?.overload === true;
       
       if (hasOverload && overloadCost && !castWithOverload && !overloadModeAlreadySelected) {
         const existing = ResolutionQueueManager

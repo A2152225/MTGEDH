@@ -106,7 +106,7 @@ export async function handleCastSpellFromHandRequest(
         || (((cardInHand as any).castWithEntwine === true && String((cardInHand as any).entwineCost || '').trim())
           ? String((cardInHand as any).entwineCost).trim()
           : undefined);
-      const overloadRequested = alternateCostId === 'overload' || (cardInHand as any).castWithOverload === true;
+      const overloadRequested = alternateCostId === 'overload' || selectedCastMode === 'overload';
       const oracleText = getOracleTextForCastMode(baseOracleText, overloadRequested, selectedModes, selectedAdditionalCostModes, String(cardInHand.name || '')).toLowerCase();
 
       // Carry over additional-cost payment state from requestCastSpell -> completeCastSpell.

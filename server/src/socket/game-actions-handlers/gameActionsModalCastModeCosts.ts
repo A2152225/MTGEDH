@@ -175,6 +175,6 @@ export function getOracleTextForCastMode(
   if (!castWithOverload) return modeScopedText;
 
   const normalized = String(modeScopedText || '').replace(/\u2019/g, "'");
-  const withoutOverloadClause = normalized.replace(/\s*overload\s*\{[^}]+\}\.?/i, '').trim();
+  const withoutOverloadClause = normalized.replace(/\s*overload\s*(?:\{[^}]+\}\s*)+\.?/i, '').trim();
   return withoutOverloadClause.replace(/\btarget\b/gi, 'each');
 }

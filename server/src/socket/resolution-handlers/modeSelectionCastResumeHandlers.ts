@@ -15,9 +15,11 @@
  */
 
 import type { Server } from "socket.io";
+import { parseKeywordAlternateManaCost } from "../../state/modules/alternate-costs.js";
 import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolution/index.js";
 import {
   appendCastSpellContinuationEvent,
+  restartPlayerCastRequest,
   resumePlayerCastSpellFromHand,
 } from "../resolutionSyntheticCastSocketUtils.js";
 import { emitToPlayer, getPlayerName } from "../util.js";
@@ -170,9 +172,7 @@ export async function tryHandleModeSelectionCastResume(
   if (purpose === 'overload') {
     const chosen = String(chosenMode);
     if (chosen === 'overload') {
-      const oracleText = String((cardInHand as any).oracle_text || '').toLowerCase();
-      const overloadMatch = oracleText.match(/overload\s*\{([^}]+)\}/i);
-      const overloadCost = overloadMatch ? `{${overloadMatch[1]}}` : null;
+      const overloadCost = parseKeywordAlternateManaCost(String((cardInHand as any).oracle_text || ''), 'overload') || null;
 
       if (!overloadCost) {
         emitToPlayer(io, pid as any, 'error', { code: 'NO_OVERLOAD_COST', message: 'Could not determine overload cost' });
@@ -199,20 +199,33 @@ export async function tryHandleModeSelectionCastResume(
         ts: Date.now(),
       });
 
-      // Resume the original cast attempt with overload selected.
-      // The cost/payment UI will be requested by the normal cast flow.
-      await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
-        cardId,
-        faceIndex: castArgs.faceIndex,
-        fromZone: castArgs.fromZone,
-        payment: castArgs.payment,
-        targets: castArgs.targets,
-        xValue: castArgs.xValue,
-        alternateCostId: 'overload',
-        selectedCastMode: 'overload',
-        skipPriorityCheck: castArgs.skipPriorityCheck === true,
-        convokeTappedCreatures: castArgs.convokeTappedCreatures,
-      });
+      // Payment was not chosen yet. requestCastSpell queues the mana screen.
+      // castSpellFromHand only spends mana already in the pool, so it never opens that screen.
+      const paymentAlreadyChosen = Array.isArray(castArgs.payment) && castArgs.payment.length > 0;
+      if (paymentAlreadyChosen) {
+        await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
+          cardId,
+          faceIndex: castArgs.faceIndex,
+          fromZone: castArgs.fromZone,
+          payment: castArgs.payment,
+          targets: castArgs.targets,
+          xValue: castArgs.xValue,
+          alternateCostId: 'overload',
+          selectedCastMode: 'overload',
+          skipPriorityCheck: castArgs.skipPriorityCheck === true,
+          convokeTappedCreatures: castArgs.convokeTappedCreatures,
+        });
+      } else {
+        await restartPlayerCastRequest(io, gameId, String(pid), {
+          cardId,
+          faceIndex: castArgs.faceIndex,
+          fromZone: castArgs.fromZone,
+        }, {
+          forcedAlternateCostId: 'overload',
+          skipPriorityCheck: castArgs.skipPriorityCheck !== false,
+          xValue: typeof castArgs.xValue === 'number' ? castArgs.xValue : undefined,
+        });
+      }
       return true;
     }
 

@@ -301,4 +301,99 @@ describe('Overload mode selection (integration)', () => {
     const errorEvent = emitted.find((event) => event.event === 'error');
     expect(errorEvent).toBeUndefined();
   });
+
+  it('offers overload again when a previous attempt left castWithOverload on the hand card', async () => {
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40 },
+      { id: opponentId, name: 'P2', spectator: false, life: 40 },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, [opponentId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+    (game.state as any).battlefield = [];
+    (game.state as any).zones = {
+      [playerId]: {
+        hand: [
+          {
+            id: 'spectacular_showdown_1',
+            name: 'Spectacular Showdown',
+            mana_cost: '{1}{R}',
+            manaCost: '{1}{R}',
+            type_line: 'Sorcery',
+            oracle_text: 'Put a double strike counter on target creature, then goad each creature that had a double strike counter put on it this way. Overload {4}{R}{R}{R}',
+            castWithOverload: true,
+            overloadCost: '{4}',
+            image_uris: { small: 'https://example.com/spectacular-showdown.jpg' },
+          },
+        ],
+        handCount: 1,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+      [opponentId]: {
+        hand: [],
+        handCount: 0,
+        graveyard: [],
+        graveyardCount: 0,
+        exile: [],
+        exileCount: 0,
+        library: [],
+        libraryCount: 0,
+      },
+    };
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+      [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, gameId, emitted);
+    const io = createMockIo(emitted, [socket]);
+
+    registerResolutionHandlers(io as any, socket as any);
+    registerGameActions(io as any, socket as any);
+
+    await handlers['requestCastSpell']({ gameId, cardId: 'spectacular_showdown_1' });
+
+    const queue = ResolutionQueueManager.getQueue(gameId);
+    const modeStep = queue.steps.find((step: any) =>
+      step.type === 'mode_selection' && String((step as any).sourceId || '') === 'spectacular_showdown_1'
+    ) as any;
+    expect(modeStep).toBeDefined();
+    expect(modeStep.modeSelectionPurpose).toBe('overload');
+    expect(queue.steps.some((step: any) => step.type === 'mana_payment_choice')).toBe(false);
+
+    const handCard = (game.state as any).zones[playerId].hand[0];
+    expect(handCard.castWithOverload).toBeUndefined();
+    expect(handCard.overloadCost).toBeUndefined();
+
+    emitted.length = 0;
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(modeStep.id),
+      selections: 'overload',
+    });
+
+    const paymentStep = ResolutionQueueManager.getQueue(gameId).steps.find((step: any) =>
+      step.type === 'mana_payment_choice' && (step as any).spellPaymentRequired === true
+    ) as any;
+    expect(paymentStep).toBeDefined();
+    expect(String(paymentStep?.manaCost || '')).toBe('{4}{R}{R}{R}');
+    expect(String(paymentStep?.forcedAlternateCostId || '')).toBe('overload');
+
+    const errorEvent = emitted.find((event) => event.event === 'error');
+    expect(errorEvent).toBeUndefined();
+  });
 });
