@@ -140,7 +140,9 @@ export function detectCastTrigger(oracleText: string, typeLine?: string): CastTr
     const match = oracleText.match(
       /when you cast (?:this spell|this creature|~|this card)\s*,?\s*([^\n]+)/i,
     );
-    const effect = stripTrailingReminderText(match ? match[1] : 'Cast trigger effect');
+    const effect = stripTrailingReminderText(match ? match[1] : 'Cast trigger effect')
+      .replace(/\)+\s*$/g, '')
+      .trim();
     return {
       hasCastTrigger: true,
       triggerType: 'self_cast',

@@ -151,6 +151,43 @@ export async function handleXValueSelectionResponse(
     return;
   }
 
+  if (stepAny?.spellCastReplicateSelection === true) {
+    if (response.cancelled) return;
+    if (selectedXValue == null) {
+      debugWarn(1, `[Resolution] Replicate selection: invalid count: ${JSON.stringify(response.selections)}`);
+      return;
+    }
+    const minValue = Math.max(0, Math.floor(Number(stepAny.minValue ?? 0)));
+    const maxValue = Math.max(minValue, Math.floor(Number(stepAny.maxValue ?? minValue)));
+    const chosen = Math.max(minValue, Math.min(maxValue, selectedXValue));
+    await requestCastSpellForSocket(
+      io,
+      {
+        data: { playerId: pid },
+        emit: (_event: string, _payload: any) => {},
+      } as any,
+      {
+        gameId,
+        cardId: stepAny?.spellCardId,
+        faceIndex: stepAny?.spellFaceIndex,
+        fromZone: stepAny?.spellFromZone,
+      },
+      {
+        skipPriorityCheck: true,
+        forcedAlternateCostId: typeof stepAny?.spellForcedAlternateCostId === 'string' ? stepAny.spellForcedAlternateCostId : undefined,
+        castWithoutPayingManaCost: stepAny?.spellCastWithoutPayingManaCost === true,
+        bypassExilePermissionCheck: stepAny?.spellBypassExilePermissionCheck === true,
+        ignoreTimingRestrictions: stepAny?.spellIgnoreTimingRestrictions === true,
+        xValue: Number.isFinite(stepAny?.spellXValue) ? Math.max(0, Math.floor(Number(stepAny.spellXValue))) : undefined,
+        timesKicked: Number.isFinite(stepAny?.spellTimesKicked) ? Math.max(0, Math.floor(Number(stepAny.spellTimesKicked))) : undefined,
+        replicateCount: chosen,
+      },
+    );
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
   if (stepAny?.spellCastXSelection === true) {
     if (response.cancelled) {
       return;

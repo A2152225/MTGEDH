@@ -13,7 +13,10 @@ export function isOnCastReflexiveCostGateEffect(effectText: string): boolean {
 
 function toOnCastDescription(effectClause: string): OnCastSpellTriggerDescription {
   const clause = String(effectClause || '').trim();
-  const bare = clause.replace(/^when you cast this spell\s*,?\s*/i, '').trim();
+  const bare = clause
+    .replace(/^when you cast this spell\s*,?\s*/i, '')
+    .replace(/\)+\s*$/g, '')
+    .trim();
   const description = /^when you cast this spell\b/i.test(clause)
     ? clause
     : bare.toLowerCase().includes('take an extra turn after this one')

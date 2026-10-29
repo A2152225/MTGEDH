@@ -65,6 +65,7 @@ export type RequestCastSpellCandidateZoneArgs = {
     ignoreTimingRestrictions?: boolean;
     xValue?: number;
     timesKicked?: number;
+    replicateCount?: number;
     librarySearchStepToResume?: any;
   };
 };

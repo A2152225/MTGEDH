@@ -16,7 +16,10 @@ import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { abilityAllowsAnyPlayerActivation } from "../../../../shared/src/anyPlayerActivatedAbility.js";
 import { AIDecisionType } from "../../../../rules-engine/src/AIEngine.js";
-import { isHandOnlyDiscardThisCardActivatedAbility } from "../../../../rules-engine/src/aiEngineActivatedAbilitySupport.js";
+import {
+  isHandOnlyDiscardThisCardActivatedAbility,
+  isManaRockSelfUntapAbility,
+} from "../../../../rules-engine/src/aiEngineActivatedAbilitySupport.js";
 import {
   classifySingleCardGraveyardExile,
   isSingleCardGraveyardExileAbility,
@@ -228,6 +231,16 @@ export function canAIActivateBattlefieldAbilityNow(
     return false;
   }
 
+  // Pay-to-untap on a mana rock is not a main-phase or response action. The end step
+  // before this player's turn handles it when spare mana would otherwise be wasted.
+  if (isManaRockSelfUntapAbility(
+    String(action?.abilityText || ''),
+    String(permanent?.card?.oracle_text || ''),
+    String(permanent?.card?.name || action?.cardName || ''),
+  )) {
+    return false;
+  }
+
   // Repeatable single-card graveyard exile (Keen-Eyed Curator, Intrepid Paleontologist)
   // is not a mana sink. Activate only to set up a cast from cards exiled with this
   // permanent, or to stop an opponent recovering a graveyard card. Setup waits for
@@ -287,7 +300,7 @@ export function canAIActivateBattlefieldAbilityNow(
     return true;
   }
 
-  // Never treat this permanent's own remove-counter mana as payment for putting more counters on it.
+  // Never pay a charge ability with that permanent's own remove-counter mana.
   if (isChargeInvest) {
     return canAIAssembleManaPaymentPlan(game, playerId, parsedCost, [String(permanent.id || '')]);
   }

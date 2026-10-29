@@ -14,6 +14,11 @@
  */
 
 import { buildCommanderFreeCastPaymentExtras } from "../../state/modules/alternate-costs.js";
+import {
+  expandManaCostWithReplicate,
+  parseReplicateManaCost,
+  readReplicateCount,
+} from "../../state/modules/replicateCastUtils.js";
 import { buildNormalizedManaPaymentModel } from "../../state/modules/mana-check.js";
 import {
   ResolutionQueueManager,
@@ -240,7 +245,13 @@ export function buildPendingCastPaymentManaCost(pendingCast: any): string {
     pendingCast?.selectedAdditionalCostModes ?? pendingCast?.selectedSpreeModes,
   ) || String(pendingCast?.entwineCost || pendingCast?.card?.entwineCost || '').trim();
   const extraTax = String(pendingCast?.additionalCostTax || '').trim();
-  return `${baseManaCost}${spellModeAdditionalCost}${extraTax}`;
+  const replicateCost = parseReplicateManaCost(String(pendingCast?.card?.oracle_text || ''));
+  const replicateTimes = Math.max(readReplicateCount(pendingCast), readReplicateCount(pendingCast?.card));
+  return expandManaCostWithReplicate(
+    `${baseManaCost}${spellModeAdditionalCost}${extraTax}`,
+    replicateCost,
+    replicateTimes,
+  );
 }
 
 /**

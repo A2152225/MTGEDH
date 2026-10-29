@@ -229,6 +229,7 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
         xCount={pendingSpellXSelection?.xCount}
         affordableXHint={pendingSpellXSelection?.affordableXHint}
         costPerX={pendingSpellXSelection?.costPerX}
+        selectionLabel={/replicate/i.test(pendingSpellXSelection?.description || '') ? 'Replicate' : undefined}
         onSelect={(xValue) => {
           if (!safeView || !pendingSpellXSelection) return;
           socket.emit('submitResolutionResponse', {

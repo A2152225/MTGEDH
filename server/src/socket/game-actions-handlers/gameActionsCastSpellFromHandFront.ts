@@ -55,6 +55,7 @@ export type CastSpellFromHandFrontArgs = {
     skipPriorityCheck?: unknown;
     xValue?: unknown;
     timesKicked?: unknown;
+    replicateCount?: unknown;
     alternateCostId?: unknown;
     selectedCastMode?: unknown;
     convokeTappedCreatures?: unknown;
@@ -377,6 +378,13 @@ export function tryResolveCastSpellFromHandFront(
         : (Number.isFinite((cardInHand as any)?.timesKicked)
           ? Math.max(0, Math.floor(Number((cardInHand as any).timesKicked)))
           : undefined);
+      const replicateCountFromPayload = typeof payload?.replicateCount === 'number' && Number.isFinite(payload.replicateCount)
+        ? Math.max(0, Math.floor(payload.replicateCount))
+        : undefined;
+      if (replicateCountFromPayload != null && replicateCountFromPayload > 0) {
+        (cardInHand as any).replicateCount = replicateCountFromPayload;
+      }
+
       if (resolvedTimesKicked != null && resolvedTimesKicked > 0) {
         (cardInHand as any).timesKicked = resolvedTimesKicked;
         (cardInHand as any).kickerPaidCount = resolvedTimesKicked;

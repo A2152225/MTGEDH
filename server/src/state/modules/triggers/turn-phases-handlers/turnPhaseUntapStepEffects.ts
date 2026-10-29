@@ -390,6 +390,24 @@ function permanentMatchesUntapEffect(permanent: any, effect: UntapStepEffect): b
   return true;
 }
 
+/** True when an Unwinding Clock / Seedborn Muse-style effect would untap this permanent on other players' turns. */
+export function permanentUntapsOnOtherPlayersTurns(state: any, permanent: any): boolean {
+  if (!permanent) return false;
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  for (const source of battlefield) {
+    if (!source?.card) continue;
+    const effects = detectUntapStepEffects(source.card, source);
+    const grantedHost = detectGrantedHostSelfUntap(battlefield, source, source.card);
+    if (grantedHost) effects.push(grantedHost);
+    for (const effect of effects) {
+      if (!effect.onOtherPlayersTurn) continue;
+      if (!sourceCounterGateSatisfied(effect, battlefield)) continue;
+      if (permanentMatchesUntapEffect(permanent, effect)) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Apply untap step effects (actually untap the permanents)
  */

@@ -28,6 +28,8 @@ interface XValueSelectionModalProps {
   affordableXHint?: number;
   /** Mana paid per X, e.g. "{1}"; shows the total mana cost for the chosen X. */
   costPerX?: string;
+  /** When set, the modal is a "pay this N times" choice (Replicate) instead of a spell X. */
+  selectionLabel?: string;
 }
 
 /**
@@ -47,6 +49,7 @@ export function XValueSelectionModal({
   xCount = 1,
   affordableXHint,
   costPerX,
+  selectionLabel,
 }: XValueSelectionModalProps) {
   const [xValue, setXValue] = useState(0);
   const effectiveMax = suggestedMax !== undefined ? Math.min(maxValue, suggestedMax) : maxValue;
@@ -110,7 +113,7 @@ export function XValueSelectionModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 style={{ margin: '0 0 16px 0', fontSize: 20, color: '#f1f5f9' }}>
-          Choose X Value
+          {selectionLabel ? `Choose ${selectionLabel}` : 'Choose X Value'}
         </h2>
 
         <div style={{ marginBottom: 16 }}>
@@ -145,7 +148,7 @@ export function XValueSelectionModal({
               color: '#cbd5e1',
             }}
           >
-            X Value: {xValue}
+            {selectionLabel ? `${selectionLabel}: ${xValue}` : `X Value: ${xValue}`}
           </label>
 
           {costPreview && (
@@ -310,7 +313,9 @@ export function XValueSelectionModal({
               e.currentTarget.style.backgroundColor = '#3b82f6';
             }}
           >
-            Activate with X={xValue}
+            {selectionLabel
+              ? (xValue === 0 ? `Cast without ${selectionLabel}` : `Pay ${selectionLabel} ${xValue} time${xValue === 1 ? '' : 's'}`)
+              : `Activate with X=${xValue}`}
           </button>
         </div>
       </div>

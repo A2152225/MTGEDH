@@ -58,7 +58,7 @@ Public path stays `rules-engine/src/AIEngine.ts`. Leaves must not import the par
 | Module | Owns |
 | --- | --- |
 | `aiEngineAnalyzeLibraryForPlanning.ts` | `analyzeLibraryForPlanning`, `AIEngineHost`. |
-| `aiEngineActivatedAbilitySupport.ts` | Activated-ability detection, timing, heuristic value, `findBestActivatedAbility`. Includes opponent permanents with “any player may activate” (Xantcha `{3}` draw + controller loses 2). Skips hand-only “discard this card” abilities (`isHandOnlyDiscardThisCardActivatedAbility`). |
+| `aiEngineActivatedAbilitySupport.ts` | Activated-ability detection, timing, heuristic value, `findBestActivatedAbility`. Includes opponent permanents with “any player may activate” (Xantcha `{3}` draw + controller loses 2). Skips hand-only “discard this card” abilities (`isHandOnlyDiscardThisCardActivatedAbility`). Mana-rock self-untap (`isManaRockSelfUntapAbility`) scores 0 here so the main phase does not tap it to fund its own untap. Spare mana pays that untap on the end step before the player’s turn in `server/src/socket/ai-handlers/aiManaRockEndStepUntap.ts`. If Unwinding Clock or another “each other player’s untap step” effect includes the rock, that module taps it for mana once each main phase. |
 
 ### `oracleTextParser-handlers/` (extracted from `oracleTextParser.ts`)
 

@@ -606,13 +606,21 @@ export function resolveCopySpellCount(
   }
   if (step.copies.kind === 'replicate_count') {
     const sourceId = String(ctx?.sourceId || '').trim();
-    if (!sourceId) return 0;
-
-    const sourceStackObject = getStackItems((state as any)?.stack).find(
-      (item: any) => String(item?.type || '').trim() === 'spell' && String(item?.id || '').trim() === sourceId
-    ) as any;
-
-    return Math.max(0, Number(sourceStackObject?.replicateCount || 0) || 0);
+    const readCount = (item: any): number => {
+      const raw = item?.replicateCount ?? item?.card?.replicateCount;
+      const count = Math.floor(Number(raw));
+      return Number.isFinite(count) && count > 0 ? count : 0;
+    };
+    const items = getStackItems((state as any)?.stack);
+    if (sourceId) {
+      for (const item of items) {
+        const ids = [item?.id, item?.card?.id, item?.cardId, item?.source];
+        if (!ids.some((id) => String(id || '').trim() === sourceId)) continue;
+        const count = readCount(item);
+        if (count > 0) return count;
+      }
+    }
+    return 0;
   }
   if (step.copies.kind === 'spells_cast_before_this_turn') {
     const stateAny = state as any;

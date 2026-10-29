@@ -172,6 +172,37 @@ describe('oracleIRExecutorCopySpellSupport', () => {
     expect(resolveCopySpellCount(state, 'p1', step, ctx)).toBe(2);
   });
 
+  it('counts replicate payments from the spell stack item when the source id is the card id', () => {
+    const state = {
+      stack: [
+        {
+          id: 'stack_spell',
+          type: 'spell',
+          controller: 'p1',
+          replicateCount: 2,
+          card: { id: 'spree_1', name: 'Shattering Spree' },
+        },
+        {
+          id: 'trigger_1',
+          type: 'triggered_ability',
+          source: 'spree_1',
+          replicateCount: 2,
+          card: { id: 'spree_1' },
+        },
+      ],
+    } as any;
+    const step = {
+      kind: 'copy_spell',
+      subject: 'this_spell',
+      copies: { kind: 'replicate_count' },
+      allowNewTargets: true,
+      raw: 'copy it for each time you paid its replicate cost',
+    } as any;
+
+    expect(resolveCopySpellCount(state, 'p1', step, { controllerId: 'p1', sourceId: 'spree_1' } as any)).toBe(2);
+    expect(resolveCopySpellCount(state, 'p1', step, { controllerId: 'p1', sourceId: 'trigger_1' } as any)).toBe(2);
+  });
+
   it('counts storm copies from server-style spellsCastThisTurn arrays', () => {
     const count = resolveCopySpellCount(
       {

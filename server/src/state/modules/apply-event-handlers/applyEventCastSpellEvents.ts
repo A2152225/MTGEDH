@@ -522,6 +522,11 @@ export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
             } else if ((e as any).wasKicked === true || (e as any).card?.wasKicked === true) {
               applyToStackItem('wasKicked', true);
             }
+            const replicateRaw = (e as any).replicateCount ?? (e as any).card?.replicateCount;
+            const replicateCount = Number.isFinite(Number(replicateRaw)) ? Math.max(0, Math.floor(Number(replicateRaw))) : 0;
+            if (replicateCount > 0) {
+              applyToStackItem('replicateCount', replicateCount);
+            }
             if ((e as any).gainsHasteUntilEndOfTurnFromManaSpent === true) {
               applyToStackItem('gainsHasteUntilEndOfTurnFromManaSpent', true);
             }

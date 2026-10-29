@@ -65,6 +65,106 @@ export function isHandOnlyDiscardThisCardActivatedAbility(abilityText: string): 
   return /\bdiscard this card\b/i.test(text) || /\bdiscard ~\b/i.test(text);
 }
 
+function normalizeAbilityLine(text: string): string {
+  return String(text || '').replace(/\s+/g, ' ').trim().toLowerCase().replace(/\.+$/, '');
+}
+
+function manaSymbolValue(symbol: string): number {
+  const sym = String(symbol || '').trim().toUpperCase();
+  if (!sym || sym === 'T' || sym === 'Q' || sym === 'S') return 0;
+  if (/^\d+$/.test(sym)) return Number(sym);
+  if (sym === 'X' || sym === 'Y') return 0;
+  if (sym.includes('/')) {
+    const numeric = sym.split('/').map((half) => (/^\d+$/.test(half) ? Number(half) : 1));
+    return Math.max(...numeric);
+  }
+  return 1;
+}
+
+function abilityCostManaValue(abilityText: string): number {
+  const cost = String(abilityText || '').split(':')[0] || '';
+  let total = 0;
+  const re = /\{([^}]+)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(cost))) {
+    total += manaSymbolValue(match[1]);
+  }
+  return total;
+}
+
+/** Effect is only "untap this artifact" / "untap ~" / "untap <card name>". */
+function isSelfOnlyUntapEffect(effectText: string, cardName: string): boolean {
+  const cleaned = String(effectText || '').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  const sentences = cleaned.split(/[.!]/).map((sentence) => sentence.trim()).filter(Boolean);
+  if (sentences.length !== 1) return false;
+  const sentence = sentences[0].toLowerCase();
+  if (/\b(?:target|another|each|all|up to|any number)\b/.test(sentence)) return false;
+  const name = String(cardName || '').trim().toLowerCase();
+  if (/^untap (?:this|~)(?: [\w'-]+)?$/.test(sentence)) return true;
+  return Boolean(name) && sentence === `untap ${name}`;
+}
+
+function isPureManaAbilityLine(line: string): boolean {
+  const match = String(line || '').trim().match(/^([^:]+):\s*(.+)$/);
+  if (!match) return false;
+  const effect = match[2].replace(/\([^)]*\)/g, ' ').trim().toLowerCase();
+  if (/\b(?:draw|damage|search|create|destroy|exile|counter|token|target|life|untap)\b/.test(effect)) return false;
+  return /\badd\b/.test(effect) && (/\{[wubrgc0-9]/i.test(effect) || /\bmana\b/.test(effect));
+}
+
+/** Printed "doesn't untap during your untap step" (or upkeep). These stay tapped unless paid. */
+export function permanentSkipsControllerUntapStep(oracleText: string): boolean {
+  return /doesn'?t untap during (?:your|its controller's) (?:untap step|upkeep)\b/i.test(String(oracleText || ''));
+}
+
+/**
+ * Pay-to-untap on a rock whose other activated abilities only add mana
+ * (Basalt Monolith `{T}: Add {C}{C}{C}` / `{3}: Untap this artifact`).
+ * Tapping the rock to fund this untap is a net-zero loop.
+ * A self-untap that reloads a non-mana tap (Staff of Domination) still has value.
+ */
+export function isManaRockSelfUntapAbility(
+  abilityText: string,
+  oracleText: string,
+  cardName: string,
+): boolean {
+  const effect = String(abilityText || '').includes(':')
+    ? String(abilityText).split(':').slice(1).join(':')
+    : '';
+  if (!isSelfOnlyUntapEffect(effect, cardName)) return false;
+  if (abilityCostManaValue(abilityText) <= 0) return false;
+
+  const selfLine = normalizeAbilityLine(abilityText);
+  const otherLines = String(oracleText || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => {
+      if (normalizeAbilityLine(line) === selfLine) return false;
+      const lineEffect = line.includes(':') ? line.split(':').slice(1).join(':') : line;
+      return !isSelfOnlyUntapEffect(lineEffect, cardName);
+    })
+    .filter((line) => line.includes(':'));
+
+  return otherLines.every((line) => isPureManaAbilityLine(line));
+}
+
+/**
+ * The rock is tapped and will not untap on its own, so paying to untap it is legal value.
+ * The AI does not take that action during its main phase. Spare mana pays it on the end
+ * step before that player's next turn (`aiManaRockEndStepUntap.ts`).
+ */
+export function shouldAIPayToUntapManaRock(args: {
+  abilityText: string;
+  oracleText: string;
+  cardName: string;
+  tapped: boolean;
+}): boolean {
+  if (!args.tapped) return false;
+  if (!permanentSkipsControllerUntapStep(args.oracleText)) return false;
+  return isManaRockSelfUntapAbility(args.abilityText, args.oracleText, args.cardName);
+}
+
 export interface ActivatedAbilityChoice {
   readonly permanent: BattlefieldPermanent;
   readonly abilityId?: string;
@@ -387,6 +487,12 @@ export function evaluateActivatedAbilityValue(
     return 0;
   }
 
+  // Basalt / Grim Monolith: main-phase scoring must not tap the rock to fund its own untap.
+  // Readying a tapped one is an end-step decision, not an activate-ability pick.
+  if (isManaRockSelfUntapAbility(abilityText, permanentOracleText(perm), String(card?.name || ''))) {
+    return 0;
+  }
+
   if (effectText.includes('draw') && !effectText.includes('opponent draws')) {
     const drawMatch = effectText.match(/draw (\w+) card/);
     if (drawMatch) {
@@ -632,6 +738,14 @@ export function evaluateActivatedAbilityValue(
   return Math.max(0, value);
 }
 
+function hasNonTapActivatedAbility(oracleTextLower: string): boolean {
+  return oracleTextLower.split(/\r?\n/).some((line) => {
+    const match = line.trim().match(/^(\{[^}]+\}(?:,?\s*\{[^}]+\})*)\s*:/);
+    if (!match) return false;
+    return !/\{t\}/i.test(match[1]);
+  });
+}
+
 export function canActivateAbilityNow(
   perm: BattlefieldPermanent,
   gameState: GameState,
@@ -640,7 +754,9 @@ export function canActivateAbilityNow(
 ): boolean {
   const oracleText = getCombinedPermanentText(perm);
 
-  if (perm.tapped && oracleText.includes('{t}')) {
+  // A tap cost can't be paid while tapped. A separate non-tap ability still can
+  // ("{3}: Untap this artifact" on a tapped Basalt Monolith).
+  if (perm.tapped && oracleText.includes('{t}') && !hasNonTapActivatedAbility(oracleText)) {
     return false;
   }
 
@@ -706,6 +822,12 @@ export function findBestActivatedAbility(
 
     for (const candidate of scoredCandidates) {
       if (isHandOnlyDiscardThisCardActivatedAbility(candidate.abilityText)) {
+        continue;
+      }
+      if (
+        Boolean((perm as { tapped?: boolean }).tapped)
+        && /\{t\}/i.test(String(candidate.abilityText).split(':')[0] || '')
+      ) {
         continue;
       }
       if (!isOwnPermanent && !candidateAllowsAnyPlayerActivation(perm, candidate.abilityText)) {

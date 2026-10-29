@@ -431,6 +431,19 @@ export async function persistAndProcessCastSpellFromHand(
             ...(Number((cardInHand as any).timesKicked) > 0
               ? { timesKicked: Number((cardInHand as any).timesKicked) }
               : null),
+            ...(Number(
+              (onCastTriggeringStackItem as any)?.replicateCount
+              ?? (onCastTriggeringStackItem as any)?.card?.replicateCount
+              ?? (cardInHand as any).replicateCount,
+            ) > 0
+              ? {
+                  replicateCount: Math.floor(Number(
+                    (onCastTriggeringStackItem as any)?.replicateCount
+                    ?? (onCastTriggeringStackItem as any)?.card?.replicateCount
+                    ?? (cardInHand as any).replicateCount,
+                  )),
+                }
+              : null),
             ...(Array.isArray((cardInHand as any).paidKickerCosts) && (cardInHand as any).paidKickerCosts.length > 0
               ? { paidKickerCosts: [...(cardInHand as any).paidKickerCosts] }
               : null),

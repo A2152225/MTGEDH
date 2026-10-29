@@ -145,6 +145,7 @@ export async function requestCastSpellForSocket(
     ignoreTimingRestrictions?: boolean;
     xValue?: number;
     timesKicked?: number;
+    replicateCount?: number;
     librarySearchStepToResume?: any;
   }
 ): Promise<void> {
@@ -353,6 +354,7 @@ export function registerGameActions(io: Server, socket: Socket) {
       skipPriorityCheck?: unknown;
     xValue?: unknown;
     timesKicked?: unknown;
+    replicateCount?: unknown;
     alternateCostId?: unknown;
     selectedCastMode?: unknown;
     convokeTappedCreatures?: unknown;

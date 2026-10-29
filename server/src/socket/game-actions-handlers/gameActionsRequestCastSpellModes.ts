@@ -42,6 +42,12 @@ import {
 } from "./gameActionsModalCastModeCosts.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
 import { computeSpellCastXUpperBound } from "./spellCastXUpperBound.js";
+import { queueReplicateCastCountPrompt } from "./replicateCastPrompt.js";
+import {
+  expandManaCostWithReplicate,
+  parseReplicateManaCost,
+  stampReplicateCount,
+} from "../../state/modules/replicateCastUtils.js";
 import type { RequestCastSpellCandidateZoneArgs } from "./gameActionsRequestCastSpellCandidateZone.js";
 
 export type RequestCastSpellModesArgs = {
@@ -575,11 +581,53 @@ export function tryPromptRequestCastSpellModes(
       return;
     }
 
+    const replicateCost = parseReplicateManaCost(String(cardInHand?.oracle_text || oracleTextRaw || ''));
+    const chosenReplicateCount = Number.isFinite(options?.replicateCount)
+      ? Math.max(0, Math.floor(Number(options?.replicateCount)))
+      : undefined;
+    const replicateBaseManaCost = isFreeCast
+      ? '{0}'
+      : appendManaCost(
+          expandManaCostWithMultikicker(
+            expandManaCostWithChosenX(manaCost, chosenXValue),
+            multikickerCost,
+            chosenTimesKicked ?? 0,
+          ),
+          spellModeAdditionalCost,
+        );
+    if (replicateCost && chosenReplicateCount === undefined) {
+      const queued = queueReplicateCastCountPrompt({
+        socket,
+        game,
+        gameId,
+        playerId,
+        cardId,
+        cardName,
+        cardInHand,
+        cardForCast,
+        oracleTextRaw,
+        baseManaCost: replicateBaseManaCost,
+        selectedFaceIndex,
+        castSourceZone,
+        isFreeCast,
+        bypassExilePermissionCheck,
+        ignoreTimingRestrictions,
+        forcedAlternateCostId: options?.forcedAlternateCostId,
+        chosenXValue,
+        chosenTimesKicked,
+      });
+      if (queued) return;
+    }
+    if (replicateCost && chosenReplicateCount != null && chosenReplicateCount > 0) {
+      stampReplicateCount(cardInHand, chosenReplicateCount);
+      stampReplicateCount(cardForCast, chosenReplicateCount);
+    }
+
     const resolvedManaCost = appendManaCost(
-      expandManaCostWithMultikicker(
-        expandManaCostWithChosenX(manaCost, chosenXValue),
-        multikickerCost,
-        chosenTimesKicked ?? 0,
+      expandManaCostWithReplicate(
+        replicateBaseManaCost,
+        replicateCost,
+        chosenReplicateCount ?? 0,
       ),
       getSquadAdditionalManaCost(String(cardInHand?.oracle_text || oracleTextRaw || ''), getRecordedSquadTimesPaid(cardInHand)),
     );

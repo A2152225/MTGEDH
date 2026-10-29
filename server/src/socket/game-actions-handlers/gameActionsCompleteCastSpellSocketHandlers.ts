@@ -123,6 +123,7 @@ export async function handleCompleteCastSpellRequest(
     let pendingAlternateCostId: string | undefined;
     let pendingXValue: number | undefined;
     let pendingTimesKicked: number | undefined;
+    let pendingReplicateCount: number | undefined;
     let pendingSquadTimesPaid: number | undefined;
     let pendingFaceIndex: number | undefined;
     let pendingTargetGrouping: any;
@@ -165,6 +166,10 @@ export async function handleCompleteCastSpellRequest(
           : (Number.isFinite(pendingCast?.card?.timesKicked)
             ? Math.max(0, Math.floor(Number(pendingCast.card.timesKicked)))
             : undefined);
+        const replicateRaw = pendingCast?.replicateCount ?? pendingCast?.card?.replicateCount;
+        pendingReplicateCount = Number.isFinite(Number(replicateRaw)) && Number(replicateRaw) > 0
+          ? Math.max(0, Math.floor(Number(replicateRaw)))
+          : undefined;
         pendingSquadTimesPaid = Number.isFinite(pendingCast?.squadTimesPaid)
           ? Math.max(0, Math.floor(Number(pendingCast.squadTimesPaid)))
           : (Number.isFinite(pendingCast?.card?.squadTimesPaid)
@@ -428,6 +433,7 @@ export async function handleCompleteCastSpellRequest(
       skipPriorityCheck: true,
       xValue: (xValue as number | undefined) ?? pendingXValue,
       timesKicked: pendingTimesKicked,
+      replicateCount: pendingReplicateCount,
       alternateCostId: (alternateCostId as string | undefined) ?? pendingAlternateCostId,
       convokeTappedCreatures: convokeTapped,
       harmonizeTappedCreatureId: harmonizeTappedCreatureId as string | undefined,

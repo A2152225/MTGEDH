@@ -30,6 +30,7 @@ import {
   getPendingCastPaymentFields,
 } from "./gameActionsCommandZoneAndAlternateCastCosts.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
+import { pendingReplicateCountFields } from "../../state/modules/replicateCastUtils.js";
 
 export type RequestCastSpellWithTargetsArgs = {
   io: Server;
@@ -140,6 +141,7 @@ export function tryQueueRequestCastSpellWithTargets(
           playerId,
           faceIndex: selectedFaceIndex,
           xValue: chosenXValue,
+          ...pendingReplicateCountFields(cardForCast),
           ...getPendingSquadTimesPaidFields(cardInHand),
           selectedModes: Array.isArray((cardForCast as any).selectedModes) ? [...((cardForCast as any).selectedModes as string[])] : undefined,
           selectedAdditionalCostModes: Array.isArray((cardForCast as any).selectedAdditionalCostModes)

@@ -319,6 +319,15 @@ export {
   isAIManaBatteryChargeInvestAction,
 } from "./aiActivateAbilityHandlers.js";
 
+// End step before this player's turn: spare mana readies a tapped doesn't-untap mana rock.
+export {
+  findManaRockToReadyBeforeNextTurn,
+  findManaRocksToTapBecauseOtherPlayersUntapThem,
+  isEndStepBeforePlayersTurn,
+  tryAIReadyManaRockBeforeNextTurn,
+  tryAITapManaRocksOtherPlayersWillUntap,
+} from "./aiManaRockEndStepUntap.js";
+
 // Activated-ability id resolution and shared battlefield activation request.
 export {
   buildAIActivatedAbilityResolverCandidates,

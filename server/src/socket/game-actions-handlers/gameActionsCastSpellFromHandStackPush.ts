@@ -331,6 +331,9 @@ export function tryPushCastSpellFromHandToStack(
                     wasKicked: true,
                   }
                 : {}),
+              ...(Number((cardInHand as any).replicateCount) > 0
+                ? { replicateCount: Number((cardInHand as any).replicateCount) }
+                : {}),
               ...((cardInHand as any).entersBattlefieldWithCounters
                 && typeof (cardInHand as any).entersBattlefieldWithCounters === 'object'
                 ? { entersBattlefieldWithCounters: { ...(cardInHand as any).entersBattlefieldWithCounters } }

@@ -38,6 +38,7 @@ import {
 } from './stackResolveSpellCopyChoiceUtils.js';
 import { appendEvent } from '../../db/index.js';
 import { persistNamedSpellCastThisGame } from './namedSpellsCastThisGame.js';
+import { readReplicateCount } from './replicateCastUtils.js';
 import { queueSpellCopiedTriggers } from './triggers/spell-copied.js';
 import { queueStackPutTriggers } from './triggers/stack-put.js';
 import { debug, debugWarn } from '../../utils/debug.js';
@@ -253,6 +254,15 @@ function resolveServerStackCopyCount(
   if (step.copies?.kind === 'spells_cast_before_this_turn') {
     const stormCount = resolveSpellsCastBeforeThisTurnCopyCount(state, controller);
     if (stormCount > 0) return stormCount;
+  }
+
+  if (step.copies?.kind === 'replicate_count') {
+    const liveCount = Math.max(
+      resolveCopySpellCount(state, controller, step, irCtx),
+      readReplicateCount(params.sourceItem),
+      readReplicateCount(resolveDeferredCopyTargetStackItem(state, step, irCtx, params.sourceItem)),
+    );
+    if (liveCount > 0) return liveCount;
   }
 
   const metadataCount = Number(params.gapMetadata?.copyCount);

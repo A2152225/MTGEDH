@@ -21,6 +21,10 @@ import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { playerCannotReceivePriority } from "../../state/modules/priorityEligibility.js";
 import { AI_FAST_CONTINUE_MS, AI_REACTION_DELAY_MS } from "./aiConstants.js";
 import { executeAdvanceStep } from "./aiAdvanceAndDecisionExecutors.js";
+import {
+  tryAIReadyManaRockBeforeNextTurn,
+  tryAITapManaRocksOtherPlayersWillUntap,
+} from "./aiManaRockEndStepUntap.js";
 import { getPendingBlockerDeclaration } from "./aiGameCleanupHandlers.js";
 import { isAIPlayer } from "./aiPlayerRegistry.js";
 import { consumeAIFastPassDecision } from "./aiFastPassPrecheck.js";
@@ -443,6 +447,10 @@ export async function handleAIPriority(
       }
       
       // Scheduler's fast-pass precheck already found no response for this exact window.
+      const opponentMain = phase.includes('main') || step.includes('main');
+      if (opponentMain && stackEmpty && await tryAITapManaRocksOtherPlayersWillUntap(io, gameId, playerId, game)) {
+        return;
+      }
       if (!consumeAIFastPassDecision(gameId, playerId, game) && await tryAIResponseActions(io, gameId, playerId, game)) {
         return;
       }
@@ -515,6 +523,12 @@ export async function handleAIPriority(
         debug(1, '[AI] No supported land candidate available in hand, library, graveyard, or exile');
       }
       
+      // A doesn't-untap rock that Unwinding Clock (or similar) will untap on other
+      // players' turns is tapped for mana every turn, including this one.
+      if (stackEmpty && await tryAITapManaRocksOtherPlayersWillUntap(io, gameId, playerId, game)) {
+        return;
+      }
+
       // IMPORTANT: Tap lands for mana retention effects BEFORE combat
       // This is critical for cards like Omnath, Locus of Mana which gain power from green mana in pool
       // By tapping green-producing lands now, Omnath will be stronger during the combat phase
@@ -811,6 +825,12 @@ export async function handleAIPriority(
     // ENDING PHASE (End step) - only active player can advance
     if (phase === 'ending' || phase === 'end') {
       if (await tryAIResponseActions(io, gameId, playerId, game)) {
+        return;
+      }
+
+      // End step of the turn before this AI's turn: spare mana readies a rock
+      // that was tapped on a prior turn and will not untap by itself.
+      if (await tryAIReadyManaRockBeforeNextTurn(io, gameId, playerId, game)) {
         return;
       }
 
