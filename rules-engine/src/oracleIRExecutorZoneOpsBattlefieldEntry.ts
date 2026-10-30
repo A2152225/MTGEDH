@@ -108,8 +108,12 @@ export function createBattlefieldPermanentsFromCards(
       const hiddenCard = {
         id: String(card?.id || base),
         faceDown: true,
+        isFaceDownStub: true,
         zone: 'battlefield',
         visibility: 'public',
+        name: '',
+        displayName: 'Face-down creature',
+        type_line: 'Creature',
         power: '2',
         toughness: '2',
         ...(faceDownWardCost
@@ -118,11 +122,12 @@ export function createBattlefieldPermanentsFromCards(
               keywords: ['Ward'],
               oracle_text: `Ward ${faceDownWardCost}`,
             }
-          : {}),
+          : { oracle_text: '' }),
       } as any;
 
       return {
         ...basePermanent,
+        isFaceDown: true,
         basePower: 2,
         baseToughness: 2,
         power: 2,

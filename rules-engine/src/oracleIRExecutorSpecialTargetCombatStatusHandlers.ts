@@ -1,6 +1,6 @@
 /**
  * Extracted from oracleIRExecutorSpecialTargetHandlers.ts.
- * Public: trySpecialExertStep, trySpecialTurnFaceDownStep, trySpecialTapOrUntapStep,
+ * Public: faceDownBattlefieldPermanent, trySpecialExertStep, trySpecialTurnFaceDownStep, trySpecialTapOrUntapStep,
  * trySpecialForceBlockStep, trySpecialSuspectStep
  */
 import type { GameState, BattlefieldPermanent } from '../../shared/src';
@@ -15,6 +15,39 @@ import {
   type SpecialTargetStepResult,
 } from './oracleIRExecutorSpecialTargetOps';
 import { resolveContextualCreature } from './oracleIRExecutorSpecialTargetResolve';
+
+/** Public 2/2 face of a turned-down permanent. The real card stays on faceUpCard. */
+export function faceDownBattlefieldPermanent(perm: any): any {
+  const faceUpCard = perm?.faceUpCard && typeof perm.faceUpCard === 'object'
+    ? perm.faceUpCard
+    : (perm?.card && typeof perm.card === 'object' ? perm.card : undefined);
+  const id = String(faceUpCard?.id || perm?.id || '').trim();
+  return {
+    ...perm,
+    isFaceDown: true,
+    basePower: 2,
+    baseToughness: 2,
+    power: 2,
+    toughness: 2,
+    effectivePower: 2,
+    effectiveToughness: 2,
+    effectiveTypes: ['Creature'],
+    faceUpCard: faceUpCard ? { ...faceUpCard, zone: 'battlefield' } : undefined,
+    card: {
+      id,
+      faceDown: true,
+      isFaceDownStub: true,
+      zone: 'battlefield',
+      visibility: 'public',
+      name: '',
+      displayName: 'Face-down creature',
+      type_line: 'Creature',
+      oracle_text: '',
+      power: '2',
+      toughness: '2',
+    },
+  };
+}
 
 export function trySpecialExertStep(
   state: GameState,
@@ -62,6 +95,7 @@ export function trySpecialTurnFaceDownStep(
       if (String(entry?.id || '').trim() !== targetId) return entry;
       return {
         ...entry,
+        isFaceDown: false,
         card: { ...(faceUpCard as any), faceDown: false, zone: 'battlefield' },
         faceUpCard: undefined,
         faceDown: false,
@@ -91,7 +125,7 @@ export function trySpecialTurnFaceDownStep(
       if (!targets.some((target) => String((target as any)?.id || '').trim() === String(perm?.id || '').trim())) {
         return perm;
       }
-      return { ...perm, card: { ...(perm.card || {}), faceDown: true }, faceUpCard: perm.card || perm };
+      return faceDownBattlefieldPermanent(perm);
     });
     return {
       applied: true,
@@ -112,7 +146,7 @@ export function trySpecialTurnFaceDownStep(
       if (!targets.some((target) => String((target as any)?.id || '').trim() === String(perm?.id || '').trim())) {
         return perm;
       }
-      return { ...perm, card: { ...(perm.card || {}), faceDown: true }, faceUpCard: perm.card || perm };
+      return faceDownBattlefieldPermanent(perm);
     });
     return {
       applied: true,

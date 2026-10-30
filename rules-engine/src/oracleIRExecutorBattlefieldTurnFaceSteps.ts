@@ -14,6 +14,7 @@ import { resolveDirectBattlefieldPermanents } from './oracleIRExecutorBattlefiel
 import { resolveRecentlyMovedBattlefieldPermanents } from './oracleIRExecutorBattlefieldRecentlyMoved';
 import { normalizeBattlefieldTargetReferenceText } from './oracleIRExecutorBattlefieldTargetReferenceText';
 import { trySpecialTurnFaceDownStep } from './oracleIRExecutorSpecialTargetHandlers';
+import { faceDownBattlefieldPermanent } from './oracleIRExecutorSpecialTargetCombatStatusHandlers';
 import { effectiveStepTarget } from './oracleIRExecutorExtendedTargetResolution';
 
 function collectZoneFaceUpCandidateCardIds(
@@ -207,6 +208,7 @@ export function applyTurnFaceUpStep(
       turnedCount += 1;
       const nextPerm: any = {
         ...perm,
+        isFaceDown: false,
         card: faceUpCard,
         power: undefined,
         toughness: undefined,
@@ -300,30 +302,11 @@ export function applyTurnFaceDownStep(
     if (!faceUpCard || !String(faceUpCard.id || '').trim()) return perm;
     faceUpCard.zone = 'battlefield';
 
-    const hiddenCard = {
-      id: String(faceUpCard.id || permanentId),
-      faceDown: true,
-      zone: 'battlefield',
-      visibility: 'public',
-      power: '2',
-      toughness: '2',
-    } as any;
-
     turnedCount += 1;
-    return {
+    return faceDownBattlefieldPermanent({
       ...perm,
-      card: hiddenCard,
-      basePower: 2,
-      baseToughness: 2,
-      power: 2,
-      toughness: 2,
-      effectivePower: 2,
-      effectiveToughness: 2,
-      effectiveTypes: ['Creature'],
-      type_line: undefined,
-      oracle_text: undefined,
       faceUpCard,
-    } as any;
+    });
   });
 
   if (turnedCount === 0) {

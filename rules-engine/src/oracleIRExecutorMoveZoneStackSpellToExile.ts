@@ -122,6 +122,9 @@ export function tryApplyMoveZoneStackSpellToExile(
     state: annotated.state,
     log: [`Exiled ${card.id || card.name || 'that spell'} from the stack`],
     movedCards: annotated.movedCards || [card],
+    // "it" / "that spell" does not name a zone, so replay would otherwise
+    // leave the cast spell on the stack after Possibility Storm replaces it.
+    fromZone: 'stack',
     toZone: 'exile',
   }, ctx);
 }

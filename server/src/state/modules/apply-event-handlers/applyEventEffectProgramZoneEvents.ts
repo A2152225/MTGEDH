@@ -11,6 +11,7 @@ import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtil
 import {
   repairReplayCardSourceZones,
   repairCardIdAwayFromZones,
+  removeReplayStackSpell,
   isImpossibleFaceUpNonPermanentBattlefieldCard,
   isFaceDownBattlefieldPermanentFlags,
 } from "../stackReplayUtils.js";
@@ -95,6 +96,18 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
 
           if (!playerId || !fromZone || !toZone) break;
 
+          // Do this before the "already in destination" return. A later exile→library
+          // move can land first in a partial replay and must still clear the cast spell.
+          let removedStackCard: any = null;
+          if (fromZone === 'stack') {
+            const stackItemId = String(
+              (cardSnapshot as any)?.copiedFromStackItemId
+              || (e as any).stackItemId
+              || '',
+            ).trim();
+            removedStackCard = removeReplayStackSpell(ctx, cardId, stackItemId);
+          }
+
           if (toZone === 'battlefield' && permanentId) {
             const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
             if (battlefield.some((perm: any) => perm && String(perm.id || '') === permanentId)) {
@@ -109,7 +122,7 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
             }
           }
 
-          let card: any = cardSnapshot ? { ...cardSnapshot } : null;
+          let card: any = cardSnapshot ? { ...cardSnapshot } : (removedStackCard ? { ...removedStackCard } : null);
 
           if (fromZone === 'battlefield' && fromPermanentId) {
             const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];

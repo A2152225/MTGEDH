@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { getAsEntersChoiceRequirements } from '../src/state/modules/asEntersChoiceRequirements.js';
+import { queuePermanentAsEntersBattlefieldChoiceSteps } from '../src/state/modules/stackResolvePermanentEtbChoiceUtils.js';
+import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 import { detectETBPlayerSelection } from '../src/socket/player-selection.js';
+import { games } from '../src/socket/socket.js';
 import { abilityAllowsAnyPlayerActivation } from '../../shared/src/anyPlayerActivatedAbility.js';
 
 const XANTCHA_ORACLE =
@@ -30,6 +33,42 @@ describe('Xantcha, Sleeper Agent control-change detection', () => {
     expect(detection.required).toBe(true);
     expect(detection.effectData?.type).toBe('control_change');
     expect(detection.allowOpponentsOnly).toBe(true);
+  });
+
+  it('marks each legal opponent so the player modal does not filter them all out', () => {
+    const gameId = 'test_xantcha_as_enters_opponent_flags';
+    ResolutionQueueManager.removeQueue(gameId);
+    games.set(gameId as any, { isReplaying: true } as any);
+    const permanent = { id: 'xantcha_1', controller: 'p1', owner: 'p1', card: xantchaCard };
+    queuePermanentAsEntersBattlefieldChoiceSteps({
+      gameId,
+      state: {
+        id: gameId,
+        players: [
+          { id: 'p1', name: 'Caster', seat: 1, life: 40 },
+          { id: 'p2', name: 'Opp', seat: 2, life: 37 },
+          { id: 'p3', name: 'Eliminated', seat: 3, life: 0, hasLost: true },
+        ],
+        life: { p1: 40, p2: 37, p3: 0 },
+      },
+    } as any, {
+      controller: 'p1' as any,
+      effectiveCard: xantchaCard,
+      newPermanent: permanent,
+      newPermId: 'xantcha_1',
+      isCreature: true,
+    });
+
+    const step = ResolutionQueueManager.getQueue(gameId).steps.find(
+      (entry: any) => entry?.type === ResolutionStepType.PLAYER_CHOICE,
+    ) as any;
+    expect(step?.opponentOnly).toBe(true);
+    expect(step?.description).toBe('Choose an opponent to control this permanent');
+    expect(step?.players).toEqual([
+      expect.objectContaining({ id: 'p2', name: 'Opp', life: 37, isOpponent: true, isSelf: false }),
+    ]);
+    ResolutionQueueManager.removeQueue(gameId);
+    games.delete(gameId as any);
   });
 });
 

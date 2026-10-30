@@ -4,6 +4,7 @@ import { showCardPreview, hideCardPreview } from './CardPreviewLayer';
 import { displayTypeLine } from './PermanentRulesStatusBadges';
 import { getKeywordInfo } from '../utils/keywordGlossary';
 import { resolvePlayerBadgeLabel } from '../utils/playerBadgeLabel';
+import { faceDownPublicLabel } from '../utils/faceDownUi';
 
 export type ImagePref = 'small' | 'normal' | 'art_crop';
 type LayoutMode = 'grid' | 'row';
@@ -131,7 +132,7 @@ export function BattlefieldGrid(props: {
       {perms.map((p, idx) => {
         const kc = p.card as KnownCardRef;
         const img = kc?.image_uris?.[imagePref] || kc?.image_uris?.normal || kc?.image_uris?.small;
-        const name = kc?.name || p.id;
+        const name = faceDownPublicLabel(p) || kc?.name || (kc as any)?.displayName || p.id;
         const counters = p.counters || {};
         const isHighlight = highlightTargets?.has(p.id) ?? false;
         const isSelected = selectedTargets?.has(p.id) ?? false;

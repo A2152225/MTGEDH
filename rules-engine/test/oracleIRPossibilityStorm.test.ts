@@ -87,6 +87,15 @@ describe('Possibility Storm IR (exile the cast spell, then until sharing a type)
     expect(bolt?.canBePlayedBy).toBeFalsy();
     expect(bolt?.withoutPayingManaCost).toBeFalsy();
     expect(bolt?.castWithoutPayingManaCost).toBeFalsy();
+    expect(result.replayMutations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'effectProgramZoneMove',
+        fromZone: 'stack',
+        toZone: 'exile',
+        cardId: 'bolt_1',
+        stackItemId: 'stack_bolt',
+      }),
+    ]));
     expect(untilHit?.canBePlayedBy).toBe('p2');
     expect(untilHit?.withoutPayingManaCost || untilHit?.castWithoutPayingManaCost).toBeTruthy();
   });
@@ -114,5 +123,14 @@ describe('Possibility Storm IR (exile the cast spell, then until sharing a type)
     expect(result.appliedSteps.map((s) => s.kind)).toEqual(['move_zone']);
     expect(((result.state as any).stack || []).some((entry: any) => String(entry?.id || '') === 'stack_bolt')).toBe(false);
     expect((p2.exile || []).some((c: any) => String(c?.id || '') === 'bolt_1' || String(c?.id || '') === 'stack_bolt')).toBe(true);
+    expect(result.replayMutations).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: 'effectProgramZoneMove',
+        fromZone: 'stack',
+        toZone: 'exile',
+        cardId: 'bolt_1',
+        stackItemId: 'stack_bolt',
+      }),
+    ]));
   });
 });

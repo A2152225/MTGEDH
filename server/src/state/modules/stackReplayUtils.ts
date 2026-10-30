@@ -18,6 +18,33 @@ function removeReplayDuplicateCardEntries(cards: any, cardId: string): number {
 export type DualZoneRepairZone = 'hand' | 'exile' | 'graveyard' | 'library';
 
 /**
+ * Drop a spell that left the stack for another zone (Possibility Storm exiles the cast spell).
+ * Match the stack-item id and the card id; they are not the same object.
+ */
+export function removeReplayStackSpell(ctxOrState: any, cardId: string, stackItemId?: string): any | null {
+  const state = ctxOrState?.state || ctxOrState;
+  const stack = Array.isArray(state?.stack) ? state.stack : null;
+  const wantedCard = String(cardId || '').trim();
+  const wantedStack = String(stackItemId || '').trim();
+  if (!stack || (!wantedCard && !wantedStack)) return null;
+
+  let removedCard: any = null;
+  for (let index = stack.length - 1; index >= 0; index--) {
+    const entry = stack[index];
+    const entryId = String(entry?.id || '').trim();
+    const entryCardId = String(entry?.card?.id || '').trim();
+    const matchesStack = Boolean(wantedStack) && (entryId === wantedStack || entryCardId === wantedStack);
+    const matchesCard = Boolean(wantedCard) && (entryCardId === wantedCard || entryId === wantedCard);
+    if (!matchesStack && !matchesCard) continue;
+    const [removed] = stack.splice(index, 1);
+    if (!removedCard && removed?.card && typeof removed.card === 'object') {
+      removedCard = { ...removed.card };
+    }
+  }
+  return removedCard;
+}
+
+/**
  * Remove matching card.id copies from selected non-authoritative zones.
  * Callers choose which zones to scrub so the real copy (BF/GY/exile/stack) is kept.
  */

@@ -12,8 +12,16 @@ function isJudge(viewer: unknown): boolean {
   return String(viewer || '') === 'spectator:judge';
 }
 
+function permanentIsFaceDown(perm: any): boolean {
+  return !!perm && (
+    perm.isFaceDown === true
+    || perm.card?.faceDown === true
+    || perm.card?.isFaceDownStub === true
+  );
+}
+
 export function maskFaceDownPermanentForViewer<T extends Record<string, any>>(perm: T, viewer: unknown, revealAll = false): T {
-  if (!perm || perm.isFaceDown !== true) return perm;
+  if (!permanentIsFaceDown(perm)) return perm;
   // Batch 14: at game end every face-down permanent is revealed (CR 708.10).
   if (revealAll) return { ...perm, revealedAtGameEnd: true };
   const viewerId = String(viewer || '');

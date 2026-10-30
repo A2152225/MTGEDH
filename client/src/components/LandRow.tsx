@@ -9,6 +9,7 @@ import { parseActivatedAbilities, getActivatedAbilityActivationStatus, type Pars
 import { getPlayableCardHighlight } from '../utils/appearanceSettings';
 import { textAllowsAnyPlayerActivation } from '../../../shared/src/anyPlayerActivatedAbility';
 import { resolvePlayerBadgeLabel } from '../utils/playerBadgeLabel';
+import { faceDownPublicLabel } from '../utils/faceDownUi';
 
 function canonicalLandKey(typeLine?: string, name?: string) {
   const tl = (typeLine || '').toLowerCase();
@@ -144,7 +145,7 @@ export function LandRow(props: {
     const isToken = (p as any).isToken === true;
     return {
       id: p.id,
-      name: kc?.name || p.id,
+      name: faceDownPublicLabel(p) || kc?.name || (kc as any)?.displayName || p.id,
       typeLine: kc?.type_line || '',
       img: kc?.image_uris?.[imagePref] || kc?.image_uris?.normal || kc?.image_uris?.small,
       tapped: !!p.tapped,

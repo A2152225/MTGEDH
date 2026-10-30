@@ -25,6 +25,7 @@ import { parseActivatedAbilities, type ParsedActivatedAbility } from '../utils/a
 import type { AppearanceSettings } from '../utils/appearanceSettings';
 import { getPlayAreaGradientStyle, getBackgroundStyle } from '../utils/appearanceSettings';
 import { battlefieldGridContentHeightForRows } from '../utils/battlefieldGrid';
+import { faceDownPublicLabel } from '../utils/faceDownUi';
 import { useMobilePlayLayout } from '../hooks/useMobilePlayLayout';
 import { useDesktopTableFrameHeight } from '../hooks/useDesktopTableFrameHeight';
 import {
@@ -331,7 +332,7 @@ export function TableLayout(props: {
     const names = new Map<string, string>();
     for (const permanent of allBattlefieldPerms) {
       const card = permanent.card as KnownCardRef | undefined;
-      names.set(permanent.id, card?.name || permanent.id);
+      names.set(permanent.id, faceDownPublicLabel(permanent) || card?.name || (card as { displayName?: string } | undefined)?.displayName || permanent.id);
     }
     return names;
   }, [allBattlefieldPerms]);

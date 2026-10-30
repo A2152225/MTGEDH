@@ -16,6 +16,7 @@ import { runPostResolutionPermanentPromptChecks } from "../game-actions.js";
 import { captureIdenticalTriggerRun, continueCapturedIdenticalTriggerRun } from "../identicalTriggerBulkResolve.js";
 import { advanceStepPersistingEvent } from "../step-advance.js";
 import { executeDeclareAttackers as executeCombatDeclareAttackers } from "../combat.js";
+import { isCurrentlyCreature } from "../combat-handlers/combatLegalityGates.js";
 import {
   findMustBeBlockedIfAbleViolation,
   resolveMustBeBlockedIfAbleAssignments,
@@ -150,11 +151,27 @@ export async function executeDeclareAttackers(
     seen.add(attacker.creatureId);
     merged.push(attacker);
   }
+
+  const battlefield = game.state?.battlefield || [];
+  const dropped: string[] = [];
+  const legal = merged.filter((attacker) => {
+    const perm = battlefield.find((entry: any) => entry?.id === attacker.creatureId && entry?.controller === playerId);
+    if (perm && isCurrentlyCreature(perm, battlefield, playerId)) return true;
+    dropped.push(attacker.creatureId);
+    return false;
+  });
+  if (dropped.length > 0) {
+    debugWarn(1, '[AI] Dropped attackers the server does not treat as creatures', {
+      gameId,
+      playerId,
+      dropped,
+    });
+  }
   
-  debug(1, '[AI] Declaring attackers:', { gameId, playerId, attackers: merged });
+  debug(1, '[AI] Declaring attackers:', { gameId, playerId, attackers: legal });
   
   try {
-    if (merged.length === 0) {
+    if (legal.length === 0) {
       await executeCombatDeclareAttackers(io, gameId, playerId, []);
       await executePassPriority(io, gameId, playerId);
       return;
@@ -164,7 +181,7 @@ export async function executeDeclareAttackers(
       io,
       gameId,
       playerId,
-      merged.map((attacker) => ({
+      legal.map((attacker) => ({
         creatureId: attacker.creatureId,
         targetPlayerId: attacker.defendingPlayerId,
       })),
@@ -178,7 +195,19 @@ export async function executeDeclareAttackers(
       debugError(1, '[AI] Forced-attack declaration failed; not passing priority', { gameId, playerId, code });
       return;
     }
-    await executePassPriority(io, gameId, playerId);
+    // Passing is illegal until attackersDeclaredBy is recorded, and the pass
+    // handler reschedules this AI, so a rejected declare used to loop forever.
+    debugWarn(1, '[AI] Attack declaration rejected; declaring no attackers so the step can advance', {
+      gameId,
+      playerId,
+      code,
+    });
+    try {
+      await executeCombatDeclareAttackers(io, gameId, playerId, []);
+      await executePassPriority(io, gameId, playerId);
+    } catch (retryError) {
+      debugError(1, '[AI] Could not declare an empty attack to leave declare attackers', retryError);
+    }
   }
 }
 

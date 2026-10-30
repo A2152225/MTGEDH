@@ -180,6 +180,16 @@ export function isCurrentlyCreature(perm: BattlefieldPermanent): boolean {
   const oracleText = (card?.oracle_text || '').toLowerCase();
   const permAny = perm as any;
 
+  // Face-down permanents are 2/2 creatures with no abilities (CR 708.2).
+  if (
+    permAny.isFaceDown === true
+    || card?.faceDown === true
+    || (card as any)?.isFaceDownStub === true
+    || permAny.faceDownType
+  ) {
+    return true;
+  }
+
   // Theros gods below devotion / impending with time counters.
   if (permAny.notCreature === true) return false;
 

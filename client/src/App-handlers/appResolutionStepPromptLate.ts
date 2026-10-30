@@ -204,14 +204,23 @@ export function handleAppResolutionStepPromptLate(
             name: step.sourceName || 'Choose Player',
             imageUrl: step.sourceImage,
           },
-          players: (step.players || []).map((p: any) => ({
-            id: p.id,
-            name: p.name || p.id,
-            life: p.life ?? 0,
-            libraryCount: p.libraryCount,
-            isOpponent: Boolean(p.isOpponent),
-            isSelf: Boolean(p.isSelf),
-          })),
+          players: (step.players || []).map((p: any) => {
+            const isSelf = p.isSelf === true
+              || (p.isSelf == null && step.playerId != null && String(p.id) === String(step.playerId));
+            // Opponent-only prompts already list legal seats. A missing isOpponent flag
+            // must not blank the modal (Xantcha's as-enters control choice).
+            const isOpponent = typeof p.isOpponent === 'boolean'
+              ? p.isOpponent
+              : Boolean(step.opponentOnly) && !isSelf;
+            return {
+              id: p.id,
+              name: p.name || p.id,
+              life: p.life ?? 0,
+              libraryCount: p.libraryCount,
+              isOpponent,
+              isSelf,
+            };
+          }),
           opponentOnly: Boolean(step.opponentOnly),
           isOptional: Boolean(step.isOptional) || !isResolutionStepMandatory(step),
         });

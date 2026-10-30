@@ -107,9 +107,11 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
         if (newPermanent.chosenPlayer) continue;
         const opponentOnly = requirement.kind === 'opponent';
         const allPlayers = state.players || [];
-        const validPlayers = opponentOnly
-          ? allPlayers.filter((p: any) => p.id !== controller)
-          : allPlayers;
+        const validPlayers = (Array.isArray(allPlayers) ? allPlayers : []).filter((p: any) => {
+          if (!p || p.hasLost) return false;
+          if (opponentOnly && String(p.id) === String(controller)) return false;
+          return true;
+        });
         const appliesControlChange = requirement.appliesControlChange === true;
         if (appliesControlChange) {
           (newPermanent as any).asEntersControlChangeQueued = true;
@@ -125,10 +127,20 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
           sourceName: effectiveCard.name || 'Permanent',
           sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
           permanentId: newPermId,
-          players: validPlayers.map((p: any) => ({
-            id: p.id,
-            name: p.name || `Player ${p.seat}`,
-          })),
+          // The client player modal hides anyone who is not isOpponent when opponentOnly is set.
+          // Omitting the flag made Xantcha's "choose an opponent" prompt list no legal players.
+          players: validPlayers.map((p: any) => {
+            const id = String(p.id || '');
+            const isSelf = id === String(controller);
+            return {
+              id,
+              name: p.name || `Player ${p.seat}`,
+              life: Number(state?.life?.[id] ?? p.life ?? 40),
+              libraryCount: Number((state?.zones?.[id] as any)?.libraryCount ?? 0),
+              isOpponent: !isSelf,
+              isSelf,
+            };
+          }),
           opponentOnly,
           ...(appliesControlChange
             ? {

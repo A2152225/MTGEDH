@@ -21,6 +21,7 @@ import {
 } from '../utils/activatedAbilityParser';
 import { getBattlefieldTapActionDecision } from '../utils/battlefieldTapAction';
 import { canCreatureUseTapAbilityNow, hasCurrentHaste, isCurrentlyCreature } from '../utils/creatureUtils';
+import { faceDownPublicLabel } from '../utils/faceDownUi';
 import { ReportIssueMenuItem } from './ReportIssueMenuItem';
 import { ManualModeMenuItems } from './ManualMode-handlers/ManualModeMenuItems';
 
@@ -139,7 +140,7 @@ export function CardContextMenu({
   const [position, setPosition] = useState({ x, y });
   
   const card = permanent.card as KnownCardRef;
-  const name = card?.name || permanent.id;
+  const name = faceDownPublicLabel(permanent) || card?.name || (card as any)?.displayName || permanent.id;
   const isTapped = !!permanent.tapped;
   
   const parsedAbilities = useMemo(

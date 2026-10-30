@@ -71,6 +71,20 @@ import { permanentHasKeywordAbility, permanentLosesKeyword } from "../../../../r
  */
 export function isCurrentlyCreature(permanent: any, battlefield?: any[], controllerId?: string): boolean {
   if (!permanent) return false;
+
+  // A face-down permanent is a 2/2 creature with no abilities (CR 708.2), so a
+  // notCreature stamp from its face-up text does not apply. Turn-face-down used
+  // to leave only effectiveTypes and a nameless stub: the board showed the
+  // stack_ id and this check rejected the attack.
+  if (
+    permanent.isFaceDown === true
+    || permanent.card?.faceDown === true
+    || permanent.card?.isFaceDownStub === true
+    || permanent.faceDownType
+  ) {
+    return true;
+  }
+
   if (permanent.notCreature === true) return false;
   
   // Check type_line from card data

@@ -7,6 +7,7 @@ import { useMemo, type MutableRefObject } from 'react';
 import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../../../shared/src';
 import type { ImagePref } from '../BattlefieldGrid';
 import { isCurrentlyCreature } from '../../utils/creatureUtils';
+import { faceDownPublicLabel } from '../../utils/faceDownUi';
 import {
   assignPermanentsToCells,
   battlefieldGridContentHeight,
@@ -90,8 +91,14 @@ export function useFreeFieldBattlefieldLayout(args: FreeFieldBattlefieldLayoutAr
 
     for (const p of displayPerms) {
       const kc = ((p as any).revealedAtGameEnd && (p as any).faceUpCard ? (p as any).faceUpCard : p.card) as KnownCardRef;
-      const img = kc?.image_uris?.[imagePref] || kc?.image_uris?.normal || kc?.image_uris?.small || null;
-      const name = kc?.name || (kc as any)?.displayName || p.id;
+      const faceDownLabel = faceDownPublicLabel(p);
+      const img = faceDownLabel
+        ? null
+        : (kc?.image_uris?.[imagePref] || kc?.image_uris?.normal || kc?.image_uris?.small || null);
+      const name = faceDownLabel
+        || (kc?.name && String(kc.name).trim())
+        || (kc as any)?.displayName
+        || p.id;
       const tl = (kc?.type_line || '').toLowerCase();
       const isCreature = isCurrentlyCreature(p as any);
       const isPlaneswalker = /\bplaneswalker\b/.test(tl);

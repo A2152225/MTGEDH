@@ -26,6 +26,7 @@ import {
 import { ClassLevelBadge } from '../ClassLevelBadge';
 import { PermanentRulesStatusBadges, isActivationFullyLocked, isActivationManaOnly, conditionalPtBonusLines, variablePtLines } from '../PermanentRulesStatusBadges';
 import { FaceDownPermanentLayer } from '../FaceDownPermanentLayer';
+import { isFaceDownPermanent } from '../../utils/faceDownUi';
 
 export type FreeFieldPermanentOverlaysProps = {
   scale: number;
@@ -137,7 +138,7 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
   const showNonPlaneswalkerAbilityButtons = (showOwnAbilityButtons || showAnyPlayerAbilityButtons) && !isPlaneswalker && !activationFullyLocked;
   return (
     <>
-            {(raw as any)?.isFaceDown && <FaceDownPermanentLayer perm={raw} viewerId={playerId} scale={scale} />}
+            {isFaceDownPermanent(raw) && <FaceDownPermanentLayer perm={raw} viewerId={playerId} scale={scale} />}
             {/* Token count badge - shown for grouped tokens or any token with count > 1 */}
             {((isGroupedTokens && tokenCount && tokenCount > 1) || (isToken && tokenCount && tokenCount > 1)) && (
               <div style={{

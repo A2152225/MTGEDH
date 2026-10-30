@@ -43,7 +43,19 @@ const pendingToasts = new Map<string, { name?: string; revealed?: string; timer:
 const TOAST_MERGE_MS = 80;
 
 export function isFaceDownPermanent(perm: any): boolean {
-  return !!perm && (perm.isFaceDown === true || perm.card?.isFaceDownStub === true);
+  if (!perm || perm.revealedAtGameEnd === true) return false;
+  return (
+    perm.isFaceDown === true
+    || perm.card?.isFaceDownStub === true
+    || perm.card?.faceDown === true
+  );
+}
+
+/** Public label for a face-down permanent. Never the raw permanent id. */
+export function faceDownPublicLabel(perm: any): string | null {
+  if (!isFaceDownPermanent(perm)) return null;
+  const display = String(perm?.card?.displayName || '').trim();
+  return display || 'Face-down creature';
 }
 
 /** Short label for the "Turn face up (cost)" button. */

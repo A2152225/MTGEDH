@@ -3,7 +3,7 @@ import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 
-export type EffectProgramCardZone = 'hand' | 'library' | 'graveyard' | 'exile' | 'battlefield';
+export type EffectProgramCardZone = 'hand' | 'library' | 'graveyard' | 'exile' | 'battlefield' | 'stack';
 
 export type OracleIRReplayMutation =
   | { readonly kind: 'mill'; readonly playerId: PlayerID; readonly count: number }
@@ -68,6 +68,8 @@ export type OracleIRReplayMutation =
       readonly permanentId?: string;
       readonly fromPermanentId?: string;
       readonly libraryPlacement?: 'top' | 'bottom';
+      /** Stack object id when fromZone is stack (card id and stack item id differ). */
+      readonly stackItemId?: string;
       /** Replay of an already-resolved destroy. Do not re-fire graveyard-from-anywhere triggers per permanent. */
       readonly skipGraveyardEntryTriggers?: boolean;
     }
@@ -86,7 +88,7 @@ export type OracleIRReplayMutation =
 
 function normalizeReplayZone(value: unknown): EffectProgramCardZone | null {
   const zone = String(value || '').trim().toLowerCase();
-  if (zone === 'hand' || zone === 'library' || zone === 'graveyard' || zone === 'exile' || zone === 'battlefield') {
+  if (zone === 'hand' || zone === 'library' || zone === 'graveyard' || zone === 'exile' || zone === 'battlefield' || zone === 'stack') {
     return zone;
   }
   return null;
@@ -214,6 +216,12 @@ export function buildMoveZoneReplayMutations(args: {
       card,
       ...(toZone === 'battlefield' && permanentIds[index] ? { permanentId: permanentIds[index] } : {}),
       ...(fromZone === 'battlefield' && permanentIds[index] ? { fromPermanentId: permanentIds[index] } : {}),
+      ...(fromZone === 'stack'
+        ? (() => {
+            const stackItemId = String((card as any)?.copiedFromStackItemId || (card as any)?.stackItemId || '').trim();
+            return stackItemId ? { stackItemId } : {};
+          })()
+        : {}),
       ...(toZone === 'library' && step
         ? (() => {
             const toRaw = String(step.toRaw || '').trim().toLowerCase();
