@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { viewFor } from '../src/state/modules/view.js';
 import { getContinuousGrantedAbilitiesForPermanent, syncDerivedContinuousEffects } from '../src/state/modules/staticEffectSpec.js';
 import { collectBattlefieldAbilityBadgesForView } from '../src/state/modules/battlefieldAbilityBadges.js';
+import { getAttackTriggersForCreatures } from '../src/state/modules/triggers/combat.js';
 
 describe('Agent of the Shadow Thieves badge regression', () => {
   it('does not show indestructible/deathtouch on background or commander before attack trigger', () => {
@@ -131,5 +132,47 @@ describe('Agent of the Shadow Thieves badge regression', () => {
 
     const viewBg = viewFor(ctx, p1, false).battlefield.find((p: any) => p.id === 'bg_1');
     expect((viewBg as any)?.grantedAbilities || []).toEqual([]);
+  });
+
+  it('queues the attack trigger once when the background text is also visible on the commander', () => {
+    const oracle =
+      'Commander creatures you own have "Whenever this creature attacks a player, if no opponent has more life than that player, put a +1/+1 counter on this creature. It gains deathtouch and indestructible until end of turn."';
+    const commander = {
+      id: 'cmd_1',
+      controller: 'p1',
+      owner: 'p1',
+      isCommander: true,
+      attacking: 'p2',
+      card: {
+        id: 'cmd_card',
+        name: 'Baeloth Barrityl, Entertainer',
+        type_line: 'Legendary Creature — Elf Shaman',
+        oracle_text: 'Choose a Background',
+        power: '2',
+        toughness: '5',
+      },
+    };
+    const agent = {
+      id: 'agent_1',
+      controller: 'p1',
+      owner: 'p1',
+      card: {
+        name: 'Agent of the Shadow Thieves',
+        type_line: 'Legendary Enchantment — Background',
+        oracle_text: oracle,
+      },
+    };
+    const ctx: any = {
+      state: {
+        players: [{ id: 'p1' }, { id: 'p2' }],
+        life: { p1: 40, p2: 40 },
+        battlefield: [commander, agent],
+        commandZone: { p1: { commanderIds: ['cmd_card'], commanderNames: ['Baeloth Barrityl, Entertainer'] } },
+      },
+    };
+    const triggers = getAttackTriggersForCreatures(ctx, [commander], 'p1', 'p2')
+      .filter((trigger: any) => /put a \+1\/\+1 counter/i.test(String(trigger.effect || trigger.description || '')));
+    expect(triggers).toHaveLength(1);
+    expect(String(triggers[0].description || triggers[0].effect)).toMatch(/whenever this creature attacks a player/i);
   });
 });

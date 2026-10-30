@@ -7,6 +7,7 @@ import { triggerLifeGainEffects } from '../state/utils.js';
 import { debug, debugWarn } from '../utils/debug.js';
 import { excludedCreatureTypeFromDamageTargetType } from '../state/modules/triggers/damage-redirect-target-type.js';
 import { notifyNoncombatPlayerDamage } from '../state/modules/triggers/player-dealt-damage-ir.js';
+import { resolveDamageTrigger } from '../state/modules/triggers/damage-received.js';
 
 function syncPlayerLife(state: any, playerId: string, lifeTotal: number): void {
   state.life = state.life || {};
@@ -211,6 +212,37 @@ export function emitPendingDamageTriggers(
         broadcastGame(io, game, gameId);
       }
 
+      emitted++;
+      continue;
+    }
+
+    if (String(targetType) === 'chosen_player') {
+      const chosenId = String(sourcePerm?.chosenPlayer || sourcePerm?.card?.chosenPlayer || '').trim();
+      if (chosenId && dmg > 0) {
+        const message = resolveDamageTrigger({
+          state: game.state,
+          libraries: (game as any).libraries,
+          gameId,
+          bumpSeq: () => {
+            if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+          },
+        } as any, {
+          triggerId: String(triggerId),
+          sourceId: String(sourceId || ''),
+          sourceName: String(sourceName || ''),
+          controller: controllerId,
+          damageAmount: dmg,
+          targetType: 'chosen_player',
+        }, chosenId);
+        io.to(gameId).emit('chat', {
+          id: `m_${Date.now()}`,
+          gameId,
+          from: 'system',
+          message,
+          ts: Date.now(),
+        });
+        broadcastGame(io, game, gameId);
+      }
       emitted++;
       continue;
     }

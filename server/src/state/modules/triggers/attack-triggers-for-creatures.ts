@@ -209,6 +209,21 @@ export function getAttackTriggersForCreatures(
       if (!permanent || String(permanent.controller || '') !== attackingPlayer) continue;
       const grantedAbilities = extractCommanderOwnedGrantedAbilityTexts(String(permanent.card?.oracle_text || ''));
       for (const grantedAbility of grantedAbilities) {
+        const grantedCompact = grantedAbility.toLowerCase().replace(/\s+/g, ' ').trim();
+        for (let index = triggers.length - 1; index >= 0; index -= 1) {
+          const existing = triggers[index];
+          if (String(existing?.permanentId || '') !== String(attacker.id || '')) continue;
+          const existingCompact = String(existing?.effect || existing?.description || '')
+            .toLowerCase()
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (!existingCompact) continue;
+          // The generic "whenever ~ attacks" matcher treats "attacks a player, if …"
+          // as the effect. That tail is the same background ability about to be queued.
+          const sameAbility = existingCompact === grantedCompact
+            || (existingCompact.length >= 24 && grantedCompact.endsWith(existingCompact));
+          if (sameAbility) triggers.splice(index, 1);
+        }
         triggers.push({
           permanentId: attacker.id,
           cardName: attacker.card?.name || 'Commander',

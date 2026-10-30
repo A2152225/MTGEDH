@@ -259,7 +259,13 @@ export function applyGrantTemporaryAbilityStep(
     }
   }
 
-  const massBuffSelector = parseSimpleBattlefieldSelector({ kind: 'raw', text: normalizedTargetText } as any);
+  // "Target creature you control gains …" names the chosen object. The mass
+  // selector strips the word "target" and would stamp every creature you control
+  // (Fire Nation Palace granted firebending to both attackers).
+  const chosenTargetGrant = /^target\b/i.test(normalizedTargetText);
+  const massBuffSelector = chosenTargetGrant
+    ? null
+    : parseSimpleBattlefieldSelector({ kind: 'raw', text: normalizedTargetText } as any);
   if (massBuffSelector) {
     const massTargets = battlefield.filter(perm => permanentMatchesSelector(perm, massBuffSelector, ctx));
     if (massTargets.length > 0) {
@@ -317,13 +323,18 @@ export function applyGrantTemporaryAbilityStep(
   }
   const attachedTargets = resolveAttachedStaticAbilityGrantTargets(battlefield, { kind: 'raw', text: normalizedTargetText }, ctx);
   const explicitTargetId = String(ctx.targetCreatureId || ctx.targetPermanentId || '').trim();
+  const chosenOnBattlefield = (Array.isArray(ctx.selectorContext?.chosenObjectIds) ? ctx.selectorContext.chosenObjectIds : [])
+    .map((id) => String(id || '').trim())
+    .filter((id) => id && battlefield.some((perm: any) => String(perm?.id || '').trim() === id));
   const contextualTargetIds = /^target\b/.test(targetText)
-    ? buildContextualBattlefieldTargetIds(
-        battlefield,
-        ctx,
-        false,
-        parseSimplePermanentTypeFromText(normalizedTargetText) || undefined,
-      )
+    ? (chosenTargetGrant && chosenOnBattlefield.length > 0
+        ? chosenOnBattlefield
+        : buildContextualBattlefieldTargetIds(
+            battlefield,
+            ctx,
+            false,
+            parseSimplePermanentTypeFromText(normalizedTargetText) || undefined,
+          ))
     : [];
   const boundTargetIds = contextualTargetIds.length > 0
     ? contextualTargetIds

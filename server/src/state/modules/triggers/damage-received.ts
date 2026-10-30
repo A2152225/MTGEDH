@@ -382,6 +382,19 @@ export function dispatchDamageReceivedTrigger(ctx: GameContext, triggerInfo: Dam
     return true;
   }
 
+  if (targetType === 'chosen_player') {
+    const chosenId = String(
+      sourcePerm?.chosenPlayer
+      || sourcePerm?.chosenPlayerId
+      || sourcePerm?.card?.chosenPlayer
+      || ''
+    ).trim();
+    if (chosenId) {
+      resolveDamageTrigger(ctx, triggerInfo, chosenId);
+    }
+    return true;
+  }
+
   if (!gameId) return false;
 
   const validTargets: any[] = [];

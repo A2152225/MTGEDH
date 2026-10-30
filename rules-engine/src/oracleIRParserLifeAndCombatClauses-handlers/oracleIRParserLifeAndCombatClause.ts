@@ -269,6 +269,21 @@ export function tryParseLifeAndCombatClause(args: {
   }
 
   {
+    // Jeska, Thrice Reborn: "Until your next turn, if that creature would deal combat
+    // damage to one of your opponents, it deals triple that damage to that player instead."
+    // This is a duration replacement on the chosen creature, not damage dealt now.
+    if (
+      /^until your next turn,\s*if (?:that|target) creature would deal combat damage to one of your opponents,\s*it deals triple that damage to that player instead\.?$/i.test(clause)
+    ) {
+      return withMeta({
+        kind: 'grant_temporary_ability',
+        target: parseObjectSelector('that creature'),
+        effectText: [rawClause],
+        duration: 'until_next_turn',
+        raw: rawClause,
+      });
+    }
+
     const damageClause = normalizeDamageClauseForParse(clause);
     const damageIncrease = damageClause.match(
       /^if\s+(.+?)\s+would\s+deal\s+(?:(combat|noncombat)\s+)?damage\s+to\s+(.+?),\s*it\s+deals?\s+that much damage plus\s+(.+?)\s+instead$/i

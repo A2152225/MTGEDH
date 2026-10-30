@@ -498,10 +498,18 @@ export function drawCardsForPlayer(
   const hand = readPlayerZoneCards(state, playerId, player, 'hand');
 
   let drawn = 0;
-  for (let i = 0; i < Math.max(0, count | 0); i++) {
+  const requested = Math.max(0, count | 0);
+  let guard = library.length;
+  while (drawn < requested && guard >= 0) {
+    guard -= 1;
     if (library.length === 0) {
       log.push(`${playerId} cannot draw (empty library)`);
       break;
+    }
+    const topId = String(library[0]?.id || '').trim();
+    if (topId && hand.some((card: any) => String(card?.id || '').trim() === topId)) {
+      library.shift();
+      continue;
     }
     const [card] = library.splice(0, 1);
     hand.push(card);

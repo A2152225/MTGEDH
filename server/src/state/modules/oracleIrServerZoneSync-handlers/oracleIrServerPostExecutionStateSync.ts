@@ -728,38 +728,47 @@ export function syncIrTemporaryGrantEffectsToServerTemporaryAbilities(
   for (const perm of battlefield) {
     if (!perm || typeof perm !== 'object') continue;
 
-    const pendingAbilities: string[] = [];
+    const pendingAbilities: Array<{ text: string; source: string }> = [];
     const temporaryEffects = Array.isArray(perm.temporaryEffects) ? perm.temporaryEffects : [];
     for (const effect of temporaryEffects) {
       if (!effect || typeof effect !== 'object') continue;
       const expiresAt = String(effect.expiresAt || '').trim();
       if (expiresAt && expiresAt !== 'end_of_turn' && expiresAt !== 'end_of_combat') continue;
 
+      // Keep the effect's own source. Stamping the spell that is resolving now
+      // re-copied old grants (Palace firebending was added again as Kozilek).
+      const effectSource = String(effect.sourceName || effect.source || sourceName || '').trim() || sourceName;
       const description = String(effect.description || '').trim();
       if (description) {
-        pendingAbilities.push(description);
+        pendingAbilities.push({ text: description, source: effectSource });
         continue;
       }
 
       const effectGranted = Array.isArray(effect.grantedAbilities) ? effect.grantedAbilities : [];
       for (const ability of effectGranted) {
         const text = String(ability || '').trim();
-        if (text) pendingAbilities.push(text);
+        if (text) pendingAbilities.push({ text, source: effectSource });
       }
     }
 
     if (pendingAbilities.length === 0) continue;
 
     perm.temporaryAbilities = Array.isArray(perm.temporaryAbilities) ? perm.temporaryAbilities : [];
-    for (const abilityText of pendingAbilities) {
-      const canonicalAbility = canonicalizeTemporaryAbilityForServer(abilityText, 'end_of_turn');
+    for (const pending of pendingAbilities) {
+      const canonicalAbility = canonicalizeTemporaryAbilityForServer(pending.text, 'end_of_turn');
       const key = normalizeTemporaryAbilityKeyForSync(canonicalAbility);
-      const existingIndex = perm.temporaryAbilities.findIndex((entry: any) =>
+      const abilitySource = pending.source;
+      const sameGrant = (entry: any) =>
         normalizeTemporaryAbilityKeyForSync(String(entry?.ability || entry || '')) === key
-        && String(entry?.source || sourceName) === String(sourceName)
-        && String(entry?.expiresAt || 'end_of_turn') === 'end_of_turn'
-      );
-      if (existingIndex >= 0) {
+        && String(entry?.source || abilitySource) === abilitySource
+        && String(entry?.expiresAt || 'end_of_turn') === 'end_of_turn';
+      const existingIndex = perm.temporaryAbilities.findIndex(sameGrant);
+      const effectCount = pendingAbilities.filter((entry) =>
+        normalizeTemporaryAbilityKeyForSync(canonicalizeTemporaryAbilityForServer(entry.text, 'end_of_turn')) === key
+        && entry.source === abilitySource
+      ).length;
+      const abilityCount = perm.temporaryAbilities.filter(sameGrant).length;
+      if (existingIndex >= 0 && abilityCount >= effectCount) {
         const existingAbility = String(perm.temporaryAbilities[existingIndex]?.ability || '').trim();
         const merged = preferTemporaryAbilityText(existingAbility, canonicalAbility);
         if (merged !== existingAbility) {
@@ -770,10 +779,11 @@ export function syncIrTemporaryGrantEffectsToServerTemporaryAbilities(
         }
         continue;
       }
+      if (abilityCount >= effectCount) continue;
 
       perm.temporaryAbilities.push({
         ability: canonicalAbility,
-        source: sourceName,
+        source: abilitySource,
         expiresAt: 'end_of_turn',
         turnApplied: turnNumber,
       });

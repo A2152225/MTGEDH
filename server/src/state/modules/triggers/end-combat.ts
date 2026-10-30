@@ -1,4 +1,5 @@
 import type { GameContext } from '../../context.js';
+import { stripReminderParentheticals } from '../../../../../rules-engine/src/oracleReminderText.js';
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { collectDelayedEndOfCombatRegistryTriggers } from './delayed-end-combat-watchers.js';
@@ -24,7 +25,8 @@ export interface EndOfCombatTrigger {
 export function detectEndOfCombatTriggers(card: any, permanent: any, gameState?: any): EndOfCombatTrigger[] {
   if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'step' })) return []; // Humility / Torpor Orb gate
   const triggers: EndOfCombatTrigger[] = [];
-  const oracleText = (card?.oracle_text || '');
+  // Keyword reminders (Myriad's "Exile the tokens at end of combat.") are not triggers.
+  const oracleText = stripReminderParentheticals(String(card?.oracle_text || ''));
   const cardName = card?.name || 'Unknown';
   const permanentId = permanent?.id || '';
   const controllerId = permanent?.controller || '';
@@ -39,7 +41,8 @@ export function detectEndOfCombatTriggers(card: any, permanent: any, gameState?:
   for (const { regex, triggerType } of patterns) {
     const match = oracleText.match(regex);
     if (!match) continue;
-    const effectText = timingTriggerEffect(oracleText, match);
+    const effectText = timingTriggerEffect(oracleText, match).trim();
+    if (!effectText || /^[.)\s]+$/.test(effectText)) continue;
     if (triggers.some((entry) => entry.effect === effectText)) {
       continue;
     }

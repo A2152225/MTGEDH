@@ -41,8 +41,10 @@ export function commitCardDraws(args: {
   const log: string[] = [];
   let drawnCount = 0;
   const drawIndexOffset = Math.max(0, Number(args.drawIndexOffset ?? 0) | 0);
+  let guard = 0;
 
-  for (let drawIndex = 0; drawIndex < requested; drawIndex += 1) {
+  while (drawnCount < requested && guard < 500) {
+    guard += 1;
     const player = nextState.players.find((entry) => entry.id === args.playerId) as any;
     if (!player) break;
 
@@ -52,7 +54,16 @@ export function commitCardDraws(args: {
       break;
     }
 
+    const handBefore = readPlayerZoneCards(nextState, args.playerId, player, 'hand');
+    const topId = String(library[0]?.id || '').trim();
+    if (topId && handBefore.some((card: any) => String(card?.id || '').trim() === topId)) {
+      library.shift();
+      writePlayerZoneCards(nextState, args.playerId, player, 'library', library);
+      continue;
+    }
+
     const topCard = library[0];
+    const drawIndex = drawnCount;
     const transition = buildCardDrawTransition({
       playerId: args.playerId,
       stepIndex: args.stepIndex,
@@ -85,7 +96,7 @@ export function commitCardDraws(args: {
     const ready = bridgeResult.ready?.[0] ?? transition;
     const effectiveCount = Math.max(0, Number(ready.event.count ?? ready.event.amount ?? 1) | 0);
     if (effectiveCount <= 0) {
-      continue;
+      break;
     }
 
     const currentLibrary = readPlayerZoneCards(nextState, args.playerId, player, 'library');
@@ -140,10 +151,18 @@ function drawCardsDirect(args: {
   const log: string[] = [];
   let drawn = 0;
 
-  for (let i = 0; i < Math.max(0, args.count | 0); i += 1) {
+  const requestedDirect = Math.max(0, args.count | 0);
+  let guard = library.length;
+  while (drawn < requestedDirect && guard >= 0) {
+    guard -= 1;
     if (library.length === 0) {
       log.push(`${args.playerId} cannot draw (empty library)`);
       break;
+    }
+    const topId = String(library[0]?.id || '').trim();
+    if (topId && hand.some((card: any) => String(card?.id || '').trim() === topId)) {
+      library.shift();
+      continue;
     }
     const [card] = library.splice(0, 1);
     hand.push(card);

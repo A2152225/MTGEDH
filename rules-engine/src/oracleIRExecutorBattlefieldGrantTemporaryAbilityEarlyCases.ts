@@ -44,6 +44,47 @@ export function tryApplyGrantTemporaryAbilityEarlyCases(
   sourceNameAliases: Set<string>,
 ): BattlefieldStepHandlerResult | null {
   if (
+    /until your next turn/i.test(stepRaw)
+    && /would deal combat damage to one of your opponents/i.test(stepRaw)
+    && /deals triple that damage to that player instead/i.test(stepRaw)
+  ) {
+    const boundIds = new Set(collectBoundBattlefieldIds(ctx));
+    const targets = battlefield.filter((perm) => boundIds.has(String((perm as any)?.id || '').trim()));
+    if (targets.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped triple combat damage grant (no chosen creature): ${step.raw}`,
+        reason: 'no_deterministic_target',
+      };
+    }
+    const grantText = 'Deals triple combat damage to opponents (until your next turn)';
+    const controllerId = String(ctx.controllerId || (targets[0] as any)?.controller || '').trim();
+    const turnApplied = Number((state as { turnNumber?: number }).turnNumber || 0) || 0;
+    const sourceName = String(ctx.sourceName || '').trim();
+    const targetIds = new Set(targets.map((perm) => String((perm as any)?.id || '').trim()));
+    const nextBattlefield = battlefield.map((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (!targetIds.has(id)) return perm;
+      const grantedAbilities = Array.isArray(perm.grantedAbilities) ? [...perm.grantedAbilities] : [];
+      if (!grantedAbilities.includes(grantText)) grantedAbilities.push(grantText);
+      const untilNextTurnGrants = Array.isArray(perm.untilNextTurnGrants) ? [...perm.untilNextTurnGrants] : [];
+      untilNextTurnGrants.push({
+        controllerId,
+        turnApplied,
+        grantedAbilities: [grantText],
+        sourceName,
+        kind: 'triple_combat_damage_to_opponents',
+      });
+      return { ...perm, grantedAbilities, untilNextTurnGrants };
+    });
+    return {
+      applied: true,
+      state: { ...state, battlefield: nextBattlefield },
+      log: ['Granted triple combat damage to opponents until your next turn'],
+    };
+  }
+
+  if (
     /your life total can(?:not|'t) change/i.test(stepRaw) &&
     /protection from everything/i.test(stepRaw)
   ) {

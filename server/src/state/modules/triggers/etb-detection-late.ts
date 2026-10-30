@@ -222,6 +222,11 @@ export function appendEtbDetectionLate(state: EtbDetectionState): void {
   const modalETBMatch = oracleText.match(/as (?:~|this (?:creature|permanent|enchantment)) enters(?: the battlefield)?,?\s*choose\s+([^.]+)/i);
   if (modalETBMatch && !isEtbCreatureTypeChoiceOracle(oracleText)) {
     const choiceText = modalETBMatch[1].trim();
+    // "choose a player / a color / a creature type" has its own chooser.
+    // Treating the words "a player" as a modal option queues a second prompt that does nothing.
+    if (/^(?:a colou?r|a creature type|a basic land type|a (?:nonland )?card(?: name)?|an opponent|a player)\b/i.test(choiceText)) {
+      // dedicated as-enters choice
+    } else {
     // Parse the options (usually "X or Y" pattern)
     const options = choiceText.split(/\s+or\s+/i).map(opt => opt.trim().replace(/[.,]$/, ''));
     
@@ -235,6 +240,7 @@ export function appendEtbDetectionLate(state: EtbDetectionState): void {
       requiresChoice: true,
       modalOptions: options,
     } as any);
+    }
   }
   
   // Job Select (Final Fantasy set) - When this Equipment enters, create a 1/1 colorless Hero creature token, then attach this to it.

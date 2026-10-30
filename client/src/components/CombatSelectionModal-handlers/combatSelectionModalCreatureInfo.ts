@@ -4,9 +4,34 @@
 // Leaf must not import CombatSelectionModal.tsx or CombatSelectionModal-handlers/index.ts.
 
 import type { BattlefieldPermanent, KnownCardRef } from '../../../../shared/src';
+import { parseSelfCombatRestrictions } from '../../../../rules-engine/src/attackRestrictionText';
+import { permanentHasMustAttackFromTextExtras } from '../../../../rules-engine/src/attackRequirementTextExtras';
 import { getCombinedPermanentText } from '../../utils/permanentText';
 import { getPermanentGoaders, isPermanentGoaded } from '../../utils/combatGoad';
 import { hasCurrentKeyword } from '../../utils/creatureUtils';
+
+/**
+ * "All creatures / creatures you control … attack each combat if able" includes this creature.
+ * "Other creatures" does not. Opponent-only and goad reminder text is handled separately.
+ */
+const INCLUSIVE_MUST_ATTACK =
+  /(?<!other )\b(?:all creatures|each creature|creatures you control)\b[^.]*\battacks?\s+each\s+combat\s+if\s+able\b/i;
+
+function creatureMustAttackEachCombat(perm: BattlefieldPermanent, combinedText: string): boolean {
+  if (Boolean((perm as { mustAttackEachCombat?: unknown }).mustAttackEachCombat) || Boolean((perm as { mustAttack?: unknown }).mustAttack)) {
+    return true;
+  }
+  // Strips "(They attack each combat if able…)" and skips opponent / enchanted / target subjects.
+  if (parseSelfCombatRestrictions(combinedText).mustAttackEachCombat) return true;
+  if (permanentHasMustAttackFromTextExtras(perm)) return true;
+  const withoutReminders = combinedText.replace(/\([^)]*\)/g, ' ');
+  for (const sentence of withoutReminders.split(/[.!?\n]+/)) {
+    const line = sentence.trim();
+    if (!line || /\bmay\b/i.test(line)) continue;
+    if (INCLUSIVE_MUST_ATTACK.test(line)) return true;
+  }
+  return false;
+}
 
 /**
  * Dangerous combat abilities that players should be warned about
@@ -152,7 +177,7 @@ export function getCreatureInfo(perm: BattlefieldPermanent): {
     goaded: isPermanentGoaded(perm),
     goadedBy: getPermanentGoaders(perm),
     lure: hasLure,
-    mustAttack: /attacks? each (?:combat|turn) if able/.test(combinedText),
+    mustAttack: creatureMustAttackEachCombat(perm, combinedText),
     mustBlock: /blocks? each (?:combat|turn) if able/.test(combinedText),
     cantAttack: /\bcan(?:'|\u2019|no)t attack(?! you\b)(?: or block)?\b(?!.*\bunless\b)/.test(combinedText),
     cantBlock: /\bcan(?:'|\u2019|no)t (?:attack or )?block\b(?!.*\bunless\b)/.test(combinedText),

@@ -284,6 +284,102 @@ describe('generic stack resolution regressions', () => {
     );
   });
 
+  it('grants palace firebending only to the chosen attacker, and later spells do not copy it', () => {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = '1';
+    delete process.env.ORACLE_IR_TRIGGER_LEGACY;
+    try {
+    const palaceText = 'target creature you control gains firebending 4 until end of turn. (whenever it attacks, add {r}{r}{r}{r}. this mana lasts until end of combat.)';
+    const library = [
+      { id: 'c1', name: 'Mountain' },
+      { id: 'c2', name: 'Mountain' },
+      { id: 'c3', name: 'Mountain' },
+      { id: 'c4', name: 'Mountain' },
+    ];
+    const emptyPool = { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 };
+    const baeloth: any = {
+      id: 'baeloth',
+      controller: playerId,
+      owner: playerId,
+      tapped: false,
+      temporaryAbilities: [],
+      temporaryEffects: [],
+      card: {
+        name: 'Baeloth Barrityl, Entertainer',
+        type_line: 'Legendary Creature — Elf Shaman',
+        oracle_text: 'Choose a Background',
+        power: '2',
+        toughness: '5',
+      },
+    };
+    const ozai: any = {
+      id: 'ozai',
+      controller: playerId,
+      owner: playerId,
+      tapped: false,
+      temporaryAbilities: [],
+      temporaryEffects: [],
+      card: {
+        name: 'Ozai, the Phoenix King',
+        type_line: 'Legendary Creature — Human Noble',
+        oracle_text: 'Trample, firebending 4, haste\nIf you would lose unspent mana, that mana becomes red instead.\nOzai has flying and indestructible as long as you have six or more unspent mana.',
+        power: '7',
+        toughness: '7',
+      },
+    };
+    const ctx: any = {
+      gameId,
+      state: {
+        turnNumber: 41,
+        players: [{ id: playerId }, { id: opponentId }],
+        startingLife: 40,
+        life: { [playerId]: 40, [opponentId]: 40 },
+        battlefield: [baeloth, ozai],
+        manaPool: { [playerId]: { ...emptyPool } },
+        zones: {
+          [playerId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: library },
+          [opponentId]: { hand: [], handCount: 0, graveyard: [], graveyardCount: 0, exile: [], exileCount: 0, library: [] },
+        },
+      },
+      libraries: new Map([[playerId, library.slice()]]),
+    };
+
+    executeTriggerEffect(ctx, playerId, 'Fire Nation Palace', palaceText, {
+      sourceName: 'Fire Nation Palace',
+      targets: ['baeloth'],
+    });
+
+    const firebendingOn = (id: string) =>
+      ((ctx.state.battlefield as any[]).find((perm) => perm.id === id)?.temporaryAbilities || [])
+        .filter((entry: any) => /firebending\s+4/i.test(String(entry?.ability || '')));
+
+    expect(firebendingOn('baeloth')).toEqual([
+      expect.objectContaining({ ability: 'firebending 4', source: 'Fire Nation Palace' }),
+    ]);
+    expect(firebendingOn('ozai')).toEqual([]);
+
+    executeTriggerEffect(ctx, playerId, 'Kozilek, Butcher of Truth', 'draw four cards', {
+      sourceName: 'Kozilek, Butcher of Truth',
+      targets: [],
+    });
+
+    expect(firebendingOn('baeloth')).toEqual([
+      expect.objectContaining({ ability: 'firebending 4', source: 'Fire Nation Palace' }),
+    ]);
+    expect(firebendingOn('ozai')).toEqual([]);
+
+    const attackers = (ctx.state.battlefield as any[]).filter((perm) => perm.id === 'baeloth' || perm.id === 'ozai');
+    const firebendingTriggers = getAttackTriggersForCreatures(ctx, attackers, playerId, opponentId)
+      .filter((trigger: any) => trigger?.triggerType === 'firebending');
+    expect(firebendingTriggers).toHaveLength(2);
+    for (const trigger of firebendingTriggers) {
+      executeTriggerEffect(ctx, playerId, trigger.cardName, trigger.effect, trigger);
+    }
+    expect(ctx.state.manaPool[playerId].red).toBe(8);
+    } finally {
+      delete process.env.ORACLE_IR_TRIGGER_PRIMARY;
+    }
+  });
+
   it('stacks native and granted firebending attack triggers', () => {
     const ozai: any = {
       id: 'ozai_perm',
