@@ -94,7 +94,7 @@ Internal TOC: `server/src/socket/resolution-handlers/index.ts`. Leaves must not 
 | `optionChoiceWardPaymentHandlers.ts` | Ward pay-or-counter OPTION_CHOICE. |
 | `optionChoicePayOrElseHandlers.ts` | Sacrifice-unless-pay, Force of Will pitch, opponent-may-pay. |
 | `optionChoiceCastFromGraveyardPrompts.ts` | Play/cast from graveyard OPTION_CHOICE. |
-| `optionChoiceCastFromExilePrompts.ts` | Cast-from-exile + Dance with Calamity. A generic “cast” choice that does not start a cast (no stack growth, card still in exile, no pending payment/target) is treated as the decline destination instead of re-queued, so Possibility Storm AI cannot loop `option_choice` forever. |
+| `optionChoiceCastFromExilePrompts.ts` | Cast-from-exile + Dance with Calamity. A generic “cast” choice that does not start a cast (no stack growth, card still in exile, no pending payment/target) is treated as the decline destination instead of re-queued, so Possibility Storm AI cannot loop `option_choice` forever. The may-cast option is built by `buildCastFromExilePromptOptions` (`triggerCastFromExileUtils.ts`) and includes the offered card’s `imageUrl` / `previewCard` for hover. The follow-up forced `{0}` payment is auto-confirmed on the client (`redundantFreeSpellPayment.ts`). |
 | `optionChoiceReflexiveExileWhenYouDoHandlers.ts` | Reflexive exile when-you-do that move then push. |
 | `optionChoiceReflexiveWhenYouDoQueueHandlers.ts` | Reflexive when-you-do that only queue the follow-up. |
 | `optionChoiceDungeonRoomPrompts.ts` | Dungeon room penalty / free-cast / Throne. |

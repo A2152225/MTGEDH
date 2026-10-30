@@ -8,6 +8,7 @@ import { handleAppResolutionStepPromptEarly } from "./appResolutionStepPromptEar
 import { handleAppResolutionStepPromptLate } from "./appResolutionStepPromptLate";
 import { socket } from "../socket";
 import { buildResolutionResponsePayload, matchesPromptFingerprint } from "../utils/loopShortcuts";
+import { decideRedundantFreeSpellPayment } from "../utils/redundantFreeSpellPayment";
 
 export function useAppResolutionStepPromptEffects(p: Record<string, any>) {
   const {
@@ -242,6 +243,30 @@ export function useAppResolutionStepPromptEffects(p: Record<string, any>) {
           }
 
           stopLoopShortcutReplay('Loop replay paused: a recorded prompt choice is no longer legal.');
+        }
+      }
+
+      const stepIsYours = Boolean(you) && (!step.playerId || String(step.playerId) === String(you));
+      if (stepIsYours) {
+        const freePayment = decideRedundantFreeSpellPayment(step);
+        if (freePayment.decision === 'submit' && freePayment.stepId) {
+          socket.emit('submitResolutionResponse', {
+            gameId: payload.gameId,
+            stepId: freePayment.stepId,
+            selections: freePayment.selections,
+            cancelled: false,
+          });
+          setCastSpellModalOpen(false);
+          setSpellToCast(null);
+          setActiveResolutionPrompt(null);
+          setMinimizedResolutionStep(null);
+          return;
+        }
+        if (freePayment.decision === 'suppress') {
+          setCastSpellModalOpen(false);
+          setSpellToCast(null);
+          setActiveResolutionPrompt(null);
+          return;
         }
       }
 

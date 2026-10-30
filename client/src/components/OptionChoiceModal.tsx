@@ -15,6 +15,15 @@ export interface OptionChoiceOption {
   label: string;
   description?: string;
   imageUrl?: string;
+  cardName?: string;
+  /** Full card identity for the shared hover preview (image, faces, type line). */
+  previewCard?: {
+    name?: string;
+    type_line?: string;
+    layout?: string;
+    image_uris?: { small?: string; normal?: string; large?: string; png?: string; art_crop?: string };
+    card_faces?: Array<{ name?: string; type_line?: string; image_uris?: { small?: string; normal?: string; large?: string; png?: string; art_crop?: string } }>;
+  };
   disabled?: boolean;
   isToken?: boolean;
 }
@@ -135,8 +144,17 @@ export function OptionChoiceModal({
           {options.map((option) => {
             const isSelected = selectedOptions.has(option.id);
             const isDisabled = option.disabled || false;
+            const previewCard = option.previewCard;
+            const thumbUrl = previewCard?.image_uris?.small
+              || previewCard?.image_uris?.normal
+              || option.imageUrl
+              || previewCard?.card_faces?.find((face) => face.image_uris?.small || face.image_uris?.normal)?.image_uris?.small
+              || previewCard?.card_faces?.find((face) => face.image_uris?.normal)?.image_uris?.normal;
+            const previewSource = previewCard && (previewCard.image_uris || previewCard.card_faces?.length)
+              ? previewCard
+              : { imageUrl: option.imageUrl || thumbUrl, name: option.cardName || option.label, type_line: option.description };
             const previewHandlers = !isDisabled
-              ? getCardPreviewHandlers({ imageUrl: option.imageUrl, name: option.label })
+              ? getCardPreviewHandlers(previewSource)
               : {};
             
             return (
@@ -175,11 +193,11 @@ export function OptionChoiceModal({
                   }
                 }}
               >
-                {option.imageUrl && (
-                  <img 
-                    src={option.imageUrl} 
-                    alt={option.label} 
-                    style={{ width: 40, height: 40, borderRadius: 4, objectFit: 'cover' }}
+                {thumbUrl && (
+                  <img
+                    src={thumbUrl}
+                    alt={option.cardName || option.label}
+                    style={{ width: 72, height: 100, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }}
                   />
                 )}
                 <div style={{ flex: 1 }}>

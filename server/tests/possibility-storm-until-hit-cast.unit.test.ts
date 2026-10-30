@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../../rules-engine/src/oracleIRExecutor.js';
 import { queueDuringResolutionShareTypeCastPromptFromOracleIRResult } from '../src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerImpulseDuringResolutionCastPrompts.js';
+import { buildCastFromExilePromptOptions } from '../src/state/modules/triggerCastFromExileUtils.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
 
 const POSSIBILITY_STORM_ORACLE =
@@ -37,7 +38,12 @@ describe('Possibility Storm until-hit free-cast prompt', () => {
             library: [
               { id: 'p2c1', name: 'Forest', type_line: 'Basic Land — Forest' },
               { id: 'p2c2', name: 'Llanowar Elves', type_line: 'Creature — Elf' },
-              { id: 'p2c3', name: 'Shock', type_line: 'Instant' },
+              {
+                id: 'p2c3',
+                name: 'Shock',
+                type_line: 'Instant',
+                image_uris: { small: 'https://cards.example/shock-small.jpg', normal: 'https://cards.example/shock.jpg' },
+              },
               { id: 'p2c4', name: 'Opt', type_line: 'Instant' },
             ],
             hand: [],
@@ -100,8 +106,37 @@ describe('Possibility Storm until-hit free-cast prompt', () => {
     expect(prompt).toBeTruthy();
     expect(prompt.playerId).toBe('p2');
     expect(prompt.castFromExileDeclineDestination).toBe('library_bottom_random');
+    const castOption = (prompt.options || []).find((option: any) => option.id === 'cast');
+    expect(castOption?.cardName).toBe('Shock');
+    expect(castOption?.description).toBe('Instant');
+    expect(castOption?.imageUrl).toBe('https://cards.example/shock.jpg');
+    expect(castOption?.previewCard?.image_uris?.normal).toBe('https://cards.example/shock.jpg');
+    expect(castOption?.previewCard?.name).toBe('Shock');
     expect(boltStillExiled).toBe(false);
     expect((p2.exile || []).map((card: any) => card.id)).toEqual(['p2c3']);
     ResolutionQueueManager.clearAllSteps(gameId);
+  });
+
+  it('keeps both faces of a double-faced hit for hover', () => {
+    const [castOption] = buildCastFromExilePromptOptions({
+      id: 'dfc',
+      name: 'Delver of Secrets',
+      layout: 'transform',
+      card_faces: [
+        {
+          name: 'Delver of Secrets',
+          type_line: 'Creature — Human Wizard',
+          image_uris: { normal: 'https://cards.example/delver.jpg', small: 'https://cards.example/delver-small.jpg' },
+        },
+        {
+          name: 'Insectile Aberration',
+          type_line: 'Creature — Human Insect',
+          image_uris: { normal: 'https://cards.example/aberration.jpg' },
+        },
+      ],
+    });
+    expect(castOption?.imageUrl).toBe('https://cards.example/delver.jpg');
+    expect((castOption?.previewCard as any)?.card_faces).toHaveLength(2);
+    expect((castOption?.previewCard as any)?.card_faces[1].name).toBe('Insectile Aberration');
   });
 });

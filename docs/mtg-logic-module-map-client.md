@@ -172,6 +172,7 @@ Public leftover **32.1 KB**. Re-exports `parseAlternateCosts` / `AlternateCost`.
 | `manaSourceLandAuraBonuses.ts` | Stored chosen-color resolve (Thriving Grove) + tap-for-mana aura bonuses (Fertile Ground, Wild Growth, Utopia Sprawl). |
 | `expandGroupedTokens.ts` | Emit token-stack instance counts (`groupedTokenMemberCount`, `tokenDisplayInstanceCount`, `shouldCollapseTokenGroups`, `expandGroupedTokensForDisplay`). Combat attacker lists expand `groupedTokenIds` even when `tokenCount` is missing. |
 | `resolutionChoicePrimitives.ts` | Generic option / library-search / X mapping. `readResolutionPromptCause` copies `causeName` / `causeImage` / `causeLabel` for choose-one and optional-ability prompts. |
+| `redundantFreeSpellPayment.ts` | Auto-confirms a forced free `{0}` spell payment (`decideRedundantFreeSpellPayment`) so Possibility Storm / cascade do not open a second “pay nothing” modal after the player already accepted the cast. A re-queued step for the same cast still opens the modal. |
 | `ResolutionPromptCause.tsx` | Shared “You cast Reckless Blaze” chip on option-choice and may-ability prompts. |
 | `turnAttentionNotify.ts` | Unfocused-tab your-turn alert: title flash + short chime. `notifyUnfocusedYourTurn`, `isPageUnfocused`. |
 | `bottomOrderConfirm.ts` | Confirm payload for `BOTTOM_ORDER`: prefer `bottomOrder`, fall back to `keepTopOrder` so Confirm never submits an empty permutation. |
