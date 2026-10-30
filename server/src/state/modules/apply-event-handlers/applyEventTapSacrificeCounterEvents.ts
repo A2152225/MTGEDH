@@ -357,10 +357,17 @@ export function applyTapSacrificeCounterEvents(ctx: GameContext, e: GameEvent): 
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();
           const resolvedStepId = String((e as any).resolvedStepId || '').trim();
-          if (replayGameId && resolvedStepId) {
+          const sourceId = String((e as any).sourceId || '').trim();
+          if (replayGameId) {
             clearReplayQueuedSteps(replayGameId, (step: any) => {
-              if (!step) return false;
-              return String(step?.id || '').trim() === resolvedStepId;
+              if (!step || String(step?.type || '') !== 'repeated_zone_draft') return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              // Older logs stored the next round without the live step id, so every
+              // previous chooser prompt came back on reload. This pick already
+              // happened; the following prompt event restores only the current round.
+              const stepSource = String(step?.sourceId || step?.oracleIrSourceId || '').trim();
+              if (sourceId && stepSource) return stepSource === sourceId;
+              return !sourceId;
             });
           }
         } catch (err) {

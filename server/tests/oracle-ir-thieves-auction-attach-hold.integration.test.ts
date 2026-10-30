@@ -8,6 +8,9 @@ import {
   applyOracleIRStepsOnServer,
 } from '../src/state/modules/oracleIrServerZoneSync.js';
 import { handleRepeatedZoneDraftResponse } from '../src/socket/resolutionHideawayZoneDraftPermanentChoiceResponseHandlers.js';
+import { buildRepeatedZoneDraftCardChoiceInfo } from '../../rules-engine/src/oracleIRExecutorRepeatedZoneDraft.js';
+import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters.js';
+import { applyEvent } from '../src/state/modules/applyEvent.js';
 import { buildAiHandAndDraftStepResponse } from '../src/socket/resolution-handlers/aiHandAndDraftStepResponses.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
@@ -135,5 +138,94 @@ describe("Thieves' Auction live attach and LTB/ETB hold", () => {
     ResolutionQueueManager.completeStep(gameId, String(draftStep!.id), pickResponse);
     handleRepeatedZoneDraftResponse(stubIo(), game, gameId, draftStep!, pickResponse);
     expect((game.state as any).oracleIrHeldChaosZoneTriggers).toBeUndefined();
+  });
+
+  it('shows the owner and chosen characteristics on an auction card', () => {
+    const exiled = buildZoneObjectWithRetainedCounters(
+      { id: 'card_elf', name: 'Voice of Resurgence', type_line: 'Creature — Elemental' },
+      {
+        owner: 'p2',
+        chosenCreatureType: 'Elemental',
+        chosenColor: 'green',
+        chosenPlayer: 'p1',
+        chosenPlayerName: 'Ada',
+      },
+      'exile',
+    );
+    expect(exiled.chosenCreatureType).toBe('Elemental');
+    expect(exiled.chosenColor).toBe('green');
+    expect(exiled.ownerId).toBe('p2');
+
+    const info = buildRepeatedZoneDraftCardChoiceInfo({
+      players: [
+        { id: 'p1', name: 'Ada' },
+        { id: 'p2', name: 'Nissa' },
+      ],
+      zones: { p2: { exile: [exiled] } },
+      battlefield: [],
+    }, 'card_elf', 'p1');
+    expect(info?.ownerName).toBe('Nissa');
+    expect(info?.details).toContain('Owner: Nissa');
+    expect(info?.details).toContain('Color: green');
+    expect(info?.details).toContain('Creature type: Elemental');
+    expect(info?.details).toContain('Chosen player: Ada');
+  });
+
+  it('does not restore earlier auction rounds after a pick has been replayed', () => {
+    const gameId = 'auction_replay_rounds';
+    ResolutionQueueManager.removeQueue(gameId);
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'draft_round_1',
+      type: ResolutionStepType.REPEATED_ZONE_DRAFT,
+      playerId: 'p1',
+      description: 'round 1',
+      mandatory: true,
+      sourceId: 'auction_spell',
+      remainingCardIds: ['card_a', 'card_b'],
+    } as any, { allowDuringReplay: true, skipEmit: true });
+    ResolutionQueueManager.addStep(gameId, {
+      id: 'draft_round_2',
+      type: ResolutionStepType.REPEATED_ZONE_DRAFT,
+      playerId: 'p2',
+      description: 'round 2',
+      mandatory: true,
+      sourceId: 'auction_spell',
+      remainingCardIds: ['card_b'],
+    } as any, { allowDuringReplay: true, skipEmit: true });
+
+    const ctx = {
+      gameId,
+      isReplaying: true,
+      state: { stack: [], battlefield: [], zones: {} },
+      bumpSeq() {},
+    } as any;
+    applyEvent(ctx, {
+      type: 'repeatedZoneDraftPick',
+      playerId: 'p1',
+      cardId: 'card_a',
+      resolvedStepId: 'live_step_id_that_was_not_stored',
+      sourceId: 'auction_spell',
+    } as any);
+    expect(ResolutionQueueManager.getQueue(gameId).steps).toHaveLength(0);
+
+    applyEvent(ctx, {
+      type: 'resolveTopOfStackPrompt',
+      playerId: 'p2',
+      sourceId: 'auction_spell',
+      queuedResolutionSteps: [{
+        type: ResolutionStepType.REPEATED_ZONE_DRAFT,
+        playerId: 'p2',
+        description: 'current round',
+        mandatory: true,
+        sourceId: 'auction_spell',
+        remainingCardIds: ['card_b'],
+      }],
+    } as any);
+
+    const left = ResolutionQueueManager.getQueue(gameId).steps as any[];
+    expect(left).toHaveLength(1);
+    expect(left[0].remainingCardIds).toEqual(['card_b']);
+    expect(left[0].playerId).toBe('p2');
+    ResolutionQueueManager.removeQueue(gameId);
   });
 });

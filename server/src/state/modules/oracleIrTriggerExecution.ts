@@ -257,9 +257,20 @@ function resolveTriggerTargetBinding(
   // Attack watchers (Vengeful Ancestor "whenever a goaded creature attacks")
   // stamp the attacking creature so "it deals 1 damage to its controller" binds.
   const attackingCreatureId = String(triggerItem?.effectData?.attackingCreatureId || '').trim();
+  const effectNamesSeparateAnyTarget = /\bto any target\b/i.test(
+    String(triggerItem?.effect || triggerItem?.description || ''),
+  );
+  const enteringCreatureWasChosen = Boolean(
+    interveningSubjectPermanentId
+    && normalizedTargetIds.some((id) => id === interveningSubjectPermanentId),
+  );
+  // "it deals damage … to any target": the entering creature is the damage
+  // source, not an implicit target. Binding it as the target hits that creature
+  // for its own power with no prompt.
+  const bindEnteringCreatureAsTarget = !effectNamesSeparateAnyTarget || enteringCreatureWasChosen;
   const chosenObjectIds = Array.from(new Set([
     ...normalizedTargetIds,
-    ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
+    ...(bindEnteringCreatureAsTarget && interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...(damagedPermanentId ? [damagedPermanentId] : []),
     ...(untappedPermanentId ? [untappedPermanentId] : []),
     ...(attackingCreatureId ? [attackingCreatureId] : []),
@@ -267,8 +278,12 @@ function resolveTriggerTargetBinding(
     ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
     ...createdTokenIds,
   ]));
+  // Pronoun effects ("put a counter on it") still use the entering creature.
+  // "to any target" does not, unless the player actually chose that creature.
   if (
     !targetPermanentId
+    && bindEnteringCreatureAsTarget
+    && normalizedTargetIds.length === 0
     && interveningSubjectPermanentId
     && battlefield.some((permanent: any) => String(permanent?.id || '') === interveningSubjectPermanentId)
   ) {
@@ -458,9 +473,19 @@ function buildTriggerIrContext(
       ? [String(params.triggerItem.effectData.attackingCreatureId).trim()]
       : []),
   ]));
+  const interveningSubjectForPronoun = String(
+    params.triggerItem?.interveningIfSubjectPermanentId || '',
+  ).trim();
+  const effectForPronoun = String(params.triggerItem?.effect || params.triggerItem?.description || '');
+  // "it deals damage equal to its power" / "equal to that creature's power":
+  // the pronoun is the permanent that entered, not the chosen damage target.
+  const pronounIsEnteringObject = /^(?:it|that creature|that permanent)\b/i.test(effectForPronoun)
+    || /\bequal to that creature's (?:power|toughness)\b/i.test(effectForPronoun);
   const lastAntecedentBattlefieldPermanentIds = createdTokenIds.length > 0
     ? createdTokenIds
-    : lastAntecedentFromItem;
+    : lastAntecedentFromItem.length > 0
+      ? lastAntecedentFromItem
+      : (pronounIsEnteringObject && interveningSubjectForPronoun ? [interveningSubjectForPronoun] : []);
   const wasKicked = (params.triggerItem as any)?.wasKicked === true
     || (params.triggerItem as any)?.card?.wasKicked === true
     || (params.triggerItem as any)?.stackItem?.wasKicked === true

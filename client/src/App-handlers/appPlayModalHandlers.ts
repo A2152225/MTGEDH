@@ -10,6 +10,7 @@ import type { AttackerSelection, BlockerSelection } from "../components/CombatSe
 import { socket } from "../socket";
 import { debug } from "../utils/debug";
 import { buildPlayLandRequestPayload } from "../utils/playLandRequestPayload";
+import { countIdenticalTriggersWaiting, rememberTargetForIdenticalTriggers } from "../utils/identicalTriggerTargetReuse";
 
 export function useAppPlayModalHandlers(p: Record<string, any>) {
   const {
@@ -58,6 +59,7 @@ export function useAppPlayModalHandlers(p: Record<string, any>) {
     setVoteModalOpen,
     spellToCast,
     targetModalData,
+    you,
     triggerOrderStepId,
     undoRequestData,
     voteData,
@@ -524,8 +526,17 @@ export function useAppPlayModalHandlers(p: Record<string, any>) {
   };
 
   // Target selection handlers
-  const handleTargetConfirm = (selectedTargetIds: string[]) => {
+  const handleTargetConfirm = (selectedTargetIds: string[], options?: { repeatForIdenticalTriggers?: boolean }) => {
     if (!safeView || !targetModalData) return;
+
+    if (options?.repeatForIdenticalTriggers && targetModalData.repeatTriggerKey) {
+      rememberTargetForIdenticalTriggers(
+        String(safeView.id),
+        targetModalData.repeatTriggerKey,
+        selectedTargetIds,
+        countIdenticalTriggersWaiting((safeView as any).stack, targetModalData.source?.name, you || undefined),
+      );
+    }
 
     if (targetModalData.stepId) {
       socket.emit("submitResolutionResponse", {

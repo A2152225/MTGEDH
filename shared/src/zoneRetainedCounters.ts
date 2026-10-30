@@ -45,8 +45,39 @@ export function hasZoneRetainedCountersAbility(obj: any): boolean {
   return getCardName(obj).toLowerCase() === 'skullbriar, the walking grave';
 }
 
+const RETAINED_CHOSEN_CHARACTERISTIC_KEYS = [
+  'chosenColor',
+  'chosenColorWord',
+  'chosenCreatureType',
+  'chosenBasicLandType',
+  'chosenCardName',
+  'chosenPlayer',
+  'chosenPlayerName',
+  'chosenOption',
+] as const;
+
+/** Keep as-enters choices on the card when a permanent changes zones. */
+export function copyRetainedChosenCharacteristics(from: any, onto: any): void {
+  if (!from || !onto || typeof onto !== 'object') return;
+  for (const key of RETAINED_CHOSEN_CHARACTERISTIC_KEYS) {
+    const value = from[key];
+    if (value == null || value === '') continue;
+    if (onto[key] == null || onto[key] === '') onto[key] = value;
+  }
+  if (
+    (!Array.isArray(onto.chosenOptions) || onto.chosenOptions.length === 0)
+    && Array.isArray(from.chosenOptions)
+    && from.chosenOptions.length > 0
+  ) {
+    onto.chosenOptions = [...from.chosenOptions];
+  }
+}
+
 export function buildZoneObjectWithRetainedCounters(card: any, source: any, destinationZone: string): any {
   const nextCard = { ...(card || {}), zone: destinationZone };
+  copyRetainedChosenCharacteristics(source, nextCard);
+  const ownerId = String(source?.owner || source?.ownerId || '').trim();
+  if (ownerId && !nextCard.ownerId) nextCard.ownerId = ownerId;
   const damageSourceIds = normalizeIdList((source as any)?.damageSourceIds ?? (card as any)?.damageSourceIds);
   if (damageSourceIds) {
     nextCard.damageSourceIds = damageSourceIds;

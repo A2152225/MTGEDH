@@ -99,13 +99,13 @@ export function calculateControlledCountCDA(
   gameState?: any,
 ): { power: number; toughness: number } | undefined {
   const m = String(oracleText || '').toLowerCase()
-    .match(/power and toughness are each equal to the number of (other )?([a-z ]+?) (you control|on the battlefield)\./);
+    .match(/power and toughness are each equal to the number of (other )?([a-z -]+?) (you control|on the battlefield)\./);
   if (!m) return undefined;
   const words = m[2].trim().split(/\s+/);
   const noun = singular(words.pop() || '');
   if (!/^[a-z-]+$/.test(noun) || noun === 'card') return undefined;
   const mods = words;
-  if (mods.some((w) => !TYPE_MODS.has(w) && !COLORS[w] && w !== 'tapped' && w !== 'untapped')) return undefined;
+  if (mods.some((w) => !TYPE_MODS.has(w) && !COLORS[w] && w !== 'tapped' && w !== 'untapped' && w !== 'face-down')) return undefined;
   const nounRe = new RegExp('\\b' + (noun === 'permanent' ? '' : noun) + '');
   let count = 0;
   for (const perm of battlefield || []) {
@@ -119,6 +119,7 @@ export function calculateControlledCountCDA(
     for (const w of mods) {
       if (w === 'tapped') ok = ok && perm.tapped === true;
       else if (w === 'untapped') ok = ok && perm.tapped !== true;
+      else if (w === 'face-down') ok = ok && (perm.isFaceDown === true || perm.card?.faceDown === true || perm.card?.isFaceDownStub === true);
       else if (w === 'nonbasic') ok = ok && !typeLine.includes('basic');
       else if (COLORS[w]) ok = ok && (Array.isArray(perm.card?.colors) ? perm.card.colors : []).includes(COLORS[w]);
       else ok = ok && typeLine.includes(w);

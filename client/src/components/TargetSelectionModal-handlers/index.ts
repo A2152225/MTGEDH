@@ -20,3 +20,5 @@ export {
   PermanentOwnershipBadge,
   PermanentTargetCaption,
 } from './targetSelectionModalSupport';
+// Player target tile (life, commander art, damage preview) and the reuse-for-identical-triggers toggle.
+export { PlayerTargetTile, RepeatForIdenticalTriggersToggle } from './targetSelectionPlayerTile';

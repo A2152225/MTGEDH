@@ -7,7 +7,7 @@
 
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
 import { parseCopyTokenOverrides } from '../../shared/src/copyTokenOverrides.js';
-import { createTokens, resolveTokenCharacteristicsFromOracleStep } from './tokenCreation';
+import { createTokens, resolveMultipliedTokenCount, resolveTokenCharacteristicsFromOracleStep } from './tokenCreation';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
@@ -850,8 +850,13 @@ function addTokensToBattlefield(
 
     const copyParts = splitCopyTokenReference(tokenHint);
     const overrides = parseCopyTokenOverrides(copyParts?.exceptionText || '');
-    const count = Math.max(1, amount | 0);
     const copyCard = (copySource.sourceObject as any)?.card || copySource.sourceObject;
+    const count = resolveMultipliedTokenCount(
+      controllerId,
+      state.battlefield || [],
+      Math.max(1, amount | 0),
+      { tokenIsCreature: /\bcreature\b/i.test(String(copyCard?.type_line || copyCard?.typeLine || '')) },
+    ).count;
     const entryMods = resolveTokenBattlefieldEntry(state, copyCard, controllerId, ctx, {
       entersTapped,
       withCounters,

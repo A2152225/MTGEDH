@@ -23,7 +23,7 @@ import { AI_FAST_CONTINUE_MS, AI_THINK_TIME_MS } from "./aiConstants.js";
 import { handleAIGameFlow } from "./aiGameFlowHandlers.js";
 import { createConfiguredGame } from "./aiGameSetupHandlers.js";
 import { persistAIPlayerDeckSource, resolveAIDeckEntries } from "./aiPregameHandlers.js";
-import { registerAIPlayer, unregisterAIPlayer } from "./aiPlayerRegistry.js";
+import { clearHumanAutopilotSeat, registerAIPlayer, unregisterAIPlayer } from "./aiPlayerRegistry.js";
 import { joinAiPlayerSeat } from "../join-handlers/playerSeatIds.js";
 import {
   aiPlayers,
@@ -843,12 +843,10 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
         }
       } else {
-        // Disable AI control for this player
+        // Clear isAI before unregister so a broadcast in this same turn cannot
+        // rehydrate the seat and keep taking actions.
+        clearHumanAutopilotSeat(playerInGame);
         unregisterAIPlayer(gameId, playerId);
-        
-        (playerInGame as any).aiControlled = false;
-        delete (playerInGame as any).aiStrategy;
-        delete (playerInGame as any).aiDifficulty;
         
         debug(1, '[AI] AI control disabled for player:', { gameId, playerId });
         

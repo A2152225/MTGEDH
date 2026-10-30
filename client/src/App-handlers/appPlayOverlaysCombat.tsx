@@ -401,6 +401,7 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
           id: card.cardId || card.id,
           name: card.cardName || card.name,
           imageUrl: card.imageUrl,
+          description: card.description || undefined,
         }))}
         minSelections={1}
         maxSelections={1}

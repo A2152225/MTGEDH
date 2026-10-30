@@ -17,6 +17,22 @@ import { canPermanentBeTargetedByPlayer } from '../../rules-engine/targeting.js'
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { isPermanentCardTypeLine } from './stackResolvePermanentSpellTypeUtils.js';
 import { stampMissingTargetMetadataAfterOptionalAccept } from './stackResolveTriggeredAbilityMissingTargetSafetyNet.js';
+import { getCurrentPowerToughnessForRules } from './currentPowerToughness.js';
+
+/** Damage the trigger will deal, for the target prompt ("deals 3 damage", "deals damage equal to its power"). */
+function resolveTriggeredTargetDamagePreview(state: any, item: any, effectText: string): number | undefined {
+  const text = String(effectText || '').toLowerCase();
+  const fixed = text.match(/\bdeals? (\d+) damage\b/);
+  if (fixed) return Number(fixed[1]);
+  if (!/\bdeals? damage equal to (?:its|that creature's|that creature\u2019s) power\b/.test(text)) return undefined;
+  const subjectId = String(
+    item?.interveningIfSubjectPermanentId || item?.triggeringPermanentId || item?.enteringPermanentId || '',
+  ).trim();
+  if (!subjectId) return undefined;
+  const subject = (Array.isArray(state?.battlefield) ? state.battlefield : []).find((perm: any) => String(perm?.id) === subjectId);
+  if (!subject) return undefined;
+  return getCurrentPowerToughnessForRules(subject, state).power;
+}
 
 function resolveTriggeredTargetCombatRole(item: any): TriggeredBattlefieldTargetFilterMetadata['targetCombatRole'] {
   const explicit = String(item?.targetCombatRole || '').trim();
@@ -365,7 +381,7 @@ export function tryDeferTriggeredAbilityTargetSelection(
             id: String(player.id),
             label: player.name || String(player.id),
             description: 'Player',
-            life: player.life,
+            life: typeof state.life?.[player.id] === 'number' ? state.life[player.id] : player.life,
           }))
       : [];
     const validTargets = [...validPermanentTargets, ...validPlayerTargets];
@@ -387,6 +403,7 @@ export function tryDeferTriggeredAbilityTargetSelection(
     );
 
     if ((targetsBattlefield || targetsPlayers) && validTargets.length >= minSelectionCount) {
+      const damagePreview = resolveTriggeredTargetDamagePreview(state, item, String((item as any).effect || description || ''));
       queueResolveTopOfStackPrompt(ctx, {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: triggerController as PlayerID,
@@ -405,6 +422,7 @@ export function tryDeferTriggeredAbilityTargetSelection(
         targetedTriggeredAbilitySourceName: sourceName,
         targetedTriggeredAbilityDescription: description,
         targetedTriggeredAbilityController: String(triggerController),
+        ...(typeof damagePreview === 'number' ? { damagePreview } : {}),
       } as any);
 
       debug(2, `[resolveTopOfStack] ${triggerType} requires target ${targetType} selection for ${sourceName}`);

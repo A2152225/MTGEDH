@@ -54,6 +54,7 @@ See [`mtg-logic-module-map-resolution.md`](mtg-logic-module-map-resolution.md).
 | Module (`triggers/`) | Owns |
 | --- | --- |
 | `detectorTriggeredAbility.ts` | Leftover detector `TriggeredAbility` wire type (distinct from skinny `triggers/types.ts`). |
+| `triggerEtbTargetMetadataStamp.ts` | Watcher ETB stack items whose effect names a target (`Warstorm Surge`: "it deals damage equal to its power to any target") get `requiresTarget` / `targetType` before they are pushed. Entry: `stampWatcherEtbTriggerTargetMetadata`. |
 | `detectorGrantedOracle.ts` | Merge printed oracle with continuous granted trigger/activated lines (`mergeDetectorOracleWithContinuousGrants`). Attack / ETB / death / LTB / combat-damage / dealt-damage / targeted / tap / counter-placed / spell-cast / block / upkeep detectors use this when `gameState` is passed so quoted "have …" abilities fire on recipients. `annotateFirstTimeEachTurnOracle` strips "for the first time each turn" / "during your turn" so existing when-clauses match, and stamps `oncePerTurn` from "this ability triggers only once each turn" (Kira / Danny / Katara / Dionus / Cursed Wombat / Folk Hero). |
 | `cardNameRegexAlternatives.ts` | Card-name regex variants for detectors. Entry: `buildCardNameRegexAlternatives`. |
 | `enters-or-other-event-prefix.ts` | Compound "enters or \<event\>" prefix. Entry: `ENTERS_OR_OTHER_EVENT_PREFIX`. |

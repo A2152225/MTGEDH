@@ -102,8 +102,10 @@ function getCreatureInfo(
   const minusCounters = perm.counters?.['-1/-1'] ?? 0;
   const delta = plusCounters - minusCounters;
   
-  const p = typeof baseP === 'number' ? baseP + delta : '?';
-  const t = typeof baseT === 'number' ? baseT + delta : '?';
+  const effP = (perm as any).effectivePower;
+  const effT = (perm as any).effectiveToughness;
+  const p = typeof effP === 'number' ? effP : (typeof baseP === 'number' && !isNaN(baseP) ? baseP + delta : '?');
+  const t = typeof effT === 'number' ? effT : (typeof baseT === 'number' && !isNaN(baseT) ? baseT + delta : '?');
   const pt = `${p}/${t}`;
   
   const imageUrl = card?.image_uris?.small || card?.image_uris?.normal;

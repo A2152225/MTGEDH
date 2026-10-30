@@ -648,6 +648,35 @@ function resolveBridgedDamageAmount(
   };
 }
 
+function antecedentIdsFromContext(ctx: OracleIRExecutionContext): string[] {
+  return [
+    ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds) ? ctx.lastAntecedentBattlefieldPermanentIds : []),
+    ...(Array.isArray(ctx.selectorContext?.lastAntecedentBattlefieldPermanentIds)
+      ? ctx.selectorContext.lastAntecedentBattlefieldPermanentIds
+      : []),
+  ]
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+}
+
+/** "it / that creature deals damage" uses the entering permanent, not the ability source. */
+function pronounDamageSourceId(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'deal_damage' }>,
+  ctx: OracleIRExecutionContext,
+): string {
+  const sourceText = String((step.source as any)?.kind === 'raw' ? (step.source as any).text : '')
+    .replace(/\u2019/g, "'")
+    .trim()
+    .toLowerCase();
+  if (sourceText !== 'it' && sourceText !== 'that creature' && sourceText !== 'that permanent') return '';
+  const battlefield = (state.battlefield || []) as any[];
+  for (const id of antecedentIdsFromContext(ctx)) {
+    if (battlefield.some((permanent) => String(permanent?.id || '').trim() === id)) return id;
+  }
+  return '';
+}
+
 export function applyDealDamageStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'deal_damage' }>,
@@ -698,8 +727,10 @@ export function applyDealDamageStep(
 
   let nextState = state;
   const log: string[] = [];
-  const damageSourceId = String(ctx.sourceId || '').trim() || undefined;
-  const sourceKeywords = resolveDamageSourceKeywords(nextState, ctx);
+  const pronounSourceId = pronounDamageSourceId(state, step, ctx);
+  const damageSourceId = pronounSourceId || String(ctx.sourceId || '').trim() || undefined;
+  const damageCtx = pronounSourceId ? { ...ctx, sourceId: pronounSourceId } : ctx;
+  const sourceKeywords = resolveDamageSourceKeywords(nextState, damageCtx);
 
   if (players.length > 0) {
     let totalDamageDealt = 0;
@@ -787,7 +818,7 @@ export function applyDealDamageStep(
     const result = applyDamageToMatchingBattlefield(
       nextState,
       bridged.amount,
-      ctx,
+      damageCtx,
       permanent => String((permanent as any)?.id || '').trim() === singlePermanentId,
       sourceKeywords,
       bridged.usesBridge,
@@ -832,9 +863,9 @@ export function applyDealDamageStep(
 
       const result = applyDamageToMatchingBattlefield(
         nextState,
-        bridged.amount,
-        ctx,
-        permanent => String((permanent as any)?.id || '').trim() === singleCreatureId,
+      bridged.amount,
+      damageCtx,
+      permanent => String((permanent as any)?.id || '').trim() === singleCreatureId,
         sourceKeywords,
         bridged.usesBridge,
       );
@@ -887,7 +918,7 @@ export function applyDealDamageStep(
         const result = applyDamageToMatchingBattlefield(
           nextState,
           amount,
-          ctx,
+          damageCtx,
           permanent => permanentMatchesSelector(permanent as any, selector, ctx),
           sourceKeywords
         );
@@ -937,7 +968,7 @@ export function applyDealDamageStep(
       const result = applyDamageToMatchingBattlefield(
         nextState,
         amount,
-        ctx,
+        damageCtx,
         permanent => permanentMatchesSelector(permanent as any, selector, ctx),
         sourceKeywords
       );

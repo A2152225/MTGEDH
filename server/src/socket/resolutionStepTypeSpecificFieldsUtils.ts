@@ -90,6 +90,8 @@ export function getTypeSpecificFields(step: ResolutionStep): Record<string, any>
       if ('minTargets' in step) fields.minTargets = step.minTargets;
       if ('maxTargets' in step) fields.maxTargets = step.maxTargets;
       if ('targetDescription' in step) fields.targetDescription = step.targetDescription;
+      if (typeof (step as any).damagePreview === 'number') fields.damagePreview = (step as any).damagePreview;
+      if ((step as any).targetedTriggeredAbility === true) fields.targetedTriggeredAbility = true;
       if ((step as any).crewAbility === true) {
         fields.crewAbility = true;
         if ((step as any).vehicleId != null) fields.vehicleId = (step as any).vehicleId;

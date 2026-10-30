@@ -5,12 +5,14 @@
  * getAIPlayers and the derived-strategy sync they close over.
  *
  * Public entry symbols: registerAIPlayer, rehydrateAIPlayerRuntime,
- * rehydrateAIGameRuntime, unregisterAIPlayer, isAIPlayer, getAIPlayers.
+ * rehydrateAIGameRuntime, unregisterAIPlayer, clearHumanAutopilotSeat,
+ * isAIPlayer, getAIPlayers.
  */
 import { inferAIStrategyFromDeckProfile } from "../../../../rules-engine/src/aiEngineDeckSupport.js";
 import { AIStrategy, type AIPlayerConfig } from "../../../../rules-engine/src/AIEngine.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { debug } from "../../utils/debug.js";
+import { games } from "../socket.js";
 import { ensureGame } from "../util.js";
 import { ensureAIDeckProfile } from "./aiDeckProfileHandlers.js";
 import { getPersistedAIPlayerRuntimeData } from "./aiPlayerRuntimeData.js";
@@ -134,6 +136,21 @@ export function rehydrateAIGameRuntime(
 }
 
 /**
+ * Drop the live seat flags that make a human autopilot seat look like an AI.
+ * `isAI` is what `checkAndTriggerAI` and runtime rehydrate read; clearing only
+ * `aiControlled` left the seat in the AI loop after the toggle was turned off.
+ */
+export function clearHumanAutopilotSeat(player: any): void {
+  if (!player) return;
+  player.isAI = false;
+  player.aiControlled = false;
+  delete player.ai;
+  delete player.aiStrategy;
+  delete player.strategy;
+  delete player.aiDifficulty;
+}
+
+/**
  * Unregister an AI player
  */
 export function unregisterAIPlayer(gameId: string, playerId: PlayerID): void {
@@ -166,6 +183,13 @@ export function unregisterAIPlayer(gameId: string, playerId: PlayerID): void {
  * Check if a player is AI-controlled
  */
 export function isAIPlayer(gameId: string, playerId: PlayerID): boolean {
+  const livePlayers = ((games.get(gameId as any)?.state as any)?.players || []) as any[];
+  const live = livePlayers.find((entry) => entry?.id === playerId);
+  // Explicit off (human autopilot released). Do not let a stale registry entry
+  // or rehydrate turn the seat back on. Read the live map only — ensureGame
+  // would create or replay a game as a side effect of this predicate.
+  if (live && live.isAI === false) return false;
+
   const registered = aiPlayers.get(gameId)?.has(playerId) ?? false;
   if (registered) return true;
 

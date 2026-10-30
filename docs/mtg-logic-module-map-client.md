@@ -63,12 +63,13 @@ Public leftover **38.4 KB** (~1.6 KB headroom). Keeps `DeckManagerModal` (36.3 K
 
 ### `TargetSelectionModal-handlers/` (extracted from `TargetSelectionModal.tsx`)
 
-Public leftover **38.7 KB** (~1.3 KB headroom). Keeps `TargetSelectionModal` (37.5 KB leftover: hooks/state, grouping memos, target grid JSX). Re-exports `TargetType`, `TargetOption`, `TargetSelectionGroup`, `TargetSelectionModalProps`, `isGroupedTargetSelectionComplete`. Never create `TargetSelectionModal/` beside the `.tsx`. Leaves must not import the parent or the index. Do not append to the parent.
+Public leftover **33.1 KB** (player tiles moved out). Keeps `TargetSelectionModal` (37.5 KB leftover: hooks/state, grouping memos, target grid JSX). Re-exports `TargetType`, `TargetOption`, `TargetSelectionGroup`, `TargetSelectionModalProps`, `isGroupedTargetSelectionComplete`. Never create `TargetSelectionModal/` beside the `.tsx`. Leaves must not import the parent or the index. Do not append to the parent.
 
 | Module | Owns |
 | --- | --- |
 | `TargetSelectionModal-handlers/index.ts` | Internal TOC. Named re-exports only. |
-| `targetSelectionModalSupport.tsx` | `TargetType`, `TargetOption`, `TargetSelectionGroup`, `isGroupedTargetSelectionComplete`, `formatControllerGroupLabel`, `ownershipStyle`, `PermanentOwnershipBadge`, `PermanentTargetCaption`, `TargetSelectionModalProps`. |
+| `targetSelectionModalSupport.tsx` | `TargetType`, `TargetOption`, `TargetSelectionGroup`, `isGroupedTargetSelectionComplete`, `formatControllerGroupLabel`, `ownershipStyle`, `PermanentOwnershipBadge`, `PermanentTargetCaption` (P/T, marked damage, lethal hint from `damagePreview`), `TargetSelectionModalProps`. |
+| `targetSelectionPlayerTile.tsx` | `PlayerTargetTile` (life total, commander art, life after `damagePreview`), `RepeatForIdenticalTriggersToggle`. The reuse rule itself is `client/src/utils/identicalTriggerTargetReuse.ts`. |
 
 ### `TableLayout-handlers/` (extracted from `client/src/components/TableLayout.tsx`)
 

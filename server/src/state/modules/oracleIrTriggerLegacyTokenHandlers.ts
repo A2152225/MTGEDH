@@ -17,6 +17,7 @@ import {
 } from '../../../../shared/src/copyTokenOverrides.js';
 import { copyAsEntersCopiableChoicesFromSource } from '../../../../shared/src/copyTokenUtils.js';
 import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+import { resolveMultipliedTokenCount } from '../../../../rules-engine/src/tokenCreation.js';
 
 export function createEquippedCreatureCopyTokenFromEquipment(
   ctx: GameContext,
@@ -58,7 +59,6 @@ export function createEquippedCreatureCopyTokenFromEquipment(
     copyOverrides = { ...copyOverrides, addAbilities: [...abilities] };
   }
 
-  const tokenId = uid('token');
   const originalCard = { ...equippedCreature.card };
   hydrateCardOracleInPlace(originalCard, { isToken: false });
 
@@ -71,52 +71,61 @@ export function createEquippedCreatureCopyTokenFromEquipment(
     originalHasHaste ||
     (copyOverrides.addAbilities || []).some((ability) => ability.toLowerCase() === 'haste');
   const isCreature = originalTypeLine.includes('creature');
-
-  const tokenCopy = {
-    id: tokenId,
-    controller,
-    owner: controller,
-    tapped: false,
-    counters: { ...equippedCreature.counters },
-    basePower: equippedCreature.basePower,
-    baseToughness: equippedCreature.baseToughness,
-    summoningSickness: isCreature && !hasHaste,
-    isToken: true,
-    isCopyToken: true,
-    copiedFromPermanentId: String(equippedCreature.id || ''),
-    copyTokenOverrides: copyOverrides,
-    card: {
-      ...originalCard,
-      id: tokenId,
-      zone: 'battlefield',
-      isToken: true,
-      isCopyOfPrintedCard: true,
-    },
-  } as any;
-
-  hydratePermanentCardOracleInPlace(tokenCopy);
-  applyCopyTokenOverrides(tokenCopy.card, copyOverrides, tokenCopy);
-  // CR 707.2 — as-enters choices (Morophon creature type, etc.) are copiable values.
-  copyAsEntersCopiableChoicesFromSource(equippedCreature, tokenCopy);
-  const inheritedType = String(tokenCopy.chosenCreatureType || '').trim();
-  if (
-    inheritedType
-    && String(tokenCopy.card?.name || tokenCopy.name || '').toLowerCase().includes('morophon')
-  ) {
-    const morophonChosenType = ((state as any).morophonChosenType || {}) as Record<string, string>;
-    morophonChosenType[tokenId] = inheritedType;
-    (state as any).morophonChosenType = morophonChosenType;
-  }
+  const tokenCount = resolveMultipliedTokenCount(
+    String(controller),
+    state.battlefield || [],
+    1,
+    { tokenIsCreature: isCreature },
+  ).count;
 
   state.battlefield = state.battlefield || [];
-  state.battlefield.push(tokenCopy);
-  stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
+  for (let copyIndex = 0; copyIndex < tokenCount; copyIndex += 1) {
+    const tokenId = uid('token');
+    const tokenCopy = {
+      id: tokenId,
+      controller,
+      owner: controller,
+      tapped: false,
+      counters: { ...equippedCreature.counters },
+      basePower: equippedCreature.basePower,
+      baseToughness: equippedCreature.baseToughness,
+      summoningSickness: isCreature && !hasHaste,
+      isToken: true,
+      isCopyToken: true,
+      copiedFromPermanentId: String(equippedCreature.id || ''),
+      copyTokenOverrides: copyOverrides,
+      card: {
+        ...originalCard,
+        id: tokenId,
+        zone: 'battlefield',
+        isToken: true,
+        isCopyOfPrintedCard: true,
+      },
+    } as any;
 
-  debug(
-    2,
-    `[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} with copy overrides`,
-  );
-  queueSelfETBTriggersForPermanent(ctx, tokenCopy, controller as any);
-  triggerETBEffectsForToken(ctx, tokenCopy, controller);
+    hydratePermanentCardOracleInPlace(tokenCopy);
+    applyCopyTokenOverrides(tokenCopy.card, copyOverrides, tokenCopy);
+    // CR 707.2 — as-enters choices (Morophon creature type, etc.) are copiable values.
+    copyAsEntersCopiableChoicesFromSource(equippedCreature, tokenCopy);
+    const inheritedType = String(tokenCopy.chosenCreatureType || '').trim();
+    if (
+      inheritedType
+      && String(tokenCopy.card?.name || tokenCopy.name || '').toLowerCase().includes('morophon')
+    ) {
+      const morophonChosenType = ((state as any).morophonChosenType || {}) as Record<string, string>;
+      morophonChosenType[tokenId] = inheritedType;
+      (state as any).morophonChosenType = morophonChosenType;
+    }
+
+    state.battlefield.push(tokenCopy);
+    stampPermanentEntryTimestamp(state, state.battlefield[state.battlefield.length - 1]);
+
+    debug(
+      2,
+      `[executeTriggerEffect] Created token copy of ${originalCard.name || 'creature'} with copy overrides`,
+    );
+    queueSelfETBTriggersForPermanent(ctx, tokenCopy, controller as any);
+    triggerETBEffectsForToken(ctx, tokenCopy, controller);
+  }
   return 1;
 }

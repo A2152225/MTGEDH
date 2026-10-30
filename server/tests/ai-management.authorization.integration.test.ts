@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
-import { cleanupGameAI, registerAIHandlers } from '../src/socket/ai.js';
-import { ensureGame } from '../src/socket/util.js';
+import { cleanupGameAI, isAIPlayer, registerAIHandlers, registerAIPlayer } from '../src/socket/ai.js';
+import { checkAndTriggerAI, ensureGame } from '../src/socket/util.js';
 import { games } from '../src/socket/socket.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
@@ -401,6 +401,56 @@ describe('AI management authorization (integration)', () => {
 
     const after = (game.state as any).players.length;
     expect(after).toBe(before);
+  });
+
+  it('stops taking actions after a player turns autopilot off', async () => {
+    const playerId = 'p1';
+
+    createGameIfNotExists(gameId, 'commander', 40, undefined, playerId);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [
+      { id: playerId, name: 'P1', spectator: false, life: 40, isAI: false },
+      { id: 'ai_opp', name: 'Bot', spectator: false, life: 40, isAI: true },
+    ];
+    (game.state as any).startingLife = 40;
+    (game.state as any).life = { [playerId]: 40, ai_opp: 40 };
+    (game.state as any).phase = 'main1';
+    (game.state as any).step = 'main';
+    (game.state as any).priority = playerId;
+    (game.state as any).turnPlayer = playerId;
+    registerAIPlayer(gameId, 'ai_opp' as any, 'Bot', 0.5);
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+    registerAIHandlers(io as any, socket as any);
+
+    await handlers['toggleAIControl']({ gameId, enable: true, difficulty: 0.5 });
+    const player = (game.state as any).players.find((p: any) => p.id === playerId);
+    expect(player.isAI).toBe(true);
+    expect(player.aiControlled).toBe(true);
+    expect(isAIPlayer(gameId, playerId as any)).toBe(true);
+
+    emitted.length = 0;
+    await handlers['toggleAIControl']({ gameId, enable: false });
+
+    expect(player.isAI).toBe(false);
+    expect(player.aiControlled).toBe(false);
+    expect(player.strategy).toBeUndefined();
+    expect(isAIPlayer(gameId, playerId as any)).toBe(false);
+    expect(emitted.find((e) => e.event === 'aiControlToggled')?.payload?.enabled).toBe(false);
+
+    // The same kick broadcastGame uses after every action. A cleared seat must not come back.
+    checkAndTriggerAI(io as any, game as any, gameId);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(player.isAI).toBe(false);
+    expect(isAIPlayer(gameId, playerId as any)).toBe(false);
+    expect((game.state as any).autoPassPlayers?.has?.(playerId)).not.toBe(true);
+    expect(isAIPlayer(gameId, 'ai_opp' as any)).toBe(true);
   });
 
   it('does not throw when payload is missing (crash-safety)', async () => {

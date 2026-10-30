@@ -171,6 +171,87 @@ describe('Nykthos devotion color choice (integration)', () => {
     expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(0);
   });
 
+  it('still queues the devotion color choice after paying {2} through the payment prompt', async () => {
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    const p1 = 'p1';
+    (game.state as any).players = [{ id: p1, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).turnPlayer = p1;
+    (game.state as any).priority = p1;
+    (game.state as any).life = { [p1]: 40 };
+    (game.state as any).manaPool = {
+      [p1]: { white: 1, blue: 0, black: 0, red: 1, green: 0, colorless: 1 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'nykthos_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: {
+          id: 'nykthos_card',
+          name: 'Nykthos, Shrine to Nyx',
+          type_line: 'Legendary Land',
+          oracle_text: '{T}: Add {C}.\n{2}, {T}: Choose a color. Add an amount of mana of that color equal to your devotion to that color. (Your devotion to a color is the number of mana symbols of that color in the mana costs of permanents you control.)',
+        },
+      },
+      {
+        id: 'perm_w_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        card: { id: 'perm_w_card_1', name: 'Auriok Champion', mana_cost: '{W}{W}', type_line: 'Creature — Human Cleric', oracle_text: '' },
+      },
+    ];
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(p1, emitted);
+    socket.rooms.add(gameId);
+    const io = createMockIo(emitted, [socket]);
+
+    registerInteractionHandlers(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId,
+      permanentId: 'nykthos_1',
+      abilityId: 'nykthos_card-ability-1',
+    });
+
+    const paymentStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(paymentStep.type).toBe('mana_payment_choice');
+    expect(paymentStep.activationPaymentContext).toBe('mana_ability');
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(paymentStep.id),
+      selections: {
+        payment: [
+          { permanentId: '__pool__:colorless', mana: 'C', count: 1 },
+          { permanentId: '__pool__:red', mana: 'R', count: 1 },
+        ],
+      },
+    });
+
+    expect((game.state as any).battlefield.find((perm: any) => perm.id === 'nykthos_1')?.tapped).toBe(true);
+    expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(0);
+
+    const colorStep = ResolutionQueueManager.getQueue(gameId).steps[0] as any;
+    expect(colorStep?.type).toBe('mana_color_selection');
+    expect(colorStep?.dynamicAmountSource).toBe('devotion');
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: colorStep.id,
+      selections: 'white',
+    });
+
+    expect(Number((game.state as any).manaPool[p1].white || 0)).toBe(3);
+    expect(Number((game.state as any).manaPool[p1].colorless || 0)).toBe(0);
+  });
+
   it('tapping for {T}: Add {C} adds colorless mana without a color prompt', async () => {
     createGameIfNotExists(gameId, 'commander', 40);
     const game = ensureGame(gameId);

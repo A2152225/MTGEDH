@@ -14,6 +14,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { CardCostAdjustment, KnownCardRef } from '../../../shared/src';
 import { parseActivatedAbilities } from '../utils/activatedAbilityParser';
+import { handFacePlayModes } from '../utils/handFacePlayModes';
 import { ReportIssueMenuItem } from './ReportIssueMenuItem';
 import { ManualModeMenuItems } from './ManualMode-handlers/ManualModeMenuItems';
 import type { ManualZone } from '../../../shared/src/manualAction';
@@ -252,8 +253,7 @@ export function ZoneCardContextMenu({
   const [position, setPosition] = useState({ x, y });
 
   const name = card?.name || 'Card';
-  const typeLine = (card?.type_line || '').toLowerCase();
-  const isLand = /\bland\b/i.test(typeLine);
+  const { canPlayAsLand: isLand, canCastAsSpell } = handFacePlayModes(card);
   const imageUrl = card?.image_uris?.small || card?.image_uris?.normal;
 
   // Parse zone-specific abilities
@@ -423,7 +423,7 @@ export function ZoneCardContextMenu({
         )}
 
         {/* Cast Spell (for non-lands) */}
-        {!isLand && (zone === 'hand' || zone === 'commander') && onCast && (
+        {canCastAsSpell && (zone === 'hand' || zone === 'commander') && onCast && (
           <div
             style={canCast && !reasonCannotCast ? menuItemStyle : disabledStyle}
             onClick={() => {

@@ -35,6 +35,7 @@ import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './trigg
 import { filterOneOrMoreEntryDuplicates } from './triggers/simultaneousEntryBatch.js';
 import { syncClassLevelGating } from './classLevelGating.js';
 import { permanentHasTriggeredAbilities } from './triggers/triggeredAbilitySuppression.js';
+import { stampWatcherEtbTriggerTargetMetadata } from './triggerEtbTargetMetadataStamp.js';
 
 function pushPendingEtbTriggerIfNotAutoDeclined(
   state: any,
@@ -761,6 +762,7 @@ export function triggerETBEffectsForPermanent(
   // During replay, persisted pushTriggeredAbility events restore these triggers.
   if (!(ctx as any).isReplaying) {
     for (const stackItem of filterOneOrMoreEntryDuplicates(orderedExternalEtbTriggers)) {
+      stampWatcherEtbTriggerTargetMetadata(state, stackItem);
       state.stack.push(stackItem);
       persistTriggeredAbilityPush(ctx, stackItem);
     }

@@ -623,6 +623,7 @@ export function useAppPlayRuntime(p: Record<string, any>) {
     triggerOrderStepId,
     undoRequestData,
     voteData,
+    you,
   });
   const {
     openSplitCardChoice,

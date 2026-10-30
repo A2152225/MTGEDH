@@ -170,9 +170,15 @@ export function applyOracleIRFallbackForTriggeredEffect(
       || (triggerItem as any)?.effectData?.triggeringLandId
       || '',
   ).trim();
+  const effectNamesSeparateAnyTarget = /\bto any target\b/i.test(text);
+  const enteringCreatureWasChosen = Boolean(
+    interveningSubjectPermanentId
+    && normalizedTargetIds.some((id: string) => id === interveningSubjectPermanentId),
+  );
+  const bindEnteringCreatureAsTarget = !effectNamesSeparateAnyTarget || enteringCreatureWasChosen;
   const chosenObjectIds = Array.from(new Set([
     ...normalizedTargetIds,
-    ...(interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
+    ...(bindEnteringCreatureAsTarget && interveningSubjectPermanentId ? [interveningSubjectPermanentId] : []),
     ...(untappedPermanentId ? [untappedPermanentId] : []),
     ...(discardedCardId ? [discardedCardId] : []),
     ...(boundGraveyardCardId ? [boundGraveyardCardId] : []),
@@ -198,7 +204,10 @@ export function applyOracleIRFallbackForTriggeredEffect(
           : undefined
     ) as PlayerID | undefined,
     targetPermanentId:
-      targetBinding.targetPermanentId || interveningSubjectPermanentId || untappedPermanentId || undefined,
+      targetBinding.targetPermanentId
+      || (bindEnteringCreatureAsTarget ? interveningSubjectPermanentId : '')
+      || untappedPermanentId
+      || undefined,
     targetCreatureId: targetBinding.targetCreatureId,
     targetSpellId: targetBinding.targetSpellId || triggeringStackItemId || undefined,
     chosenObjectIds: chosenObjectIds.length > 0 ? chosenObjectIds : undefined,

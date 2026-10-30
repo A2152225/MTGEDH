@@ -427,6 +427,24 @@ export function resolveOracleQuantity(
       }
     }
 
+    if (subject === 'it' || subject === 'that_creature') {
+      const antecedentIds = [
+        ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds) ? ctx.lastAntecedentBattlefieldPermanentIds : []),
+        ...(Array.isArray(ctx.selectorContext?.lastAntecedentBattlefieldPermanentIds)
+          ? ctx.selectorContext.lastAntecedentBattlefieldPermanentIds
+          : []),
+      ]
+        .map((id) => String(id || '').trim())
+        .filter(Boolean);
+      for (const antecedentId of antecedentIds) {
+        const antecedentPermanent = ((state.battlefield || []) as any[]).find(
+          (entry) => String(entry?.id || '').trim() === antecedentId,
+        );
+        const antecedentAmount = readStat(antecedentPermanent);
+        if (antecedentAmount !== null) return antecedentAmount;
+      }
+    }
+
     const contextualCards = collectContextualCardsLedgerFirst(ctx, runtime);
     if (subject === 'the_milled_card') {
       const milled = [

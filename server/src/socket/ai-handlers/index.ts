@@ -74,6 +74,7 @@ export { handleAIMulligan } from "./aiMulliganHandlers.js";
 
 // AI player register / rehydrate / unregister / isAIPlayer.
 export {
+  clearHumanAutopilotSeat,
   getAIPlayers,
   isAIPlayer,
   registerAIPlayer,

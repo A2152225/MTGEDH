@@ -135,6 +135,9 @@ export function buildRepeatedZoneDraftCardChoiceInfo(
   readonly id: string;
   readonly name: string;
   readonly imageUrl?: string;
+  readonly ownerId?: string;
+  readonly ownerName?: string;
+  readonly details?: string;
   readonly legalHostIds: readonly string[];
   readonly legalPlayerIds: readonly string[];
   readonly attachOptions: readonly { id: string; name: string; imageUrl?: string }[];
@@ -171,14 +174,48 @@ export function buildRepeatedZoneDraftCardChoiceInfo(
       : typeof card?.image_uris?.normal === 'string'
         ? card.image_uris.normal
         : undefined;
+  const ownerName = playerDisplayName(state, found.ownerId);
+  const details = formatRepeatedZoneDraftCardDetails(state, card, ownerName);
   return {
     id: String(cardId || '').trim(),
     name: String(card?.name || 'Unknown card').trim() || 'Unknown card',
     ...(imageUrl ? { imageUrl } : {}),
+    ...(found.ownerId ? { ownerId: found.ownerId } : {}),
+    ...(ownerName ? { ownerName } : {}),
+    ...(details ? { details } : {}),
     legalHostIds,
     legalPlayerIds,
     attachOptions: [...hostOptions, ...playerOptions],
   };
+}
+
+function playerDisplayName(state: any, playerId: string): string {
+  const id = String(playerId || '').trim();
+  if (!id) return '';
+  const player = ((state?.players || []) as any[]).find((entry: any) => String(entry?.id || '').trim() === id);
+  return String(player?.name || '').trim();
+}
+
+function formatRepeatedZoneDraftCardDetails(state: any, card: any, ownerName: string): string {
+  const parts: string[] = [];
+  if (ownerName) parts.push(`Owner: ${ownerName}`);
+  const color = String(card?.chosenColor || card?.chosenColorWord || '').trim();
+  if (color) parts.push(`Color: ${color}`);
+  const creatureType = String(card?.chosenCreatureType || '').trim();
+  if (creatureType) parts.push(`Creature type: ${creatureType}`);
+  const landType = String(card?.chosenBasicLandType || '').trim();
+  if (landType) parts.push(`Land type: ${landType}`);
+  const named = String(card?.chosenCardName || '').trim();
+  if (named) parts.push(`Named: ${named}`);
+  const chosenPlayerId = String(card?.chosenPlayer || '').trim();
+  const chosenPlayer = String(card?.chosenPlayerName || '').trim() || playerDisplayName(state, chosenPlayerId);
+  if (chosenPlayer) parts.push(`Chosen player: ${chosenPlayer}`);
+  const option = String(card?.chosenOption || '').trim();
+  if (option) parts.push(option);
+  if (Array.isArray(card?.chosenOptions) && card.chosenOptions.length > 0) {
+    parts.push(card.chosenOptions.map((entry: unknown) => String(entry || '').trim()).filter(Boolean).join(', '));
+  }
+  return parts.join(' · ');
 }
 
 /** First chooser index at or after startIndex who has a legal pick, or null. */

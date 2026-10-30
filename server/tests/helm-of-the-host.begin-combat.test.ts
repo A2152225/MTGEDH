@@ -408,4 +408,155 @@ describe('Helm of the Host beginning-of-combat trigger', () => {
     expect(tokenCopy.copiedFromPermanentId).toBe(equippedCreatureId);
   });
 
+  function resolveHelmCopyOfMondrakWithDoublers(
+    gameId: string,
+    triggerPrimary: '0' | '1',
+    withCreatureTripler = false,
+  ) {
+    process.env.ORACLE_IR_TRIGGER_PRIMARY = triggerPrimary;
+    const g = createInitialGameState(gameId);
+    const p1 = 'p1' as PlayerID;
+    const p2 = 'p2' as PlayerID;
+
+    g.applyEvent({ type: 'join', playerId: p1, name: 'P1' });
+    g.applyEvent({ type: 'join', playerId: p2, name: 'P2' });
+    setupToMain1(g, p1, p2);
+
+    const activePlayer = g.state.turnPlayer as PlayerID;
+    const opponent = activePlayer === p1 ? p2 : p1;
+    const mondrakOracle =
+      'If one or more tokens would be created under your control, twice that many of those tokens are created instead.\n{1}{W/P}{W/P}, Sacrifice two other artifacts and/or creatures: Put an indestructible counter on Mondrak. ({W/P} can be paid with either {W} or 2 life.)';
+    const doubleTokensOracle =
+      'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.';
+    const helmOracle =
+      "At the beginning of combat on your turn, create a token that's a copy of equipped creature, except the token isn't legendary. That token gains haste.\nEquip {5}";
+
+    (g.state.battlefield as any[]).push(
+      {
+        id: 'mondrak',
+        controller: activePlayer,
+        owner: activePlayer,
+        tapped: false,
+        summoningSickness: false,
+        attachedEquipment: ['helm_mondrak'],
+        isEquipped: true,
+        basePower: 4,
+        baseToughness: 4,
+        card: {
+          id: 'mondrak_card',
+          name: 'Mondrak, Glory Dominus',
+          type_line: 'Legendary Creature — Phyrexian Horror',
+          oracle_text: mondrakOracle,
+          power: '4',
+          toughness: '4',
+        },
+      },
+      {
+        id: 'helm_mondrak',
+        controller: activePlayer,
+        owner: activePlayer,
+        tapped: false,
+        attachedTo: 'mondrak',
+        card: {
+          id: 'helm_mondrak_card',
+          name: 'Helm of the Host',
+          type_line: 'Legendary Artifact — Equipment',
+          oracle_text: helmOracle,
+        },
+      },
+      {
+        id: 'parallel_lives',
+        controller: activePlayer,
+        owner: opponent,
+        tapped: false,
+        card: {
+          id: 'parallel_lives_card',
+          name: 'Parallel Lives',
+          type_line: 'Enchantment',
+          oracle_text: doubleTokensOracle,
+        },
+      },
+      {
+        id: 'anointed_procession',
+        controller: activePlayer,
+        owner: activePlayer,
+        tapped: false,
+        card: {
+          id: 'anointed_procession_card',
+          name: 'Anointed Procession',
+          type_line: 'Enchantment',
+          oracle_text: doubleTokensOracle,
+        },
+      },
+      {
+        id: 'opponent_procession',
+        controller: opponent,
+        owner: opponent,
+        tapped: false,
+        card: {
+          id: 'opponent_procession_card',
+          name: 'Anointed Procession',
+          type_line: 'Enchantment',
+          oracle_text: doubleTokensOracle,
+        },
+      },
+    );
+
+    if (withCreatureTripler) {
+      (g.state.battlefield as any[]).push({
+        id: 'ojer_taq',
+        controller: activePlayer,
+        owner: activePlayer,
+        tapped: false,
+        card: {
+          id: 'ojer_taq_card',
+          name: 'Ojer Taq, Deepest Foundation',
+          type_line: 'Legendary Creature — God',
+          oracle_text:
+            "Vigilance\nIf one or more creature tokens would be created under your control, three times that many of those tokens are created instead.\nWhen Ojer Taq dies, return it to the battlefield tapped and transformed under its owner's control.",
+        },
+      });
+    }
+
+    g.applyEvent({ type: 'nextStep' });
+    resolveTopOfStack(g as any);
+    return g;
+  }
+
+  function expectHastyMondrakCopies(g: ReturnType<typeof createInitialGameState>, expectedCount: number) {
+    const copies = (g.state.battlefield as any[]).filter(
+      (permanent) => permanent?.isToken === true && permanent?.card?.name === 'Mondrak, Glory Dominus',
+    );
+    expect(copies).toHaveLength(expectedCount);
+    for (const copy of copies) {
+      expect(String(copy.card?.type_line || '').toLowerCase()).not.toContain('legendary');
+      expect(copy.summoningSickness).toBe(false);
+      expect(String(copy.card?.oracle_text || '').toLowerCase()).toContain('haste');
+    }
+    const printed = (g.state.battlefield as any[]).filter(
+      (permanent) => permanent?.isToken !== true && permanent?.card?.name === 'Mondrak, Glory Dominus',
+    );
+    expect(printed).toHaveLength(1);
+  }
+
+  it('doubles the Helm copy for Mondrak, a stolen Parallel Lives, and Anointed Procession', () => {
+    const g = resolveHelmCopyOfMondrakWithDoublers('helm_mondrak_token_doublers_legacy', '0');
+    expectHastyMondrakCopies(g, 8);
+  });
+
+  it('doubles the Helm copy under Oracle IR primary for the same doublers', () => {
+    const g = resolveHelmCopyOfMondrakWithDoublers('helm_mondrak_token_doublers_ir', '1');
+    expectHastyMondrakCopies(g, 8);
+  });
+
+  it('triples those doubled Helm copies when a creature-token tripler is on the battlefield', () => {
+    const g = resolveHelmCopyOfMondrakWithDoublers('helm_mondrak_token_tripler_legacy', '0', true);
+    expectHastyMondrakCopies(g, 24);
+  });
+
+  it('triples those doubled Helm copies under Oracle IR primary', () => {
+    const g = resolveHelmCopyOfMondrakWithDoublers('helm_mondrak_token_tripler_ir', '1', true);
+    expectHastyMondrakCopies(g, 24);
+  });
+
 });

@@ -26,6 +26,10 @@ import { hydrateSpellPaymentPresentationFieldsForClient } from "./spellPaymentPr
 import { resolveResolutionPromptCause } from "../../state/modules/resolutionPromptCause.js";
 import { getAffordableXHintForCostPerX } from "../../state/modules/spellXCastUtils.js";
 import { flagbearerRequiredTargetIds } from "../../state/modules/flagbearerTargeting.js";
+import {
+  buildRepeatedZoneDraftCardChoiceInfo,
+  filterLegalRepeatedZoneDraftCardIds,
+} from "../../../../rules-engine/src/oracleIRExecutorRepeatedZoneDraft.js";
 
 export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any {
   const oracleText = getOracleTextFromResolutionStep(step);
@@ -168,6 +172,25 @@ export function sanitizeStepForClient(gameId: string, step: ResolutionStep): any
       causeFields = resolveResolutionPromptCause(step, game?.state) || causeFields;
     } catch {
       // image lookup is best-effort; name/label already resolved
+    }
+  }
+
+  if (step.type === ResolutionStepType.REPEATED_ZONE_DRAFT) {
+    try {
+      const game = ensureGame(gameId);
+      const remaining = Array.isArray((step as any).remainingCardIds)
+        ? (step as any).remainingCardIds.map((id: unknown) => String(id || '').trim()).filter(Boolean)
+        : [];
+      const chooserId = String(step.playerId || '').trim();
+      if (game?.state && chooserId && remaining.length > 0) {
+        const legalIds = filterLegalRepeatedZoneDraftCardIds(game.state, remaining, chooserId);
+        const cards = legalIds
+          .map((id) => buildRepeatedZoneDraftCardChoiceInfo(game.state, id, chooserId))
+          .filter(Boolean);
+        if (cards.length > 0) (typeSpecificFields as any).cards = cards;
+      }
+    } catch {
+      // Keep the stored card snapshot when the live exile lookup fails.
     }
   }
 

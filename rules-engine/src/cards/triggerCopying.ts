@@ -140,25 +140,44 @@ export function hasTriggerCopying(oracleText: string): boolean {
 }
 
 /**
- * Calculate token multiplier based on permanents on battlefield
- * Each token doubler doubles the count
+ * "If one or more creature tokens would be created under your control, three times that many..."
+ * Creature tokens only. Same phrases as the server token-creation replacement template.
+ */
+export function isControllerCreatureTokenTripler(oracleText: string): boolean {
+  const text = String(oracleText || '').toLowerCase();
+  return text.includes('creature tokens would be created under your control')
+    && text.includes('three times that many');
+}
+
+/**
+ * Calculate token multiplier based on permanents on battlefield.
+ * Each doubler doubles the count. A creature-token tripler triples it when the
+ * tokens being created are creatures. The new tokens are not on the battlefield yet.
  */
 export function getTokenMultiplier(
   controllerId: string,
-  battlefieldPermanents: { controller: string; oracleText: string }[]
+  battlefieldPermanents: { controller: string; oracleText: string }[],
+  options?: { tokenIsCreature?: boolean },
 ): number {
   let multiplier = 1;
-  
+  const tokenIsCreature = options?.tokenIsCreature === true;
+
   for (const perm of battlefieldPermanents) {
     // Only check permanents you control
     if (perm.controller !== controllerId) continue;
-    
-    const info = detectTriggerCopying(perm.oracleText);
+
+    const oracleText = String(perm.oracleText || '');
+    if (isControllerCreatureTokenTripler(oracleText)) {
+      if (tokenIsCreature) multiplier *= 3;
+      continue;
+    }
+
+    const info = detectTriggerCopying(oracleText);
     if (info.tokenDoubling) {
       multiplier *= 2;
     }
   }
-  
+
   return multiplier;
 }
 

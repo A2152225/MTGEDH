@@ -13,6 +13,7 @@ import type { Server } from "socket.io";
 import { clearTimeout as nodeClearTimeout, setTimeout as nodeSetTimeout } from "node:timers";
 import { AIEngine, type AIPlayerConfig } from "../../../../rules-engine/src/AIEngine.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
+import { games } from "../socket.js";
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
 import { isGameRestoring } from "../../gameRestoreState.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
@@ -58,6 +59,16 @@ export function clearScheduledAIActionsForGame(gameId: string): void {
   }
 }
 
+function seatMarkedAI(gameId: string, playerId: PlayerID): boolean {
+  const players = ((games.get(gameId as any)?.state as { players?: Array<{ id?: unknown; isAI?: boolean }> } | undefined)?.players) || [];
+  const player = players.find((entry) => entry?.id === playerId);
+  // Human autopilot sets isAI false while turning the toggle off. A stale
+  // registry row must not queue another action.
+  if (player && player.isAI === false) return false;
+  if (aiPlayers.get(gameId)?.has(playerId)) return true;
+  return player?.isAI === true;
+}
+
 function scheduleAIActionInternal(
   io: Server,
   gameId: string,
@@ -66,6 +77,10 @@ function scheduleAIActionInternal(
   delayMs: number,
 ): void {
   if (isGameRestoring(gameId)) return;
+  if (!seatMarkedAI(gameId, playerId)) {
+    clearScheduledAIAction(gameId, playerId);
+    return;
+  }
   const key = getAIActionKey(gameId, playerId);
   const runAt = Date.now() + Math.max(0, delayMs);
   const existing = aiScheduledActions.get(key);
@@ -81,6 +96,7 @@ function scheduleAIActionInternal(
   const timer = setTimeout(() => {
     aiScheduledActions.delete(key);
     if (isGameRestoring(gameId)) return;
+    if (!seatMarkedAI(gameId, playerId)) return;
     const { handleAIGameFlow, handleAIPriority } = getAIHandlerDeps();
     const invoke = kind === 'gameFlow' ? handleAIGameFlow : handleAIPriority;
     void invoke(io, gameId, playerId).catch((err) => debugError(1, err));

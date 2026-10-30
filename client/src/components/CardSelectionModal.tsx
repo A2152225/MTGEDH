@@ -58,13 +58,15 @@ export function CardSelectionModal({
   onCancel,
 }: CardSelectionModalProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const optionIdentity = options.map((option) => option.id).join('\0');
 
-  // Reset selection when modal opens/closes or options change
+  // Reset only when the modal opens or the offered ids change. A fresh options
+  // array on every game-state render was clearing the pick before it could be confirmed.
   useEffect(() => {
     if (open) {
       setSelectedIds(new Set());
     }
-  }, [open, options]);
+  }, [open, optionIdentity]);
 
   if (!open) return null;
 
@@ -295,11 +297,10 @@ export function CardSelectionModal({
                     style={{
                       fontSize: 9,
                       textAlign: 'center',
-                      color: '#888',
+                      color: '#c4c4d4',
                       maxWidth: '100%',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
+                      whiteSpace: 'normal',
+                      lineHeight: 1.3,
                     }}
                   >
                     {option.description}

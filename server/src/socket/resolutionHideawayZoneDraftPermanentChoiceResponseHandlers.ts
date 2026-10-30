@@ -33,6 +33,7 @@ import {
 } from "../../../rules-engine/src/oracleIRExecutorRepeatedZoneDraft.js";
 import { recordDeferredChaosEtbPermanentId } from "../state/modules/oracleIrChaosResolutionTriggerHold.js";
 import { stampPermanentEntryTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
+import { copyRetainedChosenCharacteristics } from '../../../shared/src/zoneRetainedCounters.js';
 
 /**
  * Handle Return Controlled Permanent Choice response.
@@ -387,7 +388,8 @@ export function handleRepeatedZoneDraftResponse(
       .filter(Boolean),
   );
   const isPlayerAttach = Boolean(attachId && playerIds.has(attachId));
-  game.state.battlefield.push({
+  const returnedCard = { ...card, zone: 'battlefield' };
+  const returnedPermanent: any = {
     id: permanentId,
     controller: chooserId,
     owner: ownerId,
@@ -396,12 +398,15 @@ export function handleRepeatedZoneDraftResponse(
     basePower: isCreature ? parsePT(card.power) : undefined,
     baseToughness: isCreature ? parsePT(card.toughness) : undefined,
     summoningSickness: isCreature,
-    card: { ...card, zone: 'battlefield' },
+    card: returnedCard,
     ...(attachId && !isPlayerAttach ? { attachedTo: attachId } : {}),
     ...(isPlayerAttach
       ? { attachedTo: attachId, enchanting: attachId, enchantedPlayerId: attachId }
       : {}),
-  });
+  };
+  copyRetainedChosenCharacteristics(card, returnedPermanent);
+  copyRetainedChosenCharacteristics(card, returnedCard);
+  game.state.battlefield.push(returnedPermanent);
   stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
   if (attachId && !isPlayerAttach) {
     const host = game.state.battlefield.find((perm: any) => String(perm?.id || '') === attachId);
@@ -507,11 +512,11 @@ export function handleRepeatedZoneDraftResponse(
       oracleIrContinuationStepIndex: stepData.oracleIrContinuationStepIndex,
     } as any;
 
-    ResolutionQueueManager.addStep(gameId, nextDraftStep);
+    const queuedDraftStep = ResolutionQueueManager.addStep(gameId, nextDraftStep);
     appendQueuedResolutionPromptEvent(game, gameId, {
       playerId: String(nextChooser),
       sourceId: String(stepData.sourceId || '').trim(),
-      queuedResolutionSteps: [nextDraftStep],
+      queuedResolutionSteps: [queuedDraftStep],
     });
   } else {
     // Draft finished — resume any remaining Oracle IR steps after this choice gap.

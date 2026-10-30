@@ -12,6 +12,13 @@ import type { TriggerPromptData } from "../components/TriggeredAbilityModal";
 import { buildLibrarySearchModalStateFromStep, readResolutionPromptCause } from "../utils/resolutionChoicePrimitives";
 import { isResolutionStepMandatory } from "../utils/resolutionStepUtils";
 import { resolveTargetOptionPowerToughness } from "../utils/targetOptionPowerToughness";
+import { readPermanentDamageMarked } from "../components/FreeField-handlers/freeFieldDisplayUtils";
+import {
+  countIdenticalTriggersWaiting,
+  identicalTriggerKeyForStep,
+  takeReusableTriggerTargets,
+} from "../utils/identicalTriggerTargetReuse";
+import { socket } from "../socket";
 
 export function handleAppResolutionStepPromptLate(
   step: any,
@@ -113,6 +120,7 @@ export function handleAppResolutionStepPromptLate(
           cardId: String(card.cardId || card.id || '').trim(),
           cardName: String(card.cardName || card.name || card.cardId || card.id || '').trim(),
           imageUrl: card.imageUrl,
+          description: String(card.details || card.description || '').trim() || undefined,
           attachOptions: Array.isArray(card.attachOptions)
             ? card.attachOptions
                 .map((opt: any) => ({
@@ -603,12 +611,18 @@ export function handleAppResolutionStepPromptLate(
           const card = t.card || perm?.card;
           const controllerId = t.controller || perm?.controller;
           const ownerId = t.owner || perm?.owner;
+          const isPlayerTarget = t.type === 'player' || t.description === 'player' || t.description === 'Player';
+          const commanderCard = isPlayerTarget ? (safeView as any)?.commandZone?.[String(t.id)]?.commanderCards?.[0] : undefined;
+          const viewLife = isPlayerTarget ? (safeView as any)?.life?.[String(t.id)] : undefined;
           const imageUrl = t.imageUrl
             || t.image
             || card?.image_uris?.small
             || card?.image_uris?.normal
             || card?.card_faces?.[0]?.image_uris?.small
-            || card?.card_faces?.[0]?.image_uris?.normal;
+            || card?.card_faces?.[0]?.image_uris?.normal
+            || commanderCard?.image_uris?.art_crop
+            || commanderCard?.image_uris?.normal
+            || commanderCard?.card_faces?.[0]?.image_uris?.art_crop;
           const controllerName = t.controllerName
             || (controllerId ? resolutionPlayerNames[controllerId] : undefined)
             || controllerId;
@@ -619,8 +633,9 @@ export function handleAppResolutionStepPromptLate(
             id: t.id,
             type: (t.type as any)
               || (t.description === 'stack' || t.kind === 'stack' ? 'stack'
-                : (t.description === 'player' || t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent')),
-            name: t.label || t.name || card?.name || 'Unknown',
+                : isPlayerTarget ? 'player'
+                : (t.description === 'permanent' || t.description === 'card' ? t.description : 'permanent')),
+            name: t.label || t.name || card?.name || (isPlayerTarget ? resolutionPlayerNames[String(t.id)] : undefined) || 'Unknown',
             displayName: t.displayName,
             imageUrl,
             controller: controllerId,
@@ -629,7 +644,8 @@ export function handleAppResolutionStepPromptLate(
             tapped: typeof t.tapped === 'boolean' ? t.tapped : (typeof perm?.tapped === 'boolean' ? perm.tapped : undefined),
             // Current P/T (counters, anthems, pumps) as shown on the battlefield, not the printed card.
             powerToughness: resolveTargetOptionPowerToughness(t, perm),
-            life: t.life,
+            damageMarked: perm ? readPermanentDamageMarked(perm) || undefined : undefined,
+            life: typeof t.life === 'number' ? t.life : (typeof viewLife === 'number' ? viewLife : undefined),
             zone: t.zone || (t.type === 'stack' || t.description === 'stack' || t.kind === 'stack' ? 'stack' : undefined),
             owner: ownerId,
             ownerName,
@@ -638,6 +654,20 @@ export function handleAppResolutionStepPromptLate(
           };
         };
         const validTargets: TargetOption[] = rawTargets.map(mapTargetOption);
+
+        const repeatTriggerKey = identicalTriggerKeyForStep(step);
+        if (repeatTriggerKey && safeView?.id) {
+          const reusedTargetIds = takeReusableTriggerTargets(String(safeView.id), step, validTargets.map((t) => String(t.id)));
+          if (reusedTargetIds) {
+            socket.emit("submitResolutionResponse", {
+              gameId: safeView.id,
+              stepId: step.id,
+              selections: reusedTargetIds,
+              cancelled: false,
+            });
+            return;
+          }
+        }
 
         const perOpponent = (step as any).perOpponent === true;
         const targetsPerOpponentRaw = (step as any).targetsPerOpponent as Record<string, any[]> | undefined;
@@ -698,6 +728,11 @@ export function handleAppResolutionStepPromptLate(
           effectId: step.sourceId,
           stepId: step.id,  // Store step ID for resolution response
           useResolutionQueue: true,  // Flag to indicate this came from Resolution Queue
+          damagePreview: typeof (step as any).damagePreview === 'number' ? (step as any).damagePreview : undefined,
+          repeatTriggerKey: repeatTriggerKey
+            && countIdenticalTriggersWaiting((safeView as any)?.stack, step.sourceName, you) > 0
+            ? repeatTriggerKey
+            : undefined,
         });
         setTargetModalOpen(true);
       }

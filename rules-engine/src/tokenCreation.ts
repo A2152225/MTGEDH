@@ -54,6 +54,36 @@ export {
 export { createTokenPermanent } from './tokenCreationPermanentFactory';
 
 /**
+ * Apply battlefield token doublers and creature-token triplers.
+ * Each matching permanent the controller controls multiplies the count. The new tokens
+ * are not on the battlefield yet, so they do not multiply the event that creates them.
+ */
+export function resolveMultipliedTokenCount(
+  controllerId: string,
+  battlefield: readonly { controller: string; card?: { oracle_text?: string; type_line?: string } | null; oracle_text?: string; type_line?: string }[],
+  baseCount: number,
+  options?: { tokenIsCreature?: boolean },
+): { readonly count: number; readonly multiplier: number } {
+  const multiplier = getTokenMultiplier(
+    controllerId,
+    (battlefield || []).map(perm => ({
+      controller: perm.controller,
+      oracleText: (perm.card as KnownCardRef)?.oracle_text || (perm as any)?.oracle_text || '',
+    })),
+    { tokenIsCreature: options?.tokenIsCreature === true },
+  );
+  return {
+    multiplier,
+    count: Math.max(0, baseCount * multiplier),
+  };
+}
+
+function createdTokenIsCreature(characteristics: { types?: readonly string[]; type_line?: string }): boolean {
+  if ((characteristics.types || []).some((type) => String(type).toLowerCase() === 'creature')) return true;
+  return /\bcreature\b/i.test(String(characteristics.type_line || ''));
+}
+
+/**
  * Create tokens with full trigger detection
  */
 export function createTokens(
@@ -64,14 +94,12 @@ export function createTokens(
   const etbTriggers: ETBTriggerInfo[] = [];
   const otherTriggers: TokenTriggerInfo[] = [];
   const log: string[] = [];
-  const tokenMultiplier = getTokenMultiplier(
+  const { count: totalCount, multiplier: tokenMultiplier } = resolveMultipliedTokenCount(
     request.controllerId,
-    battlefield.map(perm => ({
-      controller: perm.controller,
-      oracleText: (perm.card as KnownCardRef)?.oracle_text || (perm as any)?.oracle_text || '',
-    }))
+    battlefield,
+    request.count,
+    { tokenIsCreature: createdTokenIsCreature(request.characteristics) },
   );
-  const totalCount = Math.max(0, request.count * tokenMultiplier);
 
   if (tokenMultiplier > 1) {
     log.push(`Applied token multiplier x${tokenMultiplier}`);

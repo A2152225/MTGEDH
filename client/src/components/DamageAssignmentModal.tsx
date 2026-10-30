@@ -37,11 +37,13 @@ function extractCreatureInfo(perm: BattlefieldPermanent): CreatureInfo {
   if (oracleText.includes('first strike')) keywords.push('First Strike');
   if (oracleText.includes('double strike')) keywords.push('Double Strike');
   
+  const effP = (perm as any).effectivePower;
+  const effT = (perm as any).effectiveToughness;
   return {
     id: perm.id,
     name: card?.name || 'Creature',
-    power: basePower + plusCounters - minusCounters,
-    toughness: baseToughness + plusCounters - minusCounters,
+    power: typeof effP === 'number' ? effP : basePower + plusCounters - minusCounters,
+    toughness: typeof effT === 'number' ? effT : baseToughness + plusCounters - minusCounters,
     damage: perm.counters?.damage || 0,
     keywords,
     imageUrl: card?.image_uris?.small || card?.image_uris?.normal,

@@ -27,6 +27,8 @@ export interface TargetOption {
   tapped?: boolean;
   /** Current (effective) creature P/T, same as the battlefield badge. */
   powerToughness?: TargetOptionPowerToughness;
+  /** Damage already marked on the permanent this turn. */
+  damageMarked?: number;
   // For players
   life?: number;
   // For cards
@@ -132,10 +134,16 @@ function PermanentOwnershipBadge({
 function PermanentTargetCaption({
   target,
   viewerPlayerId,
+  damagePreview,
 }: {
   target: TargetOption;
   viewerPlayerId?: string;
+  damagePreview?: number;
 }) {
+  const damageMarked = Number(target.damageMarked || 0);
+  const toughness = target.powerToughness?.toughness;
+  const isLethal = typeof damagePreview === 'number' && damagePreview > 0 && typeof toughness === 'number'
+    && damagePreview + damageMarked >= toughness;
   const isYours = Boolean(viewerPlayerId && target.controller && target.controller === viewerPlayerId);
   // Prefer real table names for politics ("tap King's Command Tower").
   const controllerLabel = target.controllerName || target.controller;
@@ -192,6 +200,16 @@ function PermanentTargetCaption({
             </span>
           </span>
         )}
+        {damageMarked > 0 && (
+          <span data-testid="target-option-damage" style={{ color: '#f87171', fontWeight: 700 }}>
+            {damageMarked} dmg
+          </span>
+        )}
+        {isLethal && (
+          <span style={{ color: '#111', background: '#f87171', borderRadius: 3, padding: '0 4px', fontWeight: 800 }}>
+            Lethal
+          </span>
+        )}
         {typeof target.tapped === 'boolean' && (
           <span
             style={{
@@ -237,8 +255,12 @@ export interface TargetSelectionModalProps {
   // Grouping
   groupByType?: boolean;
   groupByController?: boolean;
+  /** Damage the effect will deal to the chosen target (shown as life after / lethal). */
+  damagePreview?: number;
+  /** Offer reusing the chosen target for the following identical triggers. */
+  offerRepeatForIdenticalTriggers?: boolean;
   // Selection handlers
-  onConfirm: (selectedTargetIds: string[]) => void;
+  onConfirm: (selectedTargetIds: string[], options?: { repeatForIdenticalTriggers?: boolean }) => void;
   onCancel: () => void;
 }
 

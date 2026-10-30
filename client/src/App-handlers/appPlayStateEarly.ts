@@ -208,6 +208,7 @@ export function useAppPlayStateEarly(p: Record<string, any>) {
       cardId: string;
       cardName: string;
       imageUrl?: string;
+      description?: string;
       attachOptions?: Array<{ cardId: string; cardName: string; imageUrl?: string }>;
     }>;
     title?: string;
@@ -367,6 +368,9 @@ export function useAppPlayStateEarly(p: Record<string, any>) {
     // Resolution Queue support
     stepId?: string;
     useResolutionQueue?: boolean;
+    damagePreview?: number;
+    /** Set for targeted triggered abilities; identical triggers share the key. */
+    repeatTriggerKey?: string;
   } | null>(null);
   
   // Creature type selection modal state (for Cavern of Souls, Kindred Discovery, etc.)

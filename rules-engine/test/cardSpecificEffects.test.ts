@@ -583,6 +583,17 @@ describe('Card-Specific Effects', () => {
       expect(getTokenMultiplier('player1', battlefield)).toBe(4);
     });
 
+    it('triples creature tokens and ignores the tripler for other tokens', () => {
+      const battlefield = [
+        { controller: 'player1', oracleText: 'If one or more creature tokens would be created under your control, three times that many of those tokens are created instead.' },
+        { controller: 'player1', oracleText: 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.' },
+        { controller: 'player2', oracleText: 'If one or more creature tokens would be created under your control, three times that many of those tokens are created instead.' },
+      ];
+      expect(getTokenMultiplier('player1', battlefield, { tokenIsCreature: true })).toBe(6);
+      expect(getTokenMultiplier('player1', battlefield, { tokenIsCreature: false })).toBe(2);
+      expect(getTokenMultiplier('player1', battlefield)).toBe(2);
+    });
+
     it('should not apply opponent token doublers', () => {
       const battlefield = [
         { controller: 'player2', oracleText: 'If an effect would create one or more tokens under your control, it creates twice that many of those tokens instead.' },

@@ -27,13 +27,26 @@ import {
   resolveDamageTrigger,
   type DamageTriggerInfo,
 } from "../../state/modules/triggers/damage-received.js";
+import { runSBA } from "../../state/modules/counters_tokens-handlers/countersTokensStateBasedActions.js";
 import { drawCards as drawCardsFromZones } from "../../state/modules/zones.js";
 import type {
   ResolutionStep,
   ResolutionStepResponse,
 } from "../../state/resolution/index.js";
+import { contextHasBlockingNonPaymentResolutionSteps } from "../../state/resolution/resolutionQueueGameIds.js";
 import { debugWarn } from "../../utils/debug.js";
 import { broadcastGame } from "../util.js";
+
+/** CR 704.3: after the ability finishes and before the next player gets priority. */
+function runStateBasedActionsAfterFinishedAbility(ctx: any): void {
+  if (!ctx || contextHasBlockingNonPaymentResolutionSteps(ctx)) return;
+  if (typeof ctx.bumpSeq !== "function") ctx.bumpSeq = () => {};
+  try {
+    runSBA(ctx);
+  } catch (err) {
+    debugWarn(1, "[Resolution] Error running SBA after targeted ability:", err);
+  }
+}
 
 /** Targets chosen for a triggered ability waiting on the stack. */
 export function handleTargetedTriggeredAbilityTargetSelection(
@@ -125,6 +138,7 @@ export function handleTargetedTriggeredAbilityTargetSelection(
       drawCardsFromZones(ctx, controller as PlayerID, 1);
     }
 
+    runStateBasedActionsAfterFinishedAbility(ctx);
     broadcastGame(io, game, gameId);
     return;
   }
@@ -139,6 +153,7 @@ export function handleTargetedTriggeredAbilityTargetSelection(
     if (index >= 0) game.state.stack.splice(index, 1);
   }
 
+  runStateBasedActionsAfterFinishedAbility(ctx);
   if (typeof (game as any).bumpSeq === 'function') {
     (game as any).bumpSeq();
   }
@@ -221,6 +236,7 @@ export function handleDamageReceivedTriggerTargetSelection(
 
   }
 
+  runStateBasedActionsAfterFinishedAbility(ctx);
   if (typeof game.bumpSeq === 'function') game.bumpSeq();
   broadcastGame(io, game, gameId);
 }

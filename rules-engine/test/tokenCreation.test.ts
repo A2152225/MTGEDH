@@ -146,6 +146,36 @@ describe('Token Creation', () => {
       expect(result.tokens).toHaveLength(4);
       expect(result.log).toContain('Applied token multiplier x4');
     });
+
+    it('triples creature tokens and leaves noncreature tokens unchanged', () => {
+      const ojerTaq: BattlefieldPermanent = {
+        id: 'perm-ojer-taq',
+        controller: 'player1',
+        owner: 'player1',
+        tapped: false,
+        counters: {},
+        card: {
+          name: 'Ojer Taq, Deepest Foundation',
+          oracle_text: 'Vigilance\nIf one or more creature tokens would be created under your control, three times that many of those tokens are created instead.',
+        } as KnownCardRef,
+      } as BattlefieldPermanent;
+
+      const creatures = createTokens({
+        characteristics: COMMON_TOKENS['2/2 Zombie'],
+        count: 1,
+        controllerId: 'player1',
+      }, [ojerTaq]);
+      const treasures = createTokens({
+        characteristics: COMMON_TOKENS['Treasure'],
+        count: 1,
+        controllerId: 'player1',
+      }, [ojerTaq]);
+
+      expect(creatures.tokens).toHaveLength(3);
+      expect(creatures.log).toContain('Applied token multiplier x3');
+      expect(treasures.tokens).toHaveLength(1);
+      expect(treasures.log).not.toContain('Applied token multiplier x3');
+    });
   });
 
   describe('createTokensByName', () => {

@@ -12,6 +12,7 @@ import {
 import { copyAsEntersCopiableChoicesFromSource } from '../../../shared/src/copyTokenUtils.js';
 import { mergeOracleFieldsFromLookup } from '../../../shared/src/hydrateCardOracleText.js';
 import { lookupLocalCardByNameSync } from '../../../server/src/services/localCardLookup.js';
+import { resolveMultipliedTokenCount } from '../tokenCreation.js';
 import type { StackObject } from '../spellCasting';
 
 /** Adapter instance passed as `this` from RulesEngineAdapter thin wrappers. */
@@ -71,56 +72,67 @@ export function resolveHelmOfTheHostTrigger(
       };
     });
     const copyOverrides = parseCopyTokenOverridesFromEffect(effectText);
-    const tokenId = `token-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+    const tokenCount = resolveMultipliedTokenCount(
+      String(stackObject.controllerId || ''),
+      battlefield,
+      1,
+      { tokenIsCreature: /\bcreature\b/i.test(String(originalCard.type_line || originalCard.typeLine || '')) },
+    ).count;
+    const tokenPermanents: any[] = [];
 
-    const tokenCard = {
-      ...originalCard,
-      id: tokenId,
-      isToken: true,
-      isCopyOfPrintedCard: true,
-    };
+    for (let copyIndex = 0; copyIndex < tokenCount; copyIndex += 1) {
+      const tokenId = `token-${Date.now()}-${copyIndex}-${Math.floor(Math.random() * 1000000)}`;
+      const tokenCard = {
+        ...originalCard,
+        id: tokenId,
+        isToken: true,
+        isCopyOfPrintedCard: true,
+      };
 
-    const tokenPermanent = {
-      id: tokenId,
-      controller: stackObject.controllerId,
-      owner: stackObject.controllerId,
-      ownerId: stackObject.controllerId,
-      tapped: false,
-      summoningSickness: false,
-      counters: {},
-      attachedTo: undefined,
-      attachments: [],
-      attachedEquipment: [],
-      isEquipped: false,
-      modifiers: [],
-      name: tokenCard.name,
-      manaCost: originalCard.mana_cost ?? originalCard.manaCost,
-      power: equippedCreature.power ?? originalCard.power,
-      toughness: equippedCreature.toughness ?? originalCard.toughness,
-      basePower: equippedCreature.basePower ?? equippedCreature.power ?? originalCard.power,
-      baseToughness: equippedCreature.baseToughness ?? equippedCreature.toughness ?? originalCard.toughness,
-      card: tokenCard,
-      isToken: true,
-      isCopyToken: true,
-      copyTokenOverrides: copyOverrides,
-      ...(String(equippedCreature?.id || '').trim()
-        ? { copiedFromPermanentId: String(equippedCreature.id).trim() }
-        : {}),
-    } as any;
+      const tokenPermanent = {
+        id: tokenId,
+        controller: stackObject.controllerId,
+        owner: stackObject.controllerId,
+        ownerId: stackObject.controllerId,
+        tapped: false,
+        summoningSickness: false,
+        counters: {},
+        attachedTo: undefined,
+        attachments: [],
+        attachedEquipment: [],
+        isEquipped: false,
+        modifiers: [],
+        name: tokenCard.name,
+        manaCost: originalCard.mana_cost ?? originalCard.manaCost,
+        power: equippedCreature.power ?? originalCard.power,
+        toughness: equippedCreature.toughness ?? originalCard.toughness,
+        basePower: equippedCreature.basePower ?? equippedCreature.power ?? originalCard.power,
+        baseToughness: equippedCreature.baseToughness ?? equippedCreature.toughness ?? originalCard.toughness,
+        card: tokenCard,
+        isToken: true,
+        isCopyToken: true,
+        copyTokenOverrides: copyOverrides,
+        ...(String(equippedCreature?.id || '').trim()
+          ? { copiedFromPermanentId: String(equippedCreature.id).trim() }
+          : {}),
+      } as any;
 
-    applyCopyTokenOverrides(tokenCard, copyOverrides, tokenPermanent);
-    tokenPermanent.oracle_text = tokenCard.oracle_text;
-    tokenPermanent.type_line = tokenCard.type_line;
-    tokenPermanent.cardType = tokenCard.type_line;
-    // CR 707.2 — Morophon / similar as-enters choices are copiable values.
-    copyAsEntersCopiableChoicesFromSource(equippedCreature, tokenPermanent);
+      applyCopyTokenOverrides(tokenCard, copyOverrides, tokenPermanent);
+      tokenPermanent.oracle_text = tokenCard.oracle_text;
+      tokenPermanent.type_line = tokenCard.type_line;
+      tokenPermanent.cardType = tokenCard.type_line;
+      // CR 707.2 — Morophon / similar as-enters choices are copiable values.
+      copyAsEntersCopiableChoicesFromSource(equippedCreature, tokenPermanent);
+      tokenPermanents.push(tokenPermanent);
+    }
 
+    const createdName = tokenPermanents[0]?.card?.name || equippedCreature.id;
     return {
       handled: true,
       state: {
         ...state,
-        battlefield: [...battlefield, tokenPermanent],
+        battlefield: [...battlefield, ...tokenPermanents],
       },
-      log: [`[oracle-ir] Helm of the Host created token copy of ${tokenCard.name || equippedCreature.id}`],
+      log: [`[oracle-ir] Helm of the Host created ${tokenPermanents.length} token copy/copies of ${createdName}`],
     };
   }

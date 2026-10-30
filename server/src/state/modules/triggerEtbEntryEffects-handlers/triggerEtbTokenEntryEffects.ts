@@ -30,6 +30,7 @@ import {
 } from './triggerEtbTypedPermanentMatch.js';
 import { filterOneOrMoreEntryDuplicates } from '../triggers/simultaneousEntryBatch.js';
 import { permanentHasTriggeredAbilities } from '../triggers/triggeredAbilitySuppression.js';
+import { stampWatcherEtbTriggerTargetMetadata } from '../triggerEtbTargetMetadataStamp.js';
 
 export function triggerETBEffectsForToken(
   ctx: GameContext,
@@ -460,6 +461,7 @@ export function triggerETBEffectsForToken(
   ).map((entry: any) => entry.stackItem);
 
   for (const stackItem of filterOneOrMoreEntryDuplicates(orderedExternalEtbTriggers)) {
+    stampWatcherEtbTriggerTargetMetadata(state, stackItem);
     state.stack.push(stackItem);
     pushTriggerDoublerCopies(state, stackItem);
     persistTriggeredAbilityPush(ctx, stackItem);

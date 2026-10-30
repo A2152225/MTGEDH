@@ -32,6 +32,7 @@ import {
   PermanentTargetCaption,
   FlagbearerRequiredBadge,
 } from './TargetSelectionModal-handlers/targetSelectionModalSupport';
+import { PlayerTargetTile, RepeatForIdenticalTriggersToggle } from './TargetSelectionModal-handlers/targetSelectionPlayerTile';
 export type {
   TargetType,
   TargetOption,
@@ -60,15 +61,19 @@ export function TargetSelectionModal({
   maxTargetsPerOpponent = 1,
   groupByType = true,
   groupByController = false,
+  damagePreview,
+  offerRepeatForIdenticalTriggers = false,
   onConfirm,
   onCancel,
 }: TargetSelectionModalProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [repeatForIdentical, setRepeatForIdentical] = useState(false);
 
   // Reset selection when modal opens or targets change
   React.useEffect(() => {
     if (open) {
       setSelectedIds(new Set());
+      setRepeatForIdentical(false);
     }
   }, [open, targets]);
 
@@ -189,7 +194,10 @@ export function TargetSelectionModal({
 
   const handleConfirm = () => {
     if (canConfirm) {
-      onConfirm(Array.from(selectedIds));
+      onConfirm(
+        Array.from(selectedIds),
+        offerRepeatForIdenticalTriggers && repeatForIdentical ? { repeatForIdenticalTriggers: true } : undefined,
+      );
     }
   };
 
@@ -388,28 +396,7 @@ export function TargetSelectionModal({
                         }}
                       >
                         {isPlayer ? (
-                          <div
-                            style={{
-                              padding: 12,
-                              textAlign: 'center',
-                              minHeight: 80,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 4,
-                            }}
-                          >
-                            <div style={{ fontSize: 24 }}>👤</div>
-                            <div style={{ fontWeight: 600, fontSize: 13 }}>
-                              {target.displayName || target.name}
-                            </div>
-                            {target.life !== undefined && (
-                              <div style={{ fontSize: 11, color: '#888' }}>
-                                {target.life} life
-                              </div>
-                            )}
-                          </div>
+                          <PlayerTargetTile target={target} damagePreview={damagePreview} />
                         ) : (
                           <>
                             <div style={{ width: '100%', aspectRatio: '0.72', overflow: 'hidden', pointerEvents: 'none', position: 'relative' }}>
@@ -469,7 +456,7 @@ export function TargetSelectionModal({
                                 </div>
                               )}
                             </div>
-                            <PermanentTargetCaption target={target} viewerPlayerId={viewerPlayerId} />
+                            <PermanentTargetCaption target={target} viewerPlayerId={viewerPlayerId} damagePreview={damagePreview} />
                           </>
                         )}
                         {isSelected && (
@@ -587,35 +574,13 @@ export function TargetSelectionModal({
                       }}
                     >
                       {isPlayer ? (
-                        // Player target display
-                        <div
-                          style={{
-                            padding: 12,
-                            textAlign: 'center',
-                            minHeight: 80,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: 4,
-                          }}
-                        >
-                          <div style={{ fontSize: 24 }}>👤</div>
-                          <div style={{ fontWeight: 600, fontSize: 13 }}>
-                            {target.displayName || target.name}
-                          </div>
-                          {target.life !== undefined && (
-                            <div style={{ fontSize: 11, color: '#888' }}>
-                              {target.life} life
-                            </div>
-                          )}
-
-                          {selectedMode?.name && (
-                            <div style={{ fontSize: 10, color: isModePreferred ? '#f59e0b' : '#888' }}>
-                              {isModePreferred ? 'Matches chosen mode' : 'Other mode'}
-                            </div>
-                          )}
-                        </div>
+                        <PlayerTargetTile
+                          target={target}
+                          damagePreview={damagePreview}
+                          modeNote={selectedMode?.name
+                            ? { text: isModePreferred ? 'Matches chosen mode' : 'Other mode', preferred: isModePreferred }
+                            : undefined}
+                        />
                       ) : (
                         // Card/Permanent target display
                         <>
@@ -676,7 +641,7 @@ export function TargetSelectionModal({
                               </div>
                             )}
                           </div>
-                          <PermanentTargetCaption target={target} viewerPlayerId={viewerPlayerId} />
+                          <PermanentTargetCaption target={target} viewerPlayerId={viewerPlayerId} damagePreview={damagePreview} />
 
                           {selectedMode?.name && (
                             <div
@@ -778,7 +743,10 @@ export function TargetSelectionModal({
         )}
 
         {/* Action buttons */}
-        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
+          {offerRepeatForIdenticalTriggers && (
+            <RepeatForIdenticalTriggersToggle checked={repeatForIdentical} onChange={setRepeatForIdentical} sourceName={source?.name} />
+          )}
           <button
             onClick={onCancel}
             style={{

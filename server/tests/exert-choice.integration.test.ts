@@ -1636,7 +1636,10 @@ describe('supported exert attack automation (integration)', () => {
 
     const beastTarget = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'beast_target') as any;
     const dragonTarget = (((game.state as any).battlefield || []) as any[]).find((permanent: any) => permanent?.id === 'dragon_target') as any;
-    expect(beastTarget?.damageMarked).toBe(4);
+    // 4 damage to a 2/2: state-based actions put it into the graveyard before priority.
+    expect(beastTarget).toBeUndefined();
+    const defenderGraveyard = (((game.state as any).zones?.[defenderId]?.graveyard || []) as any[]);
+    expect(defenderGraveyard.some((card: any) => card?.name === 'Beast Target' || card?.card?.name === 'Beast Target')).toBe(true);
     expect(dragonTarget?.damageMarked || 0).toBe(0);
   });
 

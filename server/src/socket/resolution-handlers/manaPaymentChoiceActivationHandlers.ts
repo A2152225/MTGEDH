@@ -50,6 +50,7 @@ import {
   broadcastGame,
   broadcastManaPoolUpdate,
   buildActivatedAbilityRestrictedManaPurpose,
+  calculateManaProduction,
   emitToPlayer,
   getPlayerName,
   shouldSkipScalingManaForColorlessTap,
@@ -487,6 +488,55 @@ export async function tryHandleManaPaymentChoiceActivation(
       }
       broadcastManaPoolUpdate(io, gameId, pid, game.state.manaPool[pid] as any, `Activated ${cardName}`, game);
     } else {
+      const scopedManaProduction = calculateManaProduction(game.state, permanent, pid, undefined, abilityId);
+      if (
+        scopedManaProduction.requiresColorChoice === true
+        && scopedManaProduction.dynamicAmountSource === 'devotion'
+      ) {
+        const combinationFields = buildAnyCombinationManaSelectionFields({
+          totalAmount: 0,
+          cardName,
+          allowedColors: ['W', 'U', 'B', 'R', 'G'],
+        });
+        ResolutionQueueManager.addStep(gameId, {
+          type: ResolutionStepType.MANA_COLOR_SELECTION,
+          playerId: pid as PlayerID,
+          sourceId: permanentId,
+          sourceName: cardName,
+          sourceImage: (permanent.card as any)?.image_uris?.small || (permanent.card as any)?.image_uris?.normal,
+          description: combinationFields.description,
+          mandatory: true,
+          selectionKind: combinationFields.selectionKind,
+          permanentId,
+          abilityId,
+          cardName,
+          abilityText,
+          activatedAbilityText,
+          allowedColors: combinationFields.allowedColors,
+          singleColor: true,
+          dynamicAmountSource: 'devotion',
+          manaMultiplier: effectiveMultiplier,
+          tappedPermanentsForCost: [],
+        } as any);
+        try {
+          appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {
+            playerId: pid,
+            permanentId,
+            abilityId: abilityId || undefined,
+            cardName,
+            abilityText,
+            activatedAbilityText: activatedAbilityText || undefined,
+            tappedPermanents: requiresTap ? [permanentId] : undefined,
+            paymentMutationsPersistedSeparately: true,
+            ...(paymentManaDelta && Object.keys(paymentManaDelta).length > 0 ? { paymentManaDelta } : {}),
+          });
+        } catch {
+          // ignore persistence failures
+        }
+        broadcastGame(io, game, gameId);
+        return true;
+      }
+
       const {
         produces,
         baseAmount,
