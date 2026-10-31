@@ -371,6 +371,7 @@ export function useAppPlayStateEarly(p: Record<string, any>) {
     damagePreview?: number;
     /** Set for targeted triggered abilities; identical triggers share the key. */
     repeatTriggerKey?: string;
+    repeatTriggerWaiting?: number;
   } | null>(null);
   
   // Creature type selection modal state (for Cavern of Souls, Kindred Discovery, etc.)

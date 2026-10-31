@@ -430,6 +430,12 @@ export function resolveManaAbilityActivationShape(
   if (produces.length === 0 && (manaProduction?.requiresColorChoice === true || commanderRestrictedMana)) {
     if (abilityProduces.length > 0) {
       produces = abilityProduces;
+    } else if (
+      !commanderRestrictedMana
+      && Array.isArray(manaProduction?.colors)
+      && manaProduction.colors.some((color: unknown) => String(color || '').toLowerCase() === 'any')
+    ) {
+      produces = ['W', 'U', 'B', 'R', 'G'];
     } else if (commanderRestrictedMana) {
       const commanderColorKeys = getCommanderColorIdentity(gameState, playerId);
       const commanderProduces = ['W', 'U', 'B', 'R', 'G'].filter((color) => {

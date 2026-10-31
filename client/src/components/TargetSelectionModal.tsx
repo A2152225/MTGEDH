@@ -63,19 +63,23 @@ export function TargetSelectionModal({
   groupByController = false,
   damagePreview,
   offerRepeatForIdenticalTriggers = false,
+  identicalTriggersWaiting,
   onConfirm,
   onCancel,
 }: TargetSelectionModalProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [repeatForIdentical, setRepeatForIdentical] = useState(false);
+  const repeatMax = Math.max(1, Math.floor(Number(identicalTriggersWaiting) || 1));
+  const [repeatCount, setRepeatCount] = useState(repeatMax);
 
   // Reset selection when modal opens or targets change
   React.useEffect(() => {
     if (open) {
       setSelectedIds(new Set());
       setRepeatForIdentical(false);
+      setRepeatCount(repeatMax);
     }
-  }, [open, targets]);
+  }, [open, targets, repeatMax]);
 
   const effectiveTargetGroups = useMemo<TargetSelectionGroup[]>(() => {
     if (Array.isArray(targetGroups) && targetGroups.length > 0) return targetGroups;
@@ -196,7 +200,9 @@ export function TargetSelectionModal({
     if (canConfirm) {
       onConfirm(
         Array.from(selectedIds),
-        offerRepeatForIdenticalTriggers && repeatForIdentical ? { repeatForIdenticalTriggers: true } : undefined,
+        offerRepeatForIdenticalTriggers && repeatForIdentical
+          ? { repeatForIdenticalTriggers: true, repeatCount: Math.min(repeatMax, Math.max(1, repeatCount)) }
+          : undefined,
       );
     }
   };
@@ -745,7 +751,14 @@ export function TargetSelectionModal({
         {/* Action buttons */}
         <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
           {offerRepeatForIdenticalTriggers && (
-            <RepeatForIdenticalTriggersToggle checked={repeatForIdentical} onChange={setRepeatForIdentical} sourceName={source?.name} />
+            <RepeatForIdenticalTriggersToggle
+              checked={repeatForIdentical}
+              onChange={setRepeatForIdentical}
+              sourceName={source?.name}
+              count={repeatCount}
+              maxCount={repeatMax}
+              onCountChange={setRepeatCount}
+            />
           )}
           <button
             onClick={onCancel}

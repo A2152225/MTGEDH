@@ -10,13 +10,23 @@ import React, { useState, useMemo } from 'react';
 import type { BattlefieldPermanent, KnownCardRef, PlayerID } from '../../../shared/src';
 import type { SacrificeType } from '../../../shared/src/textUtils';
 import { getCardPreviewHandlers } from './CardPreviewLayer';
+import {
+  adjustStackSelection,
+  expandStackSelection,
+  stackMemberIds,
+  stackSelectionTotal,
+} from '../utils/sacrificeStackSelection';
 
 export interface SacrificeSelectionProps {
   open: boolean;
   title: string;
   description: string;
   permanents: BattlefieldPermanent[];
+  /** Exact number to pick, or the maximum when `minCount` is set. */
   count: number;
+  /** Allow confirming with fewer than `count`, in multiples of `countStep` (repeatable activations). */
+  minCount?: number;
+  countStep?: number;
   /** 
    * Type of permanent required for sacrifice.
   * Use 'artifact_or_creature' or 'nonland_permanent' for compound restrictions.
@@ -61,6 +71,8 @@ export function SacrificeSelectionModal({
   description,
   permanents,
   count,
+  minCount,
+  countStep,
   permanentType,
   creatureSubtype,
   excludePermanentId,
@@ -68,12 +80,13 @@ export function SacrificeSelectionModal({
   onConfirm,
   onCancel,
 }: SacrificeSelectionProps) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Tile id -> how many of its stack members are picked (stacked tokens share one tile).
+  const [selected, setSelected] = useState<Map<string, number>>(new Map());
 
   // Reset selection when modal opens/closes
   React.useEffect(() => {
     if (open) {
-      setSelected(new Set());
+      setSelected(new Map());
     }
   }, [open]);
 
@@ -105,24 +118,28 @@ export function SacrificeSelectionModal({
     });
   }, [creatureSubtype, excludePermanentId, permanents, permanentType]);
 
-  const handleToggle = (id: string) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else if (next.size < count) {
-        next.add(id);
-      }
-      return next;
-    });
+  const setTileQuantity = (perm: BattlefieldPermanent, qty: number) => {
+    setSelected(prev => adjustStackSelection(prev, perm, qty, count));
+  };
+
+  const handleToggle = (perm: BattlefieldPermanent) => {
+    const current = selected.get(String(perm.id)) || 0;
+    if (stackMemberIds(perm).length > 1) {
+      setTileQuantity(perm, current + 1);
+    } else {
+      setTileQuantity(perm, current > 0 ? 0 : 1);
+    }
   };
 
   const handleConfirm = () => {
-    onConfirm(Array.from(selected));
+    onConfirm(expandStackSelection(filteredPermanents, selected));
   };
 
-  const canConfirm = selected.size === count;
-  const needMore = count - selected.size;
+  const selectedTotal = stackSelectionTotal(selected);
+  const step = Math.max(1, countStep || 1);
+  const minimum = typeof minCount === 'number' ? Math.max(1, Math.min(minCount, count)) : count;
+  const canConfirm = selectedTotal >= minimum && selectedTotal <= count && selectedTotal % step === 0;
+  const needMore = Math.max(0, minimum - selectedTotal);
 
   if (!open) return null;
 
@@ -193,8 +210,10 @@ export function SacrificeSelectionModal({
           fontWeight: 600,
         }}>
           {canConfirm
-            ? `✓ Ready to sacrifice ${count} permanent${count !== 1 ? 's' : ''}`
-            : `Select ${needMore} more ${permanentType || 'permanent'}${needMore !== 1 ? 's' : ''}`
+            ? `✓ Ready to sacrifice ${selectedTotal} permanent${selectedTotal !== 1 ? 's' : ''}${minimum < count ? ` (up to ${count})` : ''}`
+            : needMore > 0
+              ? `Select ${needMore} more ${permanentType || 'permanent'}${needMore !== 1 ? 's' : ''}${minimum < count ? ` (up to ${count})` : ''}`
+              : `Select a multiple of ${step}`
           }
         </div>
 
@@ -217,12 +236,22 @@ export function SacrificeSelectionModal({
           }}>
             {filteredPermanents.map(perm => {
               const { name, typeLine, pt, imageUrl } = getCardInfo(perm);
-              const isSelected = selected.has(perm.id);
-              
+              const stackSize = stackMemberIds(perm).length;
+              const pickedQty = selected.get(String(perm.id)) || 0;
+              const isSelected = pickedQty > 0;
+
               return (
-                <button
+                <div
                   key={perm.id}
-                  onClick={() => handleToggle(perm.id)}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => handleToggle(perm)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleToggle(perm);
+                    }
+                  }}
                   {...getCardPreviewHandlers({ imageUrl, name, type_line: typeLine })}
                   style={{
                     display: 'flex',
@@ -270,11 +299,37 @@ export function SacrificeSelectionModal({
                     </div>
                   )}
                   <div style={{ fontSize: 11, fontWeight: 600, color: '#fff' }}>
-                    {name}
+                    {name}{stackSize > 1 ? ` ×${stackSize}` : ''}
                   </div>
                   {pt && (
                     <div style={{ fontSize: 10, color: '#888' }}>
                       {pt}
+                    </div>
+                  )}
+                  {stackSize > 1 && (
+                    <div
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setTileQuantity(perm, pickedQty - 1)}
+                        disabled={pickedQty <= 0}
+                        style={{ width: 22, height: 22, padding: 0 }}
+                        title="Sacrifice one fewer"
+                      >
+                        −
+                      </button>
+                      <span style={{ minWidth: 34, fontSize: 12, color: '#fff' }}>{pickedQty}/{stackSize}</span>
+                      <button
+                        type="button"
+                        onClick={() => setTileQuantity(perm, pickedQty + 1)}
+                        disabled={pickedQty >= stackSize || selectedTotal >= count}
+                        style={{ width: 22, height: 22, padding: 0 }}
+                        title="Sacrifice one more"
+                      >
+                        +
+                      </button>
                     </div>
                   )}
                   {isSelected && (
@@ -284,10 +339,10 @@ export function SacrificeSelectionModal({
                       color: '#ef4444',
                       fontWeight: 600,
                     }}>
-                      ⚰️ Sacrificing
+                      ⚰️ Sacrificing{stackSize > 1 ? ` ${pickedQty}` : ''}
                     </div>
                   )}
-                </button>
+                </div>
               );
             })}
           </div>
@@ -331,7 +386,7 @@ export function SacrificeSelectionModal({
               fontWeight: 600,
             }}
           >
-            Sacrifice {selected.size > 0 ? selected.size : ''} {permanentType || 'Permanent'}{selected.size !== 1 ? 's' : ''}
+            Sacrifice {selectedTotal > 0 ? selectedTotal : ''} {permanentType || 'Permanent'}{selectedTotal !== 1 ? 's' : ''}
           </button>
         </div>
       </div>

@@ -21,13 +21,19 @@ describe('identicalTriggerTargetReuse', () => {
 
   it('counts the other identical triggers you control on the stack', () => {
     const stack = [
-      { type: 'triggered_ability', name: 'Warstorm Surge', controller: 'me' },
-      { type: 'triggered_ability', name: 'Auriok Champion', controller: 'me' },
-      { type: 'triggered_ability', name: 'Warstorm Surge', controller: 'me' },
-      { type: 'triggered_ability', name: 'Warstorm Surge', controller: 'opp' },
-      { type: 'triggered_ability', name: 'Warstorm Surge', controller: 'me' },
+      { id: 't1', type: 'triggered_ability', name: 'Warstorm Surge', controller: 'me' },
+      { id: 't2', type: 'triggered_ability', name: 'Auriok Champion', controller: 'me' },
+      { id: 't3', type: 'triggered_ability', name: 'Warstorm Surge', controller: 'me' },
+      { id: 't4', type: 'triggered_ability', name: 'Warstorm Surge', controller: 'opp' },
+      { id: 't5', type: 'triggered_ability', name: 'Warstorm Surge', controller: 'me' },
     ];
-    expect(countIdenticalTriggersWaiting(stack, 'Warstorm Surge', 'me')).toBe(2);
+    expect(countIdenticalTriggersWaiting(stack, 'Warstorm Surge', 'me')).toBe(3);
+    expect(countIdenticalTriggersWaiting(stack, 'Warstorm Surge', 'me', 't5')).toBe(2);
+  });
+
+  it('offers reuse with only two triggers: the resolving one is already off the stack', () => {
+    const stack = [{ id: 't1', type: 'triggered_ability', sourceName: 'Warstorm Surge', controller: 'me' }];
+    expect(countIdenticalTriggersWaiting(stack, 'Warstorm Surge', 'me', 't2')).toBe(1);
   });
 
   it('reuses the target for exactly the covered triggers, then stops', () => {

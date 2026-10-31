@@ -280,6 +280,7 @@ export function renderAppPlayOverlaysChoice(p: Record<string, any>) {
         maxTargetsPerOpponent={targetModalData?.maxTargetsPerOpponent}
         damagePreview={targetModalData?.damagePreview}
         offerRepeatForIdenticalTriggers={Boolean(targetModalData?.repeatTriggerKey)}
+        identicalTriggersWaiting={targetModalData?.repeatTriggerWaiting}
         onConfirm={handleTargetConfirm}
         onCancel={handleTargetCancel}
       />

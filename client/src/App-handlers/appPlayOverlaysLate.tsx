@@ -27,6 +27,7 @@ import { TriggerShortcutsPanel } from "../components/TriggerShortcutsPanel";
 import { LoopShortcutPanel } from "../components/LoopShortcutPanel";
 import { ManualModeControl } from "../components/ManualModeControl";
 import { clampLoopShortcutIterations } from "../utils/loopShortcuts";
+import { groupedTokenMemberCount } from "../utils/expandGroupedTokens";
 import { GameRebuildProgressOverlay } from "../components/GameRebuildProgressOverlay";
 
 export function renderAppPlayOverlaysLate(p: Record<string, any>) {
@@ -155,6 +156,10 @@ export function renderAppPlayOverlaysLate(p: Record<string, any>) {
         responded={joinForcesResponded}
         contributions={joinForcesContributions}
         availableMana={useMemo(() => {
+          const serverAvailable = (joinForcesRequest as any)?.availableMana;
+          if (typeof serverAvailable === 'number' && Number.isFinite(serverAvailable) && serverAvailable >= 0) {
+            return serverAvailable;
+          }
           if (!safeView || !you) return 0;
           // Count untapped lands as available mana
           const battlefield = safeView.battlefield || [];
@@ -180,12 +185,10 @@ export function renderAppPlayOverlaysLate(p: Record<string, any>) {
             }
             return /\bland\b/i.test(String(card.type_line || ''));
           };
-          return battlefield.filter((p: any) => 
-            p.controller === you && 
-            !p.tapped &&
-            isLandPermanent(p)
-          ).length;
-        }, [safeView, you])}
+          return battlefield
+            .filter((p: any) => p.controller === you && !p.tapped && isLandPermanent(p))
+            .reduce((total: number, p: any) => total + groupedTokenMemberCount(p), 0);
+        }, [safeView, you, joinForcesRequest])}
         onContribute={handleJoinForcesContribute}
         onClose={() => setJoinForcesModalOpen(false)}
       />

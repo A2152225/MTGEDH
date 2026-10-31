@@ -259,8 +259,13 @@ export interface TargetSelectionModalProps {
   damagePreview?: number;
   /** Offer reusing the chosen target for the following identical triggers. */
   offerRepeatForIdenticalTriggers?: boolean;
+  /** Identical triggers still waiting after this one; caps the reuse count. */
+  identicalTriggersWaiting?: number;
   // Selection handlers
-  onConfirm: (selectedTargetIds: string[], options?: { repeatForIdenticalTriggers?: boolean }) => void;
+  onConfirm: (
+    selectedTargetIds: string[],
+    options?: { repeatForIdenticalTriggers?: boolean; repeatCount?: number },
+  ) => void;
   onCancel: () => void;
 }
 

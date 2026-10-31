@@ -27,19 +27,27 @@ export function identicalTriggerKeyForStep(step: any): string | undefined {
   return `${sourceName}|${normalize(step.description)}|${normalize(step.targetDescription)}`;
 }
 
-/** Identical triggers still waiting on the stack, not counting the one currently resolving. */
-export function countIdenticalTriggersWaiting(stack: readonly any[] | undefined, sourceName: string | undefined, controllerId: string | undefined): number {
+/**
+ * Identical triggers still waiting on the stack. The server usually pops the resolving trigger
+ * before prompting; `resolvingItemId` excludes it when it is still listed.
+ */
+export function countIdenticalTriggersWaiting(
+  stack: readonly any[] | undefined,
+  sourceName: string | undefined,
+  controllerId: string | undefined,
+  resolvingItemId?: string,
+): number {
   const name = normalize(sourceName);
   if (!name || !Array.isArray(stack)) return 0;
-  const matching = stack.filter((item: any) => {
+  return stack.filter((item: any) => {
     if (!item) return false;
+    if (resolvingItemId && String(item.id) === String(resolvingItemId)) return false;
     const itemName = normalize(item.sourceName || item.name || item.card?.name);
     if (itemName !== name) return false;
     if (controllerId && item.controller && String(item.controller) !== String(controllerId)) return false;
     const type = String(item.type || '');
     return type === '' || type === 'triggered_ability' || type === 'ability';
   }).length;
-  return Math.max(0, matching - 1);
 }
 
 export function rememberTargetForIdenticalTriggers(gameId: string, key: string, targetIds: string[], remaining: number): void {

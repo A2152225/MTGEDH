@@ -211,6 +211,21 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
     return true;
   };
 
+  // Repeatable sacrifice-only mana abilities take several sacrifice sets in one prompt.
+  const repeatableActivation = stepAny?.repeatableSacrificeManaActivation === true;
+  const uniqueSelectionCount = new Set(selections.map((id) => String(id))).size;
+  if (
+    repeatableActivation
+    && (uniqueSelectionCount !== selections.length || selections.length === 0 || selections.length % sacrificeCount !== 0)
+  ) {
+    emitToPlayer(io, controllerId as any, 'error', {
+      code: 'INVALID_SELECTION',
+      message: `Choose a multiple of ${sacrificeCount} permanent(s) to sacrifice`,
+    });
+    return;
+  }
+  const activationCount = repeatableActivation ? selections.length / sacrificeCount : 1;
+
   for (const chosenId of selections) {
     const chosenPerm = battlefield.find((p: any) => p && String(p.id) === String(chosenId));
     if (!chosenPerm || !matchesSacrificeRequirement(chosenPerm)) {
@@ -272,7 +287,7 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
     }
   }
 
-  if (sacrificedIds.length < sacrificeCount) {
+  if (sacrificedIds.length < sacrificeCount * activationCount) {
     emitToPlayer(io, controllerId as any, 'error', {
       code: 'SACRIFICE_FAILED',
       message: 'Failed to sacrifice the required permanents',
@@ -469,21 +484,23 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
       manaCost,
     );
 
-    try {
-      const triggeredAbilities = triggerAbilityActivatedTriggers(game as any, {
-        activatedBy: controllerId as any,
-        sourcePermanentId: permanentId as any,
-        isManaAbility: true,
-        abilityText,
-      });
-      for (const triggeredAbility of triggeredAbilities) {
-        try {
-          appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', serializeAbilityActivatedTriggeredStackItem(triggeredAbility));
-        } catch (err) {
-          debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility mana sac-cost) failed:', err);
+    for (let activation = 0; activation < activationCount; activation += 1) {
+      try {
+        const triggeredAbilities = triggerAbilityActivatedTriggers(game as any, {
+          activatedBy: controllerId as any,
+          sourcePermanentId: permanentId as any,
+          isManaAbility: true,
+          abilityText,
+        });
+        for (const triggeredAbility of triggeredAbilities) {
+          try {
+            appendEvent(gameId, (game as any).seq ?? 0, 'pushTriggeredAbility', serializeAbilityActivatedTriggeredStackItem(triggeredAbility));
+          } catch (err) {
+            debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility mana sac-cost) failed:', err);
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
     if (producesAllAtOnce && produces.length > 1) {
       const amountPerColor = produces.length > 0
@@ -491,13 +508,13 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
         : 1;
       for (const manaColor of produces) {
         const poolKey = colorToPoolKey[manaColor] || 'colorless';
-        (game.state.manaPool[controllerId] as any)[poolKey] += amountPerColor * effectiveMultiplier;
+        (game.state.manaPool[controllerId] as any)[poolKey] += amountPerColor * effectiveMultiplier * activationCount;
       }
       broadcastManaPoolUpdate(io, gameId, controllerId as any, game.state.manaPool[controllerId] as any, `Activated ${cardName}`, game);
     } else if (produces.length > 1) {
       const extraMana = getExtraManaProduction(game.state, sourcePerm, controllerId, produces[0]);
       const totalExtra = extraMana.reduce((acc, entry) => acc + Number(entry.amount || 0), 0);
-      const finalTotal = (baseAmount * effectiveMultiplier) + totalExtra;
+      const finalTotal = ((baseAmount * effectiveMultiplier) + totalExtra) * activationCount;
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.MANA_COLOR_SELECTION,
         playerId: controllerId as any,
@@ -531,9 +548,9 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
       const extraMana = getExtraManaProduction(game.state, sourcePerm, controllerId, manaColor);
       for (const extra of extraMana) {
         const extraPoolKey = colorToPoolKey[extra.color] || poolKey;
-        (game.state.manaPool[controllerId] as any)[extraPoolKey] += extra.amount;
+        (game.state.manaPool[controllerId] as any)[extraPoolKey] += extra.amount * activationCount;
       }
-      (game.state.manaPool[controllerId] as any)[poolKey] += baseAmount * effectiveMultiplier;
+      (game.state.manaPool[controllerId] as any)[poolKey] += baseAmount * effectiveMultiplier * activationCount;
       broadcastManaPoolUpdate(io, gameId, controllerId as any, game.state.manaPool[controllerId] as any, `Activated ${cardName}`, game);
     }
 

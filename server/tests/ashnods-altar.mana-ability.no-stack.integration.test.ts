@@ -148,4 +148,102 @@ describe("Ashnod's Altar mana ability (no stack)", () => {
     expect(((game.state as any).manaPool?.[playerId]?.colorless) || 0).toBe(2);
     expect(((game.state as any).battlefield || []).map((p: any) => p.id)).not.toContain('bear_1');
   });
+
+  it('Phyrexian Altar takes several creatures in one prompt and adds that much mana of one chosen color', async () => {
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame returned undefined');
+
+    (game.state as any).players = [{ id: playerId, name: 'P1', spectator: false, life: 40 }];
+    (game.state as any).life = { [playerId]: 40 };
+    (game.state as any).phase = 'precombatMain';
+    (game.state as any).step = 'MAIN1';
+    (game.state as any).turnPlayer = playerId;
+    (game.state as any).priority = playerId;
+    (game.state as any).stack = [];
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
+    };
+    const soldier = (n: number) => ({
+      id: `soldier_${n}`,
+      controller: playerId,
+      owner: playerId,
+      tapped: false,
+      summoningSickness: true,
+      isToken: true,
+      card: {
+        id: `soldier_${n}`,
+        name: 'Soldier',
+        type_line: 'Token Creature — Soldier',
+        oracle_text: '',
+        power: '1',
+        toughness: '1',
+        colors: ['W'],
+        isToken: true,
+      },
+    });
+    (game.state as any).battlefield = [
+      {
+        id: 'phyrexian_altar',
+        controller: playerId,
+        owner: playerId,
+        tapped: false,
+        card: {
+          id: 'phyrexian_altar_card',
+          name: 'Phyrexian Altar',
+          type_line: 'Artifact',
+          oracle_text: 'Sacrifice a creature: Add one mana of any color.',
+        },
+      },
+      soldier(1),
+      soldier(2),
+      soldier(3),
+      soldier(4),
+    ];
+    (game.state as any).zones = {
+      [playerId]: { hand: [], graveyard: [], library: [], exile: [] },
+    };
+
+    const emitted: Array<{ room?: string; event: string; payload: any }> = [];
+    const { socket, handlers } = createMockSocket(playerId, emitted);
+    const io = createMockIo(emitted, [socket]);
+    registerResolutionHandlers(io as any, socket as any);
+    registerInteractionHandlers(io as any, socket as any);
+
+    await handlers['activateBattlefieldAbility']({
+      gameId,
+      permanentId: 'phyrexian_altar',
+      abilityId: 'phyrexian_altar_card-ability-0',
+    });
+
+    const sacStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps
+      .find((s: any) => s.sacrificeAbilityAsCost === true) as any;
+    expect(sacStep).toBeDefined();
+    const optionIds = (sacStep.validTargets || sacStep.options || []).map((o: any) => String(o.id ?? o));
+    expect(optionIds).toEqual(expect.arrayContaining(['soldier_1', 'soldier_2', 'soldier_3', 'soldier_4']));
+    expect(sacStep.minTargets).toBe(1);
+    expect(sacStep.maxTargets).toBe(4);
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(sacStep.id),
+      selections: ['soldier_1', 'soldier_3', 'soldier_4'],
+    });
+
+    expect(((game.state as any).stack || [])).toHaveLength(0);
+    expect(((game.state as any).battlefield || []).map((p: any) => p.id)).toEqual(['phyrexian_altar', 'soldier_2']);
+    const colorStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps
+      .find((s: any) => s.type === 'mana_color_selection') as any;
+    expect(colorStep).toBeDefined();
+
+    await handlers['submitResolutionResponse']({
+      gameId,
+      stepId: String(colorStep.id),
+      selections: 'black' as any,
+    });
+    expect(((game.state as any).manaPool?.[playerId]?.black) || 0).toBe(3);
+  });
 });

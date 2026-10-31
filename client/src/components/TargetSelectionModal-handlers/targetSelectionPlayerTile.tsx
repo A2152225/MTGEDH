@@ -64,18 +64,41 @@ export function RepeatForIdenticalTriggersToggle({
   checked,
   onChange,
   sourceName,
+  count,
+  maxCount,
+  onCountChange,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
   sourceName?: string;
+  /** How many of the following triggers reuse this target (the rest ask again). */
+  count: number;
+  maxCount: number;
+  onCountChange: (next: number) => void;
 }) {
+  const clamp = (value: number) => Math.max(1, Math.min(maxCount, Math.floor(value) || 1));
   return (
-    <label
-      style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#d1d5db', marginRight: 'auto', cursor: 'pointer' }}
-      title="Each following identical trigger is sent to this target automatically while it stays legal. You are asked again if it becomes illegal."
+    <div
+      style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#d1d5db', marginRight: 'auto' }}
+      title="That many following identical triggers go to this target automatically while it stays legal; after that you choose again."
     >
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      Use this target for the remaining {sourceName ? `${sourceName} ` : ''}triggers
-    </label>
+      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        Also use this target for the next
+      </label>
+      <input
+        type="number"
+        min={1}
+        max={maxCount}
+        value={count}
+        onChange={(e) => {
+          onCountChange(clamp(Number(e.target.value)));
+          onChange(true);
+        }}
+        style={{ width: 48, textAlign: 'center', fontSize: 12, padding: '1px 4px' }}
+        aria-label="Number of following triggers to send to this target"
+      />
+      <span>of {maxCount} remaining {sourceName ? `${sourceName} ` : ''}triggers</span>
+    </div>
   );
 }

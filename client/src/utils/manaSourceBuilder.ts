@@ -29,6 +29,7 @@ import {
   resolveInlineManaAbilitySpendRestriction,
 } from './manaSourceChosenTypeRestriction';
 import { withBattlefieldGrantedLandManaOverlays } from './manaSourceBattlefieldManaAbilityGrants';
+import { countSacrificeCostActivations } from './manaSourceSacrificeCostCandidates';
 
 type InlineSelectedPaymentAbility = {
   id: string;
@@ -327,41 +328,6 @@ function getSacrificeCostForAbility(cardName: string, ability: InlineSelectedPay
     ...(ability.creatureSubtype ? { creatureSubtype: ability.creatureSubtype } : {}),
     ...(ability.mustBeOther ? { mustBeOther: true } : {}),
   };
-}
-
-function matchesSacrificeRequirement(
-  candidate: BattlefieldPermanent,
-  source: BattlefieldPermanent,
-  playerId: string,
-  sacrificeCost: NonNullable<ManaPaymentSource['sacrificeCost']>,
-): boolean {
-  if (!candidate || !isKnownBattlefieldCard(candidate.card)) return false;
-  if (candidate.controller !== playerId) return false;
-  if (sacrificeCost.mustBeOther && String(candidate.id || '') === String(source.id || '')) return false;
-
-  const typeLine = String(candidate.card.type_line || '').toLowerCase();
-  switch (sacrificeCost.permanentType) {
-    case 'creature':
-      if (!typeLine.includes('creature')) return false;
-      if (sacrificeCost.creatureSubtype) {
-        return typeLine.includes(String(sacrificeCost.creatureSubtype).toLowerCase());
-      }
-      return true;
-    case 'artifact':
-      return typeLine.includes('artifact');
-    case 'enchantment':
-      return typeLine.includes('enchantment');
-    case 'land':
-      return typeLine.includes('land');
-    case 'permanent':
-      return true;
-    case 'artifact_or_creature':
-      return typeLine.includes('artifact') || typeLine.includes('creature');
-    case 'nonland_permanent':
-      return !typeLine.includes('land');
-    default:
-      return false;
-  }
 }
 
 function getSourceManaAmount(
@@ -723,17 +689,11 @@ function buildInlineManaSourcesForPermanent(
       continue;
     }
 
-    const repeatCount = sacrificeCost
-      ? Math.max(
-          0,
-          Math.floor(
-            playerBattlefield.filter((candidate) => matchesSacrificeRequirement(candidate, perm, playerId, sacrificeCost)).length
-            / Math.max(1, sacrificeCost.count),
-          ),
-        )
-      : 1;
-
-    if (sacrificeCost && repeatCount <= 0) continue;
+    // One row per sacrifice source; PaymentPicker's quantity stepper picks how many activations.
+    const sacrificeActivations = sacrificeCost
+      ? countSacrificeCostActivations(playerBattlefield, perm, playerId, sacrificeCost)
+      : 0;
+    if (sacrificeCost && sacrificeActivations <= 0) continue;
 
     const normalizedAbilityId = normalizeInlinePaymentAbilityId(ability);
     const amountFromPermanent = Number((perm as any).manaAmount || 0);
@@ -750,42 +710,36 @@ function buildInlineManaSourcesForPermanent(
       continue;
     }
     const actualSourceId = String(perm.id || '');
-    const sourceBaseId = `${actualSourceId}::${normalizedAbilityId}`;
-    const instanceCount = Math.max(1, repeatCount);
     const consumable = abilitySelfSacrificesSource(card.name, ability.cost, ability) ? true : undefined;
 
-    const groupedQuantity = getGroupedTokenUsableQuantity(perm);
+    const groupedQuantity = sacrificeCost ? sacrificeActivations : getGroupedTokenUsableQuantity(perm);
     const manaBonuses = collectLandAuraManaBonuses(perm, globalBattlefield);
+    const keepSeparate = permanentHasAttachments(perm, globalBattlefield) || manaBonuses.length > 0;
+    const abilityForRestriction = { ...ability, id: normalizedAbilityId };
+    const spendRestriction = resolveInlineManaAbilitySpendRestriction(perm, abilityForRestriction);
+    const grantsUncounterableOnSpend = inlineManaAbilityGrantsUncounterableChosenTypeCast(
+      perm,
+      abilityForRestriction,
+    );
 
-    for (let index = 0; index < instanceCount; index += 1) {
-      const sourceId = instanceCount > 1 ? `${sourceBaseId}#${index}` : sourceBaseId;
-      const keepSeparate = permanentHasAttachments(perm, globalBattlefield) || manaBonuses.length > 0;
-      const abilityForRestriction = { ...ability, id: normalizedAbilityId };
-      const spendRestriction = resolveInlineManaAbilitySpendRestriction(perm, abilityForRestriction);
-      const grantsUncounterableOnSpend = inlineManaAbilityGrantsUncounterableChosenTypeCast(
-        perm,
-        abilityForRestriction,
-      );
-
-      sources.push({
-        id: sourceId,
-        sourcePermanentId: actualSourceId,
-        abilityId: normalizedAbilityId,
-        name: card.name,
-        label: ability.label,
-        options: parsedEffect.options,
-        ...(Array.isArray(producedColors) && producedColors.length > 0 ? { producedColors } : {}),
-        ...(typeof consumable === 'boolean' ? { consumable } : {}),
-        ...(sacrificeCost ? { sacrificeCost } : {}),
-        ...(computedAmount > 1 ? { amount: computedAmount } : {}),
-        ...(groupedQuantity > 1 ? { availableQuantity: groupedQuantity } : {}),
-        ...(keepSeparate ? { keepSeparate: true } : {}),
-        ...(manaBonuses.length > 0 ? { manaBonuses } : {}),
-        ...(spendRestriction ? { spendRestriction } : {}),
-        ...(grantsUncounterableOnSpend ? { grantsUncounterableOnSpend: true } : {}),
-        ...(ability.manaCost ? { activationManaCost: ability.manaCost } : {}),
-      });
-    }
+    sources.push({
+      id: `${actualSourceId}::${normalizedAbilityId}`,
+      sourcePermanentId: actualSourceId,
+      abilityId: normalizedAbilityId,
+      name: card.name,
+      label: ability.label,
+      options: parsedEffect.options,
+      ...(Array.isArray(producedColors) && producedColors.length > 0 ? { producedColors } : {}),
+      ...(typeof consumable === 'boolean' ? { consumable } : {}),
+      ...(sacrificeCost ? { sacrificeCost } : {}),
+      ...(computedAmount > 1 ? { amount: computedAmount } : {}),
+      ...(groupedQuantity > 1 ? { availableQuantity: groupedQuantity } : {}),
+      ...(keepSeparate ? { keepSeparate: true } : {}),
+      ...(manaBonuses.length > 0 ? { manaBonuses } : {}),
+      ...(spendRestriction ? { spendRestriction } : {}),
+      ...(grantsUncounterableOnSpend ? { grantsUncounterableOnSpend: true } : {}),
+      ...(ability.manaCost ? { activationManaCost: ability.manaCost } : {}),
+    });
   }
 
   return withBattlefieldGrantedLandManaOverlays(perm, playerId, globalBattlefield, sources);

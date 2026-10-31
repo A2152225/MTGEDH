@@ -526,15 +526,25 @@ export function useAppPlayModalHandlers(p: Record<string, any>) {
   };
 
   // Target selection handlers
-  const handleTargetConfirm = (selectedTargetIds: string[], options?: { repeatForIdenticalTriggers?: boolean }) => {
+  const handleTargetConfirm = (
+    selectedTargetIds: string[],
+    options?: { repeatForIdenticalTriggers?: boolean; repeatCount?: number },
+  ) => {
     if (!safeView || !targetModalData) return;
 
     if (options?.repeatForIdenticalTriggers && targetModalData.repeatTriggerKey) {
+      const waiting = countIdenticalTriggersWaiting(
+        (safeView as any).stack,
+        targetModalData.source?.name,
+        you || undefined,
+        targetModalData.effectId,
+      );
+      const requested = Number(options.repeatCount);
       rememberTargetForIdenticalTriggers(
         String(safeView.id),
         targetModalData.repeatTriggerKey,
         selectedTargetIds,
-        countIdenticalTriggersWaiting((safeView as any).stack, targetModalData.source?.name, you || undefined),
+        Number.isFinite(requested) && requested > 0 ? Math.min(waiting, Math.floor(requested)) : waiting,
       );
     }
 

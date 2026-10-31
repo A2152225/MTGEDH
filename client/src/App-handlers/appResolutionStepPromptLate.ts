@@ -729,10 +729,12 @@ export function handleAppResolutionStepPromptLate(
           stepId: step.id,  // Store step ID for resolution response
           useResolutionQueue: true,  // Flag to indicate this came from Resolution Queue
           damagePreview: typeof (step as any).damagePreview === 'number' ? (step as any).damagePreview : undefined,
-          repeatTriggerKey: repeatTriggerKey
-            && countIdenticalTriggersWaiting((safeView as any)?.stack, step.sourceName, you) > 0
-            ? repeatTriggerKey
-            : undefined,
+          ...(() => {
+            const waiting = repeatTriggerKey
+              ? countIdenticalTriggersWaiting((safeView as any)?.stack, step.sourceName, you, step.sourceId)
+              : 0;
+            return waiting > 0 ? { repeatTriggerKey, repeatTriggerWaiting: waiting } : {};
+          })(),
         });
         setTargetModalOpen(true);
       }

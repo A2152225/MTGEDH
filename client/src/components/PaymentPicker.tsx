@@ -23,6 +23,12 @@ import {
 import { buildSuggestedPaymentItems, createPaymentItemFromSource, getSourcePermanentId } from '../utils/manaSourceBuilder';
 import { manaPoolToColorRecord, simulateSequentialPaymentPool } from '../utils/manaSuggestedPaymentActivation';
 import { SacrificeSelectionModal } from './SacrificeSelectionModal';
+import {
+  chunkSacrificeIds,
+  remainingManaUnits,
+  sacrificeCandidatesExcluding,
+  sacrificedIdsInPayment,
+} from '../utils/sacrificeStackSelection';
 
 function canPayEnhanced(cost: { colors: Record<Color, number>; generic: number; hybrids: Color[][] }, pool: Record<Color, number>): boolean {
   return canPayCost(cost, pool);
@@ -275,7 +281,16 @@ export function PaymentPicker(props: PaymentPickerProps) {
   const [pendingSacrificeSelection, setPendingSacrificeSelection] = React.useState<{
     source: ManaPaymentSource;
     mana: Color;
+    /** Additional activations being bought; each needs its own sacrifice set. */
+    quantity: number;
+    /** `quantity` is a maximum: the player may confirm any whole number of activations. */
+    flexible?: boolean;
   } | null>(null);
+  const sacrificeCandidatePermanents = useMemo(
+    () => sacrificeCandidatesExcluding(battlefieldPermanents, sacrificedIdsInPayment(chosen)),
+    [battlefieldPermanents, chosen],
+  );
+  const sacrificePerActivation = Math.max(1, pendingSacrificeSelection?.source.sacrificeCost?.count || 1);
 
   // Calculate colors needed by other cards in hand
   const colorsToPreserve = useMemo(() => computeColorsNeededByOtherCards(otherCardsInHand), [otherCardsInHand]);
@@ -379,9 +394,15 @@ export function PaymentPicker(props: PaymentPickerProps) {
   };
 
   const setSourceQuantity = (source: ManaPaymentSource, mana: Color, quantity: number) => {
-    if (source.sacrificeCost && quantity > 0) {
-      // Sacrifice sources stay single-select via modal; quantity UI is not used for them.
-      setPendingSacrificeSelection({ source, mana });
+    if (source.sacrificeCost) {
+      const mine = chosen.filter((payment) => getPaymentItemKey(payment) === source.id);
+      const target = Math.max(0, Math.min(getSourceAvailableQuantity(source), Math.floor(quantity)));
+      if (target > mine.length) {
+        setPendingSacrificeSelection({ source, mana, quantity: target - mine.length });
+        return;
+      }
+      const keep = new Set(mine.slice(0, target));
+      onChange(chosen.filter((payment) => getPaymentItemKey(payment) !== source.id || keep.has(payment)));
       return;
     }
     const without = chosen.filter((payment) => getPaymentItemKey(payment) !== source.id);
@@ -391,6 +412,13 @@ export function PaymentPicker(props: PaymentPickerProps) {
   const add = (source: ManaPaymentSource, mana: Color) => {
     if (!manaSourceAllowsSpendPurpose(source, restrictedPurpose)) return;
     const maxQty = getSourceAvailableQuantity(source);
+    if (source.sacrificeCost) {
+      const openActivations = maxQty - (chosenCountBySourceId.get(source.id) || 0);
+      const stillNeeded = Math.ceil(remainingManaUnits(remaining) / Math.max(1, getManaPerActivation(source)));
+      const quantity = stillNeeded > 0 ? Math.min(openActivations, stillNeeded) : openActivations;
+      if (quantity > 0) setPendingSacrificeSelection({ source, mana, quantity, flexible: true });
+      return;
+    }
     if (maxQty > 1) {
       const current = chosenCountBySourceId.get(source.id) || 0;
       const existing = chosen.find((payment) => getPaymentItemKey(payment) === source.id);
@@ -410,10 +438,6 @@ export function PaymentPicker(props: PaymentPickerProps) {
         if (getPaymentItemKey(payment) !== source.id) return payment;
         return { ...createPaymentItem(source, mana), paymentSourceId: source.id };
       }));
-      return;
-    }
-    if (source.sacrificeCost) {
-      setPendingSacrificeSelection({ source, mana });
       return;
     }
     onChange([...chosen, { ...createPaymentItem(source, mana), paymentSourceId: source.id }]);
@@ -661,7 +685,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
                     <button
                       type="button"
                       onClick={() => decrementSource(s)}
-                      disabled={chosenQty <= 0 || Boolean(s.sacrificeCost)}
+                      disabled={chosenQty <= 0}
                       style={{ width: 24, height: 24, padding: 0, fontSize: 14, lineHeight: '22px' }}
                       title="Use one fewer copy"
                     >
@@ -690,7 +714,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
                         const color = (existing?.mana || suggested?.color || s.options[0] || 'C') as Color;
                         add(s, color);
                       }}
-                      disabled={!spendAllowed || chosenQty >= stackQty || Boolean(s.sacrificeCost)}
+                      disabled={!spendAllowed || chosenQty >= stackQty}
                       style={{ width: 24, height: 24, padding: 0, fontSize: 14, lineHeight: '22px' }}
                       title="Use one more copy"
                     >
@@ -836,19 +860,23 @@ export function PaymentPicker(props: PaymentPickerProps) {
         open={pendingSacrificeSelection !== null}
         title={pendingSacrificeSelection ? `${pendingSacrificeSelection.source.name} - Choose Sacrifice` : 'Choose Sacrifice'}
         description={pendingSacrificeSelection
-          ? `Select ${pendingSacrificeSelection.source.sacrificeCost?.count || 1} permanent(s) to sacrifice for ${pendingSacrificeSelection.source.name} and add ${pendingSacrificeSelection.mana}.`
+          ? `Select ${pendingSacrificeSelection.flexible ? 'up to ' : ''}${sacrificePerActivation * pendingSacrificeSelection.quantity} permanent(s) to sacrifice to ${pendingSacrificeSelection.source.name}; each ${sacrificePerActivation > 1 ? `${sacrificePerActivation} ` : ''}adds ${pendingSacrificeSelection.mana}.`
           : ''}
-        permanents={battlefieldPermanents}
-        count={pendingSacrificeSelection?.source.sacrificeCost?.count || 1}
+        permanents={sacrificeCandidatePermanents}
+        count={sacrificePerActivation * (pendingSacrificeSelection?.quantity || 1)}
+        minCount={pendingSacrificeSelection?.flexible ? sacrificePerActivation : undefined}
+        countStep={sacrificePerActivation}
         permanentType={pendingSacrificeSelection?.source.sacrificeCost?.permanentType}
         creatureSubtype={pendingSacrificeSelection?.source.sacrificeCost?.creatureSubtype}
         excludePermanentId={pendingSacrificeSelection?.source.sacrificeCost?.mustBeOther ? getSourcePermanentId(pendingSacrificeSelection.source) : undefined}
         onConfirm={(selectedIds) => {
           if (!pendingSacrificeSelection) return;
-          onChange([...chosen, {
-            ...createPaymentItem(pendingSacrificeSelection.source, pendingSacrificeSelection.mana, selectedIds),
-            paymentSourceId: pendingSacrificeSelection.source.id,
-          }]);
+          const { source, mana } = pendingSacrificeSelection;
+          const added = chunkSacrificeIds(selectedIds, sacrificePerActivation).map((ids) => ({
+            ...createPaymentItem(source, mana, ids),
+            paymentSourceId: source.id,
+          }));
+          onChange([...chosen, ...added]);
           setPendingSacrificeSelection(null);
         }}
         onCancel={() => setPendingSacrificeSelection(null)}

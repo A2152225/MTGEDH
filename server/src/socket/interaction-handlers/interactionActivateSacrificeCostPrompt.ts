@@ -11,6 +11,7 @@ import type { PlayerID } from "../../../../shared/src/index.js";
 import { parseSacrificeCost } from "../../../../shared/src/textUtils";
 import { permanentHasCreatureTypeNow } from "../../state/creatureTypeNow.js";
 import { syncDerivedContinuousEffects } from "../../state/modules/staticEffectSpec.js";
+import { isActivatedManaAbilityText } from "../../state/modules/ability-cost-adjustments.js";
 import { parseWordNumber } from "../../state/utils";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
@@ -540,6 +541,16 @@ export async function tryHandleActivateSacrificeCostPrompt(
         manaCost,
         abilityText,
       });
+      // A mana ability whose whole cost is the sacrifice (Phyrexian/Ashnod's Altar) can be
+      // activated once per sacrifice set, so one prompt may take several sets.
+      const repeatableSacrificeManaActivation =
+        isActivatedManaAbilityText(activatedAbilityText || abilityText)
+        && !requiresTap
+        && !(Number(lifeToPayForCost) > 0)
+        && /^\s*sacrifice\b[^,{}]*$/i.test(String(manaCost || ''));
+      const maxActivations = repeatableSacrificeManaActivation
+        ? Math.max(1, Math.floor(sacrificeTargets.length / Math.max(1, sacrificeCount)))
+        : 1;
       ResolutionQueueManager.addStep(gameId, {
         type: ResolutionStepType.TARGET_SELECTION,
         playerId: pid as PlayerID,
@@ -551,11 +562,12 @@ export async function tryHandleActivateSacrificeCostPrompt(
         validTargets: sacrificeTargets,
         targetTypes: ['sacrifice_cost'],
         minTargets: sacrificeCount,
-        maxTargets: sacrificeCount,
+        maxTargets: sacrificeCount * maxActivations,
         targetDescription: `${sacrificeLabelPlural} you control`,
 
         // Custom payload consumed by socket/resolution.ts
         sacrificeAbilityAsCost: true,
+        ...(maxActivations > 1 ? { repeatableSacrificeManaActivation: true } : {}),
         permanentId,
         abilityId,
         cardName,
