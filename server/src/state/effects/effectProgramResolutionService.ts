@@ -34,6 +34,7 @@ import {
   type EffectProgramOracleIrBridgeConfig,
 } from '../modules/oracleIrEffectProgramBridge.js';
 import { mirrorGraveyardCastingPermissionsToDurable } from '../modules/graveyard-permissions.js';
+import { persistEffectProgramStateDiffs, snapshotEffectProgramReplayBaseline } from './effectProgramStateDiffPersistence.js';
 import { hydrateOracleIRPlayerZonesFromContext } from '../modules/oracleIrServerZoneSync.js';
 
 interface StoredEffectProgramRuntime {
@@ -324,6 +325,9 @@ function continueEffectProgramResolution(args: {
   readonly resumed: boolean;
   readonly resolvedStepId?: string;
 }): EffectProgramResolutionResult {
+  const replayBaseline = args.oracleIrBridge
+    ? snapshotEffectProgramReplayBaseline((args.game as any)?.state)
+    : null;
   const runResult = runEffectProgram(args.runtime, args.handlers);
   applyRunResultState(args.game, runResult);
 
@@ -333,6 +337,15 @@ function continueEffectProgramResolution(args: {
       runResult.events,
       args.oracleIrBridge,
     );
+    if (replayBaseline) {
+      persistEffectProgramStateDiffs(
+        args.game,
+        replayBaseline,
+        (args.game as any).state,
+        runResult.events,
+        args.oracleIrBridge,
+      );
+    }
     bridgeOracleIrEffectProgramRunEvents(
       args.game,
       (args.game as any).state,

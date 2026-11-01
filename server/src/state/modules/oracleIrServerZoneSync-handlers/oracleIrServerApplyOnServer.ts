@@ -18,7 +18,15 @@ import { createEmptyStepLedger } from '../../../../../rules-engine/src/oracleIRS
 import type { GameContext } from '../../context.js';
 import { ResolutionQueueManager } from '../../resolution/index.js';
 import { debug } from '../../../utils/debug.js';
-import { persistOracleIrReplayMutationsFromExecution, persistCounterDiffsFromOracleIR, persistTemporaryEtbWindowsFromOracleIR } from '../../effects/effectProgramReplayMutationPersistence.js';
+import {
+  persistCounterDiffsFromOracleIR,
+  persistLifeDiffsFromOracleIR,
+  persistOracleIrReplayMutationsFromExecution,
+  persistPlayerCounterDiffsFromOracleIR,
+  persistTemporaryEtbWindowsFromOracleIR,
+  snapshotPlayerCounterTotals,
+  snapshotPlayerLifeTotals,
+} from '../../effects/effectProgramReplayMutationPersistence.js';
 import { persistBattlefieldPermanentPatchesFromOracleIR, snapshotBattlefieldPermanentReplayPatches } from '../../effects/battlefieldPermanentReplayPersistence.js';
 import { queueTopLibraryChoicePromptsFromOracleIRResult } from '../oracleIrServerScrySurveilPromptUtils.js';
 import { queueBlightChoicePromptsFromOracleIRResult } from '../oracleIrServerBlightPromptUtils.js';
@@ -178,6 +186,8 @@ export function applyOracleIRStepsOnServer(
   const exileBefore = snapshotExileCardIds(state);
   const controllersBefore = snapshotBattlefieldControllers(state);
   const countersBefore = snapshotBattlefieldCounters(state);
+  const lifeBefore = snapshotPlayerLifeTotals(state);
+  const playerCountersBefore = snapshotPlayerCounterTotals(state);
   const permanentPatchesBefore = snapshotBattlefieldPermanentReplayPatches(state);
   const triggerEmissionBefore = snapshotBattlefieldForTriggerEmission(state);
   const stackBeforeCounter = Array.isArray((state as any).stack)
@@ -797,6 +807,14 @@ export function applyOracleIRStepsOnServer(
       sourceId: String(irCtx.sourceId || '').trim() || undefined,
       sourceName: String(irCtx.sourceName || '').trim() || undefined,
       ...(params?.compoundResume ? { compoundResume: true } : {}),
+    });
+    persistLifeDiffsFromOracleIR(ctx, lifeBefore, state, result, {
+      sourceId: String(irCtx.sourceId || '').trim() || undefined,
+      sourceName: String(irCtx.sourceName || '').trim() || undefined,
+    });
+    persistPlayerCounterDiffsFromOracleIR(ctx, playerCountersBefore, state, {
+      sourceId: String(irCtx.sourceId || '').trim() || undefined,
+      sourceName: String(irCtx.sourceName || '').trim() || undefined,
     });
     persistTemporaryEtbWindowsFromOracleIR(ctx, result, state, {
       sourceId: String(irCtx.sourceId || '').trim() || undefined,

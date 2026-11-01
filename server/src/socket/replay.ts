@@ -614,6 +614,8 @@ function getEventSummary(event: any): string {
     case "adjustLife":
     case "setLife":
       return `Life change for ${event.playerId || 'player'}`;
+    case "adjustPlayerCounters":
+      return `Counter change for ${event.playerId || 'player'}`;
     case "concede":
       return `${event.playerName || event.playerId || 'Player'} conceded`;
     case "foretellCard":

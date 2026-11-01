@@ -2,6 +2,7 @@ import type { OracleIRCommandExecutionEvent } from '../../../../rules-engine/src
 import type { OracleIRReplayMutation } from '../../../../rules-engine/src/oracleIRReplayMutations.js';
 import type { OracleIRExecutionResult } from '../../../../rules-engine/src/oracleIRExecutionTypes.js';
 import type { GameContext } from '../context.js';
+import { KNOWN_PLAYER_COUNTER_NAMES, readPlayerCounterValue } from '../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
 import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
 import type { EffectProgramOracleIrBridgeConfig } from '../modules/oracleIrEffectProgramBridge.js';
@@ -208,6 +209,96 @@ export function persistCounterDiffsFromOracleIR(
     skipCounterModifications: true,
     ...mutationPayload,
   });
+}
+
+/** Life totals by player id (state.life first, players[].life as fallback). */
+export function snapshotPlayerLifeTotals(state: any): Map<string, number> {
+  const totals = new Map<string, number>();
+  for (const player of Array.isArray(state?.players) ? state.players : []) {
+    const id = String(player?.id || '').trim();
+    const life = Number(player?.life);
+    if (id && Number.isFinite(life)) totals.set(id, life);
+  }
+  for (const [id, value] of Object.entries((state?.life || {}) as Record<string, unknown>)) {
+    const life = Number(value);
+    if (id && Number.isFinite(life)) totals.set(id, life);
+  }
+  return totals;
+}
+
+/**
+ * Persist life changes an IR execution made without its own adjustLife mutation
+ * (damage to players, lifelink). Replay does not re-run IR, so these are lost otherwise.
+ */
+export function persistLifeDiffsFromOracleIR(
+  ctx: GameContext,
+  lifeBefore: ReadonlyMap<string, number>,
+  state: any,
+  result: OracleIRExecutionResult,
+  bridge?: OracleIrReplayMutationBridge,
+): void {
+  if ((ctx as any).isReplaying) return;
+
+  const alreadyPersisted = new Map<string, number>();
+  for (const mutation of result.replayMutations || []) {
+    if (mutation.kind !== 'adjustLife') continue;
+    const id = String(mutation.playerId);
+    alreadyPersisted.set(id, (alreadyPersisted.get(id) || 0) + Number(mutation.delta || 0));
+  }
+
+  const mutationPayload = buildReplayMutationPayload(bridge);
+  for (const [playerId, after] of snapshotPlayerLifeTotals(state)) {
+    if (!lifeBefore.has(playerId)) continue;
+    const delta = after - (lifeBefore.get(playerId) as number) - (alreadyPersisted.get(playerId) || 0);
+    if (delta === 0) continue;
+    appendMutationEvent(ctx, 'adjustLife', { playerId, delta, ...mutationPayload });
+  }
+}
+
+/** Player counters (poison, energy, experience, rad, ticket, token, any custom) by player id. */
+export function snapshotPlayerCounterTotals(state: any): Map<string, Record<string, number>> {
+  const totals = new Map<string, Record<string, number>>();
+  for (const player of Array.isArray(state?.players) ? state.players : []) {
+    const id = String(player?.id || '').trim();
+    if (!id) continue;
+    const names = new Set<string>([
+      ...KNOWN_PLAYER_COUNTER_NAMES,
+      ...Object.keys((player?.counters || {}) as Record<string, number>),
+    ]);
+    const counters: Record<string, number> = {};
+    for (const name of names) {
+      const value = readPlayerCounterValue(state, id as any, name);
+      if (value > 0) counters[name] = value;
+    }
+    totals.set(id, counters);
+  }
+  return totals;
+}
+
+/**
+ * Persist player counter changes from an IR execution (infect damage, "you get {E}",
+ * "each opponent gets a poison counter", paying energy). Replay does not re-run IR.
+ */
+export function persistPlayerCounterDiffsFromOracleIR(
+  ctx: GameContext,
+  countersBefore: ReadonlyMap<string, Record<string, number>>,
+  state: any,
+  bridge?: OracleIrReplayMutationBridge,
+): void {
+  if ((ctx as any).isReplaying) return;
+
+  const mutationPayload = buildReplayMutationPayload(bridge);
+  for (const [playerId, after] of snapshotPlayerCounterTotals(state)) {
+    if (!countersBefore.has(playerId)) continue;
+    const before = countersBefore.get(playerId) || {};
+    const deltas: Record<string, number> = {};
+    for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      const delta = Number(after[name] || 0) - Number(before[name] || 0);
+      if (delta !== 0) deltas[name] = delta;
+    }
+    if (Object.keys(deltas).length === 0) continue;
+    appendMutationEvent(ctx, 'adjustPlayerCounters', { playerId, deltas, ...mutationPayload });
+  }
 }
 
 function bridgeToReplayMutationBridge(

@@ -18,6 +18,30 @@ const BATCH_STEP_EVENT_TYPES = new Set([
   'temptingOfferInitiated',
 ]);
 
+// Written by the engine while one resolution is still running (a copy per
+// creature, life/counter mutations saved after the IR pass), so they can land
+// after a prompt from that same resolution without meaning anyone answered it.
+const ENGINE_CONTINUATION_EVENT_TYPES = new Set([
+  'copyTriggeredAbilityResolve',
+  'copyTriggeredSpellResolve',
+]);
+
+function isEngineContinuationEvent(event: any): boolean {
+  return event?.oracleIrReplayMutation === true
+    || event?.effectProgramMutation === true
+    || ENGINE_CONTINUATION_EVENT_TYPES.has(String(event?.type || ''));
+}
+
+// Copy retarget prompts are queued one per copy in a row, and every answer
+// (copyRetargetChoiceResolve / retarget*CopyResolve) clears its own step on
+// replay, so the next prompt must not count as having answered this one.
+function isExplicitlyAnsweredPromptStep(step: any): boolean {
+  return step?.retargetAbilityCopy === true
+    || step?.retargetSpellCopy === true
+    || step?.retargetAbilityCopyTargetSelection === true
+    || step?.retargetSpellCopyTargetSelection === true;
+}
+
 function asIdList(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map((entry) => String(entry || '').trim()).filter(Boolean);
@@ -82,12 +106,14 @@ export function collectPromptStepIdsCompletedBeforeReplayEnd(events: readonly an
     const event = eventFields(events[index]);
     if (!event || typeof event !== 'object' || typeof event.type !== 'string') continue;
 
+    const queued = queuedStepIds(event);
+    if (queued.length === 0 && isEngineContinuationEvent(event)) continue;
+
     if (openSingle && openSingle.index < index) {
       completed.add(openSingle.id);
       openSingle = null;
     }
 
-    const queued = queuedStepIds(event);
     const queuedHere = new Set(queued);
     for (const stepId of explicitResolvedStepIds(event, queuedHere)) {
       const queuedAt = lastQueuedIndex.get(stepId);
@@ -99,7 +125,9 @@ export function collectPromptStepIdsCompletedBeforeReplayEnd(events: readonly an
       completed.delete(stepId);
     }
 
-    openSingle = queued.length === 1 ? { id: queued[0], index } : null;
+    openSingle = queued.length === 1 && !isExplicitlyAnsweredPromptStep(event.queuedResolutionStep ?? event.queuedResolutionSteps?.[0])
+      ? { id: queued[0], index }
+      : null;
   }
 
   return completed;

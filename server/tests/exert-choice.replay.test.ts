@@ -1245,14 +1245,14 @@ describe('exertChoice replay coverage', () => {
         summoningSickness: false,
         counters: {},
         basePower: 2,
-        baseToughness: 2,
+        baseToughness: 5,
         card: {
           id: 'beast_target_card',
           name: 'Beast Target',
           type_line: 'Creature - Beast',
           oracle_text: '',
           power: '2',
-          toughness: '2',
+          toughness: '5',
         },
       },
     ];

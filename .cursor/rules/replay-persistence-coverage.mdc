@@ -1,0 +1,39 @@
+---
+description: Every game-state change must be saved as a replay event, and every new event must replay, be registered, and keep prompts open — or reloads silently lose state
+alwaysApply: true
+---
+
+# Replay persistence: nothing changes state without a saved event
+
+Reload never re-runs card effects. It replays the saved event log (`appendEvent` → `applyEvent` case). Anything changed in memory without an event is **gone after a server restart or undo**.
+
+Warstorm Surge damage to players was lost because life had no saver: permanents were diffed before/after each IR pass, player life was not. Players came back from 8 and 0 life to 40.
+
+## When you add or change anything that mutates state
+
+1. **Name the saver.** For each field you touch (life, poison, energy, commander damage, counters, zones, controller, mana pool, stack, queue), point to the event that persists it. If none exists, add one in the same change.
+2. **IR passes save by before/after diff** in two places — keep them in sync:
+   - Plain IR: `applyOracleIRStepsOnServer` (`oracleIrServerApplyOnServer.ts`).
+   - Effect Program runs (choice → resume): `continueEffectProgramResolution` via `effectProgramStateDiffPersistence.ts`.
+   Diffs today: battlefield counters, permanent patches, player life (`adjustLife`), player counters — poison, energy, experience, rad, ticket, custom (`adjustPlayerCounters`). A new kind of per-player or per-game state needs a snapshot + `persist*` pair added to **both**, tagged as a replay mutation, skipped when `ctx.isReplaying`, and must not double-count events the executor already emitted (`result.replayMutations`).
+   Combat is the exception: replay re-runs `nextStep` → `dealCombatDamage`, so combat life, infect poison and commander damage rebuild themselves.
+3. **Never mutate during replay twice.** A replay handler that re-runs steps (e.g. `resumeStepsJson`) must not also receive diff events for the same change. Prove it with a test that asserts the value once (6 damage, not 12).
+
+## When you add a new `appendEvent` type
+
+- Add the `applyEvent` case in `server/src/state/modules/apply-event-handlers/`.
+- Register it in `server/tests/replay-coverage.meta.test.ts` (`REPLAY_GUARDED_EVENT_TYPES`, plus `PROMPT_RESPONSE_CLEANUP_EVENT_TYPES` if it answers a prompt) and give it a `*replay*` test file that names the event string.
+- Prompt answers carry `resolvedStepId` and clear their step on replay.
+
+## Prompts must survive reload
+
+`replayCompletedPromptSteps.ts` drops a prompt once any later event follows it (assumed answered). Engine follow-up events written in the same resolution (diff mutations, one-per-copy events) must not close it:
+- Tag automatic mutations `oracleIrReplayMutation: true` / `effectProgramMutation: true`, or add the type to `ENGINE_CONTINUATION_EVENT_TYPES`.
+- New mutation event types also go in `ORACLE_IR_MUTATION_TAIL_EVENT_TYPES` (`undoBoundaryPlanning.ts`) so undo groups them with the action that caused them.
+- Prompts queued back-to-back that are each closed by their own answer event go in `isExplicitlyAnsweredPromptStep`.
+
+## Required test for any state-changing fix
+
+Do the action live, read `getEvents(gameId)`, replay into a fresh seeded game (`createInitialGameState` + `game.replay(events)`), and assert the **same final values** and the **same open prompts**. Examples: `warstorm-surge-target.integration.test.ts` (life), `player-counters-life.replay.integration.test.ts` (poison, energy, Effect Program, commander damage), `planetary-annihilation.replay.integration.test.ts` (no doubled damage), `oracle-ir-agrus-multi-copy-ability.replay.integration.test.ts` (prompts kept).
+
+Confirm the test fails with the saver disabled. A test that only checks live state does not prove persistence.

@@ -827,21 +827,19 @@ function normalizePlayerCounterName(counter: string): string {
     .trim();
 }
 
-export function adjustPlayerCounter(
-  state: GameState,
-  playerId: PlayerID,
-  counter: string,
-  delta: number
-): { state: GameState; log: string[]; applied: boolean } {
+export const KNOWN_PLAYER_COUNTER_NAMES = ['poison', 'energy', 'experience', 'rad', 'ticket', 'token'] as const;
+
+/** Current count of one player counter, reading every alias field adjustPlayerCounter writes. */
+export function readPlayerCounterValue(state: GameState, playerId: PlayerID, counter: string): number {
   const normalizedCounter = normalizePlayerCounterName(counter);
-  const log: string[] = [];
-  if (!normalizedCounter) return { state, log: ['Counter name missing'], applied: false };
+  const player = (state?.players || []).find(p => p.id === playerId) as any;
+  if (!normalizedCounter || !player) return 0;
+  return readNormalizedPlayerCounterValue(state, playerId, player, normalizedCounter);
+}
 
-  const player = state.players.find(p => p.id === playerId) as any;
-  if (!player) return { state, log: [`Player not found: ${playerId}`], applied: false };
-
-  const nextCounters = { ...((player?.counters || {}) as Record<string, number>) };
-  const currentValue = Math.max(
+function readNormalizedPlayerCounterValue(state: GameState, playerId: PlayerID, player: any, normalizedCounter: string): number {
+  const nextCounters = (player?.counters || {}) as Record<string, number>;
+  return Math.max(
     0,
     Number(
       normalizedCounter === 'poison'
@@ -865,6 +863,23 @@ export function adjustPlayerCounter(
                   : nextCounters[normalizedCounter]
     ) || 0
   );
+}
+
+export function adjustPlayerCounter(
+  state: GameState,
+  playerId: PlayerID,
+  counter: string,
+  delta: number
+): { state: GameState; log: string[]; applied: boolean } {
+  const normalizedCounter = normalizePlayerCounterName(counter);
+  const log: string[] = [];
+  if (!normalizedCounter) return { state, log: ['Counter name missing'], applied: false };
+
+  const player = state.players.find(p => p.id === playerId) as any;
+  if (!player) return { state, log: [`Player not found: ${playerId}`], applied: false };
+
+  const nextCounters = { ...((player?.counters || {}) as Record<string, number>) };
+  const currentValue = readNormalizedPlayerCounterValue(state, playerId, player, normalizedCounter);
   const nextValue = Math.max(0, currentValue + delta);
 
   nextCounters[normalizedCounter] = nextValue;

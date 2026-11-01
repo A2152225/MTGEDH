@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { initDb, createGameIfNotExists, deleteGame, getEvents } from '../src/db/index.js';
+import { createInitialGameState } from '../src/state/index.js';
 import { ensureGame } from '../src/socket/util.js';
 import '../src/state/modules/priority.js';
 import { registerResolutionHandlers, initializePriorityResolutionHandler } from '../src/socket/resolution.js';
@@ -170,6 +171,37 @@ describe('Warstorm Surge target selection', () => {
     const bear = state.battlefield.find((permanent: any) => permanent.id === 'bear');
     expect(Number(bear?.damage || bear?.markedDamage || 0)).toBe(0);
     expect(state.stack).toHaveLength(0);
+  });
+
+  it('saves player damage and lifelink so a reloaded game keeps the life totals', async () => {
+    const { game, p1 } = setup();
+    const eventStart = getEvents(gameId).length;
+    enterBear(game, p1);
+    await chooseTarget(game, 'p2');
+    expect((game.state as any).life).toMatchObject({ p1: 45, p2: 35 });
+
+    const saved = getEvents(gameId).slice(eventStart);
+    const lifeEvents = saved
+      .filter((event: any) => event.type === 'adjustLife')
+      .map((event: any) => ({ playerId: event.payload?.playerId, delta: event.payload?.delta }));
+    expect(lifeEvents).toEqual(expect.arrayContaining([
+      { playerId: 'p2', delta: -5 },
+      { playerId: 'p1', delta: 5 },
+    ]));
+
+    const replayGame = createInitialGameState(`${gameId}_replay`);
+    const replayState = replayGame.state as any;
+    const original = game.state as any;
+    replayState.players = JSON.parse(JSON.stringify(original.players));
+    replayState.life = { p1: 40, p2: 40 };
+    replayState.startingLife = 40;
+    replayState.turnPlayer = 'p1';
+    replayState.priority = 'p1';
+    replayState.stack = [];
+    replayState.zones = JSON.parse(JSON.stringify(original.zones));
+    replayState.battlefield = JSON.parse(JSON.stringify(original.battlefield));
+    replayGame.replay(saved.map((event: any) => ({ type: event.type, ...(event.payload || {}) })) as any);
+    expect(replayState.life).toMatchObject({ p1: 45, p2: 35 });
   });
 
   it('deals the entering creature\'s power to a chosen creature, and that creature is the damage source', async () => {

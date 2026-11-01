@@ -5,7 +5,7 @@
 // Public entry: applyPriorityMulliganLifeEvents(ctx, e) -> true when it handled the event.
 // Also: mulliganRedrawWasAlreadyRecorded, recordedMulliganRedrawFollows (replay pairing).
 //
-// Handles: passPriority, mulligan, keepHand, unkeepHand, mulliganPutToBottom, setLife, adjustLife, cleanupDiscard, increasePlayerSpeed, discardEffect, mill, zursWeirdingDrawReplacementResolve, dredgeDrawReplacementResolve, skipDrawReplacementResolve, opponentLibraryDrawReplacementResolve, playOpeningHandCards, skipOpeningHandActions
+// Handles: passPriority, mulligan, keepHand, unkeepHand, mulliganPutToBottom, setLife, adjustLife, adjustPlayerCounters, cleanupDiscard, increasePlayerSpeed, discardEffect, mill, zursWeirdingDrawReplacementResolve, dredgeDrawReplacementResolve, skipDrawReplacementResolve, opponentLibraryDrawReplacementResolve, playOpeningHandCards, skipOpeningHandActions
 import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
 import { applyDeferredGraveyardEntryTriggers, pushCardToGraveyardFromLibrary, pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
@@ -34,6 +34,7 @@ import {
   writePlayerLibrary,
 } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
+import { adjustPlayerCounter } from '../../../../../rules-engine/src/oracleIRExecutorPlayerUtils.js';
 
 function replayEventAt(ctx: GameContext, offset: number): GameEvent | null {
   const events = (ctx as any)._replayEvents;
@@ -228,6 +229,24 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
               stateAny.lifeLostThisTurn = stateAny.lifeLostThisTurn || {};
               stateAny.lifeLostThisTurn[pid] = (stateAny.lifeLostThisTurn[pid] || 0) + Math.abs(diff);
             }
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, `applyEvent(${e.type}): failed`, err);
+        }
+        break;
+      }
+
+      case "adjustPlayerCounters": {
+        const pid = String((e as any).playerId || '').trim();
+        const deltas = ((e as any).deltas || {}) as Record<string, unknown>;
+        if (!pid) break;
+        try {
+          for (const [counter, rawDelta] of Object.entries(deltas)) {
+            const delta = Number(rawDelta);
+            if (!Number.isFinite(delta) || delta === 0) continue;
+            const result = adjustPlayerCounter(ctx.state as any, pid as any, counter, delta);
+            if (result.applied) Object.assign(ctx.state as any, result.state);
           }
           ctx.bumpSeq();
         } catch (err) {

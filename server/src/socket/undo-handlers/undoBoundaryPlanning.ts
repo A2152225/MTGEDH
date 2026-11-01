@@ -65,6 +65,7 @@ const ORACLE_IR_MUTATION_TAIL_EVENT_TYPES = new Set([
   'updateCountersBulk',
   'executeEffect',
   'adjustLife',
+  'adjustPlayerCounters',
   'mill',
   'drawCards',
   'discardEffect',
