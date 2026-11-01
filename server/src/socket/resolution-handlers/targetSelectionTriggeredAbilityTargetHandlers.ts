@@ -34,6 +34,7 @@ import type {
   ResolutionStepResponse,
 } from "../../state/resolution/index.js";
 import { contextHasBlockingNonPaymentResolutionSteps } from "../../state/resolution/resolutionQueueGameIds.js";
+import { ResolutionQueueManager } from "../../state/resolution/index.js";
 import { debugWarn } from "../../utils/debug.js";
 import { broadcastGame } from "../util.js";
 
@@ -45,6 +46,37 @@ function runStateBasedActionsAfterFinishedAbility(ctx: any): void {
     runSBA(ctx);
   } catch (err) {
     debugWarn(1, "[Resolution] Error running SBA after targeted ability:", err);
+  }
+}
+
+function unresolvedBlockingStepIds(gameId: string, exceptStepId: string): Set<string> {
+  const ids = new Set<string>();
+  try {
+    const queue: any = ResolutionQueueManager.getQueue(gameId);
+    const steps = [queue?.activeStep, ...(Array.isArray(queue?.steps) ? queue.steps : [])];
+    for (const s of steps) {
+      if (!s || s.completed === true || s.resolved === true || s.status === 'completed' || s.status === 'cancelled' || s.status === 'timed_out') continue;
+      if (String(s.type || '') === 'mana_payment_choice') continue;
+      const id = String(s.id || '');
+      if (id && id !== exceptStepId) ids.add(id);
+    }
+  } catch {}
+  return ids;
+}
+
+/**
+ * CR 704.3 between abilities: the answered trigger has finished unless its own effect queued a new
+ * choice. Unrelated choices already pending elsewhere in the game must not suppress SBA, or the next
+ * identical trigger (Warstorm Surge, issue #78) is offered a dead creature or a player who has lost.
+ */
+function runStateBasedActionsUnlessEffectQueuedChoice(ctx: any, gameId: string, stepId: string, before: Set<string>): void {
+  const after = unresolvedBlockingStepIds(gameId, stepId);
+  for (const id of after) if (!before.has(id)) return;
+  if (typeof ctx.bumpSeq !== "function") ctx.bumpSeq = () => {};
+  try {
+    runSBA(ctx);
+  } catch (err) {
+    debugWarn(1, "[Resolution] Error running SBA after targeted trigger:", err);
   }
 }
 
@@ -143,6 +175,8 @@ export function handleTargetedTriggeredAbilityTargetSelection(
     return;
   }
 
+  const answeredStepId = String((step as any).id || '');
+  const blockingBeforeEffect = unresolvedBlockingStepIds(gameId, answeredStepId);
   executeTriggerEffect(ctx as any, controller as PlayerID, sourceName, effectText, triggerItem);
 
   // The effect has just been applied with its chosen targets. If the trigger's stack item is still on the
@@ -153,7 +187,7 @@ export function handleTargetedTriggeredAbilityTargetSelection(
     if (index >= 0) game.state.stack.splice(index, 1);
   }
 
-  runStateBasedActionsAfterFinishedAbility(ctx);
+  runStateBasedActionsUnlessEffectQueuedChoice(ctx, gameId, answeredStepId, blockingBeforeEffect);
   if (typeof (game as any).bumpSeq === 'function') {
     (game as any).bumpSeq();
   }

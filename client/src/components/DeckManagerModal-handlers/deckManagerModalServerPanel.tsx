@@ -6,6 +6,8 @@ import React from 'react';
 import { DeckListTextarea } from '../DeckListTextarea';
 import { DeckResolvePreviewPanel } from '../DeckResolvePreviewPanel';
 import { DeckVisibilitySelect, VisibilityBadge } from './deckManagerModalAccountUi';
+import type { SavedDeckSummary } from '../../../../shared/src/decks';
+import type { UnresolvedDeckLine } from '../../hooks/useDeckResolvePreview';
 
 export function renderDeckManagerModalServerPanel(p: Record<string, any>) {
   const {
@@ -64,7 +66,7 @@ export function renderDeckManagerModalServerPanel(p: Record<string, any>) {
                         : 'None'}
                     </div>
                   )}
-                  {filteredServer.map(d => (
+                  {filteredServer.map((d: SavedDeckSummary) => (
                     <div
                       key={d.id}
                       style={{
@@ -190,7 +192,7 @@ export function renderDeckManagerModalServerPanel(p: Record<string, any>) {
                       {unresolvedPreviewLines.length === 1 ? '' : 's'}
                     </div>
                     <div style={{ maxHeight: 72, overflowY: 'auto' }}>
-                      {unresolvedPreviewLines.slice(0, 12).map((line) => (
+                      {unresolvedPreviewLines.slice(0, 12).map((line: UnresolvedDeckLine) => (
                         <div key={`${line.lineNumber}-${line.name}`}>
                           Line {line.lineNumber}: {line.name}
                         </div>

@@ -690,9 +690,11 @@ describe('Death trigger graveyard returns (integration)', () => {
       triggerType: 'creature_dies',
       requiresChoice: true,
     });
+    // The card database's oracle text names Junji by its short name ("When Junji dies"), which now matches
+    // the self-dies trigger (issue #77), so the printed modes win over the fallback table.
     expect((triggerStack[0] as any).modalOptions).toEqual([
-      'Target opponent discards two cards and loses 2 life',
-      'put target non-Dragon creature card from a graveyard onto the battlefield under your control',
+      expect.stringMatching(/opponent discards two cards and loses 2 life/i),
+      expect.stringMatching(/put target non-dragon creature card from a graveyard onto the battlefield under your control/i),
     ]);
 
     game.resolveTopOfStack();

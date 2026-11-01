@@ -26,6 +26,7 @@ type DeathTriggerStackMetadata = {
   battlefieldCounters?: Record<string, number>;
   battlefieldFaceDown?: true;
   battlefieldTurnFaceUp?: true;
+  battlefieldTransformed?: true;
   battlefieldSuspected?: true;
   battlefieldSetTypeLine?: string;
   battlefieldSetOracleText?: string;
@@ -140,6 +141,9 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any,
   }
   if (lower.includes('face down')) {
     metadata.battlefieldFaceDown = true;
+  }
+  if (/\bto the battlefield\b[^.]*\btransformed\b/.test(lower)) {
+    metadata.battlefieldTransformed = true;
   }
   if (lower.includes('turn it face up')) {
     metadata.battlefieldTurnFaceUp = true;
@@ -438,6 +442,7 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
     ...(metadata.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
     ...(metadata.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
+    ...(metadata.battlefieldTransformed === true ? { battlefieldTransformed: true } : null),
     ...(metadata.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
     ...(metadata.battlefieldSetTypeLine ? { battlefieldSetTypeLine: metadata.battlefieldSetTypeLine } : null),
     ...(typeof metadata.battlefieldSetOracleText === 'string' ? { battlefieldSetOracleText: metadata.battlefieldSetOracleText } : null),
@@ -500,6 +505,7 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
       ...(metadata.battlefieldCounters ? { battlefieldCounters: metadata.battlefieldCounters } : null),
       ...(metadata.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
       ...(metadata.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
+    ...(metadata.battlefieldTransformed === true ? { battlefieldTransformed: true } : null),
       ...(metadata.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
       ...(metadata.battlefieldSetTypeLine ? { battlefieldSetTypeLine: metadata.battlefieldSetTypeLine } : null),
       ...(typeof metadata.battlefieldSetOracleText === 'string' ? { battlefieldSetOracleText: metadata.battlefieldSetOracleText } : null),

@@ -680,6 +680,67 @@ const KNOWN_MANA_MODIFIERS: Record<string, Omit<ManaModifier, 'permanentId' | 'c
 /**
  * Detect mana modifiers from battlefield permanents
  */
+type PermanentManaModifierParse = {
+  inputs: unknown[];
+  knownMatches: Array<[string, Omit<ManaModifier, 'permanentId' | 'cardName'>]>;
+  oracleLandTypeGrant: Omit<ManaModifier, 'permanentId' | 'cardName'> | null;
+  oracleText: string;
+};
+
+// Per-permanent memo of the controller-independent text parsing below. Huge token
+// boards (196 copy tokens) call detectManaModifiers once per land per castability
+// check, so re-running ~50 regexes per permanent per call dominated priority checks.
+const permanentManaModifierParseCache = new WeakMap<object, PermanentManaModifierParse>();
+
+function readManaModifierParseInputs(permanent: any): unknown[] {
+  const listKey = (value: unknown) => (Array.isArray(value) ? value.join('\u0001') : value);
+  return [
+    permanent.card?.name,
+    permanent.card?.oracle_text,
+    permanent.attachedTo,
+    permanent.enchanting,
+    permanent.chosenBasicLandType,
+    permanent.card?.chosenBasicLandType,
+    permanent.chosenOption,
+    listKey(permanent.chosenLandTypes),
+    listKey(permanent.chosenBasicLandTypes),
+    listKey(permanent.chosenOptions),
+  ];
+}
+
+function getPermanentManaModifierParse(permanent: any): PermanentManaModifierParse {
+  const inputs = readManaModifierParseInputs(permanent);
+  const cached = permanentManaModifierParseCache.get(permanent);
+  if (cached && cached.inputs.every((value, index) => value === inputs[index])) {
+    return cached;
+  }
+  const cardName = (permanent.card?.name || "").toLowerCase();
+  const knownMatches: PermanentManaModifierParse['knownMatches'] = [];
+  for (const [knownName, modifierInfo] of Object.entries(KNOWN_MANA_MODIFIERS)) {
+    if (cardName.includes(knownName)) knownMatches.push([knownName, modifierInfo]);
+  }
+  const parsed: PermanentManaModifierParse = {
+    inputs,
+    knownMatches,
+    oracleLandTypeGrant: parseOracleLandTypeGrant(permanent),
+    oracleText: (permanent.card?.oracle_text || "").toLowerCase(),
+  };
+  permanentManaModifierParseCache.set(permanent, parsed);
+  return parsed;
+}
+
+function cloneLandTypeGrant(
+  grant: Omit<ManaModifier, 'permanentId' | 'cardName'>,
+): Omit<ManaModifier, 'permanentId' | 'cardName'> {
+  return {
+    ...grant,
+    ...(grant.landTypes ? { landTypes: [...grant.landTypes] } : {}),
+    ...(grant.grantedAbility
+      ? { grantedAbility: { ...grant.grantedAbility, produces: [...grant.grantedAbility.produces] } }
+      : {}),
+  };
+}
+
 export function detectManaModifiers(
   gameState: any,
   playerId: string
@@ -691,13 +752,13 @@ export function detectManaModifiers(
     if (!permanent) continue;
     if (controllerHasLeftTheGame(gameState, permanent.controller)) continue;
     
-    const cardName = (permanent.card?.name || "").toLowerCase();
-    const oracleText = (permanent.card?.oracle_text || "").toLowerCase();
+    const parsed = getPermanentManaModifierParse(permanent);
+    const oracleText = parsed.oracleText;
     const controller = permanent.controller;
     
     // Check known cards
-    for (const [knownName, modifierInfo] of Object.entries(KNOWN_MANA_MODIFIERS)) {
-      if (cardName.includes(knownName)) {
+    for (const [knownName, modifierInfo] of parsed.knownMatches) {
+      {
         // Only apply if controller matches or it's a global effect
         const isGlobalEffect = modifierInfo.affects === 'all_lands' || 
                               modifierInfo.affects === 'nonbasic_lands';
@@ -712,7 +773,7 @@ export function detectManaModifiers(
       }
     }
     
-    const oracleLandTypeGrant = parseOracleLandTypeGrant(permanent);
+    const oracleLandTypeGrant = parsed.oracleLandTypeGrant ? cloneLandTypeGrant(parsed.oracleLandTypeGrant) : null;
     if (oracleLandTypeGrant) {
       const isGlobalEffect = oracleLandTypeGrant.affects === 'all_lands'
         || oracleLandTypeGrant.affects === 'nonbasic_lands';

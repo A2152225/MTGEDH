@@ -872,10 +872,10 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
                 perm={raw}
                 battlefield={allBattlefieldPerms || perms}
                 tileWidth={tileWidth}
-                hasPriority={hasPriority}
-                isOwnTurn={isOwnTurn}
-                isMainPhase={isMainPhase}
-                stackEmpty={stackEmpty}
+                hasPriority={hasPriority === true}
+                isOwnTurn={isOwnTurn === true}
+                isMainPhase={isMainPhase === true}
+                stackEmpty={stackEmpty === true}
                 currentStep={currentStep}
                 hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                 onActivateAbility={onActivateAbility}
@@ -894,10 +894,10 @@ export function FreeFieldPermanentOverlays(props: FreeFieldPermanentOverlaysProp
                   perm={raw}
                   battlefield={allBattlefieldPerms || perms}
                   tileWidth={tileWidth}
-                  hasPriority={hasPriority}
-                  isOwnTurn={isOwnTurn}
-                  isMainPhase={isMainPhase}
-                  stackEmpty={stackEmpty}
+                  hasPriority={hasPriority === true}
+                  isOwnTurn={isOwnTurn === true}
+                  isMainPhase={isMainPhase === true}
+                  stackEmpty={stackEmpty === true}
                   currentStep={currentStep}
                   hasThousandYearElixirEffect={hasThousandYearElixirEffect}
                   onActivateAbility={onActivateAbility}

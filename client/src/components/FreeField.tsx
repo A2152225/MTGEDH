@@ -642,15 +642,15 @@ export function FreeField(props: {
         const isHighlight = highlightTargets?.has(id) ?? false;
         const isSelected = selectedTargets?.has(id) ?? false;
         const isAttacking = !!attacking;
-        const isBlocking = blocking && blocking.length > 0;
-        const isTargeted = targetedBy && targetedBy.length > 0;
-        const hasTemporaryEffects = temporaryEffects && temporaryEffects.length > 0;
+        const isBlocking = !!blocking && blocking.length > 0;
+        const isTargeted = !!targetedBy && targetedBy.length > 0;
+        const hasTemporaryEffects = !!temporaryEffects && temporaryEffects.length > 0;
         const isAttached = !!attachedTo;
 
         // Check for P/T modifiers (counters or ptSources)
         const plusCounters = counters['+1/+1'] ?? 0;
         const minusCounters = counters['-1/-1'] ?? 0;
-        const hasPTModifiers = plusCounters > 0 || minusCounters > 0 || (ptSources && ptSources.length > 0);
+        const hasPTModifiers = plusCounters > 0 || minusCounters > 0 || (!!ptSources && ptSources.length > 0);
         const hasDamage = (damageMarked ?? 0) > 0;
 
         // Check if this card should be highlighted due to attachment hover

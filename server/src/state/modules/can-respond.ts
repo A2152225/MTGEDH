@@ -259,8 +259,10 @@ export function getCostAdjustmentInfo(state: any, playerId: string, card: any): 
  * @param playerId The player to check
  * @returns true if the player can respond, false otherwise
  */
+import { withProcessedBattlefieldScope } from '../../../../rules-engine/src/castingRestrictions.js';
+
 export function canRespond(ctx: GameContext, playerId: PlayerID): boolean {
-  return getOrComputeCachedBoolean(ctx, playerId, 'canRespond', () => canRespondUncached(ctx, playerId));
+  return getOrComputeCachedBoolean(ctx, playerId, 'canRespond', () => withProcessedBattlefieldScope(() => canRespondUncached(ctx, playerId)));
 }
 
 function canRespondUncached(ctx: GameContext, playerId: PlayerID): boolean {
@@ -564,7 +566,7 @@ export function isPlayerIdleForAutoPass(ctx: GameContext, playerId: PlayerID): b
 }
 
 export function canAct(ctx: GameContext, playerId: PlayerID): boolean {
-  return getOrComputeCachedBoolean(ctx, playerId, 'canAct', () => canActUncached(ctx, playerId));
+  return getOrComputeCachedBoolean(ctx, playerId, 'canAct', () => withProcessedBattlefieldScope(() => canActUncached(ctx, playerId)));
 }
 
 function canActUncached(ctx: GameContext, playerId: PlayerID): boolean {

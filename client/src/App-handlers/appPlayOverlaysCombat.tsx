@@ -15,7 +15,7 @@ import { AssistRequestButton } from "../components/AssistRequestButton";
 import { CombatSelectionModal, type AttackerSelection, type BlockerSelection } from "../components/CombatSelectionModal";
 import { CombatControlModal } from "../components/CombatControlModal";
 import { expandGroupedTokensForDisplay } from "../utils/expandGroupedTokens";
-import { ReturnControlledPermanentChoiceModal } from "../components/ReturnControlledPermanentChoiceModal";
+import { ReturnControlledPermanentChoiceModal, type ReturnControlledPermanentOption } from "../components/ReturnControlledPermanentChoiceModal";
 import { CardSelectionModal } from "../components/CardSelectionModal";
 import { ProliferateModal } from "../components/ProliferateModal";
 import { LifeRedistributionModal } from "../components/LifeRedistributionModal";
@@ -375,7 +375,7 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
         open={resolutionPromptOpen(returnControlledPermanentModalOpen, returnControlledPermanentData?.stepId)}
         sourceName={returnControlledPermanentData?.sourceName || ''}
         sourceImageUrl={returnControlledPermanentData?.imageUrl}
-        optionsToChoose={(returnControlledPermanentData?.optionsToChoose || []).map((option) => {
+        optionsToChoose={(returnControlledPermanentData?.optionsToChoose || []).map((option: ReturnControlledPermanentOption) => {
           const permanent = ((safeView?.battlefield || []) as BattlefieldPermanent[]).find(
             (entry) => String(entry.id) === String(option.permanentId),
           );

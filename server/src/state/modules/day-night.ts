@@ -79,6 +79,28 @@ export function transformPermanentToFace(
   }
 }
 
+/**
+ * A double-faced permanent that enters "transformed" enters with its back face up (rule 712.14);
+ * it did not transform, so no transform triggers fire.
+ */
+export function enterPermanentTransformed(permanent: any): void {
+  const faces: any[] = Array.isArray(permanent?.card?.card_faces) ? permanent.card.card_faces : [];
+  if (faces.length < 2) return;
+  permanent.card = { ...permanent.card };
+  transformPermanentToFace(permanent, 1);
+  permanent.card.faceIndex = 1;
+  permanent.card.transformed = true;
+  const typeLine = String(permanent.card.type_line || '').toLowerCase();
+  if (typeLine.includes('creature')) {
+    permanent.basePower = parseInt(String(permanent.card.power ?? '0'), 10) || 0;
+    permanent.baseToughness = parseInt(String(permanent.card.toughness ?? '0'), 10) || 0;
+  } else {
+    delete permanent.basePower;
+    delete permanent.baseToughness;
+    permanent.summoningSickness = false;
+  }
+}
+
 export function applyDayNightTransforms(state: any): void {
   if (!state?.battlefield) return;
   const dn: unknown = state.dayNight;

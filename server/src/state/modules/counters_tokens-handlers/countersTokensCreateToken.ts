@@ -25,6 +25,9 @@ import {
   extractCreateTokenGrantedAbilities,
 } from "../../../../../rules-engine/src/oracleReminderText.js";
 import { evaluateTokenCreationReplacementEvent } from "../replacement-effects.js";
+import { MAX_TOKENS_PER_CREATION_EVENT } from "../../../../../rules-engine/src/tokenCreation.js";
+
+export { MAX_TOKENS_PER_CREATION_EVENT };
 import { triggerETBEffectsForPermanent } from "../triggerEtbPermanentEffects.js";
 import { queueTokenCreatedTriggers } from "../triggers/tokens.js";
 import { hydrateCardOracleInPlace } from "../cardOracleHydration.js";
@@ -229,6 +232,12 @@ function createTokenUnbatched(
     }
   } catch (err) {
     debugWarn(1, "[createToken] Error calculating token doubling, using base count:", err);
+  }
+  // Rules-correct doubling is 2^N for N doublers, which overflows any real board quickly
+  // (e.g. 197 copy-token doublers => 2^197). Clamp one creation event to a sane ceiling.
+  if (!Number.isFinite(tokensToCreate) || tokensToCreate > MAX_TOKENS_PER_CREATION_EVENT) {
+    debugWarn(1, `[createToken] Clamping ${tokensToCreate} tokens of ${name} to ${MAX_TOKENS_PER_CREATION_EVENT}`);
+    tokensToCreate = MAX_TOKENS_PER_CREATION_EVENT;
   }
 
   // Mirrormind Crown (replacement effect):

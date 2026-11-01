@@ -6,6 +6,7 @@
 //
 // Handles: additionalCostConfirm, confirmGraveyardTargets, confirmForbiddenOrchardTarget, opponentMayPayResolve
 import type { GameContext } from "../../context";
+import { enterPermanentTransformed } from "../day-night.js";
 import type { PlayerID, GameEvent } from "../../types";
 import { recordCardLeftGraveyardThisTurn } from "../turn-tracking.js";
 import { buildDiscardProvenanceFields } from "../graveyardEntryUtils.js";
@@ -103,6 +104,7 @@ export function applyGraveyardTargetConfirmEvents(ctx: GameContext, e: GameEvent
           : {};
         const battlefieldFaceDown = (e as any).battlefieldFaceDown === true;
         const battlefieldTurnFaceUp = (e as any).battlefieldTurnFaceUp === true;
+        const battlefieldTransformed = (e as any).battlefieldTransformed === true;
         const battlefieldSuspected = (e as any).battlefieldSuspected === true;
         const battlefieldSetTypeLine = String((e as any).battlefieldSetTypeLine || '').trim();
         const battlefieldSetOracleText = typeof (e as any).battlefieldSetOracleText === 'string'
@@ -211,6 +213,9 @@ export function applyGraveyardTargetConfirmEvents(ctx: GameContext, e: GameEvent
                     permanent.suspected = true;
                     permanent.isSuspected = true;
                     permanent.card = { ...(permanent.card || {}), suspected: true, isSuspected: true };
+                  }
+                  if (battlefieldTransformed && permanent.isFaceDown !== true) {
+                    enterPermanentTransformed(permanent);
                   }
                   if (battlefieldTurnFaceUp && permanent.isFaceDown === true && permanent.faceUpCard) {
                     const actualCard = { ...(permanent.faceUpCard as any), zone: 'battlefield' };

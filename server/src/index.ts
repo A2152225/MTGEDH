@@ -225,8 +225,17 @@ const BUILD_PATH = path.resolve(__dirname, "../../client/dist");
 // Initialize Express app
 const app = express();
 
-// Serve static files from `client/dist`
-app.use(express.static(BUILD_PATH));
+// Serve static files from `client/dist`. index.html names the content-hashed
+// bundles, so it must be revalidated or browsers keep loading an old build.
+app.use(express.static(BUILD_PATH, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
+}));
 
 // Simple JSON middleware for admin endpoints
 app.use(express.json());
@@ -596,6 +605,7 @@ app.post("/api/admin/games/delete-all", (req, res) => {
 
 // Handle undefined routes by serving `index.html` (useful for React Router handling)
 app.get("*", (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(BUILD_PATH, "index.html"), (err) => {
     if (err) {
       debugError(1, `Error serving index.html: ${err.message}`);

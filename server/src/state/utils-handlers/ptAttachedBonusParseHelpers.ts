@@ -280,16 +280,18 @@ export function resolveSetBasePTFromAttachedAuras(
 
   let result: { power: number; toughness: number } | null = null;
 
+  const attachedEquipment = creaturePerm.attachedEquipment;
   for (const perm of battlefield) {
     if (!perm?.card) continue;
 
-    const typeLine = String(perm.card.type_line || '').toLowerCase();
-    if (!typeLine.includes('aura') || !typeLine.includes('enchantment')) continue;
-
+    // Cheap attachment test first: on 1000+ token boards this loop runs per creature (O(n^2)).
     const isAttached =
       perm.attachedTo === creaturePerm.id ||
-      (creaturePerm.attachedEquipment && creaturePerm.attachedEquipment.includes(perm.id));
+      (attachedEquipment && attachedEquipment.includes(perm.id));
     if (!isAttached) continue;
+
+    const typeLine = String(perm.card.type_line || '').toLowerCase();
+    if (!typeLine.includes('aura') || !typeLine.includes('enchantment')) continue;
 
     const setBase = parseSetBasePTFromAttachedAuraOracle(perm.card.oracle_text || '');
     if (setBase) result = setBase;

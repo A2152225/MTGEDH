@@ -18,6 +18,7 @@ import {
 } from "./autoPassTimerState.js";
 import { ts, repairMissingPriorityIfStuck } from "./repairMissingPriorityIfStuck.js";
 import { normalizeViewForEmit, logStateDebug } from "./gameStateEmitNormalize.js";
+import { withSharedBattlefieldView } from "../../state/modules/view.js";
 import {
   checkAndTriggerAI,
   checkAndEmitKynaiosChoicePrompts,
@@ -143,6 +144,8 @@ export function runBroadcastGame(
 
   let anySent = false;
 
+  // One broadcast = N viewFor calls on unchanged state; share viewer-independent permanent derivations.
+  withSharedBattlefieldView(game.state, () => {
   if (participants && participants.length) {
     for (const p of participants) {
       try {
@@ -217,6 +220,7 @@ export function runBroadcastGame(
       );
     }
   }
+  });
   
   const stateAny = (game.state as any) || {};
   const suppressAutomation = stateAny._suppressAutomationOnNextBroadcast === true;

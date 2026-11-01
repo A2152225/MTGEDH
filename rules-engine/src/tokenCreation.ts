@@ -53,6 +53,9 @@ export {
 } from './tokenCreationDetection';
 export { createTokenPermanent } from './tokenCreationPermanentFactory';
 
+/** Practical ceiling (2^10) for tokens produced by one creation event after doublers/triplers. Shared with the server. */
+export const MAX_TOKENS_PER_CREATION_EVENT = 1024;
+
 /**
  * Apply battlefield token doublers and creature-token triplers.
  * Each matching permanent the controller controls multiplies the count. The new tokens
@@ -72,9 +75,11 @@ export function resolveMultipliedTokenCount(
     })),
     { tokenIsCreature: options?.tokenIsCreature === true },
   );
+  // 2^N doubling is rules-correct but unbounded (197 doublers => 2^197); clamp one event to a sane ceiling.
+  const uncapped = Math.max(0, baseCount * multiplier);
   return {
     multiplier,
-    count: Math.max(0, baseCount * multiplier),
+    count: Number.isFinite(uncapped) ? Math.min(uncapped, MAX_TOKENS_PER_CREATION_EVENT) : MAX_TOKENS_PER_CREATION_EVENT,
   };
 }
 

@@ -102,6 +102,62 @@ function isLibraryTopRevealedToAll(ctx: GameContext, owner: PlayerID): boolean {
   return false;
 }
 
+type ViewerIndependentPermanentView = {
+  effectivePower?: number;
+  effectiveToughness?: number;
+  isCommander: boolean;
+  existingAbilities: any[];
+  rulesStatus: ReturnType<typeof computePermanentRulesStatus>;
+};
+
+let sharedBattlefieldViewScope: { state: any; derived: Map<any, ViewerIndependentPermanentView> } | null = null;
+
+/**
+ * Run `fn` (one broadcast: a viewFor per participant against unchanged state) sharing the
+ * viewer-independent per-permanent derivations (P/T, granted-ability badges, rules status).
+ * On 1000+ permanent boards these dominate viewFor. Only valid while state is not mutated inside fn.
+ */
+export function withSharedBattlefieldView<T>(state: any, fn: () => T): T {
+  if (sharedBattlefieldViewScope) return fn();
+  sharedBattlefieldViewScope = { state, derived: new Map() };
+  try {
+    return fn();
+  } finally {
+    sharedBattlefieldViewScope = null;
+  }
+}
+
+function computeViewerIndependentPermanentView(perm: BattlefieldPermanent, state: any): ViewerIndependentPermanentView {
+  const card = perm.card as any;
+  const typeLine = String(card?.type_line || "").toLowerCase();
+  // Type-setting Auras: Ensoul Artifact makes a creature; Imprisoned in the Moon stops being one.
+  const isCreature = (perm as any).notCreature !== true && (/\bcreature\b/.test(typeLine) || (perm as any).isCreature === true);
+  let effectivePower: number | undefined;
+  let effectiveToughness: number | undefined;
+
+  const continuousAbilities = getContinuousGrantedAbilitiesForPermanent(perm, state);
+  const existingAbilities = collectBattlefieldAbilityBadgesForView(perm, continuousAbilities, state.battlefield);
+  let rulesStatus: ReturnType<typeof computePermanentRulesStatus>;
+  try { rulesStatus = computePermanentRulesStatus(perm, state); } catch { rulesStatus = undefined; }
+
+  if (isCreature) {
+    // Shared with rules effects (fight, bite, damage equal to power) via currentPowerToughness.ts.
+    const current = computeCurrentPowerToughnessWithSources(perm, state);
+    if (current) {
+      effectivePower = current.power;
+      effectiveToughness = current.toughness;
+      // Store ptSources on the permanent for client use (tooltip display)
+      (perm as any).ptSources = current.sources;
+    }
+  }
+  const cz = state.commandZone[perm.controller];
+  const isCommander =
+    !!cz &&
+    Array.isArray(cz.commanderIds) &&
+    cz.commanderIds.includes((perm.card as any)?.id);
+  return { effectivePower, effectiveToughness, isCommander, existingAbilities, rulesStatus };
+}
+
 export function viewFor(
   ctx: GameContext,
   viewer: PlayerID | "spectator:judge",
@@ -138,34 +194,12 @@ export function viewFor(
     damageReplacementActiveCount = 0;
   }
 
+  const sharedDerived = sharedBattlefieldViewScope?.state === state ? sharedBattlefieldViewScope.derived : null;
   const filteredBattlefield = state.battlefield.map((perm: BattlefieldPermanent) => {
-    const card = perm.card as any;
-    const typeLine = String(card?.type_line || "").toLowerCase();
-    // Type-setting Auras: Ensoul Artifact makes a creature; Imprisoned in the Moon stops being one.
-    const isCreature = (perm as any).notCreature !== true && (/\bcreature\b/.test(typeLine) || (perm as any).isCreature === true);
-    let effectivePower: number | undefined;
-    let effectiveToughness: number | undefined;
-    
-    const continuousAbilities = getContinuousGrantedAbilitiesForPermanent(perm, state);
-    const existingAbilities = collectBattlefieldAbilityBadgesForView(perm, continuousAbilities, state.battlefield);
-    let rulesStatus: ReturnType<typeof computePermanentRulesStatus>;
-    try { rulesStatus = computePermanentRulesStatus(perm, state); } catch { rulesStatus = undefined; }
-
-    if (isCreature) {
-      // Shared with rules effects (fight, bite, damage equal to power) via currentPowerToughness.ts.
-      const current = computeCurrentPowerToughnessWithSources(perm, state);
-      if (current) {
-        effectivePower = current.power;
-        effectiveToughness = current.toughness;
-        // Store ptSources on the permanent for client use (tooltip display)
-        (perm as any).ptSources = current.sources;
-      }
-    }
-    const cz = state.commandZone[perm.controller];
-    const isCommander =
-      !!cz &&
-      Array.isArray(cz.commanderIds) &&
-      cz.commanderIds.includes((perm.card as any)?.id);
+    const cachedDerived = sharedDerived?.get(perm);
+    const derived = cachedDerived || computeViewerIndependentPermanentView(perm, state);
+    if (sharedDerived && !cachedDerived) sharedDerived.set(perm, derived);
+    const { effectivePower, effectiveToughness, isCommander, existingAbilities, rulesStatus } = derived;
     const { grantedAbilities: _rawGrantedAbilities, hideawayCard: rawHideawayCard, ...permWithoutRawGrants } = perm as any;
     const viewedHideaway = sanitizeHideawayCardForViewer(
       rawHideawayCard,

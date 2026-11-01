@@ -5,10 +5,30 @@ import {
 } from './staticAbilitiesShared';
 import { sanitizeOracleTextForStaticEffectScan } from './staticEffectOracleSanitize';
 
+const STATIC_PARSE_CACHE_LIMIT = 5000;
+const staticAbilityParseCache = new Map<string, StaticAbility[]>();
+
 /**
  * Parse static abilities from a card's oracle text.
+ *
+ * Pure in (oracle_text, name, permanentId, controllerId), so results are memoized; large token boards
+ * re-run this for every permanent on every casting-restriction check. Hits return fresh copies.
  */
 export function parseStaticAbilities(
+  card: KnownCardRef,
+  permanentId: string,
+  controllerId: PlayerID
+): StaticAbility[] {
+  const key = `${card?.oracle_text || ''}\u0000${card?.name || ''}\u0000${permanentId}\u0000${controllerId}`;
+  const cached = staticAbilityParseCache.get(key);
+  if (cached) return cached.length === 0 ? [] : structuredClone(cached);
+  const parsed = parseStaticAbilitiesUncached(card, permanentId, controllerId);
+  if (staticAbilityParseCache.size >= STATIC_PARSE_CACHE_LIMIT) staticAbilityParseCache.clear();
+  staticAbilityParseCache.set(key, parsed.length === 0 ? [] : structuredClone(parsed));
+  return parsed;
+}
+
+function parseStaticAbilitiesUncached(
   card: KnownCardRef,
   permanentId: string,
   controllerId: PlayerID

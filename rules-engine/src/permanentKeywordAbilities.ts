@@ -55,6 +55,19 @@ function cardOf(perm: any): any {
   return perm?.card || {};
 }
 
+const loseMentionCache = new Map<string, boolean>();
+
+/** Memoized `/\blose\b/i` test; called per source per permanent, so large boards made it O(n^2) regex work. */
+function oracleMentionsLose(text: string): boolean {
+  let hit = loseMentionCache.get(text);
+  if (hit === undefined) {
+    hit = /\blose\b/i.test(text);
+    if (loseMentionCache.size >= 5000) loseMentionCache.clear();
+    loseMentionCache.set(text, hit);
+  }
+  return hit;
+}
+
 function ownOracle(perm: any): string {
   const card = cardOf(perm);
   const faces = Array.isArray(card?.card_faces) ? card.card_faces : [];
@@ -440,7 +453,7 @@ export function permanentKeywordLossTimestamp(perm: any, keyword: string, battle
     for (const source of battlefield) {
       if (!source?.card || source.phasedOut) continue;
       const text = ownOracle(source);
-      if (!/\blose\b/i.test(text)) continue;
+      if (!oracleMentionsLose(text)) continue;
       for (const grant of parseStaticGrants(text, 'lose')) {
         // Blood Sun: "all abilities except mana abilities" removes keywords (never mana) but is not total loss.
         if (/^\s*all abilities except mana abilities\b/i.test(grant.abilities)) { if (kw === 'all abilities') continue; }

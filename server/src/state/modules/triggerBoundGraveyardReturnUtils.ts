@@ -1,4 +1,5 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
+import { enterPermanentTransformed } from "./day-night.js";
 import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debug, debugWarn } from '../../utils/debug.js';
@@ -162,6 +163,9 @@ export function applyBoundGraveyardReturnFromTriggerMetadata(
     if ((params.triggerItem as any).battlefieldTurnFaceUp === true) {
       turnReturnedPermanentFaceUp(permanent, params.ctx);
     }
+    if ((params.triggerItem as any).battlefieldTransformed === true && !entersFaceDown) {
+      enterPermanentTransformed(permanent);
+    }
     applyBattlefieldReturnCharacteristicMetadata(permanent, params.triggerItem);
     markPermanentEnteredFromZone(permanent, 'graveyard');
     battlefield.push(permanent as any);
@@ -188,6 +192,7 @@ export function applyBoundGraveyardReturnFromTriggerMetadata(
           : undefined,
         battlefieldFaceDown: (params.triggerItem as any).battlefieldFaceDown === true ? true : undefined,
         battlefieldTurnFaceUp: (params.triggerItem as any).battlefieldTurnFaceUp === true ? true : undefined,
+        battlefieldTransformed: (params.triggerItem as any).battlefieldTransformed === true ? true : undefined,
         battlefieldSuspected: (params.triggerItem as any).battlefieldSuspected === true ? true : undefined,
         battlefieldSetTypeLine: String((params.triggerItem as any).battlefieldSetTypeLine || '').trim() || undefined,
         battlefieldSetOracleText: typeof (params.triggerItem as any).battlefieldSetOracleText === 'string'

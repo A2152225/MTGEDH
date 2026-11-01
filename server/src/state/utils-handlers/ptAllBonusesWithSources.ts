@@ -205,20 +205,22 @@ export function calculateEquipmentBonusWithSources(
   
   const controllerId = creaturePerm.controller;
   
+  const attachedEquipment = creaturePerm.attachedEquipment;
   for (const perm of battlefield) {
     if (!perm || !perm.card) continue;
+
+    // Cheap attachment test first: this loop runs per creature, so large token boards are O(n^2).
+    const isAttached = 
+      perm.attachedTo === creaturePerm.id || 
+      (attachedEquipment && attachedEquipment.includes(perm.id));
     
+    if (!isAttached) continue;
+
     const typeLine = (perm.card.type_line || '').toLowerCase();
     const isEquipment = typeLine.includes('equipment');
     const isAura = typeLine.includes('aura') && typeLine.includes('enchantment');
     
     if (!isEquipment && !isAura) continue;
-    
-    const isAttached = 
-      perm.attachedTo === creaturePerm.id || 
-      (creaturePerm.attachedEquipment && creaturePerm.attachedEquipment.includes(perm.id));
-    
-    if (!isAttached) continue;
     
     const cardName = (perm.card.name || '').toLowerCase();
     const oracleText = (perm.card.oracle_text || '').toLowerCase();

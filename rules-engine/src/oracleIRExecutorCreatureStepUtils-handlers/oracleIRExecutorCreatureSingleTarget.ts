@@ -354,7 +354,11 @@ export function resolveSingleCreatureTargetId(
   const isSelfReferencedCreatureTarget =
     normalizedSelfTargetText === 'this creature' ||
     normalizedSelfTargetText === 'this permanent';
-  if (directTargetCreatureId && !isSelfReferencedCreatureTarget) {
+  // Group selectors ("each other attacking creature", "all creatures you control") never collapse to the
+  // trigger's bound creature; e.g. battle cry must not pump its own source (issue #74).
+  const isGroupCreatureSelector =
+    /^(?:each|all|every)\b/.test(normalizedSelfTargetText) || /\bother\b/.test(normalizedSelfTargetText) || /\bcreatures\b/.test(normalizedSelfTargetText);
+  if (directTargetCreatureId && !isSelfReferencedCreatureTarget && !isGroupCreatureSelector) {
     const matched = battlefield.find(permanent => String((permanent as any)?.id || '').trim() === directTargetCreatureId);
     if (matched && isExecutorCreature(matched)) return directTargetCreatureId;
   }

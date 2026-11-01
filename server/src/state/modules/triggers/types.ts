@@ -25,6 +25,24 @@ export function escapeCardNameForRegex(cardName: string): string {
 }
 
 /**
+ * Regex alternation for every way oracle text names its own card: the full name, each face of a
+ * double-faced card ("A // B"), and a legendary short name ("Ojer Taq" for "Ojer Taq, Deepest Foundation").
+ */
+export function cardSelfNameRegexAlternation(cardName: string): string {
+  const names = new Set<string>();
+  const full = String(cardName || '').trim();
+  if (full) names.add(full);
+  for (const face of full.split(/\s*\/\/\s*/)) {
+    const faceName = face.trim();
+    if (!faceName) continue;
+    names.add(faceName);
+    const short = faceName.split(',')[0].trim();
+    if (short && short !== faceName && short.length >= 3) names.add(short);
+  }
+  return [...names].sort((a, b) => b.length - a.length).map(escapeCardNameForRegex).join('|');
+}
+
+/**
  * Trigger timing - when the trigger should fire
  */
 export type TriggerTiming = 

@@ -533,7 +533,11 @@ export function collectCastingModifierGrantTexts(
     if (rebuilt) texts.add(rebuilt);
   }
 
+  // Lingering grant effects stay in state for their duration; only harvest each one once,
+  // or every later resolution re-creates its "next spell" grant (issues #75/#76).
   for (const effect of Array.isArray(state?.staticAbilityGrantEffects) ? state.staticAbilityGrantEffects : []) {
+    if (!effect || effect.castingModifierGrantHarvested === true) continue;
+    effect.castingModifierGrantHarvested = true;
     const raw = normalizeText(effect?.raw);
     if (raw) texts.add(raw);
     const rebuilt = rebuildCastingModifierTextFromGrantStep({

@@ -13,7 +13,7 @@ import {
   hydrateBattlefieldOracleText,
   hydratePermanentCardOracleInPlace,
 } from "../cardOracleHydration.js";
-import { escapeCardNameForRegex } from "./types.js";
+import { cardSelfNameRegexAlternation } from "./types.js";
 import { stripReminderParentheticals } from "../../../../../rules-engine/src/oracleReminderText.js";
 import type { DeathTriggerResult } from "./death-emission-helpers.js";
 import {
@@ -145,7 +145,7 @@ export function getDeathTriggers(
     return inlineOptions.length > 0 ? inlineOptions : undefined;
   };
   const selfDiesPattern = new RegExp(
-    `when(?:ever)?\\s+(?:~|this creature|${escapeCardNameForRegex(dyingCardName)})(?:\\s+or\\s+another\\s+(?:nontoken\\s+)?creature(?:s)?(?:\\s+you\\s+control)?)?\\s+dies(?:\\s+during\\s+combat)?,?\\s*([^.]+)`,
+    `when(?:ever)?\\s+(?:~|this creature|${cardSelfNameRegexAlternation(dyingCardName)})(?:\\s+or\\s+another\\s+(?:nontoken\\s+)?creature(?:s)?(?:\\s+you\\s+control)?)?\\s+dies(?:\\s+during\\s+combat)?,?\\s*([^.]+)`,
     'ig'
   );
   // Last-known blocking for "each creature it blocked this combat" once the blocker is gone.

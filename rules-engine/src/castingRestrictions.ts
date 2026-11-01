@@ -439,7 +439,28 @@ export const COMMON_RESTRICTION_CARDS = [
 
 export type RestrictionCardName = typeof COMMON_RESTRICTION_CARDS[number];
 
+let processedBattlefieldScope: WeakMap<object, BattlefieldPermanent[]> | null = null;
+
+/**
+ * Within fn, reuse one applyStaticAbilitiesToBattlefield result per battlefield
+ * array. Only for read-only queries (can-respond / can-act) that do not mutate state.
+ */
+export function withProcessedBattlefieldScope<T>(fn: () => T): T {
+  if (processedBattlefieldScope) return fn();
+  processedBattlefieldScope = new WeakMap();
+  try { return fn(); } finally { processedBattlefieldScope = null; }
+}
+
 function getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
+  const raw = gameState.battlefield as any;
+  if (processedBattlefieldScope && raw && typeof raw === 'object') {
+    let hit = processedBattlefieldScope.get(raw);
+    if (!hit) {
+      hit = applyStaticAbilitiesToBattlefield(raw as BattlefieldPermanent[]) as BattlefieldPermanent[];
+      processedBattlefieldScope.set(raw, hit);
+    }
+    return hit;
+  }
   return applyStaticAbilitiesToBattlefield(
     (gameState.battlefield || []) as BattlefieldPermanent[]
   ) as BattlefieldPermanent[];
