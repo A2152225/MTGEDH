@@ -7,7 +7,16 @@
 
 const WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
 const MAX_RE = /can't be blocked by more than (\d+|one|two|three|four|five) creatures?/;
-const TEAM_RE = /(?:each creature|creatures) you control can't be blocked by more than (\d+|one|two|three|four|five) creatures?/;
+// B38 power-gated team cap: "Each creature you control with power 4 or greater can't be blocked by more than one creature." (Challenger Troll)
+const TEAM_RE = /(?:each creature|creatures) you control(?: with power (\d+) or greater)? can't be blocked by more than (\d+|one|two|three|four|five) creatures?/;
+
+function currentPower(perm: any): number {
+  const raw = perm?.power ?? perm?.basePower ?? perm?.card?.power;
+  const base = Number(raw);
+  if (!Number.isFinite(base)) return 0;
+  const c = perm?.counters || {};
+  return base + (Number(c['+1/+1']) || 0) - (Number(c['-1/-1']) || 0);
+}
 
 function lines(perm: any): string[] {
   return String(perm?.card?.oracle_text || perm?.oracle_text || '')
@@ -31,7 +40,9 @@ export function getMaximumBlockers(attacker: any, battlefield: readonly any[]): 
     if (!perm || String(perm.controller || '') !== controller) continue;
     for (const line of lines(perm)) {
       const m = line.match(TEAM_RE);
-      if (m) max = Math.min(max, toNum(m[1]));
+      if (!m) continue;
+      if (m[1] && currentPower(attacker) < Number(m[1])) continue;
+      max = Math.min(max, toNum(m[2]));
     }
   }
   return max;

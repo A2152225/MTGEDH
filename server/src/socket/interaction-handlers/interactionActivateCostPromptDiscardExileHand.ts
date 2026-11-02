@@ -687,6 +687,7 @@ export async function tryHandleActivateCostPromptDiscardExileHand(
           isManaAbility: wouldBeManaAbility,
           manaCostString: resolvedManaOnly,
           sourceName: cardName,
+          abilityText,
         });
         const effectiveManaOnly = costAdjustment.adjustedManaCost || resolvedManaOnly;
 

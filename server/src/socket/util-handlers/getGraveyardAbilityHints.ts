@@ -19,6 +19,7 @@ import {
 import { hasValidTargetsForSpell } from "../../rules-engine/target-availability.js";
 import { debugWarn } from "../../utils/debug.js";
 import { isInMainPhase } from "./utilMainPhaseCheck.js";
+import { getBeamMeUpInfo, getEligibleCreaturesForBeamMeUp } from "../interaction-handlers/interactionGraveyardCastCostAndTimingRules.js"; // B42
 
 type GrantedPlayableGraveyardCastKeyword = 'jump-start' | 'retrace' | 'escape';
 
@@ -156,6 +157,24 @@ export function getGraveyardAbilityHints(game: InMemoryGame, playerId: PlayerID)
               cost: grantedUnearthInfo.cost,
             });
           }
+        }
+      }
+
+      // B42: beam me up (printed, or Scotty's main-phase grant) - pay the cost and return a creature you control to hand.
+      {
+        const beam = getBeamMeUpInfo(card, { game: { state }, playerId: String(playerId) });
+        const isInstantSpeed = String(card.type_line || '').toLowerCase().includes('instant') || /\bflash\b/i.test(String(card.oracle_text || ''));
+        if (beam.hasIt && beam.cost && (isInstantSpeed || (isMainPhase && stackIsEmpty && isMyTurn))
+          && getEligibleCreaturesForBeamMeUp(state, String(playerId)).length > 0
+          && hasValidTargetsForSpell(state as any, playerId, card, { conservative: false })
+          && canPayManaCostWithAvailableSources(state, playerId, parseManaFromString(beam.cost))) {
+          addHint(cardId, {
+            id: 'beam-me-up',
+            label: 'Beam me up',
+            description: `Cast from graveyard for ${beam.cost} and return a creature you control to its owner's hand (exiled afterward)`,
+            cost: beam.cost,
+            requiresReturnToHandForCost: true,
+          });
         }
       }
 

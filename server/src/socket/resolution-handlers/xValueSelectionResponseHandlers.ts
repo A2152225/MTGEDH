@@ -28,6 +28,7 @@ import {
 } from "../../state/modules/triggerDelayedDrawUpToUtils.js";
 import { resumeOracleIRRemainingStepsFromResolution } from "../../state/modules/oracleIrServerZoneSync-handlers/oracleIrServerResumeAndChoiceApply.js";
 import { applyAssistPaymentChoice, isAssistPaymentChoiceStep } from "../assistPaymentFlow.js";
+import { applyAsEntersPayAnyLifeChoice, isAsEntersPayAnyLifeStep } from "../../state/modules/asEntersPayAnyLife.js";
 import { continuePlaneswalkerAbilityAfterChosenX } from "../interaction-handlers/interactionActivatePlaneswalkerContinueAfterX.js";
 
 /** X_VALUE_SELECTION: record chosen X for a spell cast, delayed up-to draw, or Blight X activation cost. */
@@ -76,6 +77,14 @@ export async function handleXValueSelectionResponse(
     }
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);
+    return;
+  }
+
+  if (isAsEntersPayAnyLifeStep(stepAny)) {
+    const paid = applyAsEntersPayAnyLifeChoice(game.state, stepAny, String(pid), response.cancelled ? 0 : selectedXValue);
+    if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
+    broadcastGame(io, game, gameId);
+    void paid;
     return;
   }
 

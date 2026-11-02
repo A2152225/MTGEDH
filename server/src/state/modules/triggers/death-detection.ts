@@ -16,7 +16,8 @@ import { printedKeywordDeathAbilities } from "../../../../../rules-engine/src/tr
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
 export function collectDeathTriggerEffectText(oracleText: string, match: RegExpMatchArray, effectCaptureIndex: number): string {
-  const effect = String(match?.[effectCaptureIndex] || '').trim();
+  // A "dies this turn" condition can leave its duration word at the head of the captured effect (turn-scoped grants).
+  const effect = String(match?.[effectCaptureIndex] || '').trim().replace(/^this turn\s*(?:,|\r?\n)\s*/i, '');
   if (!effect) {
     return effect;
   }

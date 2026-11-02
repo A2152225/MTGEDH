@@ -347,6 +347,7 @@ export function queueGraveyardSpellCastTargetSelection(params: {
   exiledCardIdsFromHandForCost?: string[];
   exiledCardIdsFromGraveyardForCost?: string[];
   sacrificedPermanentIdsForCost?: string[];
+  beamedUpPermanentIdsForCost?: string[];
   xValue?: number;
   emitError: (payload: { code: string; message: string }) => void;
 }): 'queued' | 'error' | null {
@@ -441,6 +442,7 @@ export function queueGraveyardSpellCastTargetSelection(params: {
       exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0
         ? params.exiledCardIdsFromGraveyardForCost.slice()
         : undefined,
+      beamedUpPermanentIdsForCost: Array.isArray(params.beamedUpPermanentIdsForCost) && params.beamedUpPermanentIdsForCost.length > 0 ? params.beamedUpPermanentIdsForCost.slice() : undefined,
       sacrificedPermanentIdsForCost: Array.isArray(params.sacrificedPermanentIdsForCost) && params.sacrificedPermanentIdsForCost.length > 0
         ? params.sacrificedPermanentIdsForCost.slice()
         : undefined,

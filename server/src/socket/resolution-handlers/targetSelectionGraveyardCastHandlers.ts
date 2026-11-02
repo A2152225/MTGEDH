@@ -22,6 +22,7 @@ import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolut
 import { debugError, debugWarn } from "../../utils/debug.js";
 import { continueCastFromGraveyardAbility } from "../interaction.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
+import { handleBeamMeUpReturnCostSelection } from "./targetSelectionGraveyardBeamMeUpHandler.js"; // B42
 
 /**
  * TARGET_SELECTION with `graveyardCastSacrificeAsCost`: pay the sacrifice cost, then resume the cast.
@@ -40,6 +41,7 @@ export async function handleGraveyardCastSacrificeAsCostTargetSelection(
 
   try {
     const stepAny = step as any;
+    if (stepAny?.returnToHandForCost === true) return handleBeamMeUpReturnCostSelection(io, game, gameId, step, response); // B42 beam me up
     const controllerId = String(pid);
     const cardId = String(stepAny?.cardId || step.sourceId || '').trim();
     const abilityId = String(stepAny?.abilityId || '').trim();
@@ -224,6 +226,9 @@ export function handleGraveyardSpellCastTargetSelection(
       : undefined,
     exiledCardIdsFromGraveyardForCost: Array.isArray((step as any)?.exiledCardIdsFromGraveyardForCost)
       ? (step as any).exiledCardIdsFromGraveyardForCost.map((id: any) => String(id)).filter(Boolean)
+      : undefined,
+    beamedUpPermanentIdsForCost: Array.isArray((step as any)?.beamedUpPermanentIdsForCost)
+      ? (step as any).beamedUpPermanentIdsForCost.map((id: any) => String(id)).filter(Boolean)
       : undefined,
     sacrificedPermanentIdsForCost: Array.isArray((step as any)?.sacrificedPermanentIdsForCost)
       ? (step as any).sacrificedPermanentIdsForCost.map((id: any) => String(id)).filter(Boolean)

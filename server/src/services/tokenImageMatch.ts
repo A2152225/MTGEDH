@@ -93,6 +93,17 @@ export function isDistinguishingTokenKeyword(keyword: string): boolean {
   return false;
 }
 
+/**
+ * Scryfall token oracle uses "This creature's" where the creating card's quoted grant says
+ * "This token's" (Gnome Soldier tlci/3). Fold both self-references and curly quotes together.
+ */
+export function normalizeTokenSelfReference(text: string | undefined): string {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/\bthis token\b/g, 'this creature');
+}
+
 function keywordCovers(keyword: string, ability: string): boolean {
   return keyword === ability || ability.startsWith(`${keyword} `) || keyword.startsWith(`${ability} `);
 }
@@ -109,8 +120,8 @@ export function tokenAbilitiesAlign(
 ): boolean {
   if (!Array.isArray(requested)) return true;
   const tokenKeywords = (keywords || []).map((keyword) => keyword.toLowerCase().trim()).filter(Boolean);
-  const oracle = String(oracleText || '').toLowerCase();
-  const wanted = requested.map((ability) => ability.toLowerCase().trim()).filter(Boolean);
+  const oracle = normalizeTokenSelfReference(oracleText);
+  const wanted = requested.map((ability) => normalizeTokenSelfReference(ability).trim()).filter(Boolean);
 
   for (const ability of wanted) {
     const onKeyword = tokenKeywords.some((keyword) => keywordCovers(keyword, ability));
@@ -126,9 +137,8 @@ export function tokenAbilitiesAlign(
 }
 
 function normalizeRulesText(text: string | undefined): string {
-  return String(text || '')
+  return normalizeTokenSelfReference(text)
     .replace(/\([^)]*\)/g, ' ')
-    .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 }

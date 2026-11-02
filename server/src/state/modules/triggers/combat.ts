@@ -12,6 +12,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { getTurnScopedSpellTriggerSources } from "./turnScopedSpellTriggers.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import {
   findRegexMatchAcrossOracleLines,
@@ -663,7 +664,8 @@ export function getBlockTriggersForCreatures(
   blockingPlayer: string
 ): CombatTriggeredAbility[] {
   const triggers: CombatTriggeredAbility[] = [];
-  const battlefield = ctx.state?.battlefield || [];
+  // Spell-created "whenever a creature blocks this turn" sources (Battle Cry) watch too.
+  const battlefield = [...(ctx.state?.battlefield || []), ...getTurnScopedSpellTriggerSources(ctx.state)];
   
   // Check each blocking creature for block triggers
   for (const blocker of blockingCreatures) {
@@ -722,6 +724,8 @@ export function getBlockTriggersForCreatures(
         ].join('|');
         if (seenBlockWatchers.has(watcherKey)) continue;
         seenBlockWatchers.add(watcherKey);
+        // Same shape as the parsed-line key below, so the IR pass does not re-emit this watcher.
+        seenBlockWatchers.add(`${String(trigger.permanentId || permanent.id || '')}|${String(blocker?.id || '')}|${normalizeBlockEffectKey(trigger.effect || trigger.description)}`);
         triggers.push({
           permanentId: String(trigger.permanentId || permanent.id || ''),
           cardName: String(trigger.cardName || permanent.card?.name || 'Unknown'),
@@ -732,6 +736,8 @@ export function getBlockTriggersForCreatures(
           mandatory: trigger.mandatory,
           value: {
             blockedCreatureId: blocker.blocking?.[0],
+            // Watchers bind "it" / "its controller" to the creature that blocked.
+            blockingCreatureId: String(blocker?.id || '') || undefined,
           },
         });
       }
@@ -755,7 +761,7 @@ export function getBlockTriggersForCreatures(
       }).filter((line) => !isSelf || Boolean(line.condition?.blockPartner));
       for (const line of effects) {
         const effect = line.effect;
-        const key = `${String(permanent.id || '')}|${String(blocker?.id || '')}|${effect.toLowerCase()}`;
+        const key = `${String(permanent.id || '')}|${String(blocker?.id || '')}|${normalizeBlockEffectKey(effect)}`;
         if (seenParsedBlocks.has(key) || seenBlockWatchers.has(key)) continue;
         seenParsedBlocks.add(key);
         triggers.push({
@@ -770,6 +776,8 @@ export function getBlockTriggersForCreatures(
           ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
           value: {
             blockedCreatureId: blocker.blocking?.[0],
+            // Watchers bind "it" / "its controller" to the creature that blocked.
+            blockingCreatureId: String(blocker?.id || '') || undefined,
           },
         });
       }
@@ -777,6 +785,10 @@ export function getBlockTriggersForCreatures(
   }
   
   return triggers;
+}
+
+function normalizeBlockEffectKey(effect: unknown): string {
+  return String(effect || '').toLowerCase().replace(/\s+/g, ' ').trim().replace(/\.$/, '');
 }
 
 function permanentHasKeyword(permanent: any, keywordName: string): boolean {

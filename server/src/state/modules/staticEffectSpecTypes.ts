@@ -36,6 +36,13 @@ export interface StaticEffectScopeQualifier {
   legendary?: boolean;
   /** Type-line word for non-creature groups ("Treasures you control"). */
   subtype?: string;
+  /** Excluded card type ("each nonland permanent you control"). */
+  nonType?: string;
+  /** "attacking tokens you control" (Starry-Eyed Skyrider). */
+  attacking?: boolean;
+  blocking?: boolean;
+  /** "transformed permanent you control" (Mutagen Connoisseur). */
+  transformed?: boolean;
 }
 
 export interface StaticEffectScope {
@@ -87,6 +94,8 @@ export interface StaticEffectGrant {
   countOnEffectSource?: boolean;
   /** attachments_on_source: attachment subtypes counted on the source (aura, equipment). */
   countAttachmentKinds?: readonly string[];
+  /** controller_permanents_of_type: extra filter on counted permanents ("for each legendary creature you control"). */
+  countQualifier?: StaticEffectScopeQualifier;
   /**
    * Pillowfort: extra generic mana to attack this spec's source controller,
    * charged once per attacking creature (Ghostly Prison {2}, Baird {1}).
@@ -141,6 +150,8 @@ export interface StaticEffectGrant {
    * source (`land` / `creature` / `artifact` type-line filter).
    */
   copyActivatedFromExiledWithCardType?: string;
+  /** Necrotic Ooze family: borrow activated abilities from a zone / filter (staticEffectSpecBorrowedActivated). */
+  borrowActivated?: import('./staticEffectSpecBorrowedActivated.js').BorrowedActivatedSpec;
 }
 
 export type StaticEffectAttackYouTaxCountBasis =
@@ -150,6 +161,8 @@ export type StaticEffectAttackYouTaxCountBasis =
 
 /** How to count "each other …" for dynamic P/T statics. */
 export type StaticEffectCountBasis =
+  /** R26: "for each opponent whose life total is less than half their starting life total" (Anya). */
+  | 'opponents_below_half_starting_life'
   | 'controller_permanents_of_type'
   | 'attachments_on_source'
   | 'controller_hand_size'
@@ -221,6 +234,10 @@ export type StaticEffectConditionKind =
   | 'target_is_multicolored'
   /** CR 700.9: counters, Equipment, or Auras. */
   | 'target_is_modified'
+  /** Fledgling Osprey: as long as it's enchanted (any Aura). */
+  | 'target_is_enchanted'
+  /** Karakyk Guardian: "if it hasn't dealt damage yet" (permanent.hasDealtDamage, set when it deals damage). */
+  | 'target_has_not_dealt_damage'
   /** Teferi's Moat: chosen color without a keyword. */
   | 'target_has_mana_color_and_lacks_keyword'
   /** Eriette: enchanted by an Aura the source controller controls. */
@@ -239,6 +256,22 @@ export type StaticEffectConditionKind =
   | 'source_chose_option'
   /** Phase 5: "as long as there are N or more <type> counters on this" (Obscura Ascendancy). */
   | 'source_counter_at_least'
+  /** R24 Timber Paladin: "enchanted by exactly N Auras" / "N or more Auras" (amount, exact, cardType = subtype). */
+  | 'source_attachment_count'
+  /** R24: Guul Draz Vampire / Erebos's Titan / Murasa Behemoth (staticEffectSpecOpponentStateConditions.ts). */
+  | 'opponent_life_at_most'
+  | 'no_opponent_controls_matching'
+  | 'controller_graveyard_type_at_least'
+  /** "Max speed — ..." P/T riders (Walking Sarcophagus): controller's speed is at least amount. */
+  | 'controller_speed_at_least'
+  /** R26: "a library has twenty or fewer cards in it" (Isleback Spawn). */
+  | 'any_library_at_most'
+  /** R26: "an opponent's life total is less than half their starting life total" (Anya). */
+  | 'opponent_life_below_half_starting'
+  /** R26: "an opponent has three or more poison counters" (Skrelv's Hive). */
+  | 'opponent_poison_at_least'
+  /** R26: "you control exactly one creature" (Deadly Wanderings). */
+  | 'controller_creature_count_exactly'
   | 'controller_gained_life_this_turn'
   | 'controller_attacked_with_at_least'
   | 'controller_nonland_entered_at_least'
@@ -299,6 +332,8 @@ export interface StaticEffectCondition {
   amount?: number;
   /** target_has_counter counter name ("+1/+1"). */
   counterType?: string;
+  /** source_attachment_count: exact match instead of at-least. */
+  exact?: boolean;
   /** Mode label / bullet text for source_chose_option. */
   option?: string;
 }

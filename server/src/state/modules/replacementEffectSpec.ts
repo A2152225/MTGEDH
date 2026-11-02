@@ -55,7 +55,7 @@ import { matchesDrawSpec, NONCREATURE_TOKEN_NAMES, tokenCreationEventLooksLikeCr
 import { overlaySpecsMatchTokenCreation, overlaySpecsMatchLibrarySearch, overlaySpecsMatchMill, overlaySpecsMatchCounterPlacement } from './replacementEffectSpecEventMatchers.js';
 export { overlaySpecsMatchTokenCreation, overlaySpecsMatchLibrarySearch, overlaySpecsMatchMill, overlaySpecsMatchCounterPlacement } from './replacementEffectSpecEventMatchers.js';
 
-const STACK_GRAVEYARD_EXILE_ABILITIES = ['flashback', 'jump-start', 'escape', 'disturb', 'harmonize'];
+const STACK_GRAVEYARD_EXILE_ABILITIES = ['flashback', 'jump-start', 'escape', 'disturb', 'harmonize', 'beam-me-up'];
 
 export const BUILTIN_REPLACEMENT_EFFECT_SPECS: readonly ReplacementEffectSpec[] = [
   {

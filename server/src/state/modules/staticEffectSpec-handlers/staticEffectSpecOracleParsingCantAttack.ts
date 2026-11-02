@@ -92,7 +92,8 @@ export function pushCantAttackBlockSpecs(
 
   for (const sentence of splitOracleSentences(text)) {
     if (UNTIL_EOT.test(sentence)) continue;
-    if (PILLOWFORT.test(sentence)) continue;
+    // R29: "... unless they're mana abilities" (Faith's Fetters) qualifies the activation lock, not a pillowfort tax.
+    if (PILLOWFORT.test(sentence.replace(/\bunless they(?:'|\u2019)re mana abilities\b/gi, ''))) continue;
 
     const abilities = appendTapActivationLockAbility(sentenceCombatLockAbilities(sentence), sentence);
     if (abilities.length === 0) continue;

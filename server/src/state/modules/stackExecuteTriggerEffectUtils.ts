@@ -2,6 +2,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { recordLegacyTriggerHandlerTelemetry } from './oracleIrTriggerLegacyHandlerTelemetry.js';
+import { foldPendingOptionalReflexiveRider } from './parsedTriggerRiderSchedule.js';
 import { tryApplyRoomDoorStateFromResolvedEffect } from './triggers/room.js';
 import { tryApplyTriggerEffectPrefaceHandlers } from './stackExecuteTriggerEffectPrefaceUtils.js';
 import { normalizeTriggerEffectDescriptionForExecution } from './trigger-runtime-wiring.js';
@@ -55,7 +56,7 @@ export function executeTriggerEffect(
     state: (ctx as any).state,
   });
   const normalizedDescription = normalizeTriggerEffectDescriptionForExecution(
-    String(resolvedFromItem || description || '').trim(),
+    foldPendingOptionalReflexiveRider(triggerItem, String(resolvedFromItem || description || '').trim()),
   );
   const state = (ctx as any).state;
   if (!state) return;

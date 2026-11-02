@@ -11,6 +11,7 @@ import type { PlayerID } from "../../../../shared/src/types.js";
 import { equipSacrificeCandidates, parseEquipSacrificeCost } from "../../state/modules/equipNonManaCosts.js";
 import { sacrificePermanent } from "../../state/modules/upkeep-triggers.js";
 import { broadcastGame, emitToPlayer } from "../util.js";
+import { appendEvent } from "../../db/index.js";
 
 export interface EquipSacrificeStageResult { done: boolean; targetIds: string[]; validTargets: any[] }
 
@@ -77,5 +78,6 @@ export function handleEquipSacrificeCostStage(
     return { ...pass, done: true };
   }
   stepAny.sacrificedPermanentsForCost = [...(Array.isArray(stepAny.sacrificedPermanentsForCost) ? stepAny.sacrificedPermanentsForCost : []), sacId];
+  try { appendEvent(gameId, (game as any).seq ?? 0, 'equipSacrificeCostPaid', { playerId: controllerId, permanentId, sacrificedId: sacId }); } catch { /* replay log best-effort */ }
   return { done: false, targetIds, validTargets: Array.isArray(stepAny.equipTargetValidTargets) ? stepAny.equipTargetValidTargets : validTargets };
 }

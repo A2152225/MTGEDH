@@ -88,6 +88,8 @@ export type OracleEffectStepA =
         readonly what: OracleObjectSelector;
         readonly newController: OraclePlayerSelector;
         readonly duration: 'until_end_of_turn' | 'indefinite' | 'as_long_as_attached' | 'as_long_as_control_source' | 'during_that_players_next_turn';
+        /** Assimilate (trk): after control changes, add a +1/+1 counter and make it a Borg artifact creature. */
+        readonly assimilate?: boolean;
         readonly optional?: boolean;
         readonly sequence?: 'then';
         readonly raw: string;

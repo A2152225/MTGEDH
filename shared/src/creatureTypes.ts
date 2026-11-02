@@ -63,6 +63,12 @@ export const CREATURE_TYPES = [
   'Wall', 'Walrus', 'Warlock', 'Warrior', 'Weasel', 'Weird', 'Werewolf', 'Whale', 'Wizard', 'Wolf', 'Wolverine', 'Wombat', 'Worm', 'Wraith', 'Wurm',
   // Y-Z
   'Yeti', 'Zombie', 'Zubera',
+  // Round 37b: CR 205.3m (2026-09-25) types missing from the list above.
+  'Azra', 'Beaver', 'Bison', "C'tan", 'Coyote', 'Drix', 'Echidna', 'Eternal', 'Gamma', 'Giraffe', 'Glimmer', 'Hedgehog', 'Inhuman', 'Juggernaut', 'Kangaroo', 'Kree', 'Lemur', 'Lobster', 'Moogle', 'Platypus', 'Porcupine', 'Possum', 'Qu', 'Seal', "Shi'ar", 'Skrull', 'Skunk', 'Sorcerer', 'Spy', 'Symbiote', 'Synth', 'Toy', 'Varmint',
+  // Round 37: Star Trek (trk/trc) races and roles.
+  'Aenar', 'Andorian', 'Android', 'Bajoran', 'Betazoid', 'Bolian', 'Borg', 'Brikar', 'Caitian', 'Cardassian', 'Denobulan', 'Edosian', 'El-Aurian', 'Excalbian',
+  'Ferengi', 'Gorn', 'Hirogen', 'Illyrian', "Jem'Hadar", 'Kelpien', 'Klingon', 'Kwejian', 'Lanthanite', 'Medusan', 'Melkotian', "Na'kuhl", 'Ocampa', 'Officer', 'Orion',
+  'Romulan', 'Talaxian', 'Talosian', 'Tamarian', 'Tellarite', 'Tholian', 'Tosk', 'Tribble', 'Trill', "Vau-N'Akat", 'Vorta', 'Vulcan', 'Xindi',
 ] as const;
 
 export type CreatureType = typeof CREATURE_TYPES[number];

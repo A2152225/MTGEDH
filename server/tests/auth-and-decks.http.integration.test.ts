@@ -247,7 +247,7 @@ describe('auth + server decks HTTP v1', () => {
       ok = await register(two, 'password123', 'Short');
     }
     expect(ok.res.status).toBe(201);
-    expect(ok.data.user.username).toBe(two);
+    expect(ok.data.user.username).toBe(two.toLowerCase()); // usernames are stored lowercase (db/users.ts)
     expect(ok.data.user.isAdmin).toBe(false);
 
     const one = await register('q', 'password123', 'TooShort');

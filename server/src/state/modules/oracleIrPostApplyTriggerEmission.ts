@@ -27,6 +27,7 @@ import {
 import { debugWarn } from '../../utils/debug.js';
 import { queueDealsDamageToPlayerTriggersFromPermanent } from './triggerLifeDamageUtils.js';
 import { emitNoncombatDamageEvent, queueNoncombatDealsDamageTriggers } from './triggers/noncombat-deals-damage.js';
+import { markPermanentDealtDamage } from './damageDealtFlag.js';
 import { detectCombatDamageTriggers } from './triggers/index.js';
 import { processMillTriggers } from './zones.js';
 
@@ -239,6 +240,7 @@ export function emitTriggersAfterOracleIRApply(
     }
     if (sourcePermanentId && damageSourceOnBattlefield && anyNoncombatDamage) {
       const damageSource = battlefield.find((p: any) => String(p?.id || '') === sourcePermanentId);
+      markPermanentDealtDamage(ctx, damageSource);
       const legacyEffects = damageSource?.card
         ? detectCombatDamageTriggers(damageSource.card, damageSource, state)
           .filter((t: any) => t?.triggerType === 'deals_damage' && !t?.batched)

@@ -575,6 +575,12 @@ export function specMatchesStaticCondition(
     case 'target_has_mana_color_and_lacks_keyword':
       return creatureHasManaColor(permanent, String(condition.color || ''))
         && !hasKeyword(permanent, String(condition.keyword || ''));
+    case 'target_is_enchanted': {
+      const id = String(permanent.id || '');
+      return !!id && (state.battlefield || []).some((b: any) => String(b?.attachedTo || '') === id && /\baura\b/i.test(String(b?.card?.type_line || '')));
+    }
+    case 'target_has_not_dealt_damage':
+      return (permanent as any)?.hasDealtDamage !== true;
     case 'target_enchanted_by_aura_you_control':
       return permanentEnchantedByAuraYouControl(permanent, spec, state);
     case 'source_is_untapped':

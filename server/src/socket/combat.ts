@@ -245,7 +245,8 @@ export function registerCombatHandlers(io: Server, socket: Socket): void {
       try {
         const stateAny = game.state as any;
         stateAny.attackedPlayersThisTurnByPlayer = stateAny.attackedPlayersThisTurnByPlayer || {};
-        stateAny.attackedPlayersThisTurnByPlayer[String(playerId)] = [];
+        // Keep earlier combats' attacked players (battlefront counts across combats).
+        stateAny.attackedPlayersThisTurnByPlayer[String(playerId)] = Array.isArray(stateAny.attackedPlayersThisTurnByPlayer[String(playerId)]) ? stateAny.attackedPlayersThisTurnByPlayer[String(playerId)] : [];
         stateAny.attackedDefendingPlayersThisCombatByPlayer = stateAny.attackedDefendingPlayersThisCombatByPlayer || {};
         stateAny.attackedDefendingPlayersThisCombatByPlayer[String(playerId)] = [];
 

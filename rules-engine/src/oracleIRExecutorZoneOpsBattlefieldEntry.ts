@@ -14,6 +14,7 @@ import {
 import { flattenZoneCardForBattlefield } from './oracleIRExecutorZoneCardIdentity';
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { getCardTypeLineLower } from './oracleIRExecutorZoneOpsThisWayParsers';
+import { assimilatedTypeLine } from './trekCountBases';
 
 export type BattlefieldAttachmentTarget = BattlefieldPermanent;
 
@@ -21,6 +22,8 @@ export type BattlefieldEntryCardOverrides = {
   readonly setTypeLine?: string;
   readonly setOracleText?: string;
   readonly loseAllAbilities?: boolean;
+  /** Assimilate: Borg artifact creature, other creature types lost. */
+  readonly assimilate?: boolean;
 };
 
 export function resolveBattlefieldEntryBeforeCommit(
@@ -183,6 +186,10 @@ function applyBattlefieldEntryCardOverrides(card: any, overrides?: BattlefieldEn
   }
   if (typeof overrides.setOracleText === 'string') {
     nextCard.oracle_text = overrides.setOracleText;
+  }
+  if (overrides.assimilate) {
+    if (!nextCard.assimilatedPrintedTypeLine) nextCard.assimilatedPrintedTypeLine = String(nextCard.type_line || '');
+    nextCard.type_line = assimilatedTypeLine(String(nextCard.type_line || ''));
   }
   return nextCard;
 }

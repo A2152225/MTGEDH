@@ -1,3 +1,4 @@
+import { isLegendRuleExempt } from "../state/modules/legendRuleExemptions.js"; // B43
 import type { GameState, BattlefieldPermanent } from '../../../shared/src';
 import { permanentHasAttachmentGrantedKeyword } from '../../../shared/src';
 import { getMarkedDamage } from '../../../shared/src/markedDamage.js';
@@ -409,6 +410,7 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     const cardName = (perm.card as any)?.name || '';
     
     if (!controller || !cardName) continue;
+    if (isLegendRuleExempt(perm, battlefieldPermanents as any[])) continue; // B43
     
     const key = `${controller}:${cardName}`;
     const existing = legendaryByControllerAndName.get(key) || [];

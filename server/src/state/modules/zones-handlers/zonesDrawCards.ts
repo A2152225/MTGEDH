@@ -25,6 +25,7 @@ import { queueZursWeirdingDrawReplacementStep } from "./zonesDrawReplacementZurs
 import { applyOrQueueOpponentLibraryDrawReplacement } from "./zonesDrawReplacementOpponentLibraryExile.js";
 import { applyBatch18EmptyLibraryDrawInstead } from "../replacementBatch18DrawInstead.js";
 import { applyBatch19DrawInstead } from "../replacementBatch19DrawInstead.js";
+import { tryQueueRevealUntilKindDrawStep } from "./zonesDrawReplacementRevealUntilKind.js";
 import { isCardDrawProhibited } from "../playersCantDrawCards.js";
 
 export type DrawCardsOptions = {
@@ -173,6 +174,7 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
         if (applyBatch18EmptyLibraryDrawInstead(ctx.state, originalPlayerId, libCount)) continue;
       }
       if (applyBatch19DrawInstead(ctx, originalPlayerId, { drawNumber, isDrawStep: currentStep.includes('draw') }, (pid) => drawOneForPlayer(pid, false))) continue;
+      if (tryQueueRevealUntilKindDrawStep(ctx, originalPlayerId, Math.max(0, normalizedCount - i - 1))) break; // B42
       const replacement = evaluateDrawReplacementEvent({
         state: ctx.state,
         playerId: originalPlayerId,

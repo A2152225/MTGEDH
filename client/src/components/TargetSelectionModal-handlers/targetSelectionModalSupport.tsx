@@ -266,6 +266,8 @@ export interface TargetSelectionModalProps {
     selectedTargetIds: string[],
     options?: { repeatForIdenticalTriggers?: boolean; repeatCount?: number },
   ) => void;
+  /** UI41: confirm button text (default "Confirm Targets"). */
+  confirmLabel?: string;
   onCancel: () => void;
 }
 

@@ -18,6 +18,7 @@ import {
   startOracleEffectProgramOnServer,
 } from './oracleIrEffectProgramServer.js';
 import { normalizeOracleIrSelectedModeIds } from './oracleIrModeSelection.js';
+import { recordDilemmaFacedOnce } from './triggers/trekPlayerEventTriggers.js';
 import { resolvePermanentChosenColorSymbol } from './mana-abilities.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import {
@@ -454,6 +455,8 @@ export function tryApplyOracleIRToActivatedAbility(
       : 0;
 
     const normalizedSelectedModeIds = normalizeOracleIrSelectedModeIds(steps, params.selectedModeIds);
+    // FACE A DILEMMA: modes chosen when the activated ability was put on the stack.
+    if (steps.some((step) => step.kind === 'choose_mode')) recordDilemmaFacedOnce(ctx, params.controller, params.sourceItem, normalizedSelectedModeIds?.length ?? 0);
     const executionOptions = {
       allowOptional: params.allowOptional ?? true,
       selectedModeIds: normalizedSelectedModeIds,

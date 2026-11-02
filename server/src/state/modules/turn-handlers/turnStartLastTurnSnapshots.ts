@@ -33,6 +33,7 @@ export function snapshotLastTurnCountersAndResetDraws(ctx: GameContext, players:
 
     // Reset cards drawn this turn for all players (for miracle tracking)
     (ctx as any).state.cardsDrawnThisTurn = {};
+    (ctx as any).state.dilemmasFacedThisTurn = {};
     for (const pid of players) {
       (ctx as any).state.cardsDrawnThisTurn[String(pid)] = 0;
     }

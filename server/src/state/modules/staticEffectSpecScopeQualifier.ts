@@ -11,23 +11,27 @@ function hasPrintedOrGrantedKeyword(permanent: any, keyword: string): boolean {
   const kw = keyword.toLowerCase();
   const lists = [permanent?.card?.keywords, permanent?.grantedAbilities, permanent?.grantedKeywords];
   for (const list of lists) {
-    if (Array.isArray(list) && list.some((k: unknown) => String(k || '').trim().toLowerCase() === kw)) return true;
+    if (Array.isArray(list) && list.some((k: unknown) => { const s = String(k || '').trim().toLowerCase(); return s === kw || s.startsWith(kw + ' '); })) return true;
   }
   const oracle = String(permanent?.card?.oracle_text || '').toLowerCase().replace(/\([^)]*\)/g, '');
   return oracle.split(/\n+/).some((line) => {
     const words = line.trim().replace(/\.$/, '');
-    return /^[a-z ,]+$/.test(words) && words.split(/,\s*|\s+and\s+/).map((w) => w.trim()).includes(kw);
+    return /^[a-z0-9 ,]+$/.test(words) && words.split(/,\s*|\s+and\s+/).map((w) => w.trim()).some((w) => w === kw || w.startsWith(kw + ' '));
   });
 }
 
 export function permanentMatchesScopeQualifier(permanent: any, qualifier: StaticEffectScopeQualifier): boolean {
   if (qualifier.token === true && permanent?.isToken !== true && permanent?.card?.isToken !== true) return false;
   if (qualifier.token === false && (permanent?.isToken === true || permanent?.card?.isToken === true)) return false;
+  if (qualifier.attacking && !(permanent?.isAttacking === true || (permanent?.attacking != null && permanent?.attacking !== false && permanent?.attacking !== ''))) return false;
+  if (qualifier.blocking && !(permanent?.isBlocking === true || (Array.isArray(permanent?.blocking) ? permanent.blocking.length > 0 : !!permanent?.blocking))) return false;
+  if (qualifier.transformed && !(permanent?.transformed === true || permanent?.isTransformed === true)) return false;
   if (qualifier.keyword && !hasPrintedOrGrantedKeyword(permanent, qualifier.keyword)) return false;
   if (qualifier.counter && !(Number(permanent?.counters?.[qualifier.counter] || 0) > 0)) return false;
   if (qualifier.anyCounter && !Object.values(permanent?.counters || {}).some((n) => Number(n) > 0)) return false;
   const typeLine = String(permanent?.typeSetOverride?.typeLine || permanent?.card?.type_line || '').toLowerCase();
   if (qualifier.legendary && !/\blegendary\b/.test(typeLine)) return false;
+  if (qualifier.nonType && new RegExp('\\b' + qualifier.nonType.toLowerCase() + '\\b').test(typeLine)) return false;
   if (qualifier.subtype && !new RegExp('\\b' + qualifier.subtype.toLowerCase() + 's?\\b').test(typeLine)) return false;
   if (qualifier.colors?.length) {
     const own = (Array.isArray(permanent?.card?.colors) ? permanent.card.colors : []).map((c: unknown) => String(c).toUpperCase());

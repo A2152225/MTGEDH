@@ -45,13 +45,14 @@ export type MoveZoneFinalizeAppliedResult = (
 
 export function buildMoveZoneBattlefieldEntryOverrides(step: MoveZoneStep) {
   return step.to === 'battlefield' &&
-    (step.battlefieldSetTypeLine || step.battlefieldSetOracleText || step.battlefieldLoseAllAbilities)
+    (step.battlefieldSetTypeLine || step.battlefieldSetOracleText || step.battlefieldLoseAllAbilities || step.battlefieldAssimilate)
     ? {
         ...(step.battlefieldSetTypeLine ? { setTypeLine: step.battlefieldSetTypeLine } : {}),
         ...(typeof step.battlefieldSetOracleText === 'string'
           ? { setOracleText: step.battlefieldSetOracleText }
           : {}),
         ...(step.battlefieldLoseAllAbilities ? { loseAllAbilities: true } : {}),
+        ...(step.battlefieldAssimilate ? { assimilate: true } : {}),
       }
     : undefined;
 }

@@ -6,6 +6,7 @@
 // Leaf must not import turn.ts or turn-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
+import { getBoundTurnScopedSpellTriggerSources, getTurnScopedSpellTriggerSources } from "../triggers/turnScopedSpellTriggers.js";
 import { detectCombatDamageTriggers } from "../triggered-abilities.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates } from "../triggers/triggerConditionFamilyMatch.js";
 import { isInterveningIfSatisfied } from "../triggers/intervening-if.js";
@@ -44,6 +45,8 @@ export function applyDealCombatDamageTriggerQueue(
 ): void {
     const pendingCombatDamageTriggerEntries: CombatDamageTriggerQueueEntry[] = [];
     const state = (ctx as any).state;
+    // Spell-created "whenever ... deals combat damage ... this turn" sources (Surge to Victory, Harsh Justice).
+    const turnScopedWatchers = getTurnScopedSpellTriggerSources(state);
 
     // Queue per-attacker combat damage triggers onto the stack.
     // This covers triggers like: "Whenever ~ deals combat damage to a player, ..."
@@ -80,7 +83,7 @@ export function applyDealCombatDamageTriggerQueue(
               triggerType: 'deals_combat_damage',
               description: line.effect,
               effect: line.effect,
-              mandatory: !/\byou may\b/i.test(line.effect),
+              mandatory: !/\byou may\b(?! (?:play|cast)\b)/i.test(line.effect),
             } as any);
           }
           const perAttackerTriggers = triggers.filter(t =>
@@ -151,9 +154,9 @@ export function applyDealCombatDamageTriggerQueue(
 
           const watcherDamage = Math.max(0, Number(result.attackerDamageToPlayers?.[String(defendingPlayerId)]?.[String(attackerId)] || 0));
           if (watcherDamage > 0) {
-            for (const watcher of battlefield) {
+            for (const watcher of [...battlefield, ...turnScopedWatchers, ...getBoundTurnScopedSpellTriggerSources(state, String(attackerPerm.id)), ...getBoundTurnScopedSpellTriggerSources(state, String(defendingPlayerId))]) {
               if (!watcher?.card || String(watcher.id) === String(attackerPerm.id)) continue;
-              for (const line of collectMatchingParsedEventLines({
+              for (let line of collectMatchingParsedEventLines({
                 ctx,
                 oracleText: String(watcher.card.oracle_text || ''),
                 event: 'deals_combat_damage_to_player',
@@ -164,6 +167,8 @@ export function applyDealCombatDamageTriggerQueue(
               })) {
                 // Batched "one or more" wordings fire once from the batched pass, not per attacker.
                 if (line.condition?.quantity === 'one_or_more') continue;
+                // Spell-created watchers have no stack-time damage reference: bind "that many" to this hit (Fire Giant's Fury).
+                if (watcher.isTurnScopedSpellTrigger && /\bthat many\b/i.test(line.effect)) line = { ...line, effect: line.effect.replace(/\bthat many\b/gi, String(watcherDamage)).replace(/\bexile (\d+) cards from the top of your library\b/i, 'exile the top $1 cards of your library') };
                 pendingCombatDamageTriggerEntries.push({
                   stackItem: {
                     id: uid('trigger'),
@@ -175,11 +180,13 @@ export function applyDealCombatDamageTriggerQueue(
                     description: line.effect,
                     effect: line.effect,
                     triggerType: 'deals_combat_damage',
-                    mandatory: !/\byou may\b/i.test(line.effect),
+                    mandatory: !/\byou may\b(?! (?:play|cast)\b)/i.test(line.effect),
                     targetPlayer: String(defendingPlayerId),
                     damagedPlayerId: String(defendingPlayerId),
                     damageAmount: watcherDamage,
                     card: watcher.card,
+                    // "it" = the attacker that dealt the damage (Harsh Justice: "it deals that much damage to its controller").
+                    interveningIfSubjectPermanentId: String(attackerPerm.id),
                   } as any,
                   reason: 'combat damage watcher',
                 });
@@ -225,7 +232,7 @@ export function applyDealCombatDamageTriggerQueue(
                 description: line.effect,
                 effect: line.effect,
                 triggerType: 'deals_combat_damage_to_creature',
-                mandatory: !/\byou may\b/i.test(line.effect),
+                mandatory: !/\byou may\b(?! (?:play|cast)\b)/i.test(line.effect),
                 card: source.card,
               } as any,
               reason: 'combat damage to creature',
@@ -235,6 +242,35 @@ export function applyDealCombatDamageTriggerQueue(
       }
     } catch (err) {
       debugWarn(1, `${ts()} [dealCombatDamage] Failed to queue creature combat damage triggers:`, err);
+    }
+
+    // Bound "whenever that creature deals combat damage this turn" (any recipient, rule 510): one trigger per attacker with its total.
+    try {
+      const toPlayers: Record<string, number> = {};
+      for (const perAttacker of Object.values(result.attackerDamageToPlayers || {})) {
+        for (const [aid, amt] of Object.entries(perAttacker || {})) toPlayers[aid] = (toPlayers[aid] || 0) + Math.max(0, Number(amt || 0));
+      }
+      const toCreatures: Record<string, number> = (result as any).attackerDamageToCreatures || {};
+      for (const aid of new Set([...Object.keys(toPlayers), ...Object.keys(toCreatures)])) {
+        const total = (toPlayers[aid] || 0) + Math.max(0, Number(toCreatures[aid] || 0));
+        if (total <= 0) continue;
+        for (const watcher of getBoundTurnScopedSpellTriggerSources((ctx as any).state, aid)) {
+          if (!watcher?.combatDamageAnyRecipient) continue;
+          const effect = String(watcher.card?.oracle_text || '').replace(/^[^,]*,\s*/, '').trim();
+          if (!effect) continue;
+          pendingCombatDamageTriggerEntries.push({
+            stackItem: {
+              id: uid('trigger'), type: 'triggered_ability', controller: watcher.controller, source: watcher.id,
+              permanentId: watcher.id, sourceName: watcher.card?.name, description: effect, effect,
+              triggerType: 'deals_combat_damage', mandatory: !/\byou may\b(?! (?:play|cast)\b)/i.test(effect), damageAmount: total,
+              card: watcher.card, interveningIfSubjectPermanentId: aid,
+            } as any,
+            reason: 'bound any-recipient combat damage watcher',
+          });
+        }
+      }
+    } catch (err) {
+      debugWarn(1, `${ts()} [dealCombatDamage] Failed to queue bound any-recipient combat damage triggers:`, err);
     }
 
     // Queue defender-side combat damage triggers for permanents controlled by players who were dealt combat damage.
@@ -264,7 +300,7 @@ export function applyDealCombatDamageTriggerQueue(
           ? Array.from(attackingControllers)[0]
           : String(state.activePlayer || state.turnPlayer || '');
 
-        for (const perm of battlefield) {
+        for (const perm of [...battlefield, ...turnScopedWatchers]) {
           if (String(perm?.controller || '') !== String(damagedPlayerId) || !perm?.card) continue;
 
           const triggers = detectCombatDamageTriggers(perm.card, perm, state);
@@ -412,7 +448,7 @@ export function applyDealCombatDamageTriggerQueue(
         for (const [controllerId, controllerDamage] of damageByController.entries()) {
           if (controllerDamage.attackerIds.length === 0) continue;
 
-          for (const perm of battlefield) {
+          for (const perm of [...battlefield, ...turnScopedWatchers]) {
             if (String(perm?.controller || '') !== String(controllerId) || !perm?.card) continue;
 
             const triggers = detectCombatDamageTriggers(perm.card, perm, state);

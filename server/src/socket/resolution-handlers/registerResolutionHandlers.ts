@@ -65,6 +65,8 @@ import { handlePanglacialWurmSearchCast } from "./panglacialSearchCastHandlers.j
 import { getPanglacialCastCardId } from "./panglacialSearchCastUtils.js";
 import { priorityResolutionHandlerState } from "./resolutionPriorityHandlerState.js";
 import { applyCancelledResolutionStepSideEffects, emitNextPendingResolutionStep, scheduleResolutionStepTimeoutForGame } from "./resolutionStepTimeoutAndCancelHandlers.js";
+import { isCancellablePlayerInitiatedXStep } from "./cancellablePlayerInitiatedXSteps.js";
+import { isSpellCastTargetSelectionStep } from "./persistPlayerInitiatedStepCancel.js";
 import { sanitizeStepForClient } from "./sanitizeStepForClient.js";
 import { handleStepResponse } from "./stepResponseHandlers.js";
 
@@ -235,10 +237,22 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         (step as any)?.phyrexianManaChoice === true ||
         (step as any)?.sacrificeUnlessPayChoice === true
       )) ||
-      step.type === ResolutionStepType.EXTORT_PAYMENT;
+      step.type === ResolutionStepType.EXTORT_PAYMENT ||
+      isCancellablePlayerInitiatedXStep(step);
 
     if (cancelled && step.mandatory && !isCancellableMandatoryStep) {
       socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });
+      return;
+    }
+
+    // Cancelled player-started X prompts: drop the step like cancelResolutionStep does
+    // (no card moves, nothing paid) and restore priority.
+    if (cancelled && (isCancellablePlayerInitiatedXStep(step) || isSpellCastTargetSelectionStep(step))) {
+      const cancelledXStep = ResolutionQueueManager.cancelStep(gameId, stepId);
+      if (cancelledXStep) {
+        socket.emit("resolutionStepCancelled", { gameId, stepId, success: true });
+        applyCancelledResolutionStepSideEffects(io, game, gameId, cancelledXStep, pid);
+      }
       return;
     }
     
@@ -543,7 +557,9 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
       // available for re-activation immediately after cancel).
       (step.type === ResolutionStepType.TARGET_SELECTION &&
         Boolean((step as any)?.battlefieldAbilityTargetSelection)) ||
-      step.type === ResolutionStepType.STATION_CREATURE_SELECTION;
+      step.type === ResolutionStepType.STATION_CREATURE_SELECTION ||
+      // Player-started Choose X / Replicate count / planeswalker +-X: nothing is committed yet.
+      isCancellablePlayerInitiatedXStep(step);
 
     if (inferResolutionStepMandatory(step as any) && !isCancellableMandatoryStep) {
       socket.emit("error", { code: "STEP_MANDATORY", message: "This step is mandatory and cannot be cancelled" });

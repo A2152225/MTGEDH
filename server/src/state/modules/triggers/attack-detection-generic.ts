@@ -121,7 +121,13 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
     });
   }
 
-  const youAttackMatch = oracleText.match(/whenever you attack(?! with\b),?\s*([^.]+)/i);
+  // "Whenever you attack while creatures you control have total power 8 or greater, ..." (Trek): gated at declaration.
+  const totalPowerMatch = oracleText.match(/whenever you attack while creatures you control have total power (\d+) or greater,\s*([^\n(]+?\.)(?=\s*(?:\(|\n|$))/i);
+  if (totalPowerMatch) {
+    const effectText = totalPowerMatch[2].trim();
+    triggers.push({ permanentId, cardName, controllerId, triggerType: 'you_attack', description: effectText, effect: effectText, mandatory: !/you may/i.test(effectText), minTotalPower: Number(totalPowerMatch[1]) } as any);
+  }
+  const youAttackMatch = oracleText.match(/whenever you attack(?! with\b| while creatures you control have total power)(?!\w),?\s*([^.]+)/i);
   if (youAttackMatch && !triggers.some((t) => t.triggerType === 'you_attack')) {
     const effectText = timingTriggerEffect(oracleText, youAttackMatch);
     triggers.push({

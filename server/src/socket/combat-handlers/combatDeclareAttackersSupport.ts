@@ -1,3 +1,5 @@
+import { alreadyAttackedPlayerRestrictionReason } from "./combatBatch37Restrictions.js"; // B37
+import { controlTypeAttackRestrictionReason } from "./combatBatch36Restrictions.js"; // B36
 import { castThisTurnAttackRestrictionReason } from "./combatBatch34AttackRestrictions.js"; // B34
 import { controlCountAttackRestrictionReason } from "./combatBatch33AttackRestrictions.js"; // B33 count
 import { nonTypeCreaturesCantAttackReason } from "./combatBatch33AttackRestrictions.js"; // B33
@@ -140,6 +142,10 @@ export function getOwnerAttackRestrictionReason(
     if (b33CountReason) return b33CountReason;
     const b34CastGate = castThisTurnAttackRestrictionReason(creature, options.gameState); // B34
     if (b34CastGate) return b34CastGate;
+    const b36ControlType = controlTypeAttackRestrictionReason(creature, options.battlefield); // B36
+    if (b36ControlType) return b36ControlType;
+    const b37Already = alreadyAttackedPlayerRestrictionReason(creature, defendingPlayerId, options.gameState); // B37
+    if (b37Already) return b37Already;
   }
   const restriction = getIllegalDefendingPlayerRestriction({
     oracleText: String(creature?.card?.oracle_text || creature?.oracle_text || ''),

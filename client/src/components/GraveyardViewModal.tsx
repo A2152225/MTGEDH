@@ -161,9 +161,11 @@ export function parseGraveyardAbilities(card: KnownCardRef): GraveyardAbility[] 
   }
   
   // Scavenge - exile from graveyard to put +1/+1 counters
-  if (oracleText.includes('scavenge')) {
+  // UI37: also when a static grants scavenge (server grantedScavengeCost)
+  const grantedScavengeCost = (card as any)?.grantedScavengeCost as string | undefined;
+  if (oracleText.includes('scavenge') || grantedScavengeCost) {
     const scavengeMatch = card.oracle_text?.match(/scavenge\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-    const cost = scavengeMatch ? scavengeMatch[1] : 'unknown';
+    const cost = scavengeMatch ? scavengeMatch[1] : (grantedScavengeCost || 'unknown');
     abilities.push({
       id: 'scavenge',
       label: 'Scavenge',

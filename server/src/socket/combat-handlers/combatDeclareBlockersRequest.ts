@@ -306,6 +306,12 @@ export async function executeDeclareBlockers(
             mandatory: trigger.mandatory,
             value: trigger.value,
           };
+          // "its controller" / "it" bind to the blocking creature, or to the unblocked attacker (Gaze of Pain).
+          const blockingCreatureId = String((trigger.value as any)?.blockingCreatureId
+            || ((trigger as any).triggerType === 'attacks_unblocked' ? (trigger.value as any)?.attackingCreatureId : '') || '');
+          if (blockingCreatureId && String(trigger.permanentId || '') !== blockingCreatureId) {
+            stackItem.interveningIfSubjectPermanentId = blockingCreatureId;
+          }
 
           const defendingPlayerId = String((trigger.value as any)?.defendingPlayer || '');
           if (defendingPlayerId) {
@@ -327,6 +333,7 @@ export async function executeDeclareBlockers(
             ...(typeof trigger.value !== 'undefined' ? { value: trigger.value } : {}),
             ...(stackItem.targetPlayer ? { targetPlayer: stackItem.targetPlayer } : {}),
             ...(stackItem.defendingPlayer ? { defendingPlayer: stackItem.defendingPlayer } : {}),
+            ...(stackItem.interveningIfSubjectPermanentId ? { interveningIfSubjectPermanentId: stackItem.interveningIfSubjectPermanentId } : {}),
           }, 'block trigger');
 
           io.to(gameId).emit("chat", {

@@ -15,6 +15,7 @@
 import type { GameContext } from "../../context.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates } from "../triggers/triggerConditionFamilyMatch.js";
 import { uid } from "../../utils.js";
+import { markPermanentDealtDamage } from "../damageDealtFlag.js";
 
 type PwHit = { amount: number; planeswalkerId: string; controllerId: string };
 const LEDGER = "_combatDamageToPlaneswalkersThisStep";
@@ -31,6 +32,7 @@ export function recordCreatureCombatDamageDealer(ctx: GameContext, sourceId: str
 /** Called by applyCombatDamageToPlaneswalker after damage is dealt. */
 export function recordPlaneswalkerCombatDamage(ctx: GameContext, attackerId: string, planeswalker: any, amount: number): void {
   if (!attackerId || !(amount > 0)) return;
+  markPermanentDealtDamage(ctx, attackerId);
   const anyCtx = ctx as any;
   const ledger: Record<string, PwHit> = anyCtx[LEDGER] || (anyCtx[LEDGER] = {});
   const prev = ledger[attackerId];

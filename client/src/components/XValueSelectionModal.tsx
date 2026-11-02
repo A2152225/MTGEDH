@@ -30,6 +30,10 @@ interface XValueSelectionModalProps {
   costPerX?: string;
   /** When set, the modal is a "pay this N times" choice (Replicate) instead of a spell X. */
   selectionLabel?: string;
+  /** UI38: custom heading / confirm text (e.g. 'Pay any amount of life'); mandatory hides Cancel and ignores Escape/backdrop. */
+  titleText?: string;
+  confirmText?: (value: number) => string;
+  mandatory?: boolean;
 }
 
 /**
@@ -50,6 +54,9 @@ export function XValueSelectionModal({
   affordableXHint,
   costPerX,
   selectionLabel,
+  titleText,
+  confirmText,
+  mandatory = false,
 }: XValueSelectionModalProps) {
   const [xValue, setXValue] = useState(0);
   const effectiveMax = suggestedMax !== undefined ? Math.min(maxValue, suggestedMax) : maxValue;
@@ -79,7 +86,7 @@ export function XValueSelectionModal({
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleSubmit();
-    } else if (e.key === 'Escape') {
+    } else if (e.key === 'Escape' && !mandatory) {
       (onCancel || onClose)();
     }
   };
@@ -98,7 +105,7 @@ export function XValueSelectionModal({
         justifyContent: 'center',
         zIndex: 10000,
       }}
-      onClick={() => (onCancel || onClose)()}
+      onClick={() => { if (!mandatory) (onCancel || onClose)(); }}
     >
       <div
         style={{
@@ -113,7 +120,7 @@ export function XValueSelectionModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 style={{ margin: '0 0 16px 0', fontSize: 20, color: '#f1f5f9' }}>
-          {selectionLabel ? `Choose ${selectionLabel}` : 'Choose X Value'}
+          {titleText || (selectionLabel ? `Choose ${selectionLabel}` : 'Choose X Value')}
         </h2>
 
         <div style={{ marginBottom: 16 }}>
@@ -272,8 +279,8 @@ export function XValueSelectionModal({
         </div>
 
         <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-          <button
-            onClick={onClose}
+          {!mandatory && <button
+            onClick={() => (onCancel || onClose)()} // UI39: real cancel (server drops the cast/activation)
             style={{
               padding: '10px 20px',
               borderRadius: 6,
@@ -292,7 +299,7 @@ export function XValueSelectionModal({
             }}
           >
             Cancel
-          </button>
+          </button>}
           <button
             onClick={handleSubmit}
             style={{
@@ -313,7 +320,7 @@ export function XValueSelectionModal({
               e.currentTarget.style.backgroundColor = '#3b82f6';
             }}
           >
-            {selectionLabel
+            {confirmText ? confirmText(xValue) : selectionLabel
               ? (xValue === 0 ? `Cast without ${selectionLabel}` : `Pay ${selectionLabel} ${xValue} time${xValue === 1 ? '' : 's'}`)
               : `Activate with X=${xValue}`}
           </button>

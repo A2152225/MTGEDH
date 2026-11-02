@@ -11,7 +11,7 @@ export function wasSpellCastFromGraveyard(item: any): boolean {
   return item?.castFromGraveyard === true
     || item?.card?.castFromGraveyard === true
     || String(item?.castSourceZone || item?.card?.castSourceZone || '').trim().toLowerCase() === 'graveyard'
-    || ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'harmonize', 'graveyard-cast'].includes(castWithAbility);
+    || ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'harmonize', 'graveyard-cast', 'beam-me-up'].includes(castWithAbility);
 }
 
 export function shouldQueueResolvedSpellCopyChoice(item: any, oracleText: string, ctx?: GameContext): boolean {

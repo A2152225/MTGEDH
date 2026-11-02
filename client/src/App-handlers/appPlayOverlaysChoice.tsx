@@ -282,6 +282,7 @@ export function renderAppPlayOverlaysChoice(p: Record<string, any>) {
         offerRepeatForIdenticalTriggers={Boolean(targetModalData?.repeatTriggerKey)}
         identicalTriggersWaiting={targetModalData?.repeatTriggerWaiting}
         onConfirm={handleTargetConfirm}
+        confirmLabel={targetModalData?.confirmLabel}
         onCancel={handleTargetCancel}
       />
 

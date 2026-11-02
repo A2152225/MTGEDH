@@ -52,3 +52,42 @@ export function equipSacrificeCandidates(state: any, playerId: string, cost: unk
     && !exclude.has(String(p.id))
     && new RegExp('\\b' + type + '\\b').test(String(p?.card?.type_line || '').toLowerCase()));
 }
+
+/** B37: "Equip\u2014Discard a card." Returns true for a single-card discard equip cost. */
+export function parseEquipDiscardCost(cost: unknown): boolean {
+  return /^discard an? card$/i.test(String(cost || '').trim());
+}
+
+/** Cards in playerId's hand that can be discarded for the equip cost. */
+export function equipDiscardCandidates(state: any, playerId: string, cost: unknown): any[] {
+  if (!parseEquipDiscardCost(cost)) return [];
+  const hand = state?.zones?.[playerId]?.hand;
+  return Array.isArray(hand) ? hand.filter((c: any) => c && c.id) : [];
+}
+
+// B41: energy costs ("Pay eight {E}", "{E}{E}{E}") shared by alternative costs and graveyard keywords.
+const B41_ENERGY_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+export function parseEnergyCost(cost: unknown): number | null {
+  const s = String(cost || '').trim().replace(/[.]+$/, '');
+  let m = s.match(/^(?:pay\s+)?((?:\{E\})+)$/i);
+  if (m) return (m[1].match(/\{E\}/gi) || []).length;
+  m = s.match(/^pay\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+\{E\}$/i);
+  if (m) return /^\d+$/.test(m[1]) ? Number(m[1]) : B41_ENERGY_WORDS[m[1].toLowerCase()];
+  return null;
+}
+export function energyCostError(state: any, playerId: string, cost: unknown): string | null {
+  const n = parseEnergyCost(cost);
+  if (n === null) return null;
+  const have = Number(state?.energy?.[playerId] || 0);
+  return have >= n ? null : `You need ${n} energy (you have ${have}).`;
+}
+export function payEnergyCost(state: any, playerId: string, cost: unknown): boolean {
+  const n = parseEnergyCost(cost);
+  if (n === null || !state) return false;
+  const have = Number(state?.energy?.[playerId] || 0);
+  if (have < n) return false;
+  state.energy = state.energy || {};
+  state.energy[playerId] = have - n;
+  if (state.energyCount && typeof state.energyCount === 'object') state.energyCount[playerId] = state.energy[playerId];
+  return true;
+}

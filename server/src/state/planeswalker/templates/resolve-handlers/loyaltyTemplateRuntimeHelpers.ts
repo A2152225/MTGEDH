@@ -20,6 +20,7 @@ import { applyDamageToPermanentWithCounterEffects } from "../../../modules/count
 import { applyCreatureDamageFromSource } from "../../../modules/combat-damage-processing.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../../../modules/graveyardEntryUtils.js";
 import { getBattlefield, modifyLifeLikeStack } from "../utils.js";
+import { markPermanentDealtDamage } from "../../../modules/damageDealtFlag.js";
 
 export function discardHandCardsToGraveyard(
   ctx: GameContext,
@@ -257,6 +258,7 @@ export function recordCreatureDealtDamageToPlayerThisTurn(
   const sourceId = String(sourceCreature?.id || '');
   const dmg = Math.max(0, amount | 0);
   if (!sourceId || dmg <= 0) return;
+  markPermanentDealtDamage(ctx, sourceCreature);
   try {
     const stateAny = (ctx as any).state as any;
     const tl = String(sourceCreature?.card?.type_line || '').toLowerCase();
@@ -338,6 +340,7 @@ export function recordCreatureDamagedByCreatureThisTurn(
 ) {
   const dmg = Math.max(0, Number(amount ?? 1));
   if (!sourceCreatureId || !targetCreatureId || dmg <= 0) return;
+  markPermanentDealtDamage(ctx, sourceCreatureId);
   try {
     const stateAny = (ctx as any).state as any;
     stateAny.creaturesDamagedByThisCreatureThisTurn = stateAny.creaturesDamagedByThisCreatureThisTurn || {};

@@ -29,7 +29,9 @@ export function parseCopyEntryExceptions(sourceOracle: string): CopyEntryExcepti
   const out: CopyEntryExceptions = { addCardTypes: [], addSubtypes: [], notLegendary: false, abilities: [], extraCounters: [] };
   let rest = m[1];
   rest = rest.replace(/"([^"]+)"/g, (_all, q) => { out.abilities.push(String(q).trim()); return 'QUOTED'; });
+  let lastHas = false;
   for (const raw of rest.split(/,\s*(?:and\s+)?|\s+and\s+/)) {
+    const prevHas = lastHas; lastHas = false;
     const part = raw.trim().replace(/^(?:it|this creature)\s+/i, '').replace(/^(?:'s|is)\s+/i, "it's ").trim();
     let p: RegExpMatchArray | null;
     if ((p = part.match(/^it's (?:an? )?([A-Za-z]+(?: [A-Za-z]+)*?) in addition to its other (?:creature )?types$/i))) {
@@ -50,6 +52,10 @@ export function parseCopyEntryExceptions(sourceOracle: string): CopyEntryExcepti
       out.basePT = { power: Number(p[1]), toughness: Number(p[2]) };
     } else if ((p = part.match(/^(?:it )?(?:has|gains) ([a-z ,]+)$/i)) && !/QUOTED/.test(part)) {
       for (const kw of p[1].split(/\s*,\s*|\s+and\s+/)) if (kw.trim()) out.abilities.push(kw.trim()[0].toUpperCase() + kw.trim().slice(1));
+      lastHas = true;
+    } else if (prevHas && /^[a-z]+(?: \d+)?$/i.test(part)) {
+      // "it has haste and dethrone": the split drops the shared "has".
+      out.abilities.push(part[0].toUpperCase() + part.slice(1)); lastHas = true;
     }
   }
   const any = out.addCardTypes.length || out.addSubtypes.length || out.notLegendary || out.basePT || out.abilities.length || out.extraCounters.length

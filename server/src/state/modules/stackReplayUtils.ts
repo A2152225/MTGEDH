@@ -424,6 +424,7 @@ const STACK_GRAVEYARD_EXILE_ABILITIES = new Set([
   'escape',
   'disturb',
   'harmonize',
+  'beam-me-up',
 ]);
 
 function applyStackItemFlag(stackItem: any, key: string, value: unknown): void {

@@ -9,6 +9,7 @@
  * Wired through resolutionHandlerDeps. Must not import resolution.ts.
  */
 
+import { playerProtectedFromOpponentSacrifice } from '../../../../rules-engine/src/sacrificeCauseProtection.js';
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import { queueLifeLossTriggers } from "../../state/modules/triggers/life-loss.js";
@@ -59,6 +60,12 @@ export function handleUpkeepSacrificeResponse(
   let sacrificedPermanentId: string | undefined;
   
   const battlefield = game.state?.battlefield || [];
+  // B40 Tajuru Preserver: an opponent's edict / template can't make this player sacrifice.
+  const causeControllerId = String(stepData.sourceControllerId || stepData.sourceController || '');
+  if (causeControllerId && playerProtectedFromOpponentSacrifice(battlefield, String(pid), causeControllerId)) {
+    io.to(gameId).emit('chat', { id: `m_${Date.now()}`, gameId, from: 'system', message: `${sourceName}: ${getPlayerName(game, pid)} can't be made to sacrifice permanents.`, ts: Date.now() });
+    return;
+  }
   
   if (sacrificeType === 'creature' && creatureId) {
     // Validate the creature is in the valid options

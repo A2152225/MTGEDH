@@ -5,6 +5,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { getTurnScopedSpellTriggerSources } from "./turnScopedSpellTriggers.js";
 import { debug } from "../../../utils/debug.js";
 import { primeDerivedContinuousEffectsForScan } from "../staticEffectSpec.js";
 import { detectAttackTriggers } from "./attack-detection.js";
@@ -42,7 +43,8 @@ export function getAttackTriggersForCreatures(
   defendingPlayer: string
 ): CombatTriggeredAbility[] {
   const triggers: CombatTriggeredAbility[] = [];
-  const battlefield = ctx.state?.battlefield || [];
+  // Spell-created "whenever a creature attacks this turn" sources (Ondu Rising) watch too.
+  const battlefield = [...(ctx.state?.battlefield || []), ...getTurnScopedSpellTriggerSources(ctx.state)];
   const detectGameState = ctx.state
     ? {
         ...ctx.state,

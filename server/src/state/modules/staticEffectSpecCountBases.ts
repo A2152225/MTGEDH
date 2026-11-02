@@ -9,6 +9,7 @@
 
 import { landAwareTypeLine } from './effectiveLandTypeLine.js';
 import { readDerivedStaticEffectSpecs } from './staticEffectSpec.js';
+import { permanentMatchesScopeQualifier } from './staticEffectSpecScopeQualifier.js';
 
 const BASIC_LAND_TYPES = ['plains', 'island', 'swamp', 'mountain', 'forest'];
 
@@ -23,7 +24,7 @@ type SpecLike = {
   sourcePermanentId?: string;
   sourceController?: string;
   grant?: { countBasis?: string; countCardType?: string; countAttachmentKinds?: readonly string[]; countExcludeSource?: boolean;
-    countCounterType?: string; countWho?: string; countKeyword?: string };
+    countCounterType?: string; countWho?: string; countKeyword?: string; countQualifier?: any };
 };
 
 function playerCounterCount(state: any, players: any[], id: string, kind: string): number {
@@ -81,7 +82,7 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
       const wanted = String(grant.countCardType || '').toLowerCase();
       const skip = grant.countExcludeSource ? String(spec.sourcePermanentId || '') : '';
       return battlefield.filter((p) => String(p?.controller || '') === controller && (!wanted || new RegExp('\\b' + wanted + '\\b').test(typeLine(p)))
-        && !(skip && String(p?.id || '') === skip)).length;
+        && !(skip && String(p?.id || '') === skip) && (!grant.countQualifier || permanentMatchesScopeQualifier(p, grant.countQualifier))).length;
     }
     case 'attachments_on_source': {
       const hostId = String(spec.sourcePermanentId || '');
@@ -101,6 +102,14 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
     case 'controller_lands_of_subtype': {
       const re = new RegExp('\\b' + String(grant.countCardType || '').toLowerCase() + '\\b');
       return controlledLandTypeLines(controller, battlefield, state).filter((tl) => re.test(tl)).length;
+    }
+    case 'opponents_below_half_starting_life': {
+      const st: any = state; const start = Number(st?.startingLife ?? 40);
+      return (st?.players || []).filter((p: any) => {
+        const id = String(p?.id || ''); if (!id || id === controller || p?.hasLost) return false;
+        const life = Number(st?.life?.[id] ?? p?.life);
+        return Number.isFinite(life) && life < start / 2;
+      }).length;
     }
     case 'controller_life_total': {
       const life = Number((state as any)?.life?.[controller] ?? (state as any)?.players?.find?.((p: any) => String(p?.id) === controller)?.life);

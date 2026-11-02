@@ -38,6 +38,7 @@ export type DealCombatDamageResult = {
   creaturesDestroyed: string[];
   attackersThatDealtDamage?: Record<string, Set<string>>;
   attackersThatDealtCreatureDamage?: string[];
+  attackerDamageToCreatures?: Record<string, number>;
   attackerDamageToPlayers?: Record<string, Record<string, number>>;
 };
 
@@ -394,6 +395,8 @@ function dealCombatDamageAttackerLoopUnbatched(
               if (!result.attackersThatDealtCreatureDamage.includes(String(attacker.id))) {
                 result.attackersThatDealtCreatureDamage.push(String(attacker.id));
               }
+              result.attackerDamageToCreatures = result.attackerDamageToCreatures || {};
+              result.attackerDamageToCreatures[String(attacker.id)] = (result.attackerDamageToCreatures[String(attacker.id)] || 0) + damageResult.appliedAmount;
               blocker.combatDamageThisTurn = (blocker.combatDamageThisTurn || 0) + damageResult.appliedAmount;
               blocker.tookDamageThisTurn = true;
 

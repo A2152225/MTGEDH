@@ -38,6 +38,8 @@ import {
 } from "../util.js";
 import { buildPendingCastPaymentManaCost } from "./resolutionPendingCastPaymentPrompt.js";
 import { priorityResolutionHandlerState } from "./resolutionPriorityHandlerState.js";
+import { applyCancelledPlayerInitiatedXStep } from "./cancellablePlayerInitiatedXSteps.js";
+import { persistPlayerInitiatedStepCancel } from "./persistPlayerInitiatedStepCancel.js";
 import { sanitizeStepForClient } from "./sanitizeStepForClient.js";
 
 const DEFAULT_RESOLUTION_STEP_TIMEOUT_MS = Number(process.env.RESOLUTION_STEP_TIMEOUT_MS ?? 30_000);
@@ -157,7 +159,7 @@ const MANA_PAYMENT_CLIENT_FIELD_KEYS = [
   'discardedCardIdsForCost',
   'exiledCardIdsFromHandForCost',
   'exiledCardIdsFromGraveyardForCost',
-  'sacrificedPermanentIdsForCost',
+  'sacrificedPermanentIdsForCost', 'beamedUpPermanentIdsForCost',
   'title',
 ] as const;
 
@@ -343,6 +345,9 @@ export function applyCancelledResolutionStepSideEffects(
       selections: [],
     });
   }
+
+  applyCancelledPlayerInitiatedXStep(io, game, gameId, cancelledStep, playerId);
+  persistPlayerInitiatedStepCancel(game, gameId, cancelledStep, playerId, additionallyCancelledStepIds);
 
   restorePriorityAfterResolutionRecovery(game, gameId);
   broadcastGame(io, game, gameId);

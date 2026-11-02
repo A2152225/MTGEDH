@@ -35,6 +35,8 @@ import { runWithSimultaneousEntryBatch } from "../triggers/simultaneousEntryBatc
 import { queueControlsNoneStateTriggers } from "../triggerStateAndLevelEmitters.js";
 import { queueLifeThresholdStateTriggers } from "../triggers/lifeThresholdStateTriggers.js";
 import { pollIrEventWatchers } from "../triggers/irEventWatchers.js";
+import { queueBecomesUnattachedTriggers } from "../triggerBecomesUnattached.js";
+import { restoreAssimilatedCardsOutsideBattlefield } from "../../../../../rules-engine/src/trekAssimilateZoneReset.js";
 
 function updateGodCreatureStatus(ctx: GameContext): void {
   getCountersTokensHandlerDeps().updateGodCreatureStatus(ctx);
@@ -123,6 +125,8 @@ export function runSBA(ctx: GameContext) {
 
 function runSBAUnbatched(ctx: GameContext) {
   const { state, bumpSeq } = ctx;
+  // R32: CR 400.7 - assimilated cards that left the battlefield get their printed type line back.
+  restoreAssimilatedCardsOutsideBattlefield(state);
 
   // A legend-rule choice is itself part of performing state-based actions. Do not
   // enqueue duplicate prompts while the affected controllers are still choosing.
@@ -179,6 +183,7 @@ function runSBAUnbatched(ctx: GameContext) {
     if (queueControlsNoneStateTriggers(ctx).length > 0) bumpSeq();
     try { if (queueLifeThresholdStateTriggers(ctx).length > 0) bumpSeq(); } catch { /* best-effort */ }
     try { if (pollIrEventWatchers(ctx) > 0) bumpSeq(); } catch { /* best-effort */ }
+    try { if (queueBecomesUnattachedTriggers(ctx) > 0) bumpSeq(); } catch { /* best-effort */ }
   } catch {}
   
   // FIRST: Handle bestow/reconfigure creatures that need to unattach and restore stats

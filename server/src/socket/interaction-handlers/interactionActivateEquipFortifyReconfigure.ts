@@ -8,7 +8,8 @@
  * Public entry symbols: tryHandleActivateEquipFortifyReconfigure.
  */
 
-import { equipLifeCostError, equipSacrificeCandidates, parseEquipSacrificeCost } from "../../state/modules/equipNonManaCosts.js";
+import { energyCostError, equipLifeCostError, equipSacrificeCandidates, parseEnergyCost, parseEquipSacrificeCost, payEnergyCost } from "../../state/modules/equipNonManaCosts.js";
+import { parseAlternativeCostOptions } from "../../state/modules/alternativeCostOptions.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { parseEquipAbilitiesFromOracle, permanentMatchesEquipQualifier } from "../../../../shared/src/equipAbilities.js";
 import { appendEvent } from "../../db";
@@ -338,7 +339,8 @@ export async function tryHandleActivateEquipFortifyReconfigure(
 
   const hasExplicitReconfigureAttachAbilityId = /-reconfigure-attach-(\d+)$/i.test(abilityId);
   const hasExplicitReconfigureUnattachAbilityId = /-reconfigure-unattach-(\d+)$/i.test(abilityId);
-  const reconfigureMatch = oracleText.match(/reconfigure\s+(\{[^}]+\}(?:\{[^}]+\})*)/i);
+  // B41: also "Reconfigure\u2014Pay {2} or {E}{E}{E}" (Razorfield Ripper); the alternative-cost stage picks one.
+  const reconfigureMatch = oracleText.match(/reconfigure\s*(?:\u2014|\u2013|-)?\s*(?:pay\s+)?(\{[^}]+\}(?:\{[^}]+\})*(?:\s+or\s+\{[^}]+\}(?:\{[^}]+\})*)?)/i);
   const isReconfigureEquipment = typeLine.includes('equipment') && /\breconfigure\b/i.test(oracleText);
 
   if (hasExplicitReconfigureAttachAbilityId && isReconfigureEquipment && reconfigureMatch) {
@@ -458,7 +460,16 @@ export async function tryHandleActivateEquipFortifyReconfigure(
     }
 
     const pool = getOrInitManaPool(game.state, pid);
-    const paid = validateAndConsumeManaCostFromPool(pool as any, reconfigureCost, { logPrefix: '[activateBattlefieldAbility:reconfigure-unattach]' });
+    let paid: any = { ok: false, error: `Cannot pay ${reconfigureCost}.` };
+    for (const opt of (parseAlternativeCostOptions(reconfigureCost) || [reconfigureCost])) { // B41: first payable option
+      if (parseEnergyCost(opt) !== null) {
+        if (payEnergyCost(game.state, String(pid), opt)) { paid = { ok: true }; break; }
+        paid = { ok: false, error: energyCostError(game.state, String(pid), opt) };
+        continue;
+      }
+      paid = validateAndConsumeManaCostFromPool(pool as any, opt, { logPrefix: '[activateBattlefieldAbility:reconfigure-unattach]' });
+      if (paid.ok) break;
+    }
     if (!paid.ok) {
       socket.emit('error', {
         code: 'INSUFFICIENT_MANA',

@@ -11,6 +11,7 @@
 //   canPermanentAttack, canBlockAttacker.
 // These stay module-private to combat.ts (imported there, not re-exported).
 
+import { globalFlyingBlockOnlyFlyingReason } from "./combatBatch36Restrictions.js"; // B36
 import { moreCreaturesBlockRestrictionReason } from "./combatBatch33AttackRestrictions.js"; // B33
 import { artifactOrColorBlockOnlyReason } from "./combatBatch31BlockRestrictions.js"; // B31
 import {
@@ -581,6 +582,8 @@ export function canBlockAttacker(
   if (b31ExceptReason) return { canBlock: false, reason: b31ExceptReason };
   const b33BlockCount = moreCreaturesBlockRestrictionReason(blocker, attacker, battlefield); // B33
   if (b33BlockCount) return { canBlock: false, reason: b33BlockCount };
+  const b36FlyOnly = globalFlyingBlockOnlyFlyingReason(blocker, attacker, battlefield); // B36
+  if (b36FlyOnly) return { canBlock: false, reason: b36FlyOnly };
 
   const landwalkReason = getLandwalkUnblockableReason(attacker, blockerControllerId, battlefield);
   if (landwalkReason) {

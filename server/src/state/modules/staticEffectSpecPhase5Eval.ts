@@ -9,12 +9,14 @@ import { opponentControlsMatching } from './staticEffectSpecOpponentControlsCond
 import { evalZoneCountCondition } from './staticEffectSpecZoneCountConditions.js';
 import { evalPhase5StateCondition } from './staticEffectSpecPhase5StateEval.js';
 import { evalExtraStaticCondition } from './staticEffectSpecExtraConditions.js';
+import { isStationPermanentCreatureNow } from '../../../../rules-engine/src/stationPermanentUtils.js';
 import { controlsOwnCommander } from './staticEffectSpecCommanderCondition.js';
 import { evalEntryLifeCondition } from './staticEffectSpecEntryLifeConditions.js';
+import { evalOpponentStateCondition } from './staticEffectSpecOpponentStateConditions.js';
 import { evalResourceDesignationCondition } from './staticEffectSpec-handlers/staticEffectSpecResourceDesignationConditions.js';
 
 type SpecLike = { sourcePermanentId?: string; effectSourcePermanentId?: string; sourceController?: string; grant?: { countBasis?: string; countCounterType?: string; countOnEffectSource?: boolean } };
-type CondLike = { kind?: string; color?: string; cardType?: string; option?: string; counterType?: string; amount?: number };
+type CondLike = { kind?: string; color?: string; cardType?: string; option?: string; counterType?: string; amount?: number; exact?: boolean };
 
 function findSource(spec: SpecLike, battlefield: readonly BattlefieldPermanent[] | undefined): any {
   const id = String(spec.sourcePermanentId || '').trim();
@@ -24,6 +26,7 @@ function findSource(spec: SpecLike, battlefield: readonly BattlefieldPermanent[]
 function counterCount(source: any, counterType: string): number {
   const wanted = String(counterType || '').trim().toLowerCase();
   const counters = (source?.counters || {}) as Record<string, unknown>;
+  if (!wanted || wanted === 'any') return Object.values(counters).reduce<number>((sum, v) => sum + Math.max(0, Number(v) || 0), 0);
   for (const [key, value] of Object.entries(counters)) {
     if (key.toLowerCase().replace(/_/g, ' ') === wanted) return Math.max(0, Number(value) || 0);
   }
@@ -55,6 +58,9 @@ export function evalPhase5StaticCondition(
       const cardType = String(condition.cardType || '').trim().toLowerCase().replace(/[^a-z]/g, '');
       if (!cardType) return false;
       const typeLine = String((permanent.card as any)?.type_line || (permanent as any).type_line || '').toLowerCase();
+      if (cardType === 'creature' && /\b(?:spacecraft|planet)\b/.test(typeLine) && !/\bcreature\b/.test(typeLine)) {
+        return !isStationPermanentCreatureNow(permanent as any, String((permanent.card as any)?.oracle_text || ''));
+      }
       return !new RegExp(`\\b${cardType}\\b`).test(typeLine);
     }
     case 'opponent_controls_matching':
@@ -66,12 +72,20 @@ export function evalPhase5StaticCondition(
       return controlsOwnCommander(String(spec.sourceController || ''), battlefield || [], state);
     case 'source_chose_option':
       return sourceChoseOption(findSource(spec, battlefield), String(condition.option || ''));
+    case 'source_attachment_count': {
+      const hostId = String(spec.sourcePermanentId || '');
+      const sub = String(condition.cardType || 'aura').toLowerCase();
+      const n = (battlefield || []).filter((p: any) => hostId && String(p?.attachedTo || '') === hostId
+        && new RegExp('\\b' + sub + '\\b').test(String(p?.card?.type_line || p?.type_line || '').toLowerCase())).length;
+      return condition.exact ? n === Number(condition.amount || 0) : n >= Number(condition.amount || 0);
+    }
     case 'source_counter_at_least':
       return counterCount(findSource(spec, battlefield), String(condition.counterType || '')) >= Number(condition.amount || 0);
     default:
       return evalExtraStaticCondition(condition, permanent, battlefield || [], state)
         ?? evalPhase5StateCondition(condition as any, permanent, findSource(spec, battlefield), String(spec.sourceController || ''), battlefield || [], state as any)
         ?? evalResourceDesignationCondition(condition, String(spec.sourceController || ''), state)
+        ?? evalOpponentStateCondition(condition, String(spec.sourceController || ''), battlefield || [], state)
         ?? evalZoneCountCondition(condition, String(spec.sourceController || ''), battlefield || [], state);
   }
 }

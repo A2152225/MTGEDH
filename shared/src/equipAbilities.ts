@@ -251,6 +251,16 @@ export function permanentMatchesEquipQualifier(permanent: any, qualifier: EquipQ
 const EQUIP_LIFE_RE = /\bequip\b(?!\s+abilit)(?:\s+([^\n{.:\u2014\u2013]+?))?\s*[\u2014\u2013]\s*pay (\d+) life\b/gi;
 
 const EQUIP_SAC_RE = /\bequip\b(?!\s+abilit)(?:\s+([^\n{.:\u2014\u2013]+?))?\s*[\u2014\u2013]\s*sacrifice an? (creature|artifact|enchantment|land)\b/gi;
+// B37: "Equip\u2014Discard a card." parses as cost "Discard a card" (server/src/socket/resolution-handlers/targetSelectionEquipDiscardCost.ts).
+const EQUIP_DISCARD_RE = /\bequip\b(?!\s+abilit)(?:\s+([^\n{.:\u2014\u2013]+?))?\s*[\u2014\u2013]\s*discard a card\b/gi;
+
+// B39: "Equip\u2014Pay {3} or discard a card." (Bloodthorn Flail): generic two-option alternative equip cost.
+const EQUIP_ALT_PIECE = String.raw`(?:pay\s+)?(?:\{[^}]+\})+|pay \d+ life|sacrifice an? (?:creature|artifact|enchantment|land)|discard an? card`;
+const EQUIP_ALT_RE = new RegExp(String.raw`\bequip\b(?!\s+abilit)(?:\s+([^\n{.:\u2014\u2013]+?))?\s*[\u2014\u2013]\s*(${EQUIP_ALT_PIECE})\s+or\s+(${EQUIP_ALT_PIECE})(?=[.\n(]|$)`, 'gi');
+function equipAltPiece(raw: string): string {
+  const s = raw.trim().replace(/^pay\s+(?=\{)/i, '');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 
 export function parseEquipAbilitiesFromOracle(oracleText: string): ParsedEquipAbility[] {
   const text = String(oracleText || '');
@@ -269,6 +279,22 @@ export function parseEquipAbilitiesFromOracle(oracleText: string): ParsedEquipAb
     const qualifier = parseEquipQualifier(rawQualifier);
     const cost = `Sacrifice ${/^[aeiou]/i.test(match[2]) ? 'an' : 'a'} ${match[2].toLowerCase()}`;
     merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), __pos: match.index });
+  }
+  EQUIP_DISCARD_RE.lastIndex = 0;
+  while ((match = EQUIP_DISCARD_RE.exec(text)) !== null) {
+    const rawQualifier = normalizeSpaces(match[1] || '') || null;
+    const qualifier = parseEquipQualifier(rawQualifier);
+    const cost = 'Discard a card';
+    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), __pos: match.index });
+  }
+  EQUIP_ALT_RE.lastIndex = 0;
+  while ((match = EQUIP_ALT_RE.exec(text)) !== null) {
+    const rawQualifier = normalizeSpaces(match[1] || '') || null;
+    const qualifier = parseEquipQualifier(rawQualifier);
+    const cost = `${equipAltPiece(match[2])} or ${equipAltPiece(match[3])}`;
+    const pos = match.index;
+    for (let i = merged.length - 1; i >= 0; i--) if (merged[i].__pos === pos) merged.splice(i, 1);
+    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), __pos: pos });
   }
   merged.sort((x, y) => Number(x.__pos ?? 0) - Number(y.__pos ?? 0));
   return merged.map(({ __pos, ...rest }, index) => ({ ...rest, index }));

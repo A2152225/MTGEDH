@@ -322,6 +322,7 @@ export function payBattlefieldAbilityManaCostOrQueue(params: {
     isManaAbility,
     manaCostString: params.manaCost,
     sourceName: params.cardName,
+    abilityText: params.activatedAbilityText,
   });
   const effectiveManaCost = costAdjustment.adjustedManaCost || params.manaCost;
   const parsedCost = parseManaCost(effectiveManaCost);

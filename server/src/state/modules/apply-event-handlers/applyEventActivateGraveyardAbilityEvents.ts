@@ -21,6 +21,7 @@ import { buildDisturbCastCard, consumeRecordedManaCostFromPool } from "../applyE
 import { persistNamedSpellCastThisGame } from "../namedSpellsCastThisGame.js";
 import { debugWarn } from "../../../utils/debug.js";
 import { ResolutionQueueManager } from "../../resolution/index.js";
+import { applyRecordedBeamUpReturnCost, applyRecordedGraveyardKeywordNonManaCost } from "./applyEventGraveyardCastCostReplay.js"; // B42
 
 export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -104,7 +105,7 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
             break;
           }
 
-          if (cardId && pid && ['flashback', 'jump-start', 'retrace', 'escape', 'graveyard-cast'].includes(String(abilityType))) {
+          if (cardId && pid && ['flashback', 'jump-start', 'retrace', 'escape', 'graveyard-cast', 'beam-me-up'].includes(String(abilityType))) {
             const zones = ctx.state.zones || {};
             const z = zones[pid];
             if (z && Array.isArray(z.graveyard)) {
@@ -201,6 +202,8 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
                 }
 
                 applyRecordedLifePayment(ctx, String(pid), (e as any).lifePaidForCost);
+                applyRecordedGraveyardKeywordNonManaCost(ctx, String(pid), (e as any).nonManaCost); // B42
+                applyRecordedBeamUpReturnCost(ctx, (e as any).beamedUpPermanentIdsForCost); // B42
 
                 const stackId = String((e as any).stackId || '').trim() || generateDeterministicId(ctx, 'stack', String(cardId));
                 const recordedTargets = Array.isArray((e as any).targets)
@@ -291,6 +294,8 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
                   consumeRecordedManaCostFromPool(manaPool, manaCost);
                 }
                 applyRecordedLifePayment(ctx, String(pid), (e as any).lifePaidForCost);
+                applyRecordedGraveyardKeywordNonManaCost(ctx, String(pid), (e as any).nonManaCost); // B42
+                applyRecordedBeamUpReturnCost(ctx, (e as any).beamedUpPermanentIdsForCost); // B42
 
                 const createdPermanentIds = Array.isArray((e as any).createdPermanentIds)
                   ? ((e as any).createdPermanentIds as any[]).map((value: any) => String(value || '').trim()).filter(Boolean)
@@ -355,6 +360,8 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
                   consumeRecordedManaCostFromPool(manaPool, manaCost);
                 }
                 applyRecordedLifePayment(ctx, String(pid), (e as any).lifePaidForCost);
+                applyRecordedGraveyardKeywordNonManaCost(ctx, String(pid), (e as any).nonManaCost); // B42
+                applyRecordedBeamUpReturnCost(ctx, (e as any).beamedUpPermanentIdsForCost); // B42
 
                 z.exile = z.exile || [];
                 (z.exile as any[]).push({ ...card, zone: 'exile' });
@@ -389,6 +396,8 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
                   consumeRecordedManaCostFromPool(manaPool, manaCost);
                 }
                 applyRecordedLifePayment(ctx, String(pid), (e as any).lifePaidForCost);
+                applyRecordedGraveyardKeywordNonManaCost(ctx, String(pid), (e as any).nonManaCost); // B42
+                applyRecordedBeamUpReturnCost(ctx, (e as any).beamedUpPermanentIdsForCost); // B42
 
                 const stateAny = ctx.state as any;
                 stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
@@ -448,6 +457,8 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
                   consumeRecordedManaCostFromPool(manaPool, manaCost);
                 }
                 applyRecordedLifePayment(ctx, String(pid), (e as any).lifePaidForCost);
+                applyRecordedGraveyardKeywordNonManaCost(ctx, String(pid), (e as any).nonManaCost); // B42
+                applyRecordedBeamUpReturnCost(ctx, (e as any).beamedUpPermanentIdsForCost); // B42
 
                 z.exile = z.exile || [];
                 (z.exile as any[]).push({ ...card, zone: 'exile' });
@@ -539,6 +550,8 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
                   consumeRecordedManaCostFromPool(manaPool, manaCost);
                 }
                 applyRecordedLifePayment(ctx, String(pid), (e as any).lifePaidForCost);
+                applyRecordedGraveyardKeywordNonManaCost(ctx, String(pid), (e as any).nonManaCost); // B42
+                applyRecordedBeamUpReturnCost(ctx, (e as any).beamedUpPermanentIdsForCost); // B42
 
                 z.exile = z.exile || [];
                 (z.exile as any[]).push({ ...card, zone: 'exile' });
@@ -574,6 +587,8 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
                   consumeRecordedManaCostFromPool(manaPool, manaCost);
                 }
                 applyRecordedLifePayment(ctx, String(pid), (e as any).lifePaidForCost);
+                applyRecordedGraveyardKeywordNonManaCost(ctx, String(pid), (e as any).nonManaCost); // B42
+                applyRecordedBeamUpReturnCost(ctx, (e as any).beamedUpPermanentIdsForCost); // B42
 
                   if (exileSourceOnActivate) {
                     const cardIndex = graveyard.findIndex((entry: any) => entry && String(entry.id) === String(cardId));
@@ -652,6 +667,8 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
                     consumeRecordedManaCostFromPool(manaPool, manaCost);
                   }
                   applyRecordedLifePayment(ctx, String(pid), (e as any).lifePaidForCost);
+                applyRecordedGraveyardKeywordNonManaCost(ctx, String(pid), (e as any).nonManaCost); // B42
+                applyRecordedBeamUpReturnCost(ctx, (e as any).beamedUpPermanentIdsForCost); // B42
 
                   if (tappedCreatureIds.length > 0) {
                     const battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];

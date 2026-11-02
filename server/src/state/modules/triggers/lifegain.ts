@@ -16,6 +16,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { getTurnScopedSpellTriggerSources } from './turnScopedSpellTriggers.js';
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import { appendEvent } from "../../../db/index.js";
 import { debugWarn } from "../../../utils/debug.js";
@@ -446,7 +447,8 @@ export function detectLifegainTriggers(
     }
   }
 
-  for (const perm of battlefield) {
+  // Spell-created "until end of turn, whenever a player gains life" sources (False Cure) use the parsed path.
+  for (const perm of [...battlefield, ...getTurnScopedSpellTriggerSources(state)]) {
     if (!perm?.card) continue;
     for (const line of collectMatchingParsedEventLines({
       ctx,

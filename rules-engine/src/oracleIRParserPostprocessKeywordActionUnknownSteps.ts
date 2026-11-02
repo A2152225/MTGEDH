@@ -22,6 +22,7 @@ import {
 import { tryParseZoneAndRemovalClause } from './oracleIRParserZoneAndRemovalActions';
 import { parseKeywordActionAbility } from './oracleTextParserKeywordActionAbilities';
 import { stripLeadingCastKeywordPrefix } from './oracleIRParserLeadingCastKeywordPrefix';
+import { lowerAssimilateKeywordAction } from './oracleIRParserAssimilateLowering';
 
 export function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { kind: 'unknown' }>): OracleEffectStep | null {
   const normalized = stripLeadingCastKeywordPrefix(
@@ -412,6 +413,9 @@ export function parseKeywordActionUnknownStep(step: Extract<OracleEffectStep, { 
       raw: normalized,
     };
   }
+
+  const assimilated = /^assimilate\b/i.test(normalized) ? lowerAssimilateKeywordAction(normalized, step.sequence as any) : null;
+  if (assimilated) return assimilated;
 
   const suspectMatch = normalized.match(/^suspect\s+(.+)$/i);
   if (suspectMatch) {

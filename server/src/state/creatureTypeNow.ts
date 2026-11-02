@@ -7,6 +7,9 @@ function normalizeCreatureType(type: string): string {
     .toLowerCase();
 }
 
+// R24: card types / supertypes that can ride along in continuousTypeAdditions but are not creature subtypes.
+const NON_SUBTYPE_TYPE_WORDS = new Set(['creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'legendary', 'snow', 'battle']);
+
 function normalizeCreatureTypeList(types: unknown): string[] {
   if (!Array.isArray(types)) return [];
   return types
@@ -129,6 +132,9 @@ export function isCreatureNow(permanent: any): boolean {
   if (Array.isArray(permanent?.grantedTypes)) {
     if (permanent.grantedTypes.includes('Creature')) return true;
   }
+  // R24: declarative static type additions (War Balloon: "it's an artifact creature").
+  if (Array.isArray(permanent?.continuousTypeAdditions)
+    && permanent.continuousTypeAdditions.some((t: unknown) => String(t).toLowerCase() === 'creature')) return true;
 
   return effectiveTypeLine.includes('creature');
 }
@@ -158,7 +164,7 @@ export function getCreatureTypesNow(permanent: any): Set<string> {
 
   // Some effects track creature types separately.
   for (const t of normalizeCreatureTypeList(permanent?.typeAdditions)) out.add(t);
-  for (const t of normalizeCreatureTypeList(permanent?.continuousTypeAdditions)) out.add(t);
+  for (const t of normalizeCreatureTypeList(permanent?.continuousTypeAdditions)) if (!NON_SUBTYPE_TYPE_WORDS.has(t)) out.add(t);
   for (const t of normalizeCreatureTypeList(permanent?.grantedCreatureTypes)) out.add(t);
 
   // Legacy tracking (stack.addCreatureType)

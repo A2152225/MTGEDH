@@ -775,7 +775,19 @@ function isGrantedKeywordAbilityMatch(
   return /\b(?:have|has|gains?|gained)\s+$/i.test(before);
 }
 
+const strippedKeywordTextCache = new Map<string, string>();
+
 function stripKeywordReminderText(oracleText: string): string {
+  const key = String(oracleText || '');
+  const cached = strippedKeywordTextCache.get(key);
+  if (cached !== undefined) return cached;
+  if (strippedKeywordTextCache.size > 4000) strippedKeywordTextCache.clear();
+  const stripped = stripKeywordReminderTextUncached(key);
+  strippedKeywordTextCache.set(key, stripped);
+  return stripped;
+}
+
+function stripKeywordReminderTextUncached(oracleText: string): string {
   // Shared create-token strip removes type parentheticals and inline `with` /
   // `that is|are|has|have` ability tails so token keywords are not attributed
   // to the creator. Then strip remaining parenthetical reminder text.
@@ -800,7 +812,9 @@ export function battlefieldGrantsRiotToPermanent(permanent: any, battlefield: re
     if (enteringId && String(perm.id || '').trim() === enteringId) continue;
     if (controller && String(perm.controller || '').trim() !== controller) continue;
 
-    const oracle = stripKeywordReminderText(String(perm?.card?.oracle_text || perm?.oracle_text || ''));
+    const rawOracle = String(perm?.card?.oracle_text || perm?.oracle_text || '');
+    if (!/riot/i.test(rawOracle)) continue;
+    const oracle = stripKeywordReminderText(rawOracle);
     if (/nontoken creatures you control have riot/i.test(oracle)) {
       if (!isToken) return true;
       continue;

@@ -3,6 +3,7 @@
 // Cluster moved: executeDeclareAttackers (AI / paid-attack / resolution-queue path).
 // Public entry symbols: executeDeclareAttackers.
 
+import { recordPermanentAttackedPlayer } from "./combatBatch37Restrictions.js"; // B37
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
@@ -284,6 +285,7 @@ export async function executeDeclareAttackers(
         const stateAny = game.state as any;
         const list: string[] = stateAny.attackedPlayersThisTurnByPlayer?.[String(playerId)];
         if (Array.isArray(list) && !list.includes(targetPid)) list.push(targetPid);
+        recordPermanentAttackedPlayer(stateAny, String(attacker.creatureId), targetPid); // b37RecordAttack
       }
     } catch {
       // best-effort only

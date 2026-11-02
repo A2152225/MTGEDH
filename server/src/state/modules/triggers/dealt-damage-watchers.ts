@@ -7,6 +7,8 @@
  * "whenever an opponent / you is dealt damage" from resolvePlayerDamage.
  */
 import type { GameContext } from '../../context.js';
+import { getTurnScopedSpellTriggerSources } from "./turnScopedSpellTriggers.js";
+import { takeRecordedDamageSources } from '../damageEventSources.js';
 import { detectDealtDamageTriggers } from './dealt-damage-detection.js';
 import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggerConditionFamilyMatch.js';
 import { mergeDetectorOracleWithContinuousGrants } from './detectorGrantedOracle.js';
@@ -456,7 +458,8 @@ export function processPermanentDealtDamageWatchers(
   const state = (ctx as any).state;
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const queued: any[] = [];
-  const candidates = [...battlefield];
+  // Spell-created "until end of turn, whenever a creature is dealt damage" sources (Shriveling Rot).
+  const candidates = [...battlefield, ...getTurnScopedSpellTriggerSources(state)];
   const seen = new Set<string>();
 
   const hits: Array<{ watcher: any; trigger: any }> = [];
@@ -646,7 +649,18 @@ export function processDelayedDealtDamageWatchers(
   );
   if (watched.length === 0) return [];
 
-  const delayedCheck = checkDelayedTriggers(registry, {
+  // "dealt damage by an attacking creature" (Glyph of Life): check the recorded damage sources
+  // (damageEventSources seam); fall back to "the damaged creature is blocking" when none were recorded.
+  const recorded = takeRecordedDamageSources(state, permanentId);
+  const blockingNow = Array.isArray(damagedPermanent.blocking) ? damagedPermanent.blocking.length > 0 : Boolean(damagedPermanent.blocking);
+  const attackingSourceDealt = recorded ? recorded.some((entry) => entry.sourceIsCreature && entry.sourceWasAttacking) : blockingNow;
+  const filteredOut = watched.filter((trigger: any) => (
+    trigger?.effectData?.damageSourceFilter === 'attacking_creature' && !attackingSourceDealt
+  ));
+  const filteredIds = new Set(filteredOut.map((trigger: any) => trigger.id));
+  if (filteredOut.length === watched.length) return [];
+
+  const delayedCheck = checkDelayedTriggers({ ...registry, triggers: registry.triggers.filter((trigger: any) => !filteredIds.has(trigger.id)) }, {
     type: 'dealt_damage',
     permanentId,
     playerId: String(damagedPermanent.controller || '') || undefined,
@@ -654,7 +668,7 @@ export function processDelayedDealtDamageWatchers(
 
   state.delayedTriggerRegistry = {
     ...registry,
-    triggers: delayedCheck.remainingTriggers,
+    triggers: [...delayedCheck.remainingTriggers, ...filteredOut],
     firedTriggerIds: [
       ...registry.firedTriggerIds,
       ...delayedCheck.triggersToFire.map((trigger) => trigger.id),

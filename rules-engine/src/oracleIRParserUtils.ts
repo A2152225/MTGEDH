@@ -434,6 +434,8 @@ export function normalizeClauseForParse(clause: string): {
   // like "III -", but corpus text can arrive with mojibake punctuation as well.
   // Strip the whole marker so downstream clause parsers see the action text.
   working = working.replace(/^(?:[ivxlcdm]+)\s*(?:[-?]|[^\w\s])+\s*/i, '');
+  // Trek ability words (Strange new worlds / Federation) carry no rules meaning (CR 207.2c).
+  working = working.replace(/^(?:strange\s+new\s+worlds|federation)\s*(?:-|\u2014|\u2013)\s*/i, '');
 
   // Cost/typal keywords whose reminder period sits inside parentheses glue onto the
   // next instruction once reminders are stripped ("Delve Target player…").
@@ -444,6 +446,8 @@ export function normalizeClauseForParse(clause: string): {
   if (/^you\s+may\b/i.test(working)) {
     optional = true;
     working = working.replace(/^you\s+may\b\s*/i, '');
+    // "You may choose to have it deal damage ..." (Gaze of Pain): the damage source is the object, not "choose to have it".
+    working = working.replace(/^choose\s+to\s+have\s+(?=\S[^.]*?\bdeals?\s+damage\b)/i, '');
   }
 
   // Broken parenthetical shards only: "... This mana lasts until end of combat.) Flashback".

@@ -17,11 +17,39 @@ import { appendEtbDetectionMid } from "./etb-detection-mid.js";
 import { appendEtbDetectionLate } from "./etb-detection-late.js";
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
+// Parsing is pure in (card, effective oracle, face, escapedFrom); entry scans re-run it for every
+// permanent on each entry, so memoize per card object and hand out fresh copies.
+const etbParseCache = new WeakMap<object, Map<string, { id: string; triggers: TriggeredAbility[] }>>();
+
 /**
  * Detect ETB triggers from a card
  */
 export function detectETBTriggers(card: any, permanent?: any, gameState?: any): TriggeredAbility[] {
   if (!permanentHasTriggeredAbilities(permanent, gameState)) return []; // Humility / Torpor Orb gate
+  if (!card || typeof card !== 'object') return detectETBTriggersUncached(card, permanent, gameState);
+  const { grantedAbilities } = mergeDetectorOracleWithContinuousGrants('', permanent, gameState);
+  const key = [card.name, card.oracle_text, card.layout, Array.isArray(card.card_faces) ? card.card_faces.map((f: any) => `${f?.name}|${f?.oracle_text}`).join('#') : '',
+    Array.isArray(card.keywords) ? card.keywords.join(',') : '', grantedAbilities.join('\u0002'), permanent?.transformed ? 1 : 0, permanent?.escapedFrom ? 1 : 0].join('\u0001');
+  let perCard = etbParseCache.get(card);
+  if (!perCard) { perCard = new Map(); etbParseCache.set(card, perCard); }
+  let hit = perCard.get(key);
+  if (!hit) {
+    hit = { id: String(permanent?.id || ''), triggers: detectETBTriggersUncached(card, permanent, gameState) };
+    if (perCard.size > 16) perCard.clear();
+    perCard.set(key, hit);
+  }
+  try {
+    return hit.triggers.map((t: any) => {
+    const copy = structuredClone(t);
+    if (copy.permanentId === hit!.id) copy.permanentId = permanent?.id || '';
+    return copy;
+    });
+  } catch {
+    return detectETBTriggersUncached(card, permanent, gameState);
+  }
+}
+
+function detectETBTriggersUncached(card: any, permanent?: any, gameState?: any): TriggeredAbility[] {
   const triggers: TriggeredAbility[] = [];
   const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
   const isTransformCard = (card?.layout === 'transform' || card?.layout === 'double_faced_token') && cardFaces.length >= 2;

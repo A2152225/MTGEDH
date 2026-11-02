@@ -26,6 +26,8 @@ import { tryHandleSkipDrawReplacementChoice } from "../resolutionOptionChoiceSki
 import { tryHandleAmplifyRevealChoice, tryHandleOptionalDrawStepSkipChoice } from "../resolutionOptionChoiceBatch24Handlers.js";
 import { tryHandleOpponentLibraryDrawReplacementChoice } from "../resolutionOptionChoiceOpponentLibraryDrawReplacementHandlers.js";
 import { tryHandleExtraVoteOfferChoice } from "../resolutionOptionChoiceExtraVoteHandlers.js"; // B29
+import { tryHandleEquipAlternativeCostChoice } from "./optionChoiceEquipAlternativeCost.js"; // B39
+import { tryHandleRevealUntilKindDrawChoice } from "../resolutionOptionChoiceRevealUntilKindDrawHandlers.js"; // B42
 
 /** OPTION_CHOICE: dispatch the chosen prompt flag to the specialized handler. */
 /**
@@ -62,6 +64,14 @@ export async function handleOptionChoiceResponse(
   }
 
   if (await tryHandleExtraVoteOfferChoice(io, game, gameId, step, response)) {
+    return;
+  }
+
+  if (await tryHandleRevealUntilKindDrawChoice(io, game, gameId, step, response)) { // B42
+    return;
+  }
+
+  if (await tryHandleEquipAlternativeCostChoice(io, game, gameId, step, response)) { // B39
     return;
   }
 

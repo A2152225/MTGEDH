@@ -23,6 +23,8 @@ const INTERACTION_EVENT_SOURCE_PATHS = [
 ];
 
 const REPLAY_GUARDED_EVENT_TYPES = new Set([
+  'equipDiscardCostPaid',
+  'equipSacrificeCostPaid',
   'activateBattlefieldAbility',
   'activateCycling',
   'activateDoublingCube',
@@ -43,6 +45,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'castRevealedFromLibraryResolve',
   'cascadeResolve',
   'castSpellContinuation',
+  'playerInitiatedStepCancel',
   'changePermanentControl',
   'chooseDiscardPlanChoiceResolve',
   'chooseLookedAtCardsDestinationResolve',

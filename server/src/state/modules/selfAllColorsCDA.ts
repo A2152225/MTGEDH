@@ -12,5 +12,5 @@ export function hasSelfAllColorsCDA(card: any): boolean {
   const name = String(card.name || '').split(' // ')[0].trim();
   const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const subject = `(?:this (?:creature|card|spell|permanent|artifact|enchantment)|~${esc ? `|${esc}` : ''})`;
-  return new RegExp(`(?:^|\\n)\\s*${subject} is all colors\\.?\\s*(?:$|\\n)`, 'i').test(text);
+  return new RegExp(`(?:^|\\n)\\s*${subject} is all colors\\.?(?:\\s*this ability doesn['\u2019]t affect its color identity\\.?)?\\s*(?:$|\\n)`, 'i').test(text);
 }

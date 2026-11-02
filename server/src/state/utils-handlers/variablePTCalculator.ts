@@ -8,6 +8,8 @@ import { calculatePowerOnlyCDA } from "./variablePowerOnlyCalculator.js";
 import { calculateGreatestManaValuePowerCDA } from "./variablePowerGreatestManaValue.js";
 import { calculateGreatestPowerAmongCDA } from "./variablePowerGreatestPower.js";
 import { calculateColorPermanentCountPT } from "./variableColorPermanentCount.js";
+import { getLifePaidOnEntryPT } from "../modules/asEntersPayAnyLife.js";
+import { calculateGenericCountCDA } from "./variablePTGenericCountCDA.js";
 import { landAwareTypeLine } from '../modules/effectiveLandTypeLine.js';
 import { calculateControlledCountCDA, calculateDevotionCDA, calculateGraveyardCardTypesCDA } from "./variablePTControlledCountCDA.js";
 
@@ -357,6 +359,9 @@ export function calculateVariablePT(
   // "each equal to the number of [COLOR] permanents/creatures you control"
   const colorCount = calculateColorPermanentCountPT(oracleText, battlefield, controllerId);
   if (colorCount) return colorCount;
+  // R29: generic "[N plus] [twice] the number of X" CDA grammar (Tidewalker, Plague Rats, Regal Bunnicorn, ...).
+  const genericCount = calculateGenericCountCDA(card, oracleText, battlefield, gameState, String(controllerId ?? ''));
+  if (genericCount) return genericCount;
   
   // "power and toughness are each equal to" patterns
   if (oracleText.includes('power and toughness are each equal to')) {
@@ -389,6 +394,21 @@ export function calculateVariablePT(
       return { power: creatures.length, toughness: creatures.length };
     }
     
+    // R29: "each equal to the life paid as it entered" (Minion of the Wastes, Nameless Race)
+    if (oracleText.includes('life paid as it entered')) {
+      const perm = battlefield.find((p: any) => p?.card === card || (card?.id && p?.card?.id === card.id) || (card?.id && p?.id === card.id));
+      const pt = getLifePaidOnEntryPT(perm);
+      if (pt) return pt;
+    }
+
+    // R28: "total number of cards in all players' hands" (Multani, Maro-Sorcerer; Werewolf of Ancient Hunger)
+    if (/cards in all players' hands/.test(oracleText.replace(/\u2019/g, "'"))) {
+      const ids = Array.isArray(gameState?.players) && gameState.players.length > 0 ? gameState.players.map((p: any) => p?.id) : Object.keys(zones);
+      let total = 0;
+      for (const id of ids) { const z = zones[id]; total += Number(z?.handCount ?? z?.hand?.length ?? 0) || 0; }
+      return { power: total, toughness: total };
+    }
+
     // "cards in your hand"
     if (oracleText.includes('cards in your hand')) {
       const playerZones = zones[controllerId];

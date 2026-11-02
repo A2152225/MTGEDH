@@ -151,6 +151,10 @@ export function trackCreatureDamageToPlayer(
   damageAmount: number
 ): void {
   if (damageAmount <= 0) return;
+  // R22: persistent per-object flag for "if it hasn't dealt damage yet" (Karakyk Guardian). A new object
+  // after a zone change has no flag (CR 400.7).
+  const dealer = ((ctx as any).state?.battlefield || []).find((p: any) => String(p?.id || '') === String(creaturePermanentId));
+  if (dealer) dealer.hasDealtDamage = true;
   
   // Initialize tracking structure if needed
   // Structure: creaturesThatDealtDamageToPlayer[playerId] = Set of creature permanent IDs

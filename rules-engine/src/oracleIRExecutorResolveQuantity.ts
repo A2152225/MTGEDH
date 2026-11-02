@@ -240,6 +240,18 @@ export function resolveOracleQuantity(
   if (qty.kind === 'reference_amount') {
     const normalized = normalizeOracleText(String(qty.raw || ''));
     const targetPlayerId = ctx.selectorContext?.targetPlayerId as PlayerID | undefined;
+    // "N life for each 1 life they gained" (False Cure) / "... for each 1 damage dealt this way":
+    // scale the triggering event's reference amount by N.
+    const perOneReferenceMatch = normalized.match(
+      /^(\d+)\s+(?:life\s+)?for each 1 (?:life|damage)\b.*$/i
+    );
+    if (perOneReferenceMatch) {
+      const per = Number.parseInt(String(perOneReferenceMatch[1] || '0'), 10);
+      const runtimeRef = Number(runtime?.lastReferenceAmount);
+      const ref = Number.isFinite(runtimeRef) ? runtimeRef : Number((ctx as any).lastReferenceAmount ?? ctx.referenceAmount);
+      if (Number.isFinite(ref) && Number.isFinite(per)) return Math.max(0, per * ref);
+    }
+
     const forEachAmount = tryResolveForEachReferenceAmount(state, controllerId, normalized, ctx, {
       runtime,
       targetPlayerId,

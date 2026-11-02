@@ -10,6 +10,8 @@ import { orderEffectsByDependency } from '../../../../../rules-engine/src/layerD
 import { readPermanentTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 import { parseOracleLandTypeSetting } from './manaAbilityLandTypeSettingOracle.js';
 import { scopedMemo } from '../../../../../rules-engine/src/readOnlyQueryScope.js';
+import { getTurnScopedSpellTriggerSources } from '../triggers/turnScopedSpellTriggers.js';
+import { parseOracleLandTapBonus } from './manaAbilityOracleLandTapBonus.js';
 
 export interface ManaAbility {
   id: string;
@@ -612,9 +614,11 @@ const KNOWN_MANA_MODIFIERS: Record<string, Omit<ManaModifier, 'permanentId' | 'c
   },
   
   // High Tide - Islands produce extra {U} (until end of turn, but we treat it as continuous for simplicity)
+  // "whenever a player taps an Island": every player's Islands, not only the caster's.
   "high tide": {
     type: 'extra_mana',
-    affects: 'lands',
+    affects: 'all_lands',
+    affectsAllPlayers: true,
     extraMana: { colors: ['U'], amount: 1 },
     landTypeRequired: 'island',
     untilEndOfTurn: true,
@@ -623,7 +627,8 @@ const KNOWN_MANA_MODIFIERS: Record<string, Omit<ManaModifier, 'permanentId' | 'c
   // Bubbling Muck - Swamps produce extra {B} (until end of turn)
   "bubbling muck": {
     type: 'extra_mana',
-    affects: 'lands',
+    affects: 'all_lands',
+    affectsAllPlayers: true,
     extraMana: { colors: ['B'], amount: 1 },
     landTypeRequired: 'swamp',
     untilEndOfTurn: true,
@@ -725,6 +730,10 @@ function getPermanentManaModifierParse(permanent: any): PermanentManaModifierPar
   for (const [knownName, modifierInfo] of Object.entries(KNOWN_MANA_MODIFIERS)) {
     if (cardName.includes(knownName)) knownMatches.push([knownName, modifierInfo]);
   }
+  if (knownMatches.length === 0) {
+    const oracleBonus = parseOracleLandTapBonus(permanent.card?.oracle_text);
+    if (oracleBonus) knownMatches.push([cardName || 'oracle land tap bonus', oracleBonus]);
+  }
   const parsed: PermanentManaModifierParse = {
     inputs,
     knownMatches,
@@ -752,7 +761,8 @@ export function detectManaModifiers(
   playerId: string
 ): ManaModifier[] {
   const modifiers: ManaModifier[] = [];
-  const battlefield = gameState?.battlefield || [];
+  // Spell-created "until end of turn, whenever a player taps an Island for mana" sources (High Tide).
+  const battlefield = [...(gameState?.battlefield || []), ...getTurnScopedSpellTriggerSources(gameState)];
   
   for (const permanent of battlefield) {
     if (!permanent) continue;

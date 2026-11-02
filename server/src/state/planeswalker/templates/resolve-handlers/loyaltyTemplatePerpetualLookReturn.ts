@@ -5,6 +5,7 @@
 // Public entry symbols: tryLoyaltyTemplatePerpetualLookReturn
 // Returns handled boolean, or undefined to fall through to later families.
 
+import { playerProtectedFromOpponentSacrifice } from '../../../../../../rules-engine/src/sacrificeCauseProtection.js';
 import type { GameContext } from "../../../context.js";
 import type { PlayerID } from "../../../../../../shared/src/types.js";
 import type { PlaneswalkerTemplateMatch } from "../types.js";
@@ -739,6 +740,7 @@ export function tryLoyaltyTemplatePerpetualLookReturn(
           return tl.includes('creature');
         });
 
+        if (playerProtectedFromOpponentSacrifice(battlefield, pid, String(controller))) continue; // B40 Tajuru
         const required = Math.min(2, creatures.length);
         if (required <= 0) continue;
 

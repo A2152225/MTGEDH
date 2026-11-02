@@ -38,13 +38,17 @@ import { pushEnchantedCreatureLordSpecs } from './staticEffectSpec-handlers/stat
 import { pushConditionalAttachedPTSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalAttachedPT.js';
 import { pushAttachedExtraSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingAttachedExtras.js';
 import { pushQualifiedGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingQualifiedGrants.js';
+import { pushSelfStateGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingSelfStateGrants.js';
 import { pushAttachedQuotedAbilityGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingAttachedQuotedGrants.js';
 import { pushLoseKeywordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingLoseKeywords.js';
 import { pushAttackYouTaxSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingAttackYouTax.js';
 import { pushTypedAndKeywordLordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingTypedAndKeywordLords.js';
 import { pushQuotedNumericAndBasePTLordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingQuotedNumericBasePT.js';
+import { pushBorrowedActivatedSelfSpecs } from './staticEffectSpecBorrowedActivated.js';
 import { pushConditionalSelfGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalSelfGrants.js';
 import { pushConditionalScopedGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalScopedGrants.js';
+import { splitStationThresholdLines, gateStationThresholdSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingStationThresholds.js';
+import { pushTrekSelfStaticSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingTrekStatics.js';
 import { pushGlobalGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingGlobalGrants.js';
 import { pushQualifiedScopeSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingQualifiedScopes.js';
 import { pushPhase5SupplementalSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingPhase5Supplement.js';
@@ -436,11 +440,15 @@ export function parseStaticEffectSpecsFromOraclePermanent(
   try { key = JSON.stringify(perm); } catch { key = undefined; }
   const cached = key !== undefined ? STATIC_SPEC_PARSE_CACHE.get(key) : undefined;
   if (cached) return structuredClone(cached);
+  // R32: Station "N+ | text" lines are parsed separately and gated on N charge counters.
+  const station = splitStationThresholdLines(perm);
+  const basePerm = station ? station.basePerm : perm;
   const specs = pushPhase5SupplementalSpecs(
-    parseStaticEffectSpecsFromOraclePermanentCore(perm),
-    perm,
+    parseStaticEffectSpecsFromOraclePermanentCore(basePerm),
+    basePerm,
     parseStaticEffectSpecsFromOraclePermanent,
   );
+  for (const g of station?.gated || []) specs.push(...gateStationThresholdSpecs(parseStaticEffectSpecsFromOraclePermanentCore(g.perm), g.amount));
   if (key !== undefined) {
     try {
       const copy = structuredClone(specs);
@@ -484,6 +492,7 @@ function parseStaticEffectSpecsFromOraclePermanentCore(
   // beside a dynamic lord line (Svyelun: conditional self indestructible + Merfolk ward lord).
   pushConditionalSelfGrantSpecs(specs, source, oracle);
   pushConditionalScopedGrantSpecs(specs, source, oracle);
+  pushTrekSelfStaticSpecs(specs, source, oracle);
   pushGlobalGrantSpecs(specs, source, oracle);
   pushQualifiedScopeSpecs(specs, source, oracle);
   if (hasDynamicLord) return specs;
@@ -721,6 +730,7 @@ function parseStaticEffectSpecsFromOraclePermanentCore(
   pushLordSpecs(specs, source, oracle);
   pushTypedAndKeywordLordSpecs(specs, source, oracle);
   pushQuotedNumericAndBasePTLordSpecs(specs, source, oracle);
+  pushBorrowedActivatedSelfSpecs(specs, source, oracle);
   pushOtherCreatureAndOpponentPolaritySpecs(specs, source, oracle);
   pushAbilityGrantSpecs(specs, source, perm, oracle);
   pushTapUntapAbilityGrantSpecs(specs, source, oracle);
@@ -738,6 +748,7 @@ function parseStaticEffectSpecsFromOraclePermanentCore(
   pushConditionalAttachedPTSpecs(specs, source, perm, oracle);
   pushAttachedExtraSpecs(specs, source, perm, oracle);
   pushQualifiedGrantSpecs(specs, source, perm, oracle);
+  pushSelfStateGrantSpecs(specs, source, oracle);
   pushPairedAndGraveyardCountQuotedGrantSpecs(specs, source, perm, oracle);
   pushAttackYouTaxSpecs(specs, source, oracle, perm);
   pushColorAnthemSpecs(specs, source, oracle);
@@ -816,7 +827,8 @@ function parseStaticEffectSpecsFromOraclePermanentCore(
     }
 
     // Alloy Golem: "This creature is the chosen color."
-    if (/\b(?:this (?:creature|permanent|artifact)|it) is the chosen colou?r\b/i.test(oracle)) {
+    if (/\b(?:this (?:creature|permanent|artifact)|it) is the chosen colou?r\b/i.test(oracle)
+      || oracle.includes(`${sourceName.toLowerCase()} is the chosen color`)) {
       specs.push(buildSpec(
         source,
         'chosen-color-characteristic-self',

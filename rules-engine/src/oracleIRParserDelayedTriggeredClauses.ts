@@ -129,15 +129,16 @@ export function tryParseDelayedTriggerClause(args: {
 
   // Arcbond-style: "Whenever that creature is dealt damage this turn, …"
   const dealtDamageThisTurn = clause.match(
-    /^whenever that creature is dealt damage this turn,?\s*(.+)$/i,
+    /^whenever that creature is dealt damage(?: by (an attacking creature))? this turn,?\s*(.+)$/i,
   );
   if (dealtDamageThisTurn) {
-    const effect = normalizeEffectText(String(dealtDamageThisTurn[1] || ''));
+    const effect = normalizeEffectText(String(dealtDamageThisTurn[2] || ''));
     if (effect) {
       return withMeta({
         kind: 'schedule_delayed_trigger',
         timing: 'when_dealt_damage',
         effect,
+        ...(dealtDamageThisTurn[1] ? { damageSourceFilter: 'attacking_creature' as const } : {}),
         raw: rawClause,
       });
     }

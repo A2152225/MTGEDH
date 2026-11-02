@@ -14,6 +14,9 @@
  * Wired through resolutionHandlerDeps. Must not import resolution.ts.
  */
 
+import { handleEquipDiscardCostStage } from "./targetSelectionEquipDiscardCost.js"; // B37
+import { energyCostError, payEnergyCost } from "../../state/modules/equipNonManaCosts.js"; // B41
+import { handleEquipAlternativeCostStage } from "./targetSelectionEquipAlternativeCost.js"; // B39
 import { equipLifeCostError, payEquipLifeCost } from "../../state/modules/equipNonManaCosts.js";
 import { handleEquipSacrificeCostStage } from "./targetSelectionEquipSacrificeCost.js"; // UI34
 import type { Server } from "socket.io";
@@ -116,24 +119,37 @@ export async function handleBattlefieldAbilityTargetSelection(
   const battlefieldAbilityType = String(stepAny?.abilityType || abilityId || '');
 
   if (battlefieldAbilityType === 'equip' || battlefieldAbilityType === 'fortify' || battlefieldAbilityType === 'reconfigure_attach') {
-    const targetingCost = battlefieldAbilityType === 'equip'
+    let targetingCost = battlefieldAbilityType === 'equip'
       ? String(stepAny?.equipCost || '').trim()
       : battlefieldAbilityType === 'fortify'
         ? String(stepAny?.fortifyCost || '').trim()
         : String(stepAny?.reconfigureCost || '').trim();
+    const altStage = handleEquipAlternativeCostStage(io, game, gameId, step, controllerId, permanentId, targetingCost, selectedTargetIds, validTargets); // B39 (B41: also fortify / reconfigure)
+    if (altStage.done) return;
+    if (altStage.chosenCost) targetingCost = altStage.chosenCost; // B40 alt: only one payable option
     if (battlefieldAbilityType === 'equip') {
       const sac = handleEquipSacrificeCostStage(io, game, gameId, step, controllerId, permanentId, targetingCost, selectedTargetIds, validTargets);
       if (sac.done) return;
       selectedTargetIds = sac.targetIds;
       validTargets = sac.validTargets;
+      const disc = handleEquipDiscardCostStage(io, game, gameId, step, controllerId, permanentId, targetingCost, selectedTargetIds, validTargets); // B37
+      if (disc.done) return;
+      selectedTargetIds = disc.targetIds;
+      validTargets = disc.validTargets;
     }
     const b33LifeError = equipLifeCostError(game.state, String(controllerId), targetingCost);
     if (b33LifeError) {
       emitToPlayer(io, controllerId as any, 'error', { code: 'CANNOT_PAY_COST', message: b33LifeError });
       return;
     }
+    const b41EnergyError = energyCostError(game.state, String(controllerId), targetingCost); // B41
+    if (b41EnergyError) {
+      emitToPlayer(io, controllerId as any, 'error', { code: 'CANNOT_PAY_COST', message: b41EnergyError });
+      return;
+    }
+    const b41EnergyPaid = payEnergyCost(game.state, String(controllerId), targetingCost);
     const b33LifePaid = payEquipLifeCost(game.state, String(controllerId), targetingCost);
-    const parsedTargetingCost = targetingCost && !b33LifePaid ? parseManaCost(targetingCost) : undefined;
+    const parsedTargetingCost = targetingCost && !b33LifePaid && !b41EnergyPaid ? parseManaCost(targetingCost) : undefined;
     const hasTargetingManaCost = Boolean(
       parsedTargetingCost && (
         Number(parsedTargetingCost.generic || 0) > 0 ||

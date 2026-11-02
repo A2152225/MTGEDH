@@ -17,6 +17,8 @@ import {
 import { debug, debugWarn, debugEnv } from "../../utils/debug.js";
 import { registerTokenGroupMembers } from "../tokenGroupResolve.js";
 import { getPlayableCardIds } from "./getPlayableCardIds.js";
+import { getGrantedForetellCost } from "../../state/modules/foretellGrants.js";
+import { getGrantedScavengeCost, cardHasPrintedScavenge } from "../../state/modules/graveyardScavengeGrants.js";
 import { getGraveyardAbilityHints } from "./getGraveyardAbilityHints.js";
 import { defaultPlayerZones } from "./playerStateZones.js";
 
@@ -446,6 +448,34 @@ export function normalizeViewForEmit(rawView: any, game: any) {
 
           if (Object.keys(costAdjustments).length > 0) {
             view.costAdjustments = costAdjustments;
+          }
+
+          // UI36: static foretell grants (Dream Devourer etc.) -> card.grantedForetellCost on the viewer's own hand copy.
+          const viewHand = view.zones?.[viewerId]?.hand;
+          if (Array.isArray(viewHand)) {
+            let changed = false;
+            const nextHand = viewHand.map((c: any) => {
+              if (!c || typeof c === 'string' || !c.id) return c;
+              const granted = getGrantedForetellCost(game.state, viewerId, c);
+              if (!granted) return c;
+              changed = true;
+              return { ...c, grantedForetellCost: granted };
+            });
+            if (changed) view.zones = { ...view.zones, [viewerId]: { ...view.zones[viewerId], hand: nextHand } };
+          }
+
+          // UI37: static scavenge grants (Varolz etc.) -> card.grantedScavengeCost on the viewer's own graveyard copy.
+          const viewGy = view.zones?.[viewerId]?.graveyard;
+          if (Array.isArray(viewGy)) {
+            let gyChanged = false;
+            const nextGy = viewGy.map((c: any) => {
+              if (!c || typeof c === 'string' || !c.id || cardHasPrintedScavenge(c)) return c;
+              const granted = getGrantedScavengeCost(game.state, viewerId, c);
+              if (!granted) return c;
+              gyChanged = true;
+              return { ...c, grantedScavengeCost: granted };
+            });
+            if (gyChanged) view.zones = { ...view.zones, [viewerId]: { ...view.zones[viewerId], graveyard: nextGy } };
           }
         }
       }

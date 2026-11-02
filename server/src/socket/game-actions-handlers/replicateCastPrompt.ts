@@ -8,7 +8,7 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../../state/resolution/index.js';
 import {
   getMaxAffordableReplicateTimes,
-  parseReplicateManaCost,
+  readReplicateManaCost,
 } from '../../state/modules/replicateCastUtils.js';
 import { debug } from '../../utils/debug.js';
 import { persistQueuedSpellCastStepContinuation } from './gameActionsSpellCopyHeroicTriggers.js';
@@ -33,7 +33,7 @@ export function queueReplicateCastCountPrompt(params: {
   chosenXValue: number | undefined;
   chosenTimesKicked: number | undefined;
 }): boolean {
-  const replicateCost = parseReplicateManaCost(String(
+  const replicateCost = readReplicateManaCost(params.cardInHand, String(
     params.cardInHand?.oracle_text || params.oracleTextRaw || '',
   ));
   if (!replicateCost) return false;

@@ -299,6 +299,8 @@ export type OracleEffectStepC =
         | 'on_event'
         | 'when_dealt_damage';
       readonly effect: string;
+      /** when_dealt_damage only: "is dealt damage by an attacking creature" (Glyph of Life). */
+      readonly damageSourceFilter?: 'attacking_creature';
       /** Parsed metadata for delayed effect text; not executed when scheduling. */
       readonly steps?: readonly OracleEffectStep[];
       readonly optional?: boolean;
@@ -444,6 +446,8 @@ export type OracleEffectStepC =
       readonly battlefieldSetOracleText?: string;
       /** Clear the moved card's printed abilities before applying battlefield overrides. */
       readonly battlefieldLoseAllAbilities?: boolean;
+      /** Assimilate (trk): the entering card becomes a Borg artifact creature (keeps supertypes/other types). */
+      readonly battlefieldAssimilate?: boolean;
       /**
        * When spell X is at least `threshold`, player chooses among `destinations`
        * instead of using the default `to` zone (e.g. battlefield or hand).

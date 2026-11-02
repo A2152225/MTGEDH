@@ -68,6 +68,52 @@ export function applyExileStep(
     String((step.target as any)?.text || step.raw || '')
   );
   const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+  // R32: "the Borg assimilated with this Saga" (The Best of Both Worlds III): permanents linked via assimilatedIds
+  // that are still the same objects (400.7: assimilatedBySourceId survives only while they stay on the battlefield).
+  const linkedAssimilated = normalizedExileTargetText.match(/^(?:the |each )?([a-z]+?)s? assimilated with this (?:saga|permanent|enchantment|artifact|creature)$/i);
+  if (linkedAssimilated) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    const source: any = battlefield.find((perm: any) => String(perm?.id || '').trim() === sourceId);
+    const linked = new Set<string>((Array.isArray(source?.assimilatedIds) ? source.assimilatedIds : []).map((id: unknown) => String(id || '').trim()));
+    const word = String(linkedAssimilated[1] || '').toLowerCase();
+    const toRemove = battlefield.filter((perm: any) => {
+      const id = String(perm?.id || '').trim();
+      if (!linked.has(id) || String(perm?.assimilatedBySourceId || '').trim() !== sourceId) return false;
+      return word === 'permanent' || word === 'creature' || new RegExp('\\b' + word + '\\b', 'i').test(String(perm?.card?.type_line || ''));
+    });
+    if (toRemove.length === 0) return { applied: true, state, log: ['No permanents assimilated with this source'] };
+    const removedIds = new Set<string>(toRemove.map(perm => perm.id));
+    const kept = battlefield.filter(perm => !removedIds.has(perm.id));
+    const result = finalizeBattlefieldRemoval(state, toRemove, removedIds, kept, 'exile', 'exiled', oracleIrBattlefieldRemovalOptions(ctx, 'exile'));
+    const movedCards = toRemove.filter(perm => !(perm as any).isToken).map(perm => buildPermanentCardWithStats(perm, 'exile'));
+    return {
+      applied: true,
+      state: annotateBattlefieldExilesWithSource(result.state, toRemove, ctx),
+      log: result.log,
+      ...(movedCards.length > 0 ? { lastMovedCards: movedCards, lastExiledCards: movedCards, lastExiledCardCount: movedCards.length } : {}),
+    };
+  }
+
+  // R32: "target opponent's graveyard" / "target player's graveyard" (Assimilation Assessor).
+  const targetGraveyard = normalizedExileTargetText.match(/^target (opponent|player)'s graveyard$/i);
+  if (targetGraveyard) {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const others = (state.players || []).map((e: any) => String(e?.id || '').trim()).filter((id: string) => id && (targetGraveyard[1].toLowerCase() === 'player' || id !== controllerId));
+    const chosen = String(ctx.selectorContext?.targetOpponentId || ctx.selectorContext?.targetPlayerId || (others.length === 1 ? others[0] : '')).trim();
+    if (!chosen || !others.includes(chosen)) return { applied: false, message: 'Exile target graveyard needs a chosen ' + targetGraveyard[1].toLowerCase(), reason: 'player_choice_required', options: { classification: 'player_choice' } } as any;
+    const player = (state.players || []).find((e: any) => String(e?.id || '').trim() === chosen) as any;
+    const graveyard = Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+    if (graveyard.length === 0) return { applied: true, state, log: ['No graveyard cards to exile for ' + chosen] };
+    const updatedPlayers = (state.players || []).map((e: any) => String(e?.id || '').trim() === chosen
+      ? { ...e, graveyard: [], exile: [...(Array.isArray(e?.exile) ? e.exile : []), ...graveyard] } : e);
+    return {
+      applied: true,
+      state: { ...(state as any), players: updatedPlayers as any } as GameState,
+      log: ['Exiled ' + graveyard.length + " card(s) from " + chosen + "'s graveyard"],
+      lastMovedCards: graveyard, lastExiledCards: graveyard, lastExiledCardCount: graveyard.length,
+    } as any;
+  }
+
   if (/^each opponent(?:'s)? graveyard$/i.test(normalizedExileTargetText)) {
     return exileAllOpponentGraveyards(state, ctx);
   }

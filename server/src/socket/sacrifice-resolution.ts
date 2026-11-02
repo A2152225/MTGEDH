@@ -1,3 +1,4 @@
+import { playerProtectedFromOpponentSacrifice } from "../../../rules-engine/src/sacrificeCauseProtection.js"; // B39
 import type { Server } from 'socket.io';
 import { ResolutionQueueManager } from '../state/resolution/index.js';
 import { ResolutionStepType } from '../state/resolution/types.js';
@@ -16,6 +17,7 @@ export function enqueueEdictCreatureSacrificeStep(
   }
 ): number {
   const battlefield = game.state?.battlefield || [];
+  if (playerProtectedFromOpponentSacrifice(battlefield, targetPlayerId, params.sourceControllerId)) return 0; // B39 Tajuru Preserver
 
   const creatures = battlefield
     .filter((p: any) =>

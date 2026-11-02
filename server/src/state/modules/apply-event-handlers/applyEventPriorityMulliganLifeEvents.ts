@@ -19,6 +19,7 @@ import {
   applyOpponentLibraryDrawReplacementChoice,
 } from "../zones";
 import { passPriority } from "../turn";
+import { applyRevealUntilKindDrawChoice } from "../zones-handlers/zonesDrawReplacementRevealUntilKind.js";
 import {
   getReplayOpeningHandBattlefieldCounters,
   clearReplayQueuedSteps,
@@ -579,6 +580,31 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
           });
         } catch (err) {
           debugWarn(1, 'applyEvent(skipDrawReplacementResolve): failed', err);
+        }
+        break;
+      }
+
+      case "revealUntilKindDrawReplacementResolve": { // B42 (Pavel Chekov / Abundance)
+        const playerId = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              if (resolvedStepId && String(step?.id || '').trim() === resolvedStepId) return true;
+              return step?.revealUntilKindDrawChoice === true && (!playerId || String(step?.playerId || '').trim() === playerId);
+            });
+          }
+          applyRevealUntilKindDrawChoice(ctx as any, {
+            playerId,
+            choiceId: String((e as any).choiceId || '').trim() || 'draw',
+            remainingDrawCountAfterChoice: Number((e as any).remainingDrawCountAfterChoice || 0),
+            bottomOrderIds: Array.isArray((e as any).bottomOrderIds) ? (e as any).bottomOrderIds : [],
+            sourceName: String((e as any).sourceName || '').trim(),
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(revealUntilKindDrawReplacementResolve): failed', err);
         }
         break;
       }

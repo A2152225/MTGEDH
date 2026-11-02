@@ -37,9 +37,17 @@ export function resolveOnCastSpellTriggerDescriptions(
 ): OnCastSpellTriggerDescription[] {
   const oracleText = String(card?.oracle_text || '');
   const clauses = extractSelfCastEffectClauses(oracleText);
+  // Granted replicate (Hugh, First of Many): the keyword's copy trigger is not printed on the card.
+  const grantedReplicateTrigger: OnCastSpellTriggerDescription[] =
+    String(card?.grantedReplicateCost || '').trim()
+    && Number(card?.replicateCount) > 0
+    && !/\breplicate\b/i.test(oracleText)
+      ? [toOnCastDescription('When you cast this spell, copy it for each time you paid its replicate cost. You may choose new targets for the copies.')]
+      : [];
   if (clauses.length > 0) {
-    return clauses.map(toOnCastDescription);
+    return [...clauses.map(toOnCastDescription), ...grantedReplicateTrigger];
   }
+  if (grantedReplicateTrigger.length > 0) return grantedReplicateTrigger;
 
   const castTriggerInfo = detectCastTrigger(oracleText, card?.type_line);
   if (

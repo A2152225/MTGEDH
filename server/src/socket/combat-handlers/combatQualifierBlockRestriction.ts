@@ -22,7 +22,7 @@ const NUMBER_WORDS: Record<string, number> = {
 const SELF_PREFIX = "(?:^|[\\n.]\\s*)(?:this creature|this permanent|it|~)?\\s*can(?:'t|not) be blocked by ";
 const STAT_RE = new RegExp(SELF_PREFIX + '(?:creatures|blockers) with (power|toughness) (\\d+|[a-z]+) or (greater|more|less)\\b', 'gi');
 const TYPE_RE = new RegExp(SELF_PREFIX + '(?:(artifact|enchantment|legendary|land|token|snow|colorless|multicolored) creatures|([a-z]+?)s)(?=\\s*(?:$|[.,\\n]))', 'gi');
-const KEYWORD_RE = new RegExp(SELF_PREFIX + 'creatures with (flying|reach|defender|first strike|deathtouch|haste|trample)\\b', 'gi');
+const KEYWORD_RE = new RegExp(SELF_PREFIX + 'creatures with (flying|reach|defender|first strike|deathtouch|haste|trample|horsemanship|shadow|menace|vigilance|lifelink|indestructible)\\b', 'gi');
 
 const NON_SUBTYPE_PLURAL_WORDS = new Set(['creature', 'blocker', 'more than one creature', 'token']);
 

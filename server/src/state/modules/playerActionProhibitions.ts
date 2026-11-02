@@ -14,7 +14,7 @@ function oracleText(perm: any): string {
 }
 
 const LAND_BAN_RE = /(?:^|\n|\. )(players|each player|you|your opponents|each opponent) can't play lands\b/;
-const SELF_CAST_RE = /(?:^|\n|\. )(you|players|each player) can't cast (noncreature )?spells(?=\.|$|\n)/;
+const SELF_CAST_RE = /(?:^|\n|\. )(you|players|each player) can't cast (noncreature |creature )?spells(?=\.|$|\n)/; // b35CreatureBan
 
 function appliesTo(who: string, controller: string, playerId: string): boolean {
   if (who === 'players' || who === 'each player') return true;
@@ -42,9 +42,10 @@ export function selfCastProhibitionReason(battlefield: readonly any[] | undefine
     const m = oracleText(perm).match(SELF_CAST_RE);
     if (!m) continue;
     if (!appliesTo(m[1], String(perm.controller || ''), pid)) continue;
-    if (m[2] && isCreature) continue;
+    if (m[2] === 'noncreature ' && isCreature) continue;
+    if (m[2] === 'creature ' && !isCreature) continue;
     const name = String(perm?.card?.name || 'A permanent');
-    return m[2] ? `${name} prevents casting noncreature spells.` : `${name} prevents casting spells.`;
+    return m[2] ? `${name} prevents casting ${m[2].trim()} spells.` : `${name} prevents casting spells.`;
   }
   return null;
 }

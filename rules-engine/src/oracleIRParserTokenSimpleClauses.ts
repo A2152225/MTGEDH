@@ -73,6 +73,8 @@ function tokenAmountForEachControlSuffix(clauseText: string): { kind: 'x' } | nu
   if (!match) return null;
   const counted = String(match[1] || '').trim();
   if (!counted || /\bthis way\b/i.test(counted)) return null;
+  // Per-turn tallies ("for each dilemma you've faced this turn", "for each opponent you attacked this turn").
+  if (/\byou(?:'ve| have)?\s+[a-z]+\s+this turn$/i.test(counted)) return { kind: 'x' };
   if (
     !/\b(?:you|they|that player|target player|target opponent|that opponent)\s+control(?:s)?\b/i.test(
       counted,

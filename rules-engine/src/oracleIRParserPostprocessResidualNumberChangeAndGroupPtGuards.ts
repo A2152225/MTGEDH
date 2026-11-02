@@ -587,6 +587,19 @@ export function parseResidualNumberChangeAndGroupPtGuardsTwo(
     return [];
   }
 
+  // R32: "Each opponent reveals cards from the top of their library until they reveal a creature card" (Gift of Perfection).
+  const eachRevealUntil = raw.match(/^each (opponent|player) reveals cards from the top of their library until they reveal an? ([a-z ]+?) card$/i);
+  if (eachRevealUntil) {
+    const seq = (step as any)?.sequence ? { sequence: (step as any).sequence } : {};
+    return [{
+      kind: 'reveal_top',
+      who: { kind: String(eachRevealUntil[1]).toLowerCase() === 'opponent' ? 'each_opponent' : 'each_player' },
+      amount: { kind: 'reference_amount', raw: 'until they reveal a ' + String(eachRevealUntil[2]).toLowerCase() + ' card' },
+      raw,
+      ...seq,
+    } as unknown as OracleEffectStep];
+  }
+
   if (/^each\b/i.test(raw)) {
     if (/\binvestigates?$/i.test(raw)) {
       return [step];

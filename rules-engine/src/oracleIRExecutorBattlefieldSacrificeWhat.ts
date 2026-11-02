@@ -2,6 +2,7 @@
 // Cluster: exported sacrifice what parsers plus private helpers they close over.
 // Public entries: parseSacrificeWhat, extractSacrificeWhatText, sacrificeSelectorRequiresPlayerChoice, buildSacrificeTargetSelectionOptions.
 
+import { withSacrificeCauseProtection } from './sacrificeCauseProtection';
 import type { GameState, PlayerID, BattlefieldPermanent } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
@@ -516,7 +517,17 @@ function inferSacrificeChoiceBounds(
   return { minTargets: 1, maxTargets: 1 };
 }
 
+// B40 Tajuru Preserver: resumed IR sacrifice prompts (annihilator, edicts) never offer permanents of a
+// player protected from sacrifices caused by the source controller's opponents.
 export function buildSacrificeTargetSelectionOptions(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'sacrifice' }>,
+  ctx: OracleIRExecutionContext
+): ReturnType<typeof buildSacrificeTargetSelectionOptionsUnprotected> {
+  return withSacrificeCauseProtection(state, String(ctx.controllerId || ''), (s) => buildSacrificeTargetSelectionOptionsUnprotected(s, step, ctx));
+}
+
+function buildSacrificeTargetSelectionOptionsUnprotected(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'sacrifice' }>,
   ctx: OracleIRExecutionContext

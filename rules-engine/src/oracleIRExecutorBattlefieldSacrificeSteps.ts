@@ -31,6 +31,7 @@ import { createLastKnownPermanentSnapshot } from './oracleIRExecutorLastKnownInf
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { trySpecialSacrificeStep } from './oracleIRExecutorSpecialTargetHandlers';
+import { withSacrificeCauseProtection } from './sacrificeCauseProtection'; // B39
 
 export type UnlessSacrificesResult =
   | { readonly applied: true; readonly shouldApplyNestedSteps: boolean; readonly state?: GameState; readonly log: readonly string[] }
@@ -156,7 +157,16 @@ export function evaluateUnlessSacrificesStep(
   };
 }
 
+// B39: Tajuru Preserver / Sigarda: opponents' effects can't make a protected player sacrifice.
 export function applySacrificeStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'sacrifice' }>,
+  ctx: OracleIRExecutionContext
+): BattlefieldStepHandlerResult {
+  return withSacrificeCauseProtection(state, ctx.controllerId, (s) => applySacrificeStepUnprotected(s, step, ctx));
+}
+
+function applySacrificeStepUnprotected(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'sacrifice' }>,
   ctx: OracleIRExecutionContext
@@ -583,6 +593,12 @@ export function applySacrificeStep(
       };
 
       const countCandidates = resolveCountCandidates();
+      // B39 partial: with several players (each opponent / each player), one who controls fewer than N
+      // sacrifices what they can (rule 701.21a) instead of blocking the whole step.
+      if (countCandidates.length < effectiveCount && players.length > 1) {
+        toRemove.push(...countCandidates);
+        continue;
+      }
       if (countCandidates.length < effectiveCount) {
         return {
           applied: false,

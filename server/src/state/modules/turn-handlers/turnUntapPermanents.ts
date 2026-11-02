@@ -7,6 +7,7 @@
 // performUntapStepTurnAction. Leaf must not import turn.ts or
 // turn-handlers/index.ts.
 
+import { qualifiedUntapProhibitionSource } from "../untapQualifierProhibitions.js"; // B35
 import type { GameContext } from "../../context.js";
 import { isPermanentPreventedFromUntapping } from "../triggered-abilities.js";
 import { queueBecomesUntappedTriggers } from "../triggers/tap-untap.js";
@@ -38,6 +39,12 @@ export function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
         // Check for "doesn't untap during untap step" flag on the permanent
         const doesntUntap = permanent.doesntUntap || false;
         if (doesntUntap) {
+          skippedDueToEffects++;
+          continue;
+        }
+
+        const b35QualUntap = qualifiedUntapProhibitionSource(battlefield as any[], permanent); // B35
+        if (b35QualUntap) {
           skippedDueToEffects++;
           continue;
         }

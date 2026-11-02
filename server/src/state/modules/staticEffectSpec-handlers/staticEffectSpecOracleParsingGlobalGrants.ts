@@ -47,7 +47,13 @@ export function pushGlobalGrantSpecs(
       specs.push(buildSpec(source, `all-colors:${m[1].replace(/ /g, '-')}`, { kind: GROUP_SCOPES[m[1]] }, { colorAdditions: [...ALL_COLORS] }));
       continue;
     }
-    const selfMatch = line.match(/^(.+?) is all colors\.?$/);
+    // R22 Leyline of the Guildpact: "Each nonland permanent you control is all colors."
+    if (/^each nonland permanent you control is all colors\.?$/.test(line)) {
+      specs.push(buildSpec(source, 'all-colors:nonland-permanents-you-control', { kind: 'permanents_you_control', qualifier: { nonType: 'land' } }, { colorAdditions: [...ALL_COLORS] }));
+      continue;
+    }
+    // R22 Fallaji Wayfarer: trailing "This ability doesn't affect its color identity."
+    const selfMatch = line.match(/^(.+?) is all colors\.?(?: this ability doesn't affect its color identity\.?)?$/);
     if (selfMatch && selfSubjects.includes(selfMatch[1].trim())) {
       specs.push(buildSpec(source, 'all-colors:self', { kind: 'self' }, { colorAdditions: [...ALL_COLORS] }));
     }

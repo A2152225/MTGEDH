@@ -166,6 +166,13 @@ function collectStateTargetProtectionTexts(
     }
   }
 
+  const b37PermId = String((permanent as any)?.id || '').trim();
+  for (const source of Array.isArray(state.battlefield) ? state.battlefield : []) { // b37AttachedTargetProtection
+    if (!b37PermId || String((source as any)?.attachedTo || '').trim() !== b37PermId) continue;
+    const attachedText = getCombinedPermanentText(source);
+    if (/\b(?:enchanted|equipped) (?:creature|permanent|land|artifact) can(?:not|'t) be the targets? of\b/i.test(attachedText)) texts.push(attachedText);
+  }
+
   const controller = permanentControllerId(permanent);
   const isCreature = /\bcreature\b/i.test(permanentTypeLine(permanent));
   for (const source of Array.isArray(state.battlefield) ? state.battlefield : []) {

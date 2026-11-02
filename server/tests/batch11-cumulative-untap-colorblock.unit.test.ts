@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 const queued: any[] = [];
 vi.mock('../src/socket/util.js', async (orig) => ({ ...(await (orig as any)()), broadcastGame: vi.fn(), canPayManaCostStringWithAvailableSources: vi.fn((_s: any, _p: any, cost: string) => cost !== '{U}{U}{U}{U}{U}{U}{U}') }));
 vi.mock('../src/socket/optional-payment-prompts.js', async (orig) => ({ ...(await (orig as any)()), queueOptionalPaymentStep: vi.fn((_g: string, step: any) => { queued.push(step); }) }));
-import { classifyStaticCensusLine } from '../scripts/static-replacement-census-classify.js';
+// B40: load the module under test before the census classifier; the classifier's trigger-doublers graph otherwise binds the unmocked socket/util.
 import { parseCumulativeUpkeepCost, scaleManaCost, chooseAICumulativeUpkeepPayment, maybeQueueCumulativeUpkeepTriggeredAbility } from '../src/state/modules/cumulativeUpkeepPayment.js';
+import { classifyStaticCensusLine } from '../scripts/static-replacement-census-classify.js';
 import { detectUntapStepEffects } from '../src/state/modules/triggers/turn-phases-handlers/turnPhaseUntapStepEffects.js';
 import { getExceptColorBlockRestrictionReason } from '../src/socket/combat-handlers/combatExceptColorBlockRestriction.js';
 

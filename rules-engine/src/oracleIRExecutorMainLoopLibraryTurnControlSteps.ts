@@ -3,6 +3,7 @@
 // choose_card_name (library/turn/control/graveyard/mana/choice).
 // Public entry symbol: tryApplyMainLoopLibraryTurnControlSteps.
 
+import { applyAssimilateAfterGainControl } from './oracleIRExecutorAssimilateGainControl';
 import type { PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import {
@@ -280,7 +281,7 @@ export function tryApplyMainLoopLibraryTurnControlSteps(
         break;
       }
       case 'gain_control': {
-        const result = applyGainControlStep(nextState, step, currentCtx);
+        const result = applyAssimilateAfterGainControl(applyGainControlStep(nextState, step, currentCtx), step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
           const referencedPermanentId = String(
             currentCtx.targetPermanentId ||

@@ -53,6 +53,7 @@ import {
   normalizeSelectedTargetIds,
   queueGraveyardSpellCastTargetSelection,
 } from "./interactionGraveyardSpellCastTargeting.js";
+import { queueBeamMeUpReturnStep, commitBeamMeUpReturnCost } from "./interactionGraveyardCastBeamMeUp.js"; // B42/B43
 
 // Simple unique ID generator for this module
 let idCounter = 0;
@@ -73,6 +74,7 @@ export function finalizeGraveyardSpellCast(params: {
   discardedCardIds?: string[];
   exiledCardIdsFromHandForCost?: string[];
   exiledCardIdsFromGraveyardForCost?: string[];
+  beamedUpPermanentIdsForCost?: string[];
   xValue?: number;
   stackId?: string;
   // Mana payment evidence (present when the mana cost was paid by tapping/sacrificing sources
@@ -91,6 +93,8 @@ export function finalizeGraveyardSpellCast(params: {
     return 'error';
   }
 
+  // B43: the beam me up return-to-hand cost is paid here, when the cast commits (CR 601.2h), so a cancel never strands a bounce.
+  if (!commitBeamMeUpReturnCost(params.game, params.gameId, params.playerId, params.beamedUpPermanentIdsForCost, params.emitError)) return 'error';
   const normalizedTargets = normalizeSelectedTargetIds(params.targets);
   const [card] = graveyard.splice(cardIndex, 1);
   zones.graveyardCount = graveyard.length;
@@ -121,6 +125,7 @@ export function finalizeGraveyardSpellCast(params: {
     ...(replayMetadata.alternateCostId ? { alternateCostId: replayMetadata.alternateCostId } : {}),
     ...(Number.isFinite(Number(params.xValue)) ? { xValue: Math.max(0, Math.floor(Number(params.xValue))) } : {}),
     targets: normalizedTargets,
+    ...(String(params.abilityId || '').toLowerCase() === 'beam-me-up' ? { castWithAbility: 'beam-me-up', exileAfterResolution: true } : {}),
     ...(spellCard?.entersBattlefieldWithCounters && typeof spellCard.entersBattlefieldWithCounters === 'object'
       ? { entersBattlefieldWithCounters: { ...(spellCard.entersBattlefieldWithCounters as Record<string, number>) } }
       : {}),
@@ -160,6 +165,7 @@ export function finalizeGraveyardSpellCast(params: {
       exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0
         ? params.exiledCardIdsFromGraveyardForCost.slice()
         : undefined,
+      beamedUpPermanentIdsForCost: Array.isArray(params.beamedUpPermanentIdsForCost) && params.beamedUpPermanentIdsForCost.length > 0 ? params.beamedUpPermanentIdsForCost.slice() : undefined,
       xValue: Number.isFinite(Number(params.xValue)) ? Math.max(0, Math.floor(Number(params.xValue))) : undefined,
       targets: normalizedTargets.length > 0 ? normalizedTargets.slice() : undefined,
       tappedPermanents: Array.isArray(params.tappedPermanentsForManaCost) && params.tappedPermanentsForManaCost.length > 0
@@ -216,6 +222,7 @@ export function continueCastFromGraveyardAbility(params: {
   exiledCardIdsFromHandForCost?: string[];
   exiledCardIdsFromGraveyardForCost?: string[];
   sacrificedPermanentIdsForCost?: string[];
+  beamedUpPermanentIdsForCost?: string[];
   xValue?: number;
   // Set when re-entering after a queued mana-payment step has already paid the mana cost by
   // tapping/sacrificing sources. The mana block is then skipped and the payment evidence is
@@ -243,12 +250,12 @@ export function continueCastFromGraveyardAbility(params: {
   const normalizedTargets = normalizeSelectedTargetIds(params.targets);
   const activationCost = getCastFromGraveyardActivationCost(card, params.abilityId, { game: params.game, playerId: params.playerId });
   const normalizedAbilityId = String(params.abilityId || '').trim().toLowerCase();
-  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast'].includes(normalizedAbilityId) && activationCost.hasAbility === false) {
+  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast', 'beam-me-up'].includes(normalizedAbilityId) && activationCost.hasAbility === false) {
     params.emitError({ code: 'ABILITY_NOT_AVAILABLE', message: `${cardName} does not currently have ${normalizedAbilityId}.` });
     return 'error';
   }
   if (
-    ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast', 'harmonize'].includes(normalizedAbilityId)
+    ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast', 'harmonize', 'beam-me-up'].includes(normalizedAbilityId)
     && !enforceGraveyardSpellCastTiming({
       game: params.game,
       playerId: String(params.playerId),
@@ -259,7 +266,7 @@ export function continueCastFromGraveyardAbility(params: {
   ) {
     return 'error';
   }
-  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast', 'harmonize'].includes(normalizedAbilityId)) {
+  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast', 'harmonize', 'beam-me-up'].includes(normalizedAbilityId)) {
     const b31GraveLock = zoneCastProhibitionReason(params.game.state, String(params.playerId), 'graveyard')
       || opponentTurnCastProhibitionReason(params.game.state, String(params.playerId));
     if (b31GraveLock) {
@@ -506,6 +513,16 @@ export function continueCastFromGraveyardAbility(params: {
     return 'queued';
   }
 
+  if (normalizedAbilityId === 'beam-me-up' && !(Array.isArray(params.beamedUpPermanentIdsForCost) && params.beamedUpPermanentIdsForCost.length >= 1)) {
+    return queueBeamMeUpReturnStep({
+      gameId: params.gameId, game: params.game, playerId: params.playerId, cardId: params.cardId, abilityId: params.abilityId, card,
+      paymentManaCost, recordedLifeCost, targets: normalizedTargets,
+      discardedCardIds: params.discardedCardIds, exiledCardIdsFromHandForCost: params.exiledCardIdsFromHandForCost,
+      exiledCardIdsFromGraveyardForCost: params.exiledCardIdsFromGraveyardForCost,
+      sacrificedPermanentIdsForCost: params.sacrificedPermanentIdsForCost, xValue: params.xValue, emitError: params.emitError,
+    });
+  }
+
   if (normalizedTargets.length === 0) {
     const targetSelectionResult = queueGraveyardSpellCastTargetSelection({
       gameId: params.gameId,
@@ -520,6 +537,7 @@ export function continueCastFromGraveyardAbility(params: {
       exiledCardIdsFromHandForCost: params.exiledCardIdsFromHandForCost,
       exiledCardIdsFromGraveyardForCost: params.exiledCardIdsFromGraveyardForCost,
       sacrificedPermanentIdsForCost: params.sacrificedPermanentIdsForCost,
+      beamedUpPermanentIdsForCost: params.beamedUpPermanentIdsForCost,
       xValue: params.xValue,
       emitError: params.emitError,
     });
@@ -564,6 +582,7 @@ export function continueCastFromGraveyardAbility(params: {
         exiledCardIdsFromHandForCost: Array.isArray(params.exiledCardIdsFromHandForCost) && params.exiledCardIdsFromHandForCost.length > 0 ? params.exiledCardIdsFromHandForCost.slice() : undefined,
         exiledCardIdsFromGraveyardForCost: Array.isArray(params.exiledCardIdsFromGraveyardForCost) && params.exiledCardIdsFromGraveyardForCost.length > 0 ? params.exiledCardIdsFromGraveyardForCost.slice() : undefined,
         sacrificedPermanentIdsForCost: Array.isArray(params.sacrificedPermanentIdsForCost) && params.sacrificedPermanentIdsForCost.length > 0 ? params.sacrificedPermanentIdsForCost.slice() : undefined,
+        beamedUpPermanentIdsForCost: Array.isArray(params.beamedUpPermanentIdsForCost) && params.beamedUpPermanentIdsForCost.length > 0 ? params.beamedUpPermanentIdsForCost.slice() : undefined,
         xValue: Number.isFinite(Number(params.xValue)) ? Math.max(0, Math.floor(Number(params.xValue))) : undefined,
         oracleText: String((card as any)?.oracle_text || '').trim() || undefined,
         typeLine: String((card as any)?.type_line || ''),
@@ -610,6 +629,7 @@ export function continueCastFromGraveyardAbility(params: {
     discardedCardIds: params.discardedCardIds,
     exiledCardIdsFromHandForCost: params.exiledCardIdsFromHandForCost,
     exiledCardIdsFromGraveyardForCost: params.exiledCardIdsFromGraveyardForCost,
+    beamedUpPermanentIdsForCost: params.beamedUpPermanentIdsForCost,
     xValue: params.xValue,
     emitError: params.emitError,
   });

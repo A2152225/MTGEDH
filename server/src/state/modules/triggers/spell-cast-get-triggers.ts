@@ -10,6 +10,7 @@ import type { GameContext } from "../../context.js";
 import { cardHasCreatureType } from "../../creatureTypeNow.js";
 import { getEffectiveColors } from "../effectiveColors.js";
 import { detectSpellCastTriggers } from "./spell-cast-detection.js";
+import { getTurnScopedSpellTriggerSources } from "./turnScopedSpellTriggers.js";
 import { spellSharesCreatureTypeWithSource } from "./spellCastSharedCreatureType.js";
 import { castFaceSpellView, refineSpellCastQualifierTriggers } from "./spellCastQualifierTriggers.js";
 import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
@@ -26,7 +27,8 @@ export function getSpellCastTriggers(
 ): SpellCastTrigger[] {
   spellCard = castFaceSpellView(spellCard);
   const triggers: SpellCastTrigger[] = [];
-  const battlefield = ctx.state?.battlefield || [];
+  // Spell-created "whenever you cast ... this turn" sources (Glimpse of Nature) watch too.
+  const battlefield = [...(ctx.state?.battlefield || []), ...getTurnScopedSpellTriggerSources(ctx.state)];
   
   const spellTypeLine = (spellCard?.type_line || '').toLowerCase();
   const isCreatureSpell = spellTypeLine.includes('creature');

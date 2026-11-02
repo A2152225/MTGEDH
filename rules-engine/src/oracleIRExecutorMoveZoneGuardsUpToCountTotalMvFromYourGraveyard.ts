@@ -318,6 +318,15 @@ export function tryApplyMoveZoneGuardsFromUpToCountTotalMvFromYourGraveyard(args
       cardType: parsedCreatureCardExiledWithSource.cardType,
     });
     const preferred = getChosenObjectIds(ctx);
+    // UI40: more than one candidate and no pick yet -> player choice (LIBRARY_SEARCH prompt over the linked exile).
+    if (preferred.length === 0 && matches.length > 1) {
+      return {
+        applied: false,
+        message: `Skipped move zone (choose a card exiled with source): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
     const chosen =
       preferred.length > 0
         ? matches.find(match => preferred.includes(match.cardId)) || matches[0]

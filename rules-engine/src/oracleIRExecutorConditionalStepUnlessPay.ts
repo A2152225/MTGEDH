@@ -20,6 +20,7 @@ import {
   resolveUnlessPayInnerCondition,
 } from './oracleIRExecutorConditionalStepSupportHelpers.js';
 import { getContextSourceObject } from './oracleIRExecutorContextRefUtils';
+import { countDilemmasFacedThisTurn, countOpponentsAttackedThisTurn } from './trekCountBases';
 import { getProcessedBattlefield, getSourceBattlefieldPermanent } from './oracleIRExecutorCreatureStepUtils';
 import { getAmountOfSpecificManaSymbolSpent } from './oracleIRExecutorManaUtils';
 import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
@@ -519,6 +520,13 @@ export function tryEvaluateConditionalUnlessPayYouDoOtherwise(
   ) {
     const map = (nextState as any)?.permanentLeftBattlefieldThisTurn;
     return typeof map?.[controllerId] === 'boolean' ? map[controllerId] : null;
+  }
+
+  if (/^you(?:'ve| have)? faced (?:a|one or more) dilemmas? this turn$/.test(normalizedRaw)) {
+    return countDilemmasFacedThisTurn(nextState, controllerId) > 0;
+  }
+  if (/^you attacked (?:two|2) or more opponents this turn$/.test(normalizedRaw)) {
+    return countOpponentsAttackedThisTurn(nextState, controllerId) >= 2;
   }
 
   if (normalizedRaw === 'you attacked this turn') {

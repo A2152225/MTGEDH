@@ -5,6 +5,7 @@
 // Public entry symbols: tryLoyaltyTemplateDamageRestartSearch
 // Returns handled boolean, or undefined to fall through to later families.
 
+import { playerProtectedFromOpponentSacrifice } from '../../../../../../rules-engine/src/sacrificeCauseProtection.js';
 import type { GameContext } from "../../../context.js";
 import type { PlayerID } from "../../../../../../shared/src/types.js";
 import type { PlaneswalkerTemplateMatch } from "../types.js";
@@ -340,6 +341,10 @@ export function tryLoyaltyTemplateDamageRestartSearch(
       if (!gameId || gameId === "unknown" || isReplaying) return false;
 
       const battlefield = getBattlefield(ctx);
+      if (playerProtectedFromOpponentSacrifice(battlefield, String(targetPlayer), String(controller))) {
+        debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (B40 Tajuru: player protected)`);
+        return true;
+      }
       const creatures = battlefield.filter((perm: any) => {
         if (perm?.controller !== targetPlayer) return false;
         const tl = String(perm?.card?.type_line || "").toLowerCase();
@@ -357,6 +362,7 @@ export function tryLoyaltyTemplateDamageRestartSearch(
         description: `${sourceName}: Sacrifice a creature`,
         mandatory: true,
         sourceName: sourceName,
+        sourceController: controller,
         // Custom data for selection UI + server handler
         allowSourceSacrifice: false,
         hasCreatures: true,
@@ -387,6 +393,7 @@ export function tryLoyaltyTemplateDamageRestartSearch(
       if (!gameId || gameId === 'unknown' || isReplaying) return false;
 
       const battlefield = getBattlefield(ctx);
+      if (playerProtectedFromOpponentSacrifice(battlefield, String(targetPlayer), String(controller))) return true; // B40 Tajuru
       const permanents = battlefield.filter((perm: any) => perm?.controller === targetPlayer);
       if (permanents.length === 0) {
         debug(2, `[planeswalker/templates] ${sourceName}: resolved ${match.id} (no permanents)`);

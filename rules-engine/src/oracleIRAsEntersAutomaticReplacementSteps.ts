@@ -18,6 +18,8 @@ export function collectAsEntersAutomaticReplacementSteps(
 ): OracleEffectStep[] {
   const text = String(oracleText || '').trim();
   if (!text) return [];
+  // Only turn_face_down applies automatically; skip the full parse (hot per entering token) otherwise.
+  if (!/face[\s-]down/i.test(text)) return [];
 
   const ir = parseOracleTextToIR(text, cardName);
   const steps: OracleEffectStep[] = [];

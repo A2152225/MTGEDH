@@ -24,6 +24,8 @@ import { evaluateLifeLossReplacementEvent } from './replacement-effects.js';
 import { getCurrentPowerToughness } from './currentPowerToughness.js';
 import { emitNoncombatDamageEvent } from './triggers/noncombat-deals-damage.js';
 import { recordCreatureCombatDamageDealer } from './turn-handlers/turnCombatDamageRecipientVariantTriggers.js';
+import { markPermanentDealtDamage } from './damageDealtFlag.js';
+import { recordPermanentDamageEvent } from './damageEventSources.js';
 
 export function applyPoisonCountersToPlayer(ctx: GameContext, playerId: string, amount: number): void {
   const normalized = Math.max(0, Number(amount || 0));
@@ -313,6 +315,7 @@ export function applyCreatureDamageFromSource(
 
   if (sourcePermanent && sourceHasInfectOrWither(sourcePermanent, (ctx as any).state)) {
     updateCounters(ctx, String(targetPermanent.id || ''), { '-1/-1': normalizedAmount });
+    recordPermanentDamageEvent(ctx, sourcePermanent, targetPermanent);
     return { prevented: false, appliedAmount: normalizedAmount, usedMinusCounters: true };
   }
 
@@ -331,6 +334,7 @@ export function applyCreatureDamageFromSource(
     },
   );
 
+  if (!damageResult.prevented && damageResult.appliedAmount > 0) recordPermanentDamageEvent(ctx, sourcePermanent, targetPermanent);
   return {
     prevented: damageResult.prevented,
     appliedAmount: damageResult.appliedAmount,

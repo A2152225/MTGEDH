@@ -29,6 +29,7 @@ import { hasDelirium } from "../../state/modules/game-state-effects";
 import { cardManaValue } from "../../state/utils";
 import { applySpellSelfCreaturePowerCostReduction } from "../../state/modules/spellSelfCreaturePowerCostReduction.js";
 import { applySpellSelfTotalManaValueCostReduction } from "../../state/modules/spellSelfTotalManaValueCostReduction.js";
+import { applySpellSelfTrekCountCostReduction } from "../../state/modules/spellSelfTrekCountCostReduction.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 
 export interface StaticCostTaxMetadata {
@@ -537,6 +538,15 @@ export function calculateCostReduction(
       if (totalMvSelfReduction.generic > 0) {
         reduction.generic += totalMvSelfReduction.generic;
         reduction.messages.push(...totalMvSelfReduction.messages);
+      }
+    }
+
+    // "This spell costs {X} less to cast, where X is the number of differently named lands you control" (Strange new worlds) / Federation.
+    {
+      const trekCountReduction = applySpellSelfTrekCountCostReduction({ oracleText: cardOracleText, cardName, battlefield, playerId, state: game.state });
+      if (trekCountReduction.generic > 0) {
+        reduction.generic += trekCountReduction.generic;
+        reduction.messages.push(...trekCountReduction.messages);
       }
     }
 

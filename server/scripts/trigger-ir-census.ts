@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { iterateOracleCards, resolveOracleCardsPath } from '../src/services/oracleCardsIndex.js';
 import { stripReminderParentheticals } from '../../rules-engine/src/oracleReminderText.js';
 import { parseTriggerClause } from '../../rules-engine/src/triggerCondition/index.js';
+import { INCLUDE_UPCOMING, includeCardInCensus, type CensusSelectableCard } from './census-card-filter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -21,7 +22,7 @@ const topArg = process.argv.find((a) => a.startsWith('--top='));
 const TOP = topArg ? Math.max(1, Number(topArg.slice(6)) || 30) : 30;
 
 type Face = { name?: string; oracle_text?: string; type_line?: string };
-type Card = Face & { legalities?: Record<string, string>; card_faces?: Face[]; layout?: string };
+type Card = Face & CensusSelectableCard & { card_faces?: Face[] };
 
 const ABILITY_WORD = /^\s*[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
 const TRIGGER_START = /^(?:when|whenever|at)\b/i;
@@ -61,9 +62,10 @@ async function main() {
   let riders = 0;
   const fallback = new Map<string, { count: number; cards: Set<string>; example: string }>();
   const seenOracle = new Set<string>();
+  const fallbackLines: Array<{ card: string; set: string; family: string; clause: string }> = [];
   for await (const raw of iterateOracleCards(resolveOracleCardsPath(repoRoot))) {
     const card = raw as Card & { oracle_id?: string };
-    if (card.legalities?.commander !== 'legal') continue;
+    if (!includeCardInCensus(card)) continue;
     const oid = String(card.oracle_id || card.name);
     if (seenOracle.has(oid)) continue;
     seenOracle.add(oid);
@@ -84,6 +86,7 @@ async function main() {
         entry.cards.add(String(card.name));
         if (!entry.example) entry.example = sentence.slice(0, 200);
         fallback.set(key, entry);
+        if (INCLUDE_UPCOMING) fallbackLines.push({ card: String(card.name), set: String(card.set || ''), family: key, clause: sentence });
       }
     }
   }
@@ -102,6 +105,12 @@ async function main() {
   };
   const outDir = path.join(__dirname, 'out');
   fs.mkdirSync(outDir, { recursive: true });
+  if (INCLUDE_UPCOMING) {
+    // Opt-in upcoming-set run: separate output, docs and the default JSON untouched.
+    fs.writeFileSync(path.join(outDir, 'trigger-ir-census-upcoming.json'), JSON.stringify({ ...json, includeUpcoming: true, fallbackLines }, null, 2));
+    console.log(`[include-upcoming] cards=${cards} clauses=${clauses} ir=${ir} (${pct(ir)}%) legacy=${legacy}`);
+    return;
+  }
   fs.writeFileSync(path.join(outDir, 'trigger-ir-census.json'), JSON.stringify(json, null, 2));
   const lines = [
     '# Trigger IR census (TRIGGER_PRIMARY coverage)',

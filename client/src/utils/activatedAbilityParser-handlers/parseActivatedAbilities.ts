@@ -495,7 +495,7 @@ export function parseActivatedAbilities(
     for (const equip of parseEquipAbilitiesFromOracle(oracleText)) {
       // UI34: non-mana equip costs show as 'Pay N life' / 'Sacrifice a creature', not as a mana cost.
       const equipLife = /^pay (\d+) life$/i.exec(equip.cost);
-      const equipSac = /^sacrifice /i.test(equip.cost);
+      const equipSac = /^(?:sacrifice|discard) /i.test(equip.cost); // UI35: 'Discard a card' too
       abilities.push({
         id: `${card.id}-equip-${abilityIndex++}`,
         label: equip.label,
@@ -522,7 +522,8 @@ export function parseActivatedAbilities(
   // Reconfigure [cost] - Equipment with reconfigure can attach/unattach at sorcery speed
   // When attached, it's not a creature. When unattached, it's a creature.
   // Check for reconfigure keyword in oracle text and Equipment in type line
-  const reconfigureMatch = oracleText.match(/reconfigure\s*(\{[^}]+\}|\d+)/i);
+  // UI40: also em-dash / 'Pay ...' / '... or ...' cost forms (mirrors server reconfigure matcher).
+  const reconfigureMatch = oracleText.match(/reconfigure\s*(?:\u2014|\u2013|-)?\s*(?:pay\s+)?(\{[^}]+\}(?:\{[^}]+\})*(?:\s+or\s+\{[^}]+\}(?:\{[^}]+\})*)?|\d+)/i);
   if (reconfigureMatch && typeLine.includes('equipment')) {
     const reconfigureCost = reconfigureMatch[1].startsWith('{') ? reconfigureMatch[1] : `{${reconfigureMatch[1]}}`;
     

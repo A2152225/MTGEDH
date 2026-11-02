@@ -59,7 +59,7 @@ const MANA_PAYMENT_CLIENT_FIELD_KEYS = [
   'discardedCardIdsForCost',
   'exiledCardIdsFromHandForCost',
   'exiledCardIdsFromGraveyardForCost',
-  'sacrificedPermanentIdsForCost',
+  'sacrificedPermanentIdsForCost', 'beamedUpPermanentIdsForCost', 'returnToHandForCost',
   'title',
 ] as const;
 

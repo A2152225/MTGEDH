@@ -3,6 +3,7 @@
 // Cluster moved: detectUpkeepTriggers (oracle-text upkeep trigger detection).
 // Public entry symbols: detectUpkeepTriggers.
 
+import { parseEchoNonManaCost } from "../echoNonManaCostParse.js";
 import { timingTriggerEffect } from "../triggers/timing-effect-extraction.js";
 import { isControllerOptionalTriggeredAbilityEffect } from "../trigger-runtime-wiring.js";
 import { getActivePermanentCardFace } from "../cardFaceOracle.js";
@@ -78,6 +79,24 @@ export function detectUpkeepTriggers(card: any, permanent: any, state?: any): Up
     }
   }
   
+  // B40 echo: Echo with a non-mana cost ("Echo\u2014Discard a card.", "Echo\u2014Pay N life.").
+  if (lowerOracle.includes("echo") && !permanent?.echoPaid && !/echo\s*\{/i.test(oracleText) && shouldTriggerEcho(state, permanent)) {
+    const echoAlt = parseEchoNonManaCost(oracleText);
+    if (echoAlt) {
+      triggers.push({
+        permanentId,
+        cardName,
+        triggerType: 'echo',
+        cost: echoAlt.label,
+        description: `${echoAlt.label} or sacrifice`,
+        mandatory: false,
+        consequence: `Sacrifice ${cardName}`,
+        controllerTrigger: true,
+        anyPlayerTrigger: false,
+      });
+    }
+  }
+
   // Fading - remove fade counter, sacrifice when none left
   if (lowerOracle.includes("fading")) {
     const fadeCounters = counters["fade"] || 0;

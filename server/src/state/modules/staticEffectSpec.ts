@@ -25,6 +25,7 @@ import { expireSourceLinkedPtModifiers } from './sourceLinkedPtModifiers.js';
 import { stampMissingPermanentTimestamps } from '../../../../rules-engine/src/permanentTimestamps.js';
 import { syncAuraControlChanges } from './staticEffectSpecAuraControl.js';
 import { collectActivatedAbilitiesExiledWithSource } from './staticEffectSpecCopyExiledActivated.js';
+import { collectBorrowedActivatedAbilities } from './staticEffectSpecBorrowedActivated.js';
 import { stampAttachedTypeSettingOverrides, typeSetOverrideIsCreature, typeSetOverrideSubtypes } from './attachedTypeSettingStamp.js';
 import {
   recordDeclarativeTypeAdditions,
@@ -491,6 +492,9 @@ export function applyDeclarativeStaticSpecs(
           spec.grant.copyActivatedFromExiledWithCardType,
         )
         : [];
+      if (spec.grant.borrowActivated) {
+        copiedActivated.push(...collectBorrowedActivatedAbilities(state, String(spec.sourcePermanentId || ''), spec.grant.borrowActivated));
+      }
       if (grantedAbilities.length > 0 || copiedActivated.length > 0) {
         const abilitySet = isCreaturePermanent(permanent)
           ? (() => {

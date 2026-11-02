@@ -895,6 +895,7 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
               onRandomizeStart={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
               playableCards={(safeView as any)?.playableCards}
               costAdjustments={(safeView as any)?.costAdjustments}
+              graveyardAbilityHints={(safeView as any)?.graveyardAbilityHints?.[you || '']}
               ignoredCardIds={ignoredCardIds}
               onIgnoreForAutoPass={(permanentId, cardName, imageUrl) => {
                 if (safeView?.id) {

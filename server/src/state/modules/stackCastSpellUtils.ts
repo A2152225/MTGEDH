@@ -1,3 +1,4 @@
+import { recordDilemmaFaced } from './triggers/trekPlayerEventTriggers.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid, cardManaValue } from '../utils.js';
@@ -443,6 +444,9 @@ export function castSpell(
 
   state.stack = state.stack || [];
   state.stack.push(stackItem as any);
+  // FACE A DILEMMA: choosing one or more modes (modal or spree) as the spell is cast.
+  const dilemmaModes = (Array.isArray(stackItem.selectedModes) ? stackItem.selectedModes.length : 0) + (Array.isArray(stackItem.selectedSpreeModes) ? stackItem.selectedSpreeModes.length : 0);
+  if (dilemmaModes > 0) recordDilemmaFaced(ctx, String(playerId), dilemmaModes);
 
   // Same-id duplicates are invalid physical-card state. Remove every residual
   // source-zone copy after the authoritative stack item has been created so a

@@ -1,13 +1,14 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import Database from 'better-sqlite3';
+import { resolveAuxDbFile } from './auxDbFile.js';
 import type { SavedDeckSummary, SavedDeckDetail, DeckFolder } from '../../../shared/src/decks';
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
 const DATA_DIR = path.join(process.cwd(), 'server', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const DB_FILE = path.join(DATA_DIR, 'mtgedh.sqlite');
+const DB_FILE = resolveAuxDbFile();
 const db = new Database(DB_FILE);
 
 db.pragma('journal_mode = WAL');

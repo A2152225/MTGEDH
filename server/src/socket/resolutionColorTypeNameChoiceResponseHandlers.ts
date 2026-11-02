@@ -14,6 +14,7 @@ import {
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
 import { debug, debugWarn } from "../utils/debug.js";
+import { rememberCommanderPregameColor } from "../state/modules/commanderPregameColorChoice.js";
 import { appendCastSpellContinuationEvent } from "./resolutionSyntheticCastSocketUtils.js";
 import { emitToPlayer, getPlayerName, persistAndResolveTopOfStack } from "./util.js";
 
@@ -137,6 +138,7 @@ export async function handleColorChoiceResponse(
   if (permanent.card && typeof permanent.card === 'object') {
     permanent.card.chosenColor = colorLower;
   }
+  rememberCommanderPregameColor(state, permanent, colorLower);
   
   // Append event for replay
   try {

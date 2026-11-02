@@ -12,6 +12,8 @@ import {
 } from './triggered-abilities.js';
 import { getAsEntersChoiceRequirements } from './asEntersChoiceRequirements.js';
 import { checkAsEntersCopyChoiceForNewPermanents } from './asEntersCopyChoice.js';
+import { hasCommanderPregameColorChoice, isPlayersCommander, applyRememberedCommanderPregameColor } from './commanderPregameColorChoice.js';
+import { hasAsEntersPayAnyLife, getAsEntersPayAnyLifeMax } from './asEntersPayAnyLife.js';
 
 export function queuePermanentAsEntersBattlefieldChoiceSteps(
   ctx: GameContext,
@@ -33,6 +35,40 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
   const isReplaying = !!(ctx as any).isReplaying;
 
   if (!isReplaying) {
+    // Pregame commander colour (Clara Oswald): reuse the remembered choice, else ask once now.
+    if (hasCommanderPregameColorChoice(effectiveCard) && !newPermanent.chosenColor && isPlayersCommander(state, String(controller), newPermanent)
+      && !applyRememberedCommanderPregameColor(state, String(controller), newPermanent)) {
+      queueResolveTopOfStackPrompt(ctx, {
+        type: ResolutionStepType.COLOR_CHOICE,
+        playerId: controller,
+        description: `Choose a color for your commander ${effectiveCard.name} (the choice made before the game begins)`,
+        mandatory: true,
+        sourceId: newPermId,
+        sourceName: effectiveCard.name || 'Commander',
+        sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+        colors: ['white', 'blue', 'black', 'red', 'green'],
+        reason: 'Commander color chosen before the game begins',
+        permanentId: newPermId,
+      } as any);
+    }
+    // R29: Minion of the Wastes / Nameless Race - "As this creature enters, pay any amount of life."
+    if (hasAsEntersPayAnyLife(effectiveCard) && typeof newPermanent.lifePaidOnEntry !== 'number') {
+      const maxLife = getAsEntersPayAnyLifeMax(state, String(controller), effectiveCard);
+      newPermanent.asEntersLifePaymentPending = true;
+      queueResolveTopOfStackPrompt(ctx, {
+        type: ResolutionStepType.NUMBER_CHOICE,
+        playerId: controller,
+        description: `Pay any amount of life as ${effectiveCard.name} enters (0-${maxLife})`,
+        mandatory: true,
+        sourceId: newPermId,
+        sourceName: effectiveCard.name || 'Permanent',
+        sourceImage: effectiveCard.image_uris?.small || effectiveCard.image_uris?.normal,
+        minValue: 0,
+        maxValue: maxLife,
+        asEntersPayAnyLife: true,
+        permanentId: newPermId,
+      } as any);
+    }
     const asEntersChoices = getAsEntersChoiceRequirements(effectiveCard);
     for (const requirement of asEntersChoices) {
       if (requirement.kind === 'color') {

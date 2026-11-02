@@ -25,6 +25,7 @@ import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/ind
 import { appendQueuedResolutionPromptEvent } from '../resolutionPromptEvents.js';
 import { queueDealsDamageToPlayerTriggersFromPermanent } from '../triggerLifeDamageUtils.js';
 import { emitNoncombatDamageEvent } from '../triggers/noncombat-deals-damage.js';
+import { markPermanentDealtDamage } from '../damageDealtFlag.js';
 import { processSpellCounteredTriggers } from '../spellCounteredTriggerUtils.js';
 import { debug, debugWarn } from '../../../utils/debug.js';
 import { normalizeFlickerReturnAt, resolveFlickerReturnAfterExile } from './executeSpellEffectFlickerHelpers.js';
@@ -248,6 +249,7 @@ export function executeSpellEffect(
               return { prevented: modifiedDmg <= 0, appliedAmount: modifiedDmg, usedMinusCounters: false };
             })();
         if (damageResult.prevented || damageResult.appliedAmount <= 0) break;
+        markPermanentDealtDamage(ctx, sourcePermanentId);
         emitNoncombatDamageEvent(ctx, { sourcePermanentId, sourceId, controller: String(caster || ''), sourceName: spellName, permanentIds: [String((perm as any).id)] });
         applySpellLifelinkGain(ctx, { sourcePermanentId, sourceId, caster: String(caster || ''), amount: damageResult.appliedAmount });
 
@@ -378,6 +380,7 @@ export function executeSpellEffect(
             queueDealsDamageToPlayerTriggersFromPermanent(ctx, String(sourcePermanentId), String(targetPlayerId), resolved.damageDealt);
           }
           if (resolved.damageDealt > 0) {
+            markPermanentDealtDamage(ctx, sourcePermanentId);
             emitNoncombatDamageEvent(ctx, { sourcePermanentId, sourceId, controller: String(caster || ''), sourceName: spellName, playerIds: [String(targetPlayerId)] });
             applySpellLifelinkGain(ctx, { sourcePermanentId, sourceId, caster: String(caster || ''), amount: resolved.damageDealt });
           }

@@ -51,7 +51,7 @@ export async function tryHandleActivatePlaneswalker(
     // Parse the planeswalker ability from oracle text
     // Scryfall oracle text uses plain format without brackets (e.g., "+1: Effect text")
     // The pattern matches various dash characters: regular minus (-), en dash (–), em dash (—), and Unicode minus (−)
-    const pwAbilityPattern = /^([+−–—-]?(?:\d+|X)):\s*(.+)/gm;
+    const pwAbilityPattern = /^([+−–—-]?(?:\d+|[Xx])):\s*(.+)/gm;
     const abilities: { loyaltyCost: number; text: string; isVariableLoyalty: boolean; isMinusX: boolean }[] = [];
     let pwMatch;
     // Printed lines first, then "Planeswalkers you control have \"[N]: ...\"" grants.

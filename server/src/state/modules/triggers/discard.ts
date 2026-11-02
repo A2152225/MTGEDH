@@ -12,6 +12,7 @@ import {
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 import { queueSelfDiscardTriggers } from './eventSpecificLegacyTriggers.js';
+import { getTurnScopedSpellTriggerSources } from './turnScopedSpellTriggers.js';
 
 export interface DiscardTrigger {
   permanentId: string;
@@ -142,7 +143,11 @@ export function getDiscardTriggers(
 ): DiscardTrigger[] {
   const cause = String(options?.causeControllerId || '').trim();
   const triggers: DiscardTrigger[] = [];
-  const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+  const battlefield = [
+    ...(Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : []),
+    // Spell-created "this turn, whenever ..." sources (Pure Intentions).
+    ...getTurnScopedSpellTriggerSources(ctx.state),
+  ];
 
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;

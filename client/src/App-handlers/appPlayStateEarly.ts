@@ -146,6 +146,9 @@ export function useAppPlayStateEarly(p: Record<string, any>) {
     maxValue: number;
     xCount?: number;
     affordableXHint?: number;
+    mandatory?: boolean; // UI38
+    asEntersPayAnyLife?: boolean; // UI38
+    cancellable?: boolean; // UI39
   } | null>(null);
 
   // Accordion state for Join / Active Games
@@ -349,6 +352,7 @@ export function useAppPlayStateEarly(p: Record<string, any>) {
   const [targetModalOpen, setTargetModalOpen] = useState(false);
   const [targetModalData, setTargetModalData] = useState<{
     title: string;
+    confirmLabel?: string;
     description?: string;
     source?: { name: string; imageUrl?: string };
     contextSteps?: string[];

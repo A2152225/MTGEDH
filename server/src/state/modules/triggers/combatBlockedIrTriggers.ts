@@ -16,6 +16,7 @@ import type { CombatTriggeredAbility } from "./combat-triggered-ability.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates } from "./triggerConditionFamilyMatch.js";
 import { appendEvent } from "../../../db/index.js";
 import { uid } from "../../utils.js";
+import { getTurnScopedSpellTriggerSources } from "./turnScopedSpellTriggers.js";
 
 function blockerIdsOf(attacker: any): string[] {
   if (Array.isArray(attacker?.blockedBy)) {
@@ -116,8 +117,10 @@ export function getParsedAttacksUnblockedTriggers(
   ));
   const out: CombatTriggeredAbility[] = [];
   const seen = new Set<string>();
+  // Spell-created "until end of turn, whenever a creature you control attacks and isn't blocked" (Gaze of Pain).
+  const sources = [...battlefield, ...getTurnScopedSpellTriggerSources(state)];
   for (const attacker of attackers) {
-    for (const permanent of battlefield) {
+    for (const permanent of sources) {
       if (!permanent?.card) continue;
       const lines = collectMatchingParsedEventLines({
         ctx,
@@ -195,6 +198,11 @@ export function queueParsedAttacksUnblockedTriggersOnce(ctx: any, defendingPlaye
       mandatory: trigger.mandatory,
       value: trigger.value,
       effectData: trigger.value,
+      // "If you do, ..." follow-up (Gaze of Pain), scheduled once the optional effect is accepted.
+      ...(trigger.reflexiveWhenYouDo ? { reflexiveWhenYouDo: trigger.reflexiveWhenYouDo } : {}),
+      ...(trigger.value?.attackingCreatureId && trigger.value.attackingCreatureId !== trigger.permanentId
+        ? { interveningIfSubjectPermanentId: trigger.value.attackingCreatureId }
+        : {}),
     });
     if (gameId && gameId !== 'unknown') {
       try {

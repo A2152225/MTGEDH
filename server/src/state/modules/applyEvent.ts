@@ -76,6 +76,7 @@ import { applySacrificeChoiceEvents } from "./apply-event-handlers/applyEventSac
 import { applyLibrarySearchEvents } from "./apply-event-handlers/applyEventLibrarySearchEvents.js";
 import { applyGroupVoteEvents } from "./apply-event-handlers/applyEventGroupVoteEvents.js";
 import { applyTriggerQueueEvents } from "./apply-event-handlers/applyEventTriggerQueueEvents.js";
+import { applyPlayerInitiatedCancelEvents } from "./apply-event-handlers/applyEventPlayerInitiatedCancelEvents.js";
 import { applyDungeonVoteEvents } from "./apply-event-handlers/applyEventDungeonVoteEvents.js";
 import { applyExecuteEffectEvents } from "./apply-event-handlers/applyEventExecuteEffectEvents.js";
 import { applyAttachmentEvents } from "./apply-event-handlers/applyEventAttachmentEvents.js";
@@ -86,6 +87,7 @@ import { applyActivateBattlefieldAbilityEvents } from "./apply-event-handlers/ap
 import { applyManualActionEvents } from "./apply-event-handlers/applyEventManualActionEvents.js";
 import { applyUpkeepPaidUntapEvents } from "./apply-event-handlers/applyEventUpkeepPaidUntapEvents.js";
 import { applyUntapCapChoiceEvents } from "./apply-event-handlers/applyEventUntapCapChoiceEvents.js";
+import { applyEquipCostPaymentEvents } from "./apply-event-handlers/applyEventEquipCostPaymentEvents.js";
 export { reset, skip, unskip, remove };
 
 
@@ -121,6 +123,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     if (applyLibrarySearchEvents(ctx, e)) return;
     if (applyGroupVoteEvents(ctx, e)) return;
     if (applyTriggerQueueEvents(ctx, e)) return;
+    if (applyPlayerInitiatedCancelEvents(ctx, e)) return;
     if (applyDungeonVoteEvents(ctx, e)) return;
     if (applyExecuteEffectEvents(ctx, e)) return;
     if (applyAttachmentEvents(ctx, e)) return;
@@ -131,6 +134,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     if (applyManualActionEvents(ctx, e)) return;
     if (applyUpkeepPaidUntapEvents(ctx, e)) return;
     if (applyUntapCapChoiceEvents(ctx, e)) return;
+    if (applyEquipCostPaymentEvents(ctx, e)) return;
     switch (e.type) {
 
       default: {

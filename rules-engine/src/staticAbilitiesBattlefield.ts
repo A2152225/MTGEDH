@@ -189,6 +189,17 @@ export function applyStaticAbilitiesToBattlefield(
     const goadedByStatic: string[] = [];
 
     for (const source of staticGoadSources) {
+      // R32: typal goad ("All Tribbles ... are goaded", Koloth) also goads the source controller's own creatures.
+      if (source.creatureType) {
+        const sub = typeLine.split(/[\u2014\u2013]| - /)[1] || '';
+        const isType = new RegExp('\\b' + source.creatureType + '\\b').test(sub)
+          || /\bchangeling\b/.test(String(card.oracle_text || '').toLowerCase());
+        if (isType) {
+          isStaticallyGoaded = true;
+          if (!goadedByStatic.includes(source.controller)) goadedByStatic.push(source.controller);
+        }
+        continue;
+      }
       if (perm.controller === source.controller) continue;
 
       if (source.requiresLowerPower) {
@@ -221,6 +232,8 @@ interface StaticGoadSource {
   controller: string;
   sourcePower: number;
   requiresLowerPower: boolean;
+  /** R32: "All <type>s ... are goaded" (singular, lowercase). */
+  creatureType?: string;
 }
 
 function collectStaticGoadSources(
@@ -235,6 +248,11 @@ function collectStaticGoadSources(
     if (!card) continue;
 
     const oracleText = (card.oracle_text || '').toLowerCase();
+
+    const typal = oracleText.match(/(?:^|\n|\. )all ([a-z]+?)s? (?:get [+-]\d+\/[+-]\d+ and )?are goaded\b/);
+    if (typal && typal[1] !== 'creature') {
+      sources.push({ permanentId: perm.id, controller: perm.controller, sourcePower: 0, requiresLowerPower: false, creatureType: typal[1] });
+    }
 
     if (oracleText.includes('creatures your opponents control') &&
         oracleText.includes('power less than') &&

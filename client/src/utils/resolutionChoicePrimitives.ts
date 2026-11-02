@@ -126,6 +126,12 @@ export interface PendingSpellXSelectionState {
   affordableXHint?: number;
   /** Mana paid per X (e.g. "{1}" for Well of Lost Dreams); drives the cost preview in the X modal. */
   costPerX?: string;
+  /** UI38: required step (no Cancel in the X modal). */
+  mandatory?: boolean;
+  /** UI38: Minion of the Wastes / Nameless Race "pay any amount of life" step. */
+  asEntersPayAnyLife?: boolean;
+  /** UI39: player-initiated mandatory X (cast X / Replicate / planeswalker X) the server lets the player back out of. */
+  cancellable?: boolean;
 }
 
 export function buildPendingSpellXSelectionFromStep(
@@ -142,6 +148,9 @@ export function buildPendingSpellXSelectionFromStep(
     affordableXHint: Number.isFinite(step.affordableXHint)
       ? Math.max(0, Number(step.affordableXHint))
       : undefined,
+    mandatory: step.mandatory === true,
+    asEntersPayAnyLife: step.asEntersPayAnyLife === true,
+    cancellable: step.spellCastXSelection === true || step.spellCastReplicateSelection === true || step.planeswalkerLoyaltyX === true,
   };
 }
 
@@ -301,12 +310,18 @@ export function buildLibrarySearchModalStateFromStep(
   const stepDescription = String(step.description || '').trim();
   const fromGraveyard = isGraveyardSourceLibrarySearchStep(step);
   const fromHand = isHandSourceLibrarySearchStep(step);
-  const defaultTitle = fromGraveyard
+  // UI40: linked-exile picks (Assimilation Assessor / Borg Cube 'a creature card exiled with it').
+  const fromExile = !fromGraveyard && !fromHand && String(step.searchZone || '') === 'exile';
+  const defaultTitle = fromExile
+    ? (sourceName ? `${sourceName}: Choose from exile` : 'Choose from exile')
+    : fromGraveyard
     ? (sourceName ? `${sourceName}: Choose from graveyard` : 'Choose from graveyard')
     : fromHand
       ? (sourceName ? `${sourceName}: Choose from hand` : 'Choose from hand')
       : (sourceName || 'Search Library');
-  const defaultDescription = fromGraveyard
+  const defaultDescription = fromExile
+    ? (searchCriteria || stepDescription || 'Choose an exiled card')
+    : fromGraveyard
     ? (searchCriteria || stepDescription || 'Choose a card from your graveyard')
     : fromHand
       ? (searchCriteria || stepDescription || 'Choose cards from your hand')

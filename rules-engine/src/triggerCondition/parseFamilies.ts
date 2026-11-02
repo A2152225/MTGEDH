@@ -15,6 +15,7 @@ import { parseRound13TriggerSentence } from './parseRound13Events.js';
 import { parseRound14TriggerSentence } from './parseRound14Events.js';
 import { parseRound15TriggerSentence } from './parseRound15Events.js';
 import { parseRound16TriggerSentence } from './parseRound16Events.js';
+import { parseRound37TrekTriggerSentence } from './parseRound37TrekEvents.js';
 import { normalizeTriggerClause, parseSubjectPhrase } from './parseSubjectPhrase.js';
 import type { TriggerConditionEvent, TriggerConditionIR, TriggerWhoseTurn } from './types.js';
 
@@ -345,6 +346,8 @@ export function parseTriggerEventSentence(sentence: string): ParsedTriggerEventS
   if (round15) return round15;
   const round16 = parseRound16TriggerSentence(text, parseTriggerEventSentence as any);
   if (round16) return round16;
+  const round37 = parseRound37TrekTriggerSentence(text, parseTriggerEventSentence as any);
+  if (round37) return round37;
   const match = /^(?:whenever|when)\s+(.+?)\s+(dies|enters(?: the battlefield)?(?: under your control)?|attacks|blocks|becomes tapped|becomes untapped)\s*,\s*(.+)$/.exec(text)
     // Plural verbs only with a batched subject ("one or more tokens you control enter").
     ?? /^(?:whenever|when)\s+(one or more .+?)\s+(enter(?: the battlefield)?(?: under your control)?|attack)\s*,\s*(.+)$/.exec(text);
@@ -441,9 +444,11 @@ export function parseTriggerEventSentence(sentence: string): ParsedTriggerEventS
     const combatDamage = /^(?:whenever|when)\s+(.+?)\s+deals? combat damage to (a player|an opponent|you|a creature),\s*(.+)$/.exec(text);
     if (combatDamage) {
       const toCreature = combatDamage[2] === 'a creature';
-      const subject = parseAttachmentOrSubject(combatDamage[1], toCreature ? 'deals_combat_damage_to_creature' : 'deals_combat_damage_to_player');
+      // Only attacking creatures deal combat damage to players, so "an attacking creature" is just "a creature" there (Harsh Justice).
+      const attackingCombatSubject = toCreature ? combatDamage[1] : combatDamage[1].replace(/^an? attacking\s+/, 'a ');
+      const subject = parseAttachmentOrSubject(attackingCombatSubject, toCreature ? 'deals_combat_damage_to_creature' : 'deals_combat_damage_to_player');
       const effect = combatDamage[3].trim();
-      if (subject && effect) return { condition: subject, effect };
+      if (subject && effect) return { condition: combatDamage[2] === 'you' ? { ...subject, damagedPlayer: 'you' as const } : subject, effect };
     }
     const counterPlaced = /^(?:whenever|when)\s+(a \+1\/\+1 counter|one or more \+1\/\+1 counters|a counter|one or more counters)\s+(?:is|are) put on\s+(.+?),\s*(.+)$/.exec(text);
     if (counterPlaced) {

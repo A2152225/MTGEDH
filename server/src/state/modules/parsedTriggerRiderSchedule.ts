@@ -40,7 +40,7 @@ export function scheduleParsedTriggerRiders(ctx: GameContext, item: any, control
   }
 
   const reflexive = item.reflexiveWhenYouDo;
-  if (!reflexive?.effect) return;
+  if (!reflexive?.effect || item.reflexiveFoldedIntoEffect === true) return;
   let riderController = controller;
   if (reflexive.actor === 'they') {
     riderController = String(item.thatPlayerId || item.triggeringPlayer || '').trim();
@@ -59,6 +59,25 @@ export function scheduleParsedTriggerRiders(ctx: GameContext, item: any, control
     triggerType: 'reflexive_when_you_do',
     mandatory: !/\byou may\b/i.test(reflexive.effect),
     ...(reflexive.delayed ? { delayedEndStep: reflexive.delayed } : {}),
+    // Keep the trigger's "it" binding (Gaze of Pain: "If you do, it assigns no combat damage").
+    ...(item.interveningIfSubjectPermanentId ? { interveningIfSubjectPermanentId: item.interveningIfSubjectPermanentId } : {}),
     ...(item.card ? { card: item.card } : {}),
   });
+}
+
+/**
+ * An optional ("you may") trigger whose may-choice is asked inside the Effect Program never
+ * reaches scheduleParsedTriggerRiders with the decision applied, so its "If you do / When you do"
+ * rider would be lost. Fold the rider back into the executed text so the program runs it only
+ * when the player accepts (Gaze of Pain: "If you do, it assigns no combat damage this turn").
+ */
+export function foldPendingOptionalReflexiveRider(item: any, effectText: string): string {
+  const reflexive = item?.reflexiveWhenYouDo;
+  if (!reflexive?.effect || reflexive.actor !== 'you' || reflexive.delayed || item.reflexiveFoldedIntoEffect === true) return effectText;
+  const effect = String(item.effect || item.description || '');
+  if (!/\byou may\b/i.test(effect) || item.optionalTriggeredAbilityDecisionApplied === true) return effectText;
+  const text = String(effectText || '').trim();
+  if (!text || /\b(?:if|when) you do\b/i.test(text)) return effectText;
+  item.reflexiveFoldedIntoEffect = true;
+  return `${text.replace(/[.\s]+$/, '')}. If you do, ${String(reflexive.effect).replace(/[.\s]+$/, '')}.`;
 }

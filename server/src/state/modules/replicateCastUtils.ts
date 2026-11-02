@@ -20,6 +20,45 @@ export function parseReplicateManaCost(oracleText: string): string | null {
   return cost || null;
 }
 
+const GRANTED_REPLICATE_RE = /\b([a-z ,]+?) spells you cast have replicate\s*((?:\{[^}]+\})+)/i;
+
+function spellMatchesGrantedTypes(card: any, typeWords: string): boolean {
+  const typeLine = String(card?.type_line || '').toLowerCase();
+  const words = String(typeWords || '').toLowerCase().split(/\s*(?:,|\band\b|\bor\b)\s*/).map(w => w.trim()).filter(Boolean);
+  if (words.length === 0) return false;
+  return words.some(w => w === 'all' || typeLine.includes(w.replace(/s$/, '')));
+}
+
+/** "Artifact spells you cast have replicate {2}{U}" (Hugh, First of Many) from permanents the caster controls. */
+export function getGrantedReplicateManaCost(state: any, playerId: PlayerID, card: any): string | null {
+  const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  for (const perm of battlefield) {
+    if (!perm || String(perm.controller || '') !== String(playerId)) continue;
+    const text = String(perm.card?.oracle_text || perm.oracle_text || '');
+    const m = text.match(GRANTED_REPLICATE_RE);
+    if (!m) continue;
+    if (spellMatchesGrantedTypes(card, m[1])) return m[2];
+  }
+  return null;
+}
+
+/** Printed replicate cost, else a grant stamped at cast time (grantedReplicateCost). */
+export function readReplicateManaCost(card: any, oracleText?: string): string | null {
+  return parseReplicateManaCost(String(oracleText || card?.oracle_text || ''))
+    || (String(card?.grantedReplicateCost || '').trim() || null);
+}
+
+/** Stamp a static replicate grant on the cast card(s) so later prompts and on-cast triggers see it. */
+export function stampGrantedReplicateCost(state: any, playerId: PlayerID, cards: any[], oracleText?: string): void {
+  const primary = cards.find(Boolean);
+  if (parseReplicateManaCost(String(oracleText || primary?.oracle_text || ''))) return;
+  const granted = getGrantedReplicateManaCost(state, playerId, primary);
+  for (const c of cards) {
+    if (!c || typeof c !== 'object') continue;
+    if (granted) c.grantedReplicateCost = granted; else delete c.grantedReplicateCost;
+  }
+}
+
 export function expandManaCostWithReplicate(
   baseManaCost: string,
   replicateCost: string | null | undefined,

@@ -1,6 +1,7 @@
 import type { BattlefieldPermanent, GameState } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { hasDefender } from './actions/combat';
+import { countDilemmasFacedThisTurn, countFederationCreatureTypes, countOpponentsAttackedThisTurn } from './trekCountBases';
 
 type TypeLineLower = (obj: unknown) => string;
 type IsAttackingObject = (obj: unknown) => boolean;
@@ -184,6 +185,15 @@ export function tryEvaluateModifyPtWhereMiscCounts(args: {
         return Number.isFinite(n) && n >= threshold;
       }).length;
     }
+  }
+
+  // R32 Battlefront / dilemma count bases (Martok, Worf, Captain Sisko).
+  if (/^x is the number of opponents you(?:'ve)? attacked this turn(?:\.|$)/i.test(raw)) return countOpponentsAttackedThisTurn(args.state, String(controllerId || ''));
+  if (/^x is the number of dilemmas you(?:'ve| have)? faced this turn(?:\.|$)/i.test(raw)) return countDilemmasFacedThisTurn(args.state, String(controllerId || ''));
+
+  {
+    const m = raw.match(/^x is the number of creature types among non-borg creatures you control$/i);
+    if (m) return countFederationCreatureTypes(controlled as any, String(controllerId || ''));
   }
 
   {

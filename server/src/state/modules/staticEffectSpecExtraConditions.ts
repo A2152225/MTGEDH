@@ -11,6 +11,7 @@ import { parsePhase5LordCondition } from './staticEffectSpec-handlers/staticEffe
 import { getEffectiveColors } from './effectiveColors.js';
 import { parseCommanderCondition } from './staticEffectSpecCommanderCondition.js';
 import { parseZoneCountCondition } from './staticEffectSpecZoneCountConditions.js';
+import { parseOpponentStateCondition } from './staticEffectSpecOpponentStateConditions.js';
 
 const COLOR_SYMBOL: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 
@@ -26,6 +27,8 @@ export function parseExtraSelfCondition(raw: string): StaticEffectCondition | nu
   if (commander) return commander as StaticEffectCondition;
   const zoneCount = parseZoneCountCondition(c);
   if (zoneCount) return zoneCount;
+  const opponentState = parseOpponentStateCondition(c);
+  if (opponentState) return opponentState;
   return parsePhase5LordCondition(c, '');
 }
 

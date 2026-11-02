@@ -26,6 +26,7 @@ import {
   resolveOptionalAutoChoice,
 } from './effectProgramOptionalAutoResolveUtils.js';
 import { debug, debugWarn } from '../../utils/debug.js';
+import { recordDilemmaFacedForModeChoice } from '../modules/triggers/trekPlayerEventTriggers.js';
 import {
   bridgeOracleIrEffectProgramRunEvents,
   maybeEmitDeclinedOptionalAbilityCopyFromEffectProgram,
@@ -225,6 +226,7 @@ export function resumeEffectProgramResolution(args: ResumeEffectProgramResolutio
   deleteRuntimeForStep(args.gameId, args.step.id);
 
   const choiceResponse = createEffectProgramChoiceResponse(args.step, args.response);
+  recordDilemmaFacedForModeChoice(args.game, args.step, choiceResponse);
   const runtime = bindEffectProgramChoiceResponse(stored.runtime, choiceResponse, metadata.effectProgramBindingKey);
 
   return continueEffectProgramResolution({

@@ -230,7 +230,7 @@ export interface TriggerConditionIR {
   /** "attacks you": the attack must target the player, not a planeswalker or battle. Needs context.attackedTargetIsPlayer. */
   readonly attackedTargetType?: 'player';
   /** "deals combat damage to enchanted player". Needs context.damagedPlayerId. */
-  readonly damagedPlayer?: 'enchanted';
+  readonly damagedPlayer?: 'enchanted' | 'you';
   /** "a land enchanted player controls enters". */
   readonly subjectControlledBy?: 'enchanted_player';
   /** Subject is a player ("you become the target"). Needs context.subjectIsPlayer. */

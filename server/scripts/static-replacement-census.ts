@@ -15,12 +15,17 @@ import { stripReminderParentheticals } from '../../rules-engine/src/oracleRemind
 import { parseStaticEffectSpecsFromOraclePermanent } from '../src/state/modules/staticEffectSpecOracleParsing.js';
 import { collectReplacementEffectSpecsFromState } from '../src/state/modules/replacementEffectSpec.js';
 import { classifyStaticCensusLine, staticFamilyKey } from './static-replacement-census-classify.js';
+import { INCLUDE_UPCOMING, includeCardInCensus, type CensusSelectableCard } from './census-card-filter.js';
 import { calculateVariablePT } from '../src/state/utils-handlers/variablePTCalculator.js';
 import { syncDerivedContinuousEffects } from '../src/state/modules/staticEffectSpec.js';
 import { getCurrentPowerToughness } from '../src/state/modules/currentPowerToughness.js';
 import { getEffectiveColors } from '../src/state/modules/effectiveColors.js';
 import { isCreatureNow, getCreatureTypesNow } from '../src/state/creatureTypeNow.js';
 import { landAwareTypeLine } from '../src/state/modules/effectiveLandTypeLine.js';
+import { permanentHasKeywordAbility } from '../../rules-engine/src/permanentKeywordAbilities.js';
+
+// R22: keywords observed by the board probe, so grants and losses ("enchanted creature loses flying") count.
+const PROBE_KEYWORDS = ['flying', 'hexproof', 'shroud', 'haste', 'trample', 'vigilance', 'first strike', 'double strike', 'deathtouch', 'lifelink', 'reach', 'indestructible', 'menace', 'defender', 'horsemanship'];
 
 /**
  * R18: behavioural probe for effects applied outside the spec pipeline (layer 4 type setting, land-type
@@ -42,13 +47,17 @@ function observableBoardDiffers(line: string, face: Face, cardName: string): boo
       mk('census-ally', 'Census Ally', 'Creature \u2014 Elf', { power: '1', toughness: '1', colors: ['G'] }),
       { ...mk('census-foe', 'Census Foe', 'Creature \u2014 Goblin', { power: '1', toughness: '1', colors: ['R'] }), controller: 'p2', owner: 'p2' },
       mk('census-forest', 'Forest', 'Basic Land \u2014 Forest'), mk('census-nonbasic', 'Census Land', 'Land'),
+      // R22: a Mountain for type-to-type changes (Conversion) and a land carrying any counter the line names (Omo).
+      mk('census-mountain', 'Mountain', 'Basic Land \u2014 Mountain'),
+      { ...mk('census-counter-land', 'Census Counter Land', 'Land'), counters: { [(/\bwith an? ([a-z]+) counter\b/i.exec(line)?.[1] || 'census').toLowerCase()]: 1 } },
       { ...mk('census-foe-land', 'Island', 'Basic Land \u2014 Island'), controller: 'p2', owner: 'p2' }, mk('census-artifact', 'Census Rock', 'Artifact')];
     const state: any = { battlefield: bf, stack: [], players: [{ id: 'p1', life: 40 }, { id: 'p2', life: 40 }], life: { p1: 40, p2: 40 }, turnPlayer: 'p1', zones: { p1: { hand: [], graveyard: [] }, p2: { hand: [], graveyard: [] } } };
     try { syncDerivedContinuousEffects(state); } catch { /* probe only */ }
     return JSON.stringify(bf.map((x) => {
       const safe = (fn: () => unknown) => { try { return fn(); } catch { return 'err'; } };
       return [safe(() => isCreatureNow(x)), safe(() => [...getCreatureTypesNow(x)].sort()), safe(() => landAwareTypeLine(state, x)),
-        safe(() => getCurrentPowerToughness(x, state)), safe(() => getEffectiveColors(x, state))];
+        safe(() => getCurrentPowerToughness(x, state)), safe(() => getEffectiveColors(x, state)),
+        safe(() => PROBE_KEYWORDS.filter((k) => permanentHasKeywordAbility(x, k, bf)))];
     }));
   };
   const base = snapshot('', NEUTRAL_NAME);
@@ -62,7 +71,7 @@ const TOP = Number((process.argv.find((a) => a.startsWith('--top=')) || '--top=4
 const SAMPLE = process.argv.find((a) => a.startsWith('--grep='))?.slice(7);
 
 type Face = { name?: string; oracle_text?: string; type_line?: string; power?: string; toughness?: string };
-type Card = Face & { oracle_id?: string; legalities?: Record<string, string>; card_faces?: Face[] };
+type Card = Face & CensusSelectableCard & { oracle_id?: string; card_faces?: Face[] };
 
 function isHandled(line: string, face: Face, cardName: string): { static: boolean; replacement: boolean } {
   const perm: any = {
@@ -100,9 +109,10 @@ async function main() {
   const byFamily = new Map<string, { scope: string; lines: number; cards: Set<string>; sample: string }>();
   const bySystem = new Map<string, number>();
   const seen = new Set<string>();
+  const unhandledLines: Array<{ card: string; set: string; scope: string; family: string; line: string }> = [];
   for await (const raw of iterateOracleCards(resolveOracleCardsPath(repoRoot))) {
     const card = raw as Card;
-    if (card.legalities?.commander !== 'legal') continue;
+    if (!includeCardInCensus(card)) continue;
     const oid = String(card.oracle_id || card.name);
     if (seen.has(oid)) continue;
     seen.add(oid);
@@ -127,6 +137,7 @@ async function main() {
         e.cards.add(String(card.name));
         if (!e.sample) e.sample = rawLine.trim().slice(0, 220);
         byFamily.set(key, e);
+        if (INCLUDE_UPCOMING) unhandledLines.push({ card: String(card.name), set: String(card.set || ''), scope: cls.scope, family: key, line: rawLine.trim() });
       }
     }
   }
@@ -146,6 +157,12 @@ async function main() {
     families: ranked.slice(0, 300).map(([key, v]) => ({ key, scope: v.scope, lines: v.lines, cards: v.cards.size, examples: [...v.cards].slice(0, 5), sample: v.sample })),
   };
   fs.mkdirSync(path.join(__dirname, 'out'), { recursive: true });
+  if (INCLUDE_UPCOMING) {
+    // Opt-in upcoming-set run: separate output, docs and the default JSON untouched.
+    fs.writeFileSync(path.join(__dirname, 'out', 'static-replacement-census-upcoming.json'), JSON.stringify({ ...json, includeUpcoming: true, unhandledLines }, null, 2));
+    console.log(`[include-upcoming] lines=${lines} handled=${handled} elsewhere=${elsewhere} unhandled=${unhandled} (static=${scopeTotals.static} replacement=${scopeTotals.replacement})`);
+    return;
+  }
   fs.writeFileSync(path.join(__dirname, 'out', 'static-replacement-census.json'), JSON.stringify(json, null, 2));
   // Run history survives regeneration: keep earlier rows from the existing doc and append this run.
   const docPath = path.join(repoRoot, 'docs', 'static-replacement-census.md');

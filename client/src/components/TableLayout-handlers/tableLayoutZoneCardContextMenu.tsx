@@ -22,6 +22,7 @@ export function TableLayoutZoneCardContextMenu(props: {
   you?: string | null;
   playableCards?: string[] | null;
   costAdjustments?: Record<string, any> | null;
+  graveyardAbilityHints?: Record<string, any[]> | null;
   ignoredCardsSet: Set<string>;
   setIgnoredCardsSet: React.Dispatch<React.SetStateAction<Set<string>>>;
   setZoneContextMenu: (value: TableLayoutZoneContextMenuState | null) => void;
@@ -42,6 +43,7 @@ export function TableLayoutZoneCardContextMenu(props: {
     you,
     playableCards,
     costAdjustments,
+    graveyardAbilityHints,
     ignoredCardsSet,
     setIgnoredCardsSet,
     setZoneContextMenu,
@@ -136,6 +138,7 @@ export function TableLayoutZoneCardContextMenu(props: {
         reasonCannotPlayLand: reasonCannotPlayLand?.(zoneContextMenu.card) ?? null,
       })}
       costAdjustment={costAdjustments?.[zoneContextMenu.card.id]}
+      graveyardAbilityHints={zoneContextMenu.zone === 'graveyard' ? graveyardAbilityHints?.[zoneContextMenu.card.id] : undefined}
     />
   );
 }

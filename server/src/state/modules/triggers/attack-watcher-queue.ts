@@ -593,6 +593,13 @@ export function planAttackWatcherQueue(
       return { kind: 'once' };
     case 'you_attack':
       if (sourceController !== attackingPlayer || attackingCreatures.length === 0) return { kind: 'skip' };
+      // "while creatures you control have total power N or greater": checked once, as attackers are declared.
+      if (Number((trigger as any).minTotalPower) > 0) {
+        const total = battlefield
+          .filter((p: any) => String(p?.controller || '') === sourceController && /\bcreature\b/i.test(String(p?.card?.type_line || '')))
+          .reduce((sum: number, p: any) => sum + (Number(getCurrentPowerToughnessForRules(p, ptState)?.power) || 0), 0);
+        if (total < Number((trigger as any).minTotalPower)) return { kind: 'skip' };
+      }
       return { kind: 'once' };
     case 'you_attack_with_commander':
     case 'commander_attacks': {

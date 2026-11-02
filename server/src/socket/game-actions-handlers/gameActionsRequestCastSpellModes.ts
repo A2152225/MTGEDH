@@ -46,6 +46,8 @@ import { queueReplicateCastCountPrompt } from "./replicateCastPrompt.js";
 import {
   expandManaCostWithReplicate,
   parseReplicateManaCost,
+  readReplicateManaCost,
+  stampGrantedReplicateCost,
   stampReplicateCount,
 } from "../../state/modules/replicateCastUtils.js";
 import type { RequestCastSpellCandidateZoneArgs } from "./gameActionsRequestCastSpellCandidateZone.js";
@@ -581,7 +583,8 @@ export function tryPromptRequestCastSpellModes(
       return;
     }
 
-    const replicateCost = parseReplicateManaCost(String(cardInHand?.oracle_text || oracleTextRaw || ''));
+    stampGrantedReplicateCost(game.state, playerId, [cardInHand, cardForCast], String(cardInHand?.oracle_text || oracleTextRaw || ''));
+    const replicateCost = readReplicateManaCost(cardInHand, String(cardInHand?.oracle_text || oracleTextRaw || ''));
     const chosenReplicateCount = Number.isFinite(options?.replicateCount)
       ? Math.max(0, Math.floor(Number(options?.replicateCount)))
       : undefined;

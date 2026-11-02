@@ -928,7 +928,11 @@ export function detectDoesntUntapEffects(card: any, permanent: any): DoesntUntap
   }
   
   // Global effect: "Creatures don't untap during their controllers' untap steps"
-  if (oracleText.includes('creatures') && oracleText.includes("don't untap") && oracleText.includes('controllers')) {
+  // Qualified subjects ("creatures with flying", "creatures with power 3 or greater", "nonbasic lands") are
+  // handled by untapQualifierProhibitions; only an unqualified (optionally colored) subject means all of them.
+  const unqualifiedCreatures = /(?:^|[.\n]\s*)(?:(?:white|blue|black|red|green)\s+)?creatures don't untap during their controllers'/.test(oracleText.replace(/\u2019/g, "'"));
+  const unqualifiedLands = /(?:^|[.\n]\s*)(?:lands|plains|islands|swamps|mountains|forests) don't untap during their controllers'/.test(oracleText.replace(/\u2019/g, "'"));
+  if (unqualifiedCreatures) {
     effects.push({
       permanentId,
       cardName,
@@ -941,7 +945,7 @@ export function detectDoesntUntapEffects(card: any, permanent: any): DoesntUntap
   }
   
   // Global effect: "Lands don't untap during their controllers' untap steps"
-  if (oracleText.includes('lands') && oracleText.includes("don't untap") && oracleText.includes('controllers')) {
+  if (unqualifiedLands) {
     effects.push({
       permanentId,
       cardName,

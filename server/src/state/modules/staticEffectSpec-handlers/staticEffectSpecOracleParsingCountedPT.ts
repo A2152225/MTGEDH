@@ -25,6 +25,21 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   const p = phrase.trim();
   let m = p.match(/^(other )?(artifact|creature|land|enchantment|planeswalker) you control$/);
   if (m) return { countBasis: 'controller_permanents_of_type', countCardType: m[2], ...(m[1] ? { countExcludeSource: true } : {}) };
+  // "for each legendary creature you control" (Benalish Honor Guard), "nontoken creature", "white creature".
+  m = p.match(/^(other )?((?:(?:legendary|nontoken|token|white|blue|black|red|green) )+)(artifact|creature|land|enchantment|planeswalker|permanent) you control$/);
+  if (m) {
+    const adjs = m[2].trim().split(/\s+/); const letters: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+    const q: Record<string, unknown> = {};
+    if (adjs.includes('legendary')) q.legendary = true;
+    if (adjs.includes('nontoken')) q.token = false; else if (adjs.includes('token')) q.token = true;
+    const colors = adjs.filter((a) => letters[a]).map((a) => letters[a]); if (colors.length) q.colors = colors;
+    return { countBasis: 'controller_permanents_of_type', countCardType: m[3] === 'permanent' ? '' : m[3], countQualifier: q, ...(m[1] ? { countExcludeSource: true } : {}) };
+  }
+  if (p === 'opponent whose life total is less than half their starting life total') return { countBasis: 'opponents_below_half_starting_life' as any };
+  if (p === 'transformed permanent you control') return { countBasis: 'controller_permanents_of_type', countCardType: '', countQualifier: { transformed: true } };
+  // "for each artifact and/or enchantment you control" (Nettlecyst).
+  m = p.match(/^(artifact|creature|land|enchantment|planeswalker) (?:and ?\/or|or) (artifact|creature|land|enchantment|planeswalker) you control$/);
+  if (m) return { countBasis: 'controller_permanents_of_type', countCardType: `(?:${m[1]}|${m[2]})` };
   m = p.match(/^([a-z]+) counters? (you|your opponents) have$/);
   if (m) return { countBasis: 'player_counters', countCounterType: m[1], countWho: m[2] === 'you' ? 'you' : 'opponents' };
   m = p.match(/^(other )?creature on the battlefield with ([a-z ]+)$/);
@@ -36,6 +51,9 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   if (m) return { countBasis: 'controller_lands_of_subtype', countCardType: m[1] };
   if (p === 'basic land type among lands you control') return { countBasis: 'controller_basic_land_types' };
   // Creature/artifact subtypes ("other Rat you control", "Equipment you control"): word-bounded type-line match.
+  // R32: "for each Officer token you control" (Academy Instructor): subtype tokens.
+  m = p.match(/^(other )?([a-z]+) token you control$/);
+  if (m && m[2] !== 'creature') return { countBasis: 'controller_permanents_of_type', countCardType: m[2], countQualifier: { token: true }, ...(m[1] ? { countExcludeSource: true } : {}) };
   m = p.match(/^(other )?([a-z]+) you control$/);
   if (m && !/^(card|permanent|token|spell|nonland|other)$/.test(m[2])) {
     return { countBasis: 'controller_permanents_of_type', countCardType: m[2], ...(m[1] ? { countExcludeSource: true } : {}) };

@@ -38,7 +38,7 @@ export function oracleGrantsSelfSpellFreeAlternateCost(oracleText: string): bool
 /**
  * Parse alternate costs from card oracle text
  */
-export function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName: string): AlternateCost[] {
+export function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName: string, grantedForetellCost?: string | null): AlternateCost[] {
   const costs: AlternateCost[] = [];
   const text = oracleText || '';
   const lowerText = text.toLowerCase();
@@ -376,12 +376,14 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
 
   // Foretell - exile face down, cast later for foretell cost
   const foretellMatch = text.match(/foretell\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-  if (foretellMatch) {
+  // UI36: a static-granted foretell cost (server grantedForetellCost) counts too.
+  const foretellCost = foretellMatch ? foretellMatch[1] : (grantedForetellCost || null);
+  if (foretellCost) {
     costs.push({
       id: 'foretell',
       label: 'Foretell',
       description: 'Cast from exile after foretelling',
-      manaCost: foretellMatch[1],
+      manaCost: foretellCost,
     });
   }
   

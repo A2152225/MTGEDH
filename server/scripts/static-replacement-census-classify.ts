@@ -1,5 +1,16 @@
 /** Line classification + family keys for static-replacement-census.ts. */
 import { parseCopyEntryExceptions } from '../src/state/modules/copyEntryExceptions.js';
+import { detectTriggerDoublers } from '../src/state/modules/triggers/trigger-doublers.js';
+import { parseGenericCountCDA } from '../src/state/utils-handlers/variablePTGenericCountCDA.js';
+import { parseBorrowedActivatedClause } from '../src/state/modules/staticEffectSpecBorrowedActivated.js';
+import { TREK_OTHER_SYSTEMS, stripStationThresholdPrefix } from './static-replacement-census-classify-trek.js';
+
+/** R27: a trigger-doubling line counts as handled when trigger-doublers parses it to a supported doubler. */
+function triggerDoublerHandles(line: string, cardName: string): boolean {
+  const perm = { id: 'census-doubler', controller: 'census', card: { name: cardName, oracle_text: line } };
+  const found = detectTriggerDoublers([perm], 'census');
+  return found.length > 0 && found.every((d: any) => !d.unsupportedReason);
+}
 
 const ABILITY_WORD = /^\s*[A-Za-z][A-Za-z' ]{0,40}?\s+(?:\u2014|--?)\s+/;
 
@@ -175,7 +186,7 @@ const OTHER_SYSTEMS: Array<[string, RegExp]> = [
   // B33 entries: families implemented or verified in batch 33.
   ['non-subtype creatures can\'t attack (combatBatch33AttackRestrictions)', /^non-[a-z]+ creatures you control can't attack$/i],
   ['control-count attack/block gate (combatBatch33AttackRestrictions)', /^~ can't (?:attack unless you control another (?:artifact|creature|enchantment|land|planeswalker)|attack unless you control more creatures than defending player|block unless you control more creatures than attacking player)$/i],
-  ['equip pay life (equipNonManaCosts)', /^equip(?: [a-z ]+)?\u2014pay n life$/i],
+  ['equip pay life (equipNonManaCosts)', /^equip(?: [a-z ]+)?\u2014pay \d+ life$/i],
   ['static convoke grant (casting-modifiers)', /^(?:creature |artifact )?spells you cast have convoke$/i],
   // B34 entries: families implemented or verified in batch 34.
   ['land play prohibition (playerActionProhibitions)', /^(?:players|you|your opponents|each player|each opponent) can't play lands$/i],
@@ -183,7 +194,55 @@ const OTHER_SYSTEMS: Array<[string, RegExp]> = [
   ['cast-this-turn attack gate (combatBatch34AttackRestrictions)', /^~ can't attack unless you've cast a (?:creature|noncreature) spell this turn$/i],
   ['additional land each player (calculateMaxLandsPerTurn)', /^each player may play an additional land on each of their turns$/i],
   ['self damage unpreventable (canDamageBePrevented)', /^damage that would be dealt by ~ can't be prevented$/i],
+  // B35 entries: families implemented or verified in batch 35.
+  ['self creature-cast prohibition (playerActionProhibitions)', /^(?:you|players|each player) can't cast creature spells$/i],
+  ['qualified untap prohibition (untapQualifierProhibitions)', /^creatures with (?:flying|reach|defender|horsemanship|shadow|haste|trample|power \d+ or (?:greater|less)) don't untap during their controllers' untap steps$/i],
+  ['keyword-qualified block evasion (combatQualifierBlockRestriction)', /^~ can't be blocked by creatures with (?:horsemanship|shadow|menace|vigilance|lifelink|indestructible)$/i],
+  // B36 entries: families implemented or verified in batch 36.
+  ['control-type attack gate (combatBatch36Restrictions)', /^~ can't attack unless you control an? (?:artifact|enchantment|planeswalker)$/i],
+  ['global flying block-only-flying (combatBatch36Restrictions)', /^creatures with flying can block only creatures with flying$/i],
+  ['nonbasic land untap prohibition (untapQualifierProhibitions)', /^nonbasic lands don't untap during their controllers' untap steps$/i],
+  // B43 entries: families implemented or verified in batch 43.
+  ['legend rule exemption (legendRuleExemptions)', /^the ["\u201c\u201d]?legend rule["\u201c\u201d]? doesn't apply(?: to (?:other )?[a-z ]+ you control)?\.?$/i],
+  ['global lands do not untap (detectDoesntUntapEffects)', /^lands don't untap during their controllers' untap steps\.?$/i],
+  ['group untap on other turns (turnPhaseUntapStepEffects)', /^untap all (?:creatures|lands|artifacts|permanents) you control during each other player's untap step\.?$/i],
+  // B42 entries: families implemented or verified in batch 42.
+  ['beam me up graveyard cast (interactionGraveyardCastBeamMeUp)', /^beam me up\s*(?:\{[^}]+\})+\.?$/i],
+  ['beam me up grant (getBeamMeUpInfo)', /^during your main phase, [^.]*cards? in your graveyard ha(?:ve|s) beam me up\b/i],
+  ['beam me up ineligibility (getEligibleCreaturesForBeamMeUp)', /can't be beamed up/i],
+  ['granted replicate (replicateCastUtils)', /^[a-z ,]+ spells you cast have replicate\s*(?:\{[^}]+\})+\.?$/i],
+  ['reveal-until-kind draw replacement (zonesDrawReplacementRevealUntilKind)', /^if you would draw a card, you may instead choose land or nonland and reveal cards from the top of your library until you reveal a card of the chosen (?:kind|type)/i],
+  // B41 entries: families implemented or verified in batch 41.
+  ['graveyard keyword non-mana cost (graveyardKeywordNonManaCost)', /^(?:eternalize|embalm|unearth)\u2014(?:pay \w+ \{e\}|(?:\{[^}]+\})+, discard an? card)$/i],
+  ['alternative reconfigure cost choice (targetSelectionEquipAlternativeCost)', /^reconfigure\u2014(?:pay )?(?:\{[^}]+\})+ or (?:\{[^}]+\})+$/i],
+  // B40 entries: families implemented or verified in batch 40.
+  ['echo non-mana cost (echoNonManaCost)', /^echo\u2014(?:discard an? card|pay \d+ life)$/i],
+  // B39 entries: families implemented or verified in batch 39.
+  ['alternative equip cost choice (targetSelectionEquipAlternativeCost)', /^equip\u2014(?:pay )?(?:\{[^}]+\})+ or (?:discard an? card|pay \d+ life|sacrifice an? (?:creature|artifact|enchantment|land))$/i],
+  ['opponent-caused sacrifice protection (sacrificeCauseProtection)', /^spells and abilities your opponents control can't cause you to sacrifice permanents$/i],
+  // B38 entries: families implemented or verified in batch 38.
+  ['equip sacrifice cost (targetSelectionEquipSacrificeCost)', /^equip\u2014sacrifice an? (?:creature|artifact|enchantment|land)$/i],
+  ['team counter-kind placement ban (counterPlacementRestrictions)', /^(?:other )?(?:creatures|permanents|artifacts) you control can't have [+-]\d+\/[+-]\d+ counters put on them$/i],
+  ['power-gated team blocker cap (combatBatch30BlockLimits)', /^each creature you control with power \d+ or greater can't be blocked by more than (?:one|two|\d+) creatures?$/i],
+  // B37 entries: families implemented or verified in batch 37.
+  ['already-attacked-player attack gate (combatBatch37Restrictions)', /^~ can't attack a player it has already attacked this turn$/i],
+  ['attached opponent-targeting protection (permanentTargeting)', /^(?:enchanted|equipped) creature can't be the target of spells or abilities your opponents control$/i],
+  ['color convoke grant (convokeColorGrants)', /^(?:white|blue|black|red|green|multicolored|colorless) spells you cast have convoke$/i],
+  ['equip discard cost (targetSelectionEquipDiscardCost)', /^equip\u2014discard a card$/i],
+  // R27 entries: families verified or wired in round 27 (layers worker).
+  ['firebending X (attack-detection resolveFirebendingAmount)', /^firebending x, where x is (?:~'s power|the number of creatures you control|the number of experience counters you have)$/i],
+  ['hand foretell grant (foretellGrants)', /^each (?:nonland )?card in your hand without foretell has foretell\. its foretell cost is equal to its mana cost reduced by \{\d+\}$/i],
+  ['pregame commander color (commanderPregameColorChoice)', /^if ~ is your commander, choose a colou?r before the game begins\. ~ is the chosen colou?r$/i],
+  // R28 entries (layers worker): runtime verified by tests/round28CensusGroups.unit.test.ts.
+  ['aura-spell target restriction (auraSpellTargetRestriction)', /^~ can't be the target of aura spells$/i],
+  ['graveyard scavenge grant (graveyardScavengeGrants)', /^each creature card in your graveyard has scavenge\. the scavenge cost is equal to its mana cost$/i],
+  ['CDA all hands count (variablePTCalculator)', /^~'s power and toughness are each equal to the total number of cards in all players' hands$/i],
+  // R29 entries (layers worker).
+  ['CDA life paid on entry (asEntersPayAnyLife)', /^~'s power and toughness are each equal to the life paid as it entered$/i],
+  ['as-enters pay any amount of life (asEntersPayAnyLife)', /^as (?:this creature|~) enters, pay any amount of life\b/i],
   ['saga / modal bullet text', /^exile this saga|^\u2022/i],
+  // R32 entries (Trek, control/static worker).
+  ...TREK_OTHER_SYSTEMS,
 ];
 
 export interface StaticCensusLineClass { scope: 'static' | 'replacement'; system?: string }
@@ -194,7 +253,7 @@ export function classifyStaticCensusLine(rawLine: string, cardName: string): Sta
   // Batch 19: saga/chapter lines are chapter triggers (CR 714.2b), and keyword lines with reminder text ("Enchant creature (Target ...)") are keywords, not statics.
   if (/^(?:i|ii|iii|iv|v|vi|vii)(?:\s*,\s*(?:i|ii|iii|iv|v|vi|vii))*\s*(?:\u2014|--?)\s+/i.test(line)) return null;
   if (/^enchant [a-z ,]+\(/i.test(line)) return null;
-  const body = line.replace(ABILITY_WORD, '');
+  const body = stripStationThresholdPrefix(line).replace(ABILITY_WORD, '');
   if (/^(?:when|whenever|at)\b/i.test(body)) return null;
   // Activated ability: a cost before a colon outside quotes (incl. loyalty +1:).
   const unquoted = body.replace(/"[^"]*"|\u201c[^\u201d]*\u201d/g, '""');
@@ -209,7 +268,10 @@ export function classifyStaticCensusLine(rawLine: string, cardName: string): Sta
   if (/\benter as a copy of\b[^"]*, except\b/i.test(body) && parseCopyEntryExceptions(body)) return { scope, system: 'copy entry exceptions (copyEntryExceptions)' };
   // R21: CR 122.1 counter placement restriction (counterPlacementRestrictions, applied in updateCounters).
   if (/^~ can't have counters put on it$/i.test(core)) return { scope, system: 'counter placement restriction (counterPlacementRestrictions)' };
+  if (/\btriggers? an additional time\b/i.test(core) && triggerDoublerHandles(body, cardName)) return { scope, system: 'trigger doubling (trigger-doublers)' };
   for (const [system, re] of OTHER_SYSTEMS) if (re.test(lower) || (core !== lower && re.test(core))) return { scope, system };
+  { const cda = /^~'s power and toughness are each equal to (.+?)\.?$/.exec(core); if (cda && parseGenericCountCDA(cda[1])) return { scope, system: 'generic count CDA (variablePTGenericCountCDA)' }; }
+  { const ba = /^(?:as long as [^,]+ is on the battlefield, )?(?:~|it) has all activated abilities of (.+?)\.?$/i.exec(core); if (ba && parseBorrowedActivatedClause(ba[1])) return { scope, system: 'borrowed activated abilities (staticEffectSpecBorrowedActivated)' }; }
   return { scope };
 }
 

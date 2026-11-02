@@ -18,6 +18,7 @@ import {
 } from "../../state/modules/graveyard-permissions.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { parseWordNumber } from "../../state/utils";
+import { cardHasPrintedScavenge, getGrantedScavengeCost } from "../../state/modules/graveyardScavengeGrants.js";
 import { canPermanentBeTargetedByPlayer } from "../../rules-engine/targeting.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { filterLibraryCardsForSearch } from "../library-search.js";
@@ -44,6 +45,7 @@ import {
   markCardLeftGraveyardLive,
   queueSelfEtbForLiveGraveyardEntry,
 } from "./interactionGraveyardCastCostAndTimingRules.js";
+import { handleUnearthOrEmbalmGraveyardAbility } from "./interactionGraveyardKeywordReturnAbilities.js";
 import { detectTutorEffect, parseSearchCriteria } from "./interactionTutorSearchCriteriaParsing.js";
 import { type EnsureInRoomAndSeated } from "./interactionRoomAndBattlefield.js";
 import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
@@ -110,7 +112,7 @@ export async function handleActivateGraveyardAbilityRequest(
   const oracleText = (card?.oracle_text || "").toLowerCase();
   
   // Handle different graveyard abilities
-  if (abilityId === "flashback" || abilityId === "jump-start" || abilityId === "retrace" || abilityId === "escape" || abilityId === "graveyard-cast") {
+  if (abilityId === "flashback" || abilityId === "jump-start" || abilityId === "retrace" || abilityId === "escape" || abilityId === "graveyard-cast" || abilityId === "beam-me-up") {
     const result = continueCastFromGraveyardAbility({
       gameId,
       game,
@@ -126,189 +128,9 @@ export async function handleActivateGraveyardAbilityRequest(
       broadcastGame(io, game, gameId);
     }
     return;
-  } else if (abilityId === "unearth") {
-    if (!enforceSorcerySpeedGraveyardAbility(socket, game, String(pid), 'Unearth')) {
-      return;
-    }
-
-    const printedUnearthInfo = getPrintedUnearthInfo(card);
-    const grantedUnearthInfo = printedUnearthInfo.hasIt ? { hasIt: false } : getGrantedUnearthInfo(game as any, pid as any, card);
-    if (!printedUnearthInfo.hasIt && !grantedUnearthInfo.hasIt) {
-      socket.emit("error", {
-        code: "ABILITY_NOT_AVAILABLE",
-        message: `${cardName} does not currently have unearth.`,
-      });
-      return;
-    }
-
-    const recordedManaCost = String(printedUnearthInfo.cost || grantedUnearthInfo.cost || '').trim();
-    if (recordedManaCost) {
-      const costAdjustment = adjustActivationManaCostForPayment({
-        state: game.state,
-        activatorId: String(pid),
-        sourceCard: card,
-        sourceZone: 'graveyard',
-        sourceController: String(pid),
-        sourceId: String(cardId),
-        isManaAbility: false,
-        manaCostString: recordedManaCost,
-        sourceName: cardName,
-      });
-      const effectiveManaCost = costAdjustment.adjustedManaCost || recordedManaCost;
-      const parsedCost = parseManaCost(effectiveManaCost);
-      const pool = getOrInitManaPool(game.state, pid);
-      const totalAvailable = calculateTotalAvailableMana(pool, []);
-      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-      if (validationError) {
-        socket.emit("error", {
-          code: "INSUFFICIENT_MANA",
-          message: `Cannot pay ${effectiveManaCost}: ${validationError}`,
-        });
-        return;
-      }
-      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
-    }
-
-    // Return to battlefield
-    zones.graveyard.splice(cardIndex, 1);
-    zones.graveyardCount = zones.graveyard.length;
-    markCardLeftGraveyardLive(game, pid, card);
-    
-    // Add to battlefield
-    game.state.battlefield = game.state.battlefield || [];
-      const createdPermanentId = generateId("perm");
-      const createdPermanent = {
-        id: createdPermanentId,
-      controller: pid,
-      owner: pid,
-      tapped: false,
-      wasUnearthed: true,
-      unearthed: true,
-      counters: {},
-        leaveBattlefieldReplacementDestination: 'exile',
-        leaveBattlefieldReplacementSourceName: cardName,
-        card: {
-          ...card,
-          zone: "battlefield",
-          unearth: true,
-          wasUnearthed: true,
-          leaveBattlefieldReplacementDestination: 'exile',
-          leaveBattlefieldReplacementSourceName: cardName,
-        },
-    } as any;
-      game.state.battlefield.push(createdPermanent);
-      stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
-      queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), createdPermanent);
-    const fireAtTurnNumber = getNextEndStepFireTurnNumber(game.state);
-    (game.state as any).pendingExileAtNextEndStep = Array.isArray((game.state as any).pendingExileAtNextEndStep)
-      ? (game.state as any).pendingExileAtNextEndStep
-      : [];
-    const pendingExileAtNextEndStep = (game.state as any).pendingExileAtNextEndStep as any[];
-    if (!pendingExileAtNextEndStep.some((entry: any) => String(entry?.permanentId || '') === String(createdPermanentId))) {
-      pendingExileAtNextEndStep.push({
-        permanentId: createdPermanentId,
-        fireAtTurnNumber,
-        sourceName: cardName,
-        createdBy: pid,
-      });
-    }
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    
-    appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
-      playerId: pid,
-      cardId,
-      abilityId,
-      manaCost: recordedManaCost || undefined,
-      createdPermanentIds: [createdPermanentId],
-    });
-    
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} unearthed ${cardName}.`,
-      ts: Date.now(),
-    });
-  } else if (abilityId === "embalm" || abilityId === "eternalize") {
-    if (!enforceSorcerySpeedGraveyardAbility(socket, game, String(pid), abilityId === 'eternalize' ? 'Eternalize' : 'Embalm')) {
-      return;
-    }
-
-    const printedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
-    const hasPrintedAbility = abilityId === 'embalm'
-      ? /\bembalm\b/i.test(String(card?.oracle_text || card?.oracleText || ''))
-      : /\beternalize\b/i.test(String(card?.oracle_text || card?.oracleText || ''));
-    const grantedEmbalmInfo = abilityId === 'embalm' && !hasPrintedAbility
-      ? getGrantedEmbalmInfo(game as any, pid as any, card)
-      : { hasIt: false };
-    if (!hasPrintedAbility && !grantedEmbalmInfo.hasIt) {
-      socket.emit("error", {
-        code: "ABILITY_NOT_AVAILABLE",
-        message: `${cardName} does not currently have ${abilityId}.`,
-      });
-      return;
-    }
-
-    const recordedManaCost = String(printedManaCost || grantedEmbalmInfo.cost || '').trim();
-    if (recordedManaCost) {
-      const parsedCost = parseManaCost(recordedManaCost);
-      const pool = getOrInitManaPool(game.state, pid);
-      const totalAvailable = calculateTotalAvailableMana(pool, []);
-      const validationError = validateManaPayment(totalAvailable, parsedCost.colors, parsedCost.generic);
-      if (validationError) {
-        socket.emit("error", {
-          code: "INSUFFICIENT_MANA",
-          message: `Cannot pay ${recordedManaCost}: ${validationError}`,
-        });
-        return;
-      }
-      consumeManaFromPool(pool, parsedCost.colors, parsedCost.generic, `[activateGraveyardAbility:${cardName}]`);
-    }
-
-    // Exile original from graveyard
-    zones.graveyard.splice(cardIndex, 1);
-    zones.graveyardCount = zones.graveyard.length;
-    markCardLeftGraveyardLive(game, pid, card);
-    
-    // Move to exile
-    zones.exile = zones.exile || [];
-    zones.exile.push({ ...card, zone: "exile" });
-    zones.exileCount = zones.exile.length;
-    
-    game.state.battlefield = game.state.battlefield || [];
-    const createdPermanentId = generateId("token");
-    const createdToken = buildEmbalmOrEternalizeTokenPermanent(
-      card,
-      abilityId as 'embalm' | 'eternalize',
-      String(pid),
-      createdPermanentId,
-    );
-    game.state.battlefield.push(createdToken as any);
-    stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
-    queueSelfEtbForLiveGraveyardEntry(game, gameId, String(pid), createdToken);
-    
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
-    }
-    
-    appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
-      playerId: pid,
-      cardId,
-      abilityId,
-      manaCost: recordedManaCost || undefined,
-      createdPermanentIds: [createdPermanentId],
-    });
-    
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} created a token copy of ${cardName} using ${abilityId}.`,
-      ts: Date.now(),
-    });
+  } else if (abilityId === "unearth" || abilityId === "embalm" || abilityId === "eternalize") {
+    // B41: moved to interactionGraveyardKeywordReturnAbilities.ts (adds non-mana keyword costs).
+    if (!handleUnearthOrEmbalmGraveyardAbility({ io, socket, game, gameId, pid: String(pid), card, cardId: String(cardId), cardIndex, cardName, zones, abilityId, generateId })) return;
   } else if (abilityId === "return-from-graveyard" || abilityId === "graveyard-activated" || (abilityId && abilityId.includes("-return-"))) {
     // Generic return from graveyard ability (like Magma Phoenix, Summon the School)
     // Parse the oracle text to determine the destination and mana cost
@@ -608,7 +430,14 @@ export async function handleActivateGraveyardAbilityRequest(
             return;
           }
 
-    const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
+    // R28: Varolz / Young Deathclaws grant scavenge (cost = the card's mana cost) to graveyard creature cards.
+    const printedScavenge = cardHasPrintedScavenge(card);
+    const grantedScavengeCost = printedScavenge ? undefined : getGrantedScavengeCost(game.state, String(pid), card);
+    if (!printedScavenge && !grantedScavengeCost) {
+      socket.emit('error', { code: 'ABILITY_NOT_AVAILABLE', message: `${cardName} does not have scavenge.` });
+      return;
+    }
+    const recordedManaCost = String((printedScavenge ? getKeywordGraveyardActivationManaCost(card, abilityId) : grantedScavengeCost) || '').trim();
     if (recordedManaCost) {
       const parsedCost = parseManaCost(recordedManaCost);
       const pool = getOrInitManaPool(game.state, pid);

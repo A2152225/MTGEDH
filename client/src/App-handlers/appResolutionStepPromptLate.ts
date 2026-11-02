@@ -3,6 +3,7 @@
 // Public entry symbols: handleAppResolutionStepPromptLate.
 // Leaf must not import App.tsx or App-handlers/index.ts.
 
+import { getReturnToHandCostPresentation } from '../utils/beamMeUpUi';
 import type { CastingMode } from "../components/CastingModeSelectionModal";
 import type { JoinForcesRequest } from "../components/JoinForcesModal";
 import type { SpellMode } from "../components/ModalSpellSelectionModal";
@@ -692,11 +693,13 @@ export function handleAppResolutionStepPromptLate(
               }))
             : undefined;
         
+        const returnCostUi = getReturnToHandCostPresentation(step); // UI41 beam me up / return-to-hand costs
         setTargetModalData({
           cardId: step.sourceId || '',
           source: { name: step.sourceName || 'Effect', imageUrl: step.sourceImage },
-          title: step.description || `Choose target`,
-          description: (selectedModeUi?.description && (!step.targetDescription || step.targetDescription === 'target')
+          title: returnCostUi?.title || step.description || `Choose target`,
+          ...(returnCostUi ? { confirmLabel: returnCostUi.confirmLabel } : {}),
+          description: returnCostUi ? returnCostUi.description : (selectedModeUi?.description && (!step.targetDescription || step.targetDescription === 'target')
             ? selectedModeUi.description
             : (step.targetDescription || (step.type === 'mentor_target'
               ? 'Choose an attacking creature with lesser power.'

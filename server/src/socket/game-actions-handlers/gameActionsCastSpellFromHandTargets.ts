@@ -15,6 +15,7 @@ import {
   evaluateTargeting,
 } from "../../rules-engine/targeting";
 import { resolveCastSpellParsedTargeting } from "./gameActionsCastSpellParsedTargeting.js";
+import { permanentRejectsAuraSpellTargets } from "../../rules-engine/auraSpellTargetRestriction.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug, debugError } from "../../utils/debug.js";
 import { getPlayerName } from "../util";
@@ -246,6 +247,10 @@ export function tryPromptCastSpellTargetsFromHand(
             }));
         }
         
+        // R22: "~ can't be the target of Aura spells" (Bartel Runeaxe).
+        validTargets = validTargets.filter((t: any) => t.kind !== 'permanent'
+          || !permanentRejectsAuraSpellTargets((game.state.battlefield || []).find((p: any) => p.id === t.id)));
+
         if (validTargets.length === 0) {
           socket.emit("error", {
             code: "NO_VALID_TARGETS",

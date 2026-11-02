@@ -64,6 +64,7 @@ export function TargetSelectionModal({
   damagePreview,
   offerRepeatForIdenticalTriggers = false,
   identicalTriggersWaiting,
+  confirmLabel,
   onConfirm,
   onCancel,
 }: TargetSelectionModalProps) {
@@ -791,7 +792,7 @@ export function TargetSelectionModal({
               fontWeight: 500,
             }}
           >
-            Confirm Targets
+            {confirmLabel || 'Confirm Targets'}
           </button>
         </div>
       </div>

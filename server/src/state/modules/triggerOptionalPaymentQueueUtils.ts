@@ -1,3 +1,4 @@
+import { maybeQueueEchoNonManaCostTrigger } from './echoNonManaCost.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug, debugWarn } from '../../utils/debug.js';
@@ -553,6 +554,10 @@ export function tryDeferOptionalTriggerPaymentPrompts(
   }
   if (maybeQueueCumulativeUpkeepTriggeredAbility(ctx, item, triggerController, sourceName, sourceId, trimmedDescription)) {
     debug(2, `[resolveTopOfStack] Deferred cumulative upkeep payment for ${sourceName} (${triggerController})`);
+    return true;
+  }
+  if (String((item as any)?.triggerType || '') === 'echo' && maybeQueueEchoNonManaCostTrigger(ctx, item, triggerController, sourceName, sourceId, trimmedDescription)) {
+    debug(2, `[resolveTopOfStack] B40 echo: deferred non-mana echo payment for ${sourceName} (${triggerController})`);
     return true;
   }
   if (maybeQueueEchoTriggeredAbility(ctx, item, triggerController, sourceName, sourceId, trimmedDescription)) {

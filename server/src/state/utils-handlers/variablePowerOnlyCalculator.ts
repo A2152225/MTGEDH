@@ -3,6 +3,8 @@
 // is variable and toughness is printed (Snow Villiers */3, Haughty Djinn */4, Filigree Attendant */3), and the
 // toughness-only mirror (People of the Woods 1/*, Treefolk Seedlings 2/*, Tymaret's devotion 2/*).
 
+import { countDifferentlyNamedLands, countFederationCreatureTypes } from '../../../../rules-engine/src/trekCountBases.js';
+
 function typeLineOf(obj: any): string {
   return String(obj?.card?.type_line ?? obj?.type_line ?? '').toLowerCase();
 }
@@ -39,6 +41,12 @@ export function countPowerOnlyPhrase(phrase: string, battlefield: any[], zones: 
     const sub = m[1] === 'plains' ? 'plains' : m[1].slice(0, -1);
     return mine.filter((perm: any) => new RegExp('\\b' + sub + '\\b').test(typeLineOf(perm))).length;
   }
+  // R32: "the number of artifact creatures you control" (Collective Drone).
+  m = p.match(/^(artifact|enchantment|legendary|land) creatures you control$/);
+  if (m) return mine.filter((perm: any) => /\bcreature\b/.test(typeLineOf(perm)) && new RegExp('\\b' + m![1] + '\\b').test(typeLineOf(perm))).length;
+  // Strange new worlds (The Traveler) / Federation count bases.
+  if (p === 'differently named lands you control') return countDifferentlyNamedLands(battlefield, controllerId);
+  if (p === 'creature types among non-borg creatures you control') return countFederationCreatureTypes(battlefield, controllerId);
   if (p === 'cards in your hand') return zones?.[controllerId]?.handCount ?? zones?.[controllerId]?.hand?.length ?? 0;
   return undefined;
 }

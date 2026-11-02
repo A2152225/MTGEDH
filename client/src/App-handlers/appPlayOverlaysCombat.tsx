@@ -230,6 +230,12 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
         affordableXHint={pendingSpellXSelection?.affordableXHint}
         costPerX={pendingSpellXSelection?.costPerX}
         selectionLabel={/replicate/i.test(pendingSpellXSelection?.description || '') ? 'Replicate' : undefined}
+        mandatory={(pendingSpellXSelection?.mandatory === true && pendingSpellXSelection?.cancellable !== true) || pendingSpellXSelection?.asEntersPayAnyLife === true || /^pay any amount of life/i.test(pendingSpellXSelection?.description || '')}
+        {...((pendingSpellXSelection?.asEntersPayAnyLife || /^pay any amount of life/i.test(pendingSpellXSelection?.description || '')) ? {
+          // UI38: Minion of the Wastes / Nameless Race asEntersPayAnyLife flag (text match is only a fallback); 0 is valid
+          titleText: 'Pay any amount of life',
+          confirmText: (n: number) => `Pay ${n} life`,
+        } : {})}
         onSelect={(xValue) => {
           if (!safeView || !pendingSpellXSelection) return;
           socket.emit('submitResolutionResponse', {

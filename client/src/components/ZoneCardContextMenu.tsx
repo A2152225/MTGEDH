@@ -11,6 +11,7 @@
  * - Discard (for hand)
  */
 
+import { mergeGraveyardAbilityHints, type GraveyardAbilityHintLike } from '../utils/beamMeUpUi';
 import React, { useEffect, useRef, useState } from 'react';
 import type { CardCostAdjustment, KnownCardRef } from '../../../shared/src';
 import { parseActivatedAbilities } from '../utils/activatedAbilityParser';
@@ -46,6 +47,8 @@ export interface ZoneCardContextMenuProps {
   reasonCannotPlayLand?: string | null;
   reasonCannotCycle?: string | null;
   costAdjustment?: CardCostAdjustment;
+  /** UI41: server graveyard ability hints for this card (beam me up, granted casts, ...). */
+  graveyardAbilityHints?: GraveyardAbilityHintLike[] | null;
 }
 
 /**
@@ -199,8 +202,8 @@ function parseZoneAbilities(card: KnownCardRef, zone: ZoneType): Array<{ id: str
         cost: parsedCyclingAbility.cost,
       });
     }
-    // Foretell (pay {2} to exile face-down)
-    if (oracleText.includes('foretell')) {
+    // Foretell (pay {2} to exile face-down); UI36: also when a static grants it (server grantedForetellCost)
+    if (oracleText.includes('foretell') || (card as any)?.grantedForetellCost) {
       abilities.push({
         id: 'foretell',
         label: 'Foretell',
@@ -248,6 +251,7 @@ export function ZoneCardContextMenu({
   reasonCannotCast,
   reasonCannotPlayLand,
   costAdjustment,
+  graveyardAbilityHints,
 }: ZoneCardContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x, y });
@@ -257,7 +261,7 @@ export function ZoneCardContextMenu({
   const imageUrl = card?.image_uris?.small || card?.image_uris?.normal;
 
   // Parse zone-specific abilities
-  const zoneAbilities = parseZoneAbilities(card, zone);
+  const zoneAbilities = mergeGraveyardAbilityHints(parseZoneAbilities(card, zone), zone, graveyardAbilityHints);
 
   // Adjust position to keep menu on screen
   useEffect(() => {

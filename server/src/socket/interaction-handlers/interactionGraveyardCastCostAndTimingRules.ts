@@ -34,10 +34,60 @@ import { triggerETBEffectsForPermanent } from "../../state/modules/triggerEtbPer
 import { parseWordNumber } from "../../state/utils";
 import { detectAdditionalCost } from "../land-helpers.js";
 
+// B42: Beam me up (Star Trek). "Beam me up {cost}" lets you cast this card from your graveyard by paying
+// {cost} and returning a creature you control to its owner's hand; it is exiled when it leaves the stack.
+// Scotty grants it ("During your main phase, ... instant and sorcery cards in your graveyard have beam me up
+// ... equal to its mana cost"). Creatures that "can't be beamed up" (Marooned, Scotty) can't pay the cost.
+export const BEAM_ME_UP_COST_RE = /\bbeam me up\s*(?:\u2014|-)?\s*((?:\{[^}]+\}\s*)+)/i;
+const BEAM_ME_UP_GRANT_RE = /\b(instant and sorcery|instant|sorcery)? ?cards? in your graveyard ha(?:ve|s) beam me up\b/i;
+const CANT_BE_BEAMED_UP_RE = /can't be beamed up|can\u2019t be beamed up/i;
+
+export function getBeamMeUpInfo(card: any, context?: { game?: any; playerId?: string }): { hasIt: boolean; cost?: string; grantSourceIds?: string[] } {
+  const oracleText = String(card?.oracle_text || card?.oracleText || '');
+  const printed = oracleText.match(BEAM_ME_UP_COST_RE);
+  if (printed && !/\bha(?:ve|s) beam me up\b/i.test(oracleText)) return { hasIt: true, cost: printed[1].replace(/\s+/g, '') };
+  const state = (context?.game as any)?.state || context?.game;
+  const playerId = String(context?.playerId || '');
+  if (!state || !playerId) return { hasIt: false };
+  const phase = String(state.phase || '').toLowerCase();
+  const step = String(state.step || '').toUpperCase();
+  const myMain = String(state.turnPlayer || state.activePlayer || '') === playerId && (phase.includes('main') || step.includes('MAIN'));
+  if (!myMain) return { hasIt: false };
+  const typeLine = String(card?.type_line || card?.typeLine || '').toLowerCase();
+  const grantSourceIds: string[] = [];
+  for (const perm of Array.isArray(state.battlefield) ? state.battlefield : []) {
+    if (!perm || String(perm.controller || '') !== playerId) continue;
+    const m = String(perm.card?.oracle_text || '').match(BEAM_ME_UP_GRANT_RE);
+    if (!m) continue;
+    const kinds = String(m[1] || 'instant and sorcery').toLowerCase();
+    const ok = (kinds.includes('instant') && typeLine.includes('instant')) || (kinds.includes('sorcery') && typeLine.includes('sorcery'));
+    if (ok) grantSourceIds.push(String(perm.id));
+  }
+  const cost = String(card?.mana_cost || card?.manaCost || '').trim();
+  return grantSourceIds.length > 0 && cost ? { hasIt: true, cost, grantSourceIds } : { hasIt: false };
+}
+
+/** Creatures the player controls that can be returned to hand to pay a beam me up cost. */
+export function getEligibleCreaturesForBeamMeUp(state: any, playerId: string): any[] {
+  const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  return battlefield.filter((perm: any) => {
+    if (!perm || String(perm.controller || '') !== String(playerId) || perm.phasedOut) return false;
+    if (!String(perm.card?.type_line || '').toLowerCase().includes('creature')) return false;
+    if (CANT_BE_BEAMED_UP_RE.test(String(perm.card?.oracle_text || ''))) return false;
+    return !battlefield.some((other: any) => other && String(other.attachedTo || '') === String(perm.id)
+      && /enchanted (?:creature|permanent)[^.]*(?:can't|can\u2019t) be beamed up/i.test(String(other.card?.oracle_text || '')));
+  });
+}
+
 export function getCastFromGraveyardActivationCost(card: any, abilityId: string, context?: { game?: any; playerId?: string }): { manaCost?: string; lifeCost?: number; hasAbility?: boolean } {
   const oracleText = String(card?.oracle_text || '');
   const normalizedAbilityId = String(abilityId || '').trim().toLowerCase();
   const printedManaCost = String(card?.mana_cost || card?.manaCost || '').trim();
+
+  if (normalizedAbilityId === 'beam-me-up') {
+    const beam = getBeamMeUpInfo(card, context);
+    return beam.hasIt ? { manaCost: beam.cost || undefined, hasAbility: true } : { hasAbility: false };
+  }
 
   if (normalizedAbilityId === 'graveyard-cast') {
     const printedSelfCastInfo = context?.game && context.playerId

@@ -183,6 +183,9 @@ export async function handleSpellPaymentChoiceResponse(
       exiledCardIdsFromGraveyardForCost: Array.isArray(stepData.exiledCardIdsFromGraveyardForCost)
         ? stepData.exiledCardIdsFromGraveyardForCost.map((id: any) => String(id)).filter(Boolean)
         : undefined,
+      beamedUpPermanentIdsForCost: Array.isArray(stepData.beamedUpPermanentIdsForCost)
+        ? stepData.beamedUpPermanentIdsForCost.map((id: any) => String(id)).filter(Boolean)
+        : undefined,
       sacrificedPermanentIdsForCost: Array.isArray(stepData.sacrificedPermanentIdsForCost)
         ? stepData.sacrificedPermanentIdsForCost.map((id: any) => String(id)).filter(Boolean)
         : undefined,

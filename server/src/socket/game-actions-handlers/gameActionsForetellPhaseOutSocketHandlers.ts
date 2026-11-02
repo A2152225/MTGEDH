@@ -19,6 +19,7 @@ import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { broadcastGame, ensureGame, getPlayerName, payGenericManaWithAvailableSources } from "../util";
 import { queueParsedKeywordAction } from "../../state/modules/triggerEmissionFamilyUtils.js";
 import type { EnsureInGameRoom } from "./gameActionsSocketRoomGuard.js";
+import { getGrantedForetellCost } from "../../state/modules/foretellGrants.js";
 
 // ==========================================================================
 // FORETELL SUPPORT
@@ -67,7 +68,9 @@ export async function handleForetellCardRequest(
     const hasForetellKeyword = Array.isArray(keywords)
       ? keywords.some((entry: unknown) => String(entry || '').toLowerCase() === 'foretell')
       : /\bforetell\b/i.test(String(keywords || ''));
-    if (!/\bforetell\b/i.test(oracleText) && !hasForetellKeyword) {
+    // Dream Devourer / Bohn: battlefield grant of foretell to cards in hand.
+    const grantedForetellCost = getGrantedForetellCost(game.state, String(playerId), card);
+    if (!grantedForetellCost && !/\bforetell\b/i.test(oracleText) && !hasForetellKeyword) {
       socket.emit("error", { code: "NO_FORETELL", message: "This card doesn't have foretell" });
       return;
     }
@@ -91,7 +94,7 @@ export async function handleForetellCardRequest(
 
     // Parse the later-turn cast cost (not the {2} exile cost)
     const foretellCostMatch = oracleText.match(/\bforetell\b\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
-    const foretellCost = foretellCostMatch ? foretellCostMatch[1] : '{2}';
+    const foretellCost = grantedForetellCost || (foretellCostMatch ? foretellCostMatch[1] : '{2}');
 
     // Remove from hand
     (zones.hand as any[]).splice(cardIndex, 1);

@@ -28,7 +28,9 @@ import { normalizeOracleText, resolvePlayers } from './oracleIRExecutorPlayerUti
 import {
   cardMatchesMoveZoneSingleTargetCriteria,
   cardMatchesType,
+  findCardsExiledWithSource,
   parseMoveZoneAnyNumberCardsFromYourHand,
+  parseMoveZoneCreatureCardExiledWithSource,
   parseMoveZoneAnyNumberTypedFromYourHand,
   parseMoveZoneSingleTargetCriteria,
   parseMoveZoneTypedCardFromYourHand,
@@ -88,6 +90,15 @@ function resolveMoveZoneSelectionPool(
   const combined = `${whatText} ${raw}`.toLowerCase();
   const player = state.players.find((entry) => entry.id === playerId) as any;
 
+  // UI40: 'a creature card exiled with it' (Assimilation Assessor / Borg Cube) picks from the source's linked exile.
+  if (/\bexiled with (?:it|this)\b/i.test(whatText)) {
+    const sourceId = String(ctx.sourceId || '').trim();
+    return sourceId ? findCardsExiledWithSource(state, sourceId, { cardType: 'any' } as any).map((m) => m.card) : [];
+  }
+  // UI40: 'one of the creature cards revealed this way' (Gift of Perfection) picks from the reveal ledger.
+  if (/^one of the .*\brevealed this way$/i.test(whatText)) {
+    return [...(collectRevealedThisWayCardsLedgerFirst(ctx, step) as any[])];
+  }
   if (/milled this way|among the cards milled/i.test(combined)) {
     return [...(resolveAntecedentMilledCards(ctx) as any[])];
   }
@@ -143,6 +154,9 @@ function filterMoveZoneSelectionCandidates(
   if (/^the rest/i.test(whatText)) {
     return [];
   }
+  const linkedCreature = parseMoveZoneCreatureCardExiledWithSource({ kind: 'raw', text: whatText });
+  if (linkedCreature) return pool.filter((card) => cardMatchesType(card, linkedCreature.cardType));
+  if (/^one of the creature cards revealed this way$/i.test(whatText)) return pool.filter((card) => cardMatchesType(card, 'creature'));
 
   const anyNumberTypedFromHand = parseMoveZoneAnyNumberTypedFromYourHand({ kind: 'raw', text: whatText });
   if (anyNumberTypedFromHand) {
@@ -225,7 +239,7 @@ function resolveMoveZoneSelectionLimits(
       maxSelections: Math.max(optional ? 0 : 1, candidateCount),
     };
   }
-  if (/^one of those cards$/i.test(whatText) || /^a .+ card$/i.test(whatText) || /^up to one/i.test(whatText)) {
+  if (/^one of those cards$/i.test(whatText) || /^a .+ card$/i.test(whatText) || /^up to one/i.test(whatText) || /^a .+ card exiled with (?:it|this)\b/i.test(rawWhat) || /^one of the .+ revealed this way$/i.test(rawWhat)) {
     return { minSelections: optional ? 0 : Math.min(1, candidateCount), maxSelections: Math.min(1, candidateCount) };
   }
   return {
@@ -251,7 +265,7 @@ export function buildMoveZoneSelectionOptions(
   readonly remainderPlayerChoosesOrder: boolean;
   readonly filter: ReturnType<typeof buildLookChooseLibrarySearchFilter>;
   readonly optional: boolean;
-  readonly searchZone: 'hand' | 'graveyard' | 'library';
+  readonly searchZone: 'hand' | 'graveyard' | 'library' | 'exile';
 } | null {
   const players = resolvePlayers(state, (step as any).who || { kind: 'you' }, ctx);
   const playerId = (players[0] || ctx.controllerId) as PlayerID;
@@ -290,7 +304,7 @@ export function buildMoveZoneSelectionOptions(
 
   return {
     playerId,
-    availableCards: (fromHand || fromGraveyard) && candidates.length > 0 ? candidates : pool,
+    availableCards: (fromHand || fromGraveyard || /\bexiled with (?:it|this)\b/i.test(whatText)) && candidates.length > 0 ? candidates : pool,
     selectableCardIds: candidates
       .map((card) => String(card?.id || '').trim())
       .filter(Boolean),
@@ -303,7 +317,7 @@ export function buildMoveZoneSelectionOptions(
     remainderPlayerChoosesOrder: /any order/i.test(toRaw),
     filter: buildLookChooseLibrarySearchFilter(whatText),
     optional,
-    searchZone: fromHand ? 'hand' : fromGraveyard ? 'graveyard' : 'library',
+    searchZone: fromHand ? 'hand' : fromGraveyard ? 'graveyard' : /\bexiled with (?:it|this)\b/i.test(whatText) ? 'exile' : 'library',
   };
 }
 

@@ -6,6 +6,7 @@
 
 import { escapeCardNameForRegex } from "./types.js";
 import { normalizeCardNameForOracleText } from "../../utils.js";
+import { selfNameVariants } from "../../../../../rules-engine/src/triggerCondition/selfNameNormalize.js";
 
 export function buildCardNameRegexAlternatives(cardName: string): string[] {
   const names = new Set<string>();
@@ -45,5 +46,7 @@ export function buildCardNameRegexAlternatives(cardName: string): string[] {
       add(words[words.length - 1]);
     }
   }
+  // Titled short names the IR also accepts ("Captain Archer", "Ensign Chekov", "Q").
+  for (const variant of selfNameVariants(cardName)) add(variant);
   return Array.from(names);
 }

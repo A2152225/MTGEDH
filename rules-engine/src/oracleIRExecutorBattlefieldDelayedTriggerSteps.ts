@@ -102,6 +102,9 @@ export function applyScheduleDelayedTriggerStep(
       }
     );
 
+    if (step.damageSourceFilter) {
+      (delayedTrigger as any).effectData = { ...((delayedTrigger as any).effectData || {}), damageSourceFilter: step.damageSourceFilter };
+    }
     const registry = (state as any).delayedTriggerRegistry || createDelayedTriggerRegistry();
     const nextRegistry = registerDelayedTrigger(registry, delayedTrigger);
     return {

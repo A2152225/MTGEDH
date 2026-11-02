@@ -24,6 +24,8 @@ export function playerBindingsMatch(
   }
   if (condition.attackedPlayer === 'enchanted' && (!enchanted || id(context?.attackedPlayerId) !== enchanted)) return false;
   if (condition.damagedPlayer === 'enchanted' && (!enchanted || id(context?.damagedPlayerId) !== enchanted)) return false;
+  // "deals combat damage to you" (Harsh Justice): enforced when the caller knows the damaged player.
+  if (condition.damagedPlayer === 'you' && id(context?.damagedPlayerId) && id(context?.damagedPlayerId) !== id(source.controllerId)) return false;
   if (condition.subjectControlledBy === 'enchanted_player' && (!enchanted || id(subject.controllerId) !== enchanted)) return false;
   return true;
 }

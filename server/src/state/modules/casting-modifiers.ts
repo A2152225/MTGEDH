@@ -1,3 +1,4 @@
+import { colorConvokeGrantMatch } from './convokeColorGrants.js'; // B37
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import { parseManaCost } from './mana-check.js';
@@ -189,6 +190,11 @@ function getStaticConvokeGrantScopesFromBattlefield(
     const sourceName = normalizeText(perm?.card?.name || 'Permanent') || 'Permanent';
     if (!oracleText.toLowerCase().includes('convoke')) continue;
 
+    const b37ColorConvoke = colorConvokeGrantMatch(oracleText, card);
+    if (b37ColorConvoke !== null) {
+      if (b37ColorConvoke) scopes.push({ scope: 'all_spells', sourceName });
+      continue;
+    }
     if (/spells you cast have convoke/i.test(oracleText) && !/creature spells you cast/i.test(oracleText) && !/artifact spells you cast/i.test(oracleText)) {
       scopes.push({ scope: 'all_spells', sourceName });
     }

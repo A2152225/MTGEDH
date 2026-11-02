@@ -66,6 +66,15 @@ export function pushAttachedExtraSpecs(
       if (Object.keys(grant).length) onHost(`attached-extra-zendikon:${index}`, grant);
       return;
     }
+    // Aerial Modification: "As long as enchanted permanent is a Vehicle, it's a creature in addition to its other types."
+    const typed = line.match(/^as long as enchanted permanent is an? ([a-z]+), it's an? (?:artifact )?creature in addition to its other types\.?$/);
+    if (typed) { onHost(`attached-extra-becomes-creature:${index}`, { typeAdditions: ['Creature'] }, cond({ kind: 'target_has_type', cardType: typed[1] })); return; }
+    // Grounded: "Enchanted creature loses flying." (layer 6 keyword removal on the host).
+    const lose = line.match(new RegExp('^' + HOST + ' loses ([a-z ,]+?)\\.?$'));
+    if (lose) {
+      if (lose[1] !== 'all abilities') onHost(`attached-extra-lose-only:${index}`, { removeAbilities: lose[1].split(/,? and |, /).map((k) => k.trim()).filter(Boolean) });
+      return;
+    }
     let m = line.match(new RegExp('^' + HOST + ' (?:loses all abilities and )?is an? (?:(white|blue|black|red|green) )?([a-z]+) creature with base power and toughness \\d+\\/\\d+'));
     if (m) {
       onHost(`attached-extra-type:${index}`, { typeAdditions: [cap(m[2])], loseOtherCreatureTypes: true, ...(m[1] ? { colorAdditions: [colorSetEntry(m[1])!] } : {}) });

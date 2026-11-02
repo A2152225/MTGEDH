@@ -89,6 +89,7 @@ it falls back to the legacy family detectors. Unique Commander-legal oracle card
 | After round 25 (strict audit recreated and rerun, substring type checks accepted) | 12720 | legacy+unparsed strict verified 580 of 993 (loose 679) | | | 413 unverified |
 | After round 27 (delta, strict audit not rerun) | 12720 | round 25 + Lucky Clover / Chancellor copy triggers, Lozhan cast triggers wired | | | |
 | After round 28 (delta, strict audit not rerun) | 12720 | round 27 + copy triggers now real stack triggers; spend-this-mana Dragon triggers (Scaled Nurturer, Orbs of Dragonkind) via requiresManaFromPermanentId; Wicked Role "put into a graveyard" self trigger; Pennant/Torque chosen-type ETB confirmed real | | | Pure Intentions spell-created discard delayed trigger still no runtime |
+| After round 29 (delta, strict audit not rerun) | 12720 | round 28 + spell-created "this turn, whenever" trigger sources (Pure Intentions discard return) via turnScopedSpellTriggers | | | |
 
 Round 25: the strict audit was recreated (the round 22 script was gone): all 47 exported detect*Trigger(s) functions in state/modules/triggers plus triggered-abilities.ts are called with each of the 993 legacyRuntimeOnly/unparsed clauses as its real card; loose = a returned trigger effect starts with the clause effect (first 12 chars); strict additionally needs, at some call site outside the definition (5000-char window), either no triggerType/timing filter, a literal comparison (===, !==, case) or a substring .includes() hit on that type, or a spellCondition dispatch. Strict 580 / loose 679 / unverified 413. Not directly comparable with round 22 (665/695/328): call-site scoping is stricter, and combat-damage variants checked via regex/startsWith are rejected (likely heuristic false negatives). Runtime added this round: "when you have N or less/more life" state triggers (lifeThresholdStateTriggers.ts, checked in the SBA pass, intervening-if rechecked; Opal Avenger), and spell-cast qualifiers "of the chosen type", "that has an Adventure", "Adventure [instant or sorcery] spell", "Adventure or Dragon spell" (spellCastQualifierTriggers.ts: Vanquisher's Banner no longer fires on any creature; Edgewall Innkeeper, Storyteller Pixie, Lucky Clover, Lozhan now gate/fire correctly).
 
@@ -107,3 +108,92 @@ Round 18 row is a per-clause delta on the round 17 audit, not a full rerun: 33 c
 Round 9: Clue/Food/Blood/Cartouche/Shrine subjects, "each of your upkeeps/end steps", plural self-names ("~ enter", "~ attack"); turned_face_up, class_level, room_fully_unlocked and controls_none now run through IR emitters. Earlier-round rows were lost when the census script regenerated this file; the script does not keep this section, so re-add it after each run.
 
 Round 22: the audit now applies a getter-acceptance check again: a detector result counts only if a caller of that detector outside its own module either does not filter on triggerType or compares the returned type. Strict verified 665 / loose 695 / unverified 328 of 993 legacy+unparsed clauses. Rejected types: counters_put_on_target (6), reveal_this_way (3), opponent_casts_creature, transform, forced_discard, self_blocks_or_becomes_blocked (2 each), and 13 singletons. Families wired this round: next-cast copy riders from permanent/loyalty abilities, X times / additional time copy counts, MV-capped next cast, "when you next cast a spell this turn" effect riders, opponent dealt noncombat damage, you tap an untapped creature an opponent controls.
+
+## Rounds 30-31: turn-scoped "this turn, whenever" spell watchers
+
+| Family | Status | Test |
+|---|---|---|
+| Dies (Death Frenzy) | runtime-verified | trigger-ir-round30-turn-scoped-families |
+| Spell cast (Glimpse of Nature) | runtime-verified | trigger-ir-round30-turn-scoped-families |
+| Attacks (Ondu Rising) | runtime-verified | trigger-ir-round31-turn-scoped-combat-life-mana |
+| Blocks (Battle Cry) | runtime-verified | trigger-ir-round31-turn-scoped-combat-life-mana |
+| Life gain (False Cure) | runtime-verified (gainer loses 2 per 1 gained) | trigger-ir-round32-turn-scoped-leftovers |
+| Combat damage (Surge-style) | runtime-verified | trigger-ir-round31-turn-scoped-combat-life-mana |
+| Land tapped for mana (High Tide, Bubbling Muck) | runtime-verified, all players (High Tide r31, Bubbling Muck r32) | trigger-ir-round32-turn-scoped-leftovers |
+| Enters (Rite of Harmony) | handled by IR temporaryEtbTriggers; extractor skips | round30 no-double test |
+
+## Round 32: turn-scoped leftovers
+
+| Family | Status | Test |
+|---|---|---|
+| "N life for each 1 life/damage" reference quantity (False Cure) | fixed: oracleIRExecutorResolveQuantity per-one reference | trigger-ir-round32-turn-scoped-leftovers |
+| Blocks with "its controller" subject (Mage Hunters' Onslaught, Noxious Assault) | fixed: blockingCreatureId bound as interveningIfSubjectPermanentId | trigger-ir-round32-turn-scoped-leftovers |
+| Blocks by an opponent's creature (Benefactor's Draught) | runtime-verified | trigger-ir-round32-turn-scoped-leftovers |
+| "Whenever you/a player tap(s) a <basic> for mana, add an additional {X}" (Molten Tide) | fixed: generic oracle parse manaAbilityOracleLandTapBonus | trigger-ir-round32-turn-scoped-leftovers |
+| Dealt damage / "that creature" (Shriveling Rot, Arcbond, Glyph of Life) | runtime-verified (round 33) | trigger-ir-round33-turn-scoped-damage-unblocked |
+| Attacks and isn't blocked (Gaze of Pain) | runtime-verified (round 33; second-sentence rider folded via foldPendingOptionalReflexiveRider in round 34) | trigger-ir-round33-turn-scoped-damage-unblocked |
+
+## Round 33: turn-scoped damage, unblocked and census groups
+
+| Group | Status | Test |
+|---|---|---|
+| Modal turn-scoped clauses (bullet prefix, only chosen modes register; Shriveling Rot) | runtime-verified | trigger-ir-round33-turn-scoped-damage-unblocked |
+| Dealt damage, any creature, "it" = damaged creature (Shriveling Rot mode 1) | runtime-verified | trigger-ir-round33-turn-scoped-damage-unblocked |
+| "That creature" dealt damage this turn (Arcbond) | runtime-verified (IR delayed path) | trigger-ir-round33-turn-scoped-damage-unblocked |
+| Dealt damage by an attacking creature (Glyph of Life) | runtime-verified; source approximated as "damaged permanent is blocking" | trigger-ir-round33-turn-scoped-damage-unblocked |
+| Attacks and isn't blocked, "it" = attacker (Gaze of Pain) | runtime-verified (trigger + binding) | trigger-ir-round33-turn-scoped-damage-unblocked |
+| A player casts an instant or sorcery this turn (Bonus Round) | runtime-verified via opponent/any-player cast path | trigger-ir-round33-turn-scoped-damage-unblocked |
+| A creature you control dies this turn (Waltz of Rage) | runtime-verified | trigger-ir-round33-turn-scoped-damage-unblocked |
+| Nontoken creature you control dies this turn, effect ends in a quoted ability (Gnawing Crescendo) | runtime-verified | trigger-ir-round33-turn-scoped-damage-unblocked |
+| Kicker-gated "If this spell was kicked, whenever ..." (Warhost's Frenzy) | runtime-verified (round 34) | trigger-ir-round34-damage-source-kicked-attack-watchers |
+| Song of Blood / Indulge (attacks this turn), Harsh Justice | runtime-verified (round 34; Song's "this way" count tracked since round 35) | trigger-ir-round34-damage-source-kicked-attack-watchers |
+
+## Round 34: damage source seam, Gaze rider, kicked/attack watchers
+
+| Group | Status | Test |
+|---|---|---|
+| Real damage source on damage events (Glyph of Life "attacking creature" exact) | runtime-verified; generic seam damageEventSources.ts | trigger-ir-round34-damage-source-kicked-attack-watchers |
+| Optional effect + "If you do" rider in IR may-choice (Gaze of Pain: assigns no combat damage) | runtime-verified; rider folded into effect text when main effect is optional/undecided | trigger-ir-round34-damage-source-kicked-attack-watchers |
+| Kicker-gated turn-scoped trigger (Warhost's Frenzy) | runtime-verified | trigger-ir-round34-damage-source-kicked-attack-watchers |
+| Attack watchers (Song of Blood, Indulge) | runtime-verified; Song "this way" count finalized lazily after the spell leaves the stack (round 35) | trigger-ir-round34-damage-source-kicked-attack-watchers |
+| Combat damage "an attacking creature ... to you" (Harsh Justice) | runtime-verified; parser recipient filter damagedPlayer:'you' | trigger-ir-round34-damage-source-kicked-attack-watchers |
+| Shriveling Rot mode 2 (dies this turn) | runtime-verified | trigger-ir-round34-damage-source-kicked-attack-watchers |
+
+## Round 35
+
+| Group | Status | Test |
+|---|---|---|
+| "for each [type] card milled/put into your graveyard this way" in turn-scoped triggers (Song of Blood) | runtime-verified; graveyard diff vs registration baseline, scales +X/+0, draw, gain/lose life | trigger-ir-round35-this-way-that-creature-combat |
+| Bound "that creature/it deals (combat) damage ... this turn" on a targeted creature (Hunter's Insight, Fire Giant's Fury, Vigorous Charge kicked/unkicked) | runtime-verified; bound to first battlefield target, only seen by combat-damage queue; unqualified "deals combat damage" watched as player damage only | trigger-ir-round35-this-way-that-creature-combat |
+| Forth Eorlingas! (monarch on combat damage) | runtime-verified | trigger-ir-round35-this-way-that-creature-combat |
+| Touch of Moonglove | runtime-verified (death trigger fires from m1); effect text still carries a stray "this turn\n" prefix | trigger-ir-round35-this-way-that-creature-combat |
+| Fire Giant's Fury "you may play those cards" | open | - |
+| Vigorous Charge damage to creatures; Great Train Heist, Reckless Blaze, Ghired's Belligerence, Arcbond/Glyph (delayed registry) | open / handled elsewhere | - |
+
+## Round 36
+
+| Card | Status | Notes |
+|---|---|---|
+| Touch of Moonglove | fixed | death trigger text no longer carries a leading "this turn" (generic strip in collectDeathTriggerEffectText) |
+| Vigorous Charge | fixed | bound unqualified "deals combat damage" = any recipient (rule 510); fires once per attacker with player+creature total. Supersedes the round-35 "damage to a player" assumption |
+| Fire Giant's Fury | fixed | "until ..., you may play those cards" rider joins the trigger effect; "that many" bound to damage; play/cast permission no longer makes the trigger optional |
+| Great Train Heist | partial | "to that player" bound to the targeted opponent (boundPlayerId). Known leak: spell resolution also runs the trigger sentence once (creates a Treasure at resolution) - resolution-side, not fixed |
+| Reckless Blaze | fixed | "a creature you control dealt damage this way dies" via damage-snapshot diff (getDamageWayDiesSources) |
+| Ghired's Belligerence | fixed (trigger) | same damage-this-way watcher; divided-damage prompt not exercised in test |
+| Spiritualize, Samite Ministration | open | next census group |
+
+## Round 37: Star Trek (trk/trc)
+
+Census `--include-upcoming`: before cards=12496 clauses=14317 ir=13282 (92.8%) legacy=1035;
+after cards=12496 clauses=14317 ir=13344 (93.2%) legacy=973. Trek trigger lines parsed: 4/44 before, 44/44 after.
+
+- Creature types: 42 Trek races/roles plus 33 CR 205.3m (2026-09-25) types that were missing (Sorcerer, Spy, Synth, Toy, ...).
+- Titled self short names ("Captain Archer", "Ensign Chekov", "Dr. McCoy", "Q") in the IR normalizer and in the legacy name regexes.
+- `parseRound37TrekEvents.ts`: face a dilemma (`facesDilemma`), attack-while-total-power (`minTotalPower`), "this Spacecraft" self reference;
+  the long tail (chosen name/number, charge counters first time, tap for {C}, Path of Ancestry, "dies during your turn", "... this turn" delayed wordings,
+  Peace in Our Time, VAAx, Phlox counter filter, commander enters-or-attacks, enters-or-deals-combat-damage) is `legacyRuntimeOnly`.
+- Runtime: `trekPlayerEventTriggers.ts` (dilemma count + triggers incl. Lorca from graveyard; battlefront count). Dilemmas are recorded on cast
+  (modal or spree modes) and on modal IR triggers; activated-ability modes are not hooked yet.
+- Total power N is checked as attackers are declared (`attack-watcher-queue` `you_attack` + `minTotalPower`).
+- Turn-scoped "whenever ... this turn" sentences the registry owns no longer run at resolution (Great Train Heist Treasure leak).
+- Skipping declare attackers keeps earlier combats' attacked players (battlefront across combats).

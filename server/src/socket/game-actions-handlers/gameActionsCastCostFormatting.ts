@@ -223,6 +223,7 @@ export const GRAVEYARD_ALTERNATE_CAST_ABILITY_IDS = [
   'escape',
   'disturb',
   'graveyard-cast',
+  'beam-me-up',
 ] as const;
 
 export function isGraveyardAlternateCastAbilityId(abilityId: string): boolean {

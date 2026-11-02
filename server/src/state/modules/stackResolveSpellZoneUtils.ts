@@ -237,7 +237,7 @@ export function moveResolvedInstantOrSorceryAfterResolution(
     || item?.card?.exileAfterResolution === true
     || card?.exileAfterResolution === true
     || effectiveCard?.exileAfterResolution === true
-    || ['flashback', 'jump-start', 'escape', 'disturb', 'harmonize'].includes(castWithAbility);
+    || ['flashback', 'jump-start', 'escape', 'disturb', 'harmonize', 'beam-me-up'].includes(castWithAbility);
 
   const hasParadigm = /\bparadigm\b/i.test(oracleText);
   const stateAny = state as any;

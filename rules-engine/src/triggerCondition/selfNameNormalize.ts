@@ -5,8 +5,26 @@
  * Case-sensitive on purpose: card names are capitalized in oracle text.
  */
 
+import { isCreatureTypeWord } from '../../../shared/src/creatureTypes.js';
+
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Shortened names printed in oracle text beyond the comma rule (CR 201.5):
+ * a rank plus surname ("Dr. Leonard \"Bones\" McCoy" -> "Dr. McCoy", "Captain James T. Kirk" -> "Captain Kirk")
+ * and the head of an "X of the Y" name ("Loran of the Third Path" -> "Loran") unless that head is a creature type.
+ */
+const RANK = /^(Dr\.|Doctor|Captain|Commander|Ensign|Lieutenant|Lt\.|Admiral|Chancellor|General|Counselor|Major|Colonel|Chief)\s+/;
+function titledShortNames(short: string): string[] {
+  const out: string[] = [];
+  const rank = RANK.exec(short);
+  const words = short.split(/\s+/);
+  if (rank && words.length > 2) out.push(rank[1] + ' ' + words[words.length - 1]);
+  const ofThe = /^([A-Z][A-Za-z'-]{2,}) of the /.exec(short);
+  if (ofThe && !isCreatureTypeWord(ofThe[1])) out.push(ofThe[1]);
+  return out;
 }
 
 export function selfNameVariants(cardName: string | undefined): string[] {
@@ -26,7 +44,9 @@ export function selfNameVariants(cardName: string | undefined): string[] {
     if (name.length < (faces.length > 1 ? 2 : 3)) continue;
     variants.add(name);
     const short = name.split(',')[0].trim();
-    if (short.length >= 3 && short !== name) variants.add(short);
+    // A one-letter legendary short name ("Q, Stacking the Deck" -> "Q") is still capitalized and unambiguous.
+    if ((short.length >= 3 || /^[A-Z]$/.test(short)) && short !== name) variants.add(short);
+    for (const extra of titledShortNames(short)) variants.add(extra);
   }
   // Longest first so "Greta, Sweettooth Scourge" wins over "Greta".
   return [...variants].sort((a, b) => b.length - a.length);

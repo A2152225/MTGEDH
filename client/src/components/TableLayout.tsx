@@ -129,6 +129,7 @@ export function TableLayout(props: {
   playableCards?: string[];
   // Cost adjustments for cards in hand (Aura of Silence, medallions, etc.)
   costAdjustments?: Record<string, CardCostAdjustment>;
+  graveyardAbilityHints?: Record<string, any[]>;
   // Ignored cards for playability checks (auto-pass)
   ignoredCardIds?: Set<string>;
   // Callbacks for ignoring/unignoring cards for auto-pass from battlefield
@@ -182,6 +183,7 @@ export function TableLayout(props: {
     playableCards,
     // Cost adjustments for hand cards
     costAdjustments,
+    graveyardAbilityHints,
     // Ignored cards for playability checks
     ignoredCardIds: propsIgnoredCardIds,
     // Auto-pass ignore callbacks for battlefield
@@ -982,6 +984,7 @@ export function TableLayout(props: {
           you={you}
           playableCards={playableCards}
           costAdjustments={costAdjustments}
+          graveyardAbilityHints={graveyardAbilityHints}
           ignoredCardsSet={ignoredCardsSet}
           setIgnoredCardsSet={setIgnoredCardsSet}
           setZoneContextMenu={setZoneContextMenu}

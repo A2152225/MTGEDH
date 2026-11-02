@@ -4,6 +4,7 @@
 // Public entry symbol: tryApplyMainLoopMillPtTokenSteps.
 
 import type { OracleEffectStep } from './oracleIR';
+import { applyAssimilateAfterMoveZone } from './oracleIRExecutorAssimilateGainControl';
 import { evaluateConditionalWrapperCondition } from './oracleIRExecutorConditionalStepSupport';
 import { applyAttachStep } from './oracleIRExecutorAttachStepHandlers';
 import {
@@ -630,10 +631,10 @@ export function tryApplyMainLoopMillPtTokenSteps(
         break;
       }
       case 'move_zone': {
-        const result = applyMoveZoneStep(nextState, step, currentCtx, {
+        const result = applyAssimilateAfterMoveZone(applyMoveZoneStep(nextState, step, currentCtx, {
           lastMovedCards,
           lastExiledCards,
-        });
+        }), step, currentCtx);
         applyHandledStepResult(step, result, (appliedResult) => {
           if (Array.isArray(appliedResult.lastMovedCards) && appliedResult.lastMovedCards.length > 0) {
             lastMovedCards = [...appliedResult.lastMovedCards];

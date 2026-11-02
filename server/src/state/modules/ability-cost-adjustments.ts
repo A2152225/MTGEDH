@@ -5,6 +5,7 @@ import {
   type ActivatedAbilitySourceZone,
 } from '../../../../rules-engine/src/activatedAbilityCostReduction.js';
 import type { ManaCost } from '../../../../rules-engine/src/types/mana.js';
+import { getSelfAbilityTrekCountReduction } from './spellSelfTrekCountCostReduction.js';
 import { normalizeParsedManaCost, parseManaCost, stringifyParsedManaCost, type ParsedManaCost } from './mana-check.js';
 
 export interface AbilityCostAdjustmentParams {
@@ -18,6 +19,8 @@ export interface AbilityCostAdjustmentParams {
   manaCostString: string;
   sourceName?: string;
   sourceId?: string;
+  /** Text of the activated ability being paid (enables self "This ability costs {X} less to activate"). */
+  abilityText?: string;
 }
 
 export interface AbilityCostAdjustmentResult {
@@ -69,7 +72,15 @@ export function adjustActivationManaCostForPayment(
     return { adjustedManaCost: manaCostString, messages: [] };
   }
 
-  const parsedOriginal = normalizeParsedManaCost(parseManaCost(manaCostString));
+  const parsedPrinted = normalizeParsedManaCost(parseManaCost(manaCostString));
+  const selfMessages: string[] = [];
+  const selfReduction = params.abilityText
+    ? getSelfAbilityTrekCountReduction(params.abilityText, params.state?.battlefield || [], String(params.sourceController || params.activatorId))
+    : 0;
+  const parsedOriginal = selfReduction > 0
+    ? normalizeParsedManaCost({ ...parsedPrinted, generic: Math.max(0, Number(parsedPrinted.generic || 0) - selfReduction) })
+    : parsedPrinted;
+  if (selfReduction > 0) selfMessages.push(`${String(params.sourceName || params.sourceCard?.name || 'Ability')}: ability costs {${selfReduction}} less`);
   const sourcePermanent = params.sourcePermanent || (params.sourceZone === 'battlefield'
     ? {
       id: params.sourceId,
@@ -96,7 +107,7 @@ export function adjustActivationManaCostForPayment(
   const adjustedParsed = manaCostToParsedCost(reduced.manaCost || parsedCostToManaCost(parsedOriginal), parsedOriginal);
   return {
     adjustedManaCost: stringifyParsedManaCost(adjustedParsed),
-    messages: [...reduced.log],
+    messages: [...selfMessages, ...reduced.log],
   };
 }
 
