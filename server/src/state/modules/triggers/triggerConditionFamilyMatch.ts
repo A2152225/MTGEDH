@@ -464,12 +464,16 @@ export function collectMatchingParsedEventLines(options: {
   matchContext?: Record<string, unknown>;
 }): Array<{ effect: string; interveningIf?: string; condition?: import('../../../../../rules-engine/src/triggerCondition/index.js').TriggerConditionIR; reflexive?: { actor: 'you' | 'they'; effect: string; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }> {
   const effects = [];
+  const sourceCardName = String(options.sourcePermanent?.card?.name || options.sourcePermanent?.name || '').trim() || undefined;
+  const sentences = parsedTriggerSentencesFor(String(options.oracleText || ''), sourceCardName);
+  // No sentence for this event: nothing can match, so skip the (board-wide) ability-loss gate.
+  if (!sentences.some(({ parsed }) => parsed?.effect
+    && (parsed.condition.event === options.event || parsed.condition.pairedEvent === options.event))) return [];
   // Sources that lost all abilities (Humility, Dress Down, ...) have no triggers to match;
   // dies/leaves read the last-known stamp.
   if (options.sourcePermanent && !permanentHasTriggeredAbilities(options.sourcePermanent, options.ctx?.state, { event: suppressionEventFor(options.event) })) return [];
   const seen = new Set<string>();
-  const sourceCardName = String(options.sourcePermanent?.card?.name || options.sourcePermanent?.name || '').trim() || undefined;
-  for (const { sentence, parsed } of parsedTriggerSentencesFor(String(options.oracleText || ''), sourceCardName)) {
+  for (const { sentence, parsed } of sentences) {
     if (!parsed || !parsed.effect) continue;
     const eventMatches = parsed.condition.event === options.event || parsed.condition.pairedEvent === options.event;
     const pairedFromZone = (parsed.condition as any).pairedFromZone;

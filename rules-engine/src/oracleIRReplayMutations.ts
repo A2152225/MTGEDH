@@ -2,6 +2,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { nextTurnNumberForPlayer } from './goadNextTurn';
 
 export type EffectProgramCardZone = 'hand' | 'library' | 'graveyard' | 'exile' | 'battlefield' | 'stack';
 
@@ -391,7 +392,11 @@ function collectGoadReplayMutations(
     const permanentId = String((permanent as any)?.id || '').trim();
     if (!permanentId) return [];
     const until = (permanent as any)?.goadedUntil?.[goaderId];
-    const expiryTurn = typeof until === 'number' && Number.isFinite(until) ? until : undefined;
+    // Goad lasts until the goader's next turn; derive it the same way the executor does when the
+    // goaded snapshot doesn't carry goadedUntil.
+    const expiryTurn = typeof until === 'number' && Number.isFinite(until)
+      ? until
+      : nextTurnNumberForPlayer(state, goaderId) || undefined;
     return [{
       kind: 'goad' as const,
       permanentId,

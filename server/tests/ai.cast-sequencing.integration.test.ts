@@ -157,13 +157,15 @@ describe('AI cast sequencing integration', () => {
     requestCastSpellForSocket.mockImplementationOnce(async (_io: any, _socket: any, payload: any) => {
       const liveGame = ensureGame(String(payload?.gameId || ''));
       if (!liveGame) throw new Error('game missing during mocked cast');
-      (liveGame.state as any).priority = null;
+      // Priority moves to another player. (A bare null with no stack/pending step is a stuck state that
+      // broadcast's repairMissingPriorityIfStuck intentionally restores to the turn player.)
+      (liveGame.state as any).priority = 'opp1';
     });
 
     await handleAIPriority(createNoopIo(), gameId, playerId as any);
 
     expect(requestCastSpellForSocket).toHaveBeenCalledTimes(1);
-    expect((game.state as any).priority).toBeNull();
+    expect((game.state as any).priority).toBe('opp1');
     expect(((game.state as any).zones?.[playerId]?.hand || []).map((card: any) => String(card?.id || ''))).toEqual([
       'spell_1',
       'spell_2',

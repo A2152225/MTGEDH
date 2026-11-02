@@ -30,6 +30,7 @@ import {
   hasValidTargetsForSpell,
 } from './castingRestrictionsSpellChecks';
 import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
+import { isReadOnlyQueryScopeActive, scopedMemo, withReadOnlyQueryScope } from './readOnlyQueryScope';
 import {
   CastingRestrictionType,
   RestrictionDuration,
@@ -446,9 +447,9 @@ let processedBattlefieldScope: WeakMap<object, BattlefieldPermanent[]> | null = 
  * array. Only for read-only queries (can-respond / can-act) that do not mutate state.
  */
 export function withProcessedBattlefieldScope<T>(fn: () => T): T {
-  if (processedBattlefieldScope) return fn();
+  if (processedBattlefieldScope) return withReadOnlyQueryScope(fn);
   processedBattlefieldScope = new WeakMap();
-  try { return fn(); } finally { processedBattlefieldScope = null; }
+  try { return withReadOnlyQueryScope(fn); } finally { processedBattlefieldScope = null; }
 }
 
 function getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
@@ -460,6 +461,9 @@ function getProcessedBattlefield(gameState: GameState): BattlefieldPermanent[] {
       processedBattlefieldScope.set(raw, hit);
     }
     return hit;
+  }
+  if (raw && typeof raw === 'object' && isReadOnlyQueryScopeActive()) {
+    return scopedMemo(raw, 'processedBattlefield', () => applyStaticAbilitiesToBattlefield(raw as BattlefieldPermanent[]) as BattlefieldPermanent[]);
   }
   return applyStaticAbilitiesToBattlefield(
     (gameState.battlefield || []) as BattlefieldPermanent[]

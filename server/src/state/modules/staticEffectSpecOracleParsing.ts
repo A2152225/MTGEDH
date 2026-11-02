@@ -429,12 +429,30 @@ function pushLordSpecs(
 export function parseStaticEffectSpecsFromOraclePermanent(
   perm: BattlefieldPermanent,
 ): StaticEffectSpec[] {
-  return pushPhase5SupplementalSpecs(
+  // The parse is a pure function of the permanent, so it is memoized on the permanent's full
+  // serialized form (every field it could read); hits return deep copies. Replays re-derive the
+  // whole board on every death, which made this the dominant reload cost.
+  let key: string | undefined;
+  try { key = JSON.stringify(perm); } catch { key = undefined; }
+  const cached = key !== undefined ? STATIC_SPEC_PARSE_CACHE.get(key) : undefined;
+  if (cached) return structuredClone(cached);
+  const specs = pushPhase5SupplementalSpecs(
     parseStaticEffectSpecsFromOraclePermanentCore(perm),
     perm,
     parseStaticEffectSpecsFromOraclePermanent,
   );
+  if (key !== undefined) {
+    try {
+      const copy = structuredClone(specs);
+      if (STATIC_SPEC_PARSE_CACHE.size >= STATIC_SPEC_PARSE_CACHE_MAX) STATIC_SPEC_PARSE_CACHE.clear();
+      STATIC_SPEC_PARSE_CACHE.set(key, copy);
+    } catch { /* uncloneable spec: skip caching */ }
+  }
+  return specs;
 }
+
+const STATIC_SPEC_PARSE_CACHE = new Map<string, StaticEffectSpec[]>();
+const STATIC_SPEC_PARSE_CACHE_MAX = 4096;
 
 function parseStaticEffectSpecsFromOraclePermanentCore(
   perm: BattlefieldPermanent,

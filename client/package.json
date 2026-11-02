@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run typecheck && npm run test:vitest",
-    "test:vitest": "vitest run tests"
+    "test:vitest": "vitest run"
   },
   "dependencies": {
     "react": "^18.3.1",

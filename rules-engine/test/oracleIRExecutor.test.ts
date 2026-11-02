@@ -24566,7 +24566,8 @@ describe('Oracle IR Executor', () => {
     expect(result.appliedSteps.some(s => s.kind === 'goad')).toBe(true);
     expect(result.skippedSteps.some(s => s.kind === 'goad')).toBe(false);
     expect(creature.goadedBy).toContain('p1');
-    expect(creature.goadedUntil?.p1).toBe(11);
+    // Goad lasts until the goader's next turn: p1 is active on turn 10 of a 2-player game, so p1's next turn is 12.
+    expect(creature.goadedUntil?.p1).toBe(12);
   });
 
   it('applies X-based modify_pt where X is the total power of creatures goaded this way', () => {

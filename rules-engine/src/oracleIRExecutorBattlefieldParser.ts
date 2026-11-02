@@ -2,6 +2,7 @@ import {
   isThatOwnerOrControllerSelector,
   isThoseOpponentsSelector,
 } from './oracleIRExecutorPlayerUtils';
+import { splitSelectorKeywordQualifier } from './oracleIRSelectorKeywordQualifier';
 
 export type SimpleBattlefieldSelector = {
   readonly kind: 'battlefield_selector';
@@ -16,6 +17,9 @@ export type SimpleBattlefieldSelector = {
   readonly usesChosenCreatureType?: boolean;
   readonly tokenOnly?: boolean;
   readonly attackingOnly?: boolean;
+  /** "creatures with flying" / "creatures without flying" (creature-only selectors). */
+  readonly keywordsAll?: readonly string[];
+  readonly keywordsNone?: readonly string[];
 };
 
 const BASIC_LAND_BATTLEFIELD_TYPE_NAMES = new Set([
@@ -325,6 +329,14 @@ export function parseSimpleBattlefieldSelector(
     }
   }
 
+  const keywordSplit = splitSelectorKeywordQualifier(remainder);
+  remainder = keywordSplit.remainder;
+  const keywordFilter = {
+    ...(keywordSplit.keywordsAll ? { keywordsAll: keywordSplit.keywordsAll } : {}),
+    ...(keywordSplit.keywordsNone ? { keywordsNone: keywordSplit.keywordsNone } : {}),
+  };
+  const hasKeywordFilter = Boolean(keywordSplit.keywordsAll || keywordSplit.keywordsNone);
+
   const cleaned = remainder.replace(/\bpermanents?\b/g, '').trim();
   if (!cleaned) return null;
 
@@ -358,10 +370,13 @@ export function parseSimpleBattlefieldSelector(
       controllerFilter,
       excludeSourceId,
       attackingOnly: true,
+      ...keywordFilter,
       ...(parsedNontokenOnly ? { nontokenOnly: true } : {}),
       ...(tappedOnly ? { tappedOnly: true } : {}),
     };
   }
+
+  if (hasKeywordFilter && !/^(?:attacking )?creatures?$/i.test(cleaned)) return null;
 
   const basicLandType = cleaned.toLowerCase().replace(/s$/, '');
   if (BASIC_LAND_BATTLEFIELD_TYPE_NAMES.has(basicLandType)) {
@@ -402,6 +417,7 @@ export function parseSimpleBattlefieldSelector(
     controllerFilter,
     ...(colorsAnyOf && colorsAnyOf.length > 0 ? { colorsAnyOf } : {}),
     ...(colorlessOnly ? { colorlessOnly: true } : {}),
+    ...keywordFilter,
     excludeSourceId,
     ...(parsedNontokenOnly ? { nontokenOnly: true } : {}),
     ...(tappedOnly ? { tappedOnly: true } : {}),

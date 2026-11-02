@@ -2,6 +2,7 @@
 // Cluster moved: leftover derived effects and memos
 // Public entry symbols: useAppPlayDerivedEffects.
 // Leaf must not import App.tsx or App-handlers/index.ts.
+import { handCastAffordabilityReason } from "../utils/handCastAffordability";
 
 import React, { useEffect, useMemo, useRef } from "react";
 import type { BattlefieldPermanent, ChatMsg, KnownCardRef } from "../../../shared/src";
@@ -685,7 +686,8 @@ export function useAppPlayDerivedEffects(p: Record<string, any>) {
     if (isLandTypeLine(getHandPlayableTypeLine(card))) return "Lands are played, not cast";
     // Check priority instead of turn - you can cast instants on other players' turns
     if (safeView.priority !== you) return "You don't have priority";
-    return null;
+    // Agree with the hand highlight: the server lists only cards it can pay for now.
+    return handCastAffordabilityReason((safeView as any).playableCards, (card as any)?.id);
   };
 
   // Check if an artifact meets metalcraft requirement (3+ artifacts on battlefield)

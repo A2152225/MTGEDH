@@ -90,6 +90,9 @@ export function resolveStackTop(this: AdapterResolveStackTopHost, gameId: string
 
       const triggerMeta = popResult.object.triggerMeta;
       const effectText = triggerMeta?.effectText;
+      // Replicate (CR 702.56a) is a cast trigger whose copies are created below, once per payment.
+      // Executing the keyword's "copy it for each time you paid" step on resolution too would multiply the copies.
+      const resolutionEffectText = String(effectText || '').replace(/^[ \t]*replicate\b[^\n]*$/gim, '').trim();
 
       if (!isPermanentSpell && effectText && effectText.trim().length > 0) {
         const normalizedStackTargets = Array.isArray(popResult.object.targets)
@@ -186,7 +189,7 @@ export function resolveStackTop(this: AdapterResolveStackTopHost, gameId: string
                   triggerMeta?.triggerEventDataSnapshot?.sourceId ??
                   popResult.object.spellId,
                 sourceName: triggerMeta?.sourceName || popResult.object.cardName,
-                effect: effectText,
+                effect: resolutionEffectText,
               },
               resolutionEventData,
               { allowOptional: false }
@@ -198,7 +201,7 @@ export function resolveStackTop(this: AdapterResolveStackTopHost, gameId: string
             controllerId: popResult.object.controllerId,
             sourceId: popResult.object.spellId,
             sourceName: triggerMeta?.sourceName || popResult.object.cardName,
-            effect: effectText,
+            effect: resolutionEffectText,
             optional: Boolean((popResult.object as any)?.triggerMeta?.optional),
           },
           resolutionEventData
@@ -254,7 +257,7 @@ export function resolveStackTop(this: AdapterResolveStackTopHost, gameId: string
                 controllerId: popResult.object.controllerId,
                 sourceId: popResult.object.spellId,
                 sourceName: triggerMeta?.sourceName || popResult.object.cardName,
-                effect: effectText,
+                effect: resolutionEffectText,
               },
               resolutionEventData,
               { allowOptional: false }

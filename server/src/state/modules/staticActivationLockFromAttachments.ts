@@ -18,8 +18,23 @@ function lockedTypes(raw: string): string[] | null {
   return parts.length > 0 && parts.every((p) => LOCK_TYPES.has(p)) ? parts : null;
 }
 
+// Pure regex results keyed by raw oracle text; the lock scans are O(battlefield^2) per view.
+const oracleLockParseCache = new Map<string, { global: RegExpMatchArray | null; attach: RegExpMatchArray | null }>();
+
+function parseOracleLocks(perm: any): { global: RegExpMatchArray | null; attach: RegExpMatchArray | null } {
+  const raw = String(perm?.card?.oracle_text || '');
+  let hit = oracleLockParseCache.get(raw);
+  if (!hit) {
+    const lower = lowerOracle(perm);
+    hit = { global: lower.match(GLOBAL_LOCK_RE), attach: lower.match(LOCK_RE) };
+    if (oracleLockParseCache.size > 5000) oracleLockParseCache.clear();
+    oracleLockParseCache.set(raw, hit);
+  }
+  return hit;
+}
+
 function globalTypeLock(permanent: any, other: any, isManaAbility: boolean): boolean {
-  const match = lowerOracle(other).match(GLOBAL_LOCK_RE);
+  const match = parseOracleLocks(other).global;
   if (!match?.groups) return false;
   const types = lockedTypes(match.groups.types || '');
   if (!types) return false;
@@ -45,7 +60,7 @@ export function permanentActivatedAbilitiesLockedByAttachment(
   for (const other of battlefield) {
     if (other && globalTypeLock(permanent, other, isManaAbility)) return { locked: true, sourceName: other?.card?.name };
     if (!other || String(other.attachedTo || '') !== id) continue;
-    const match = lowerOracle(other).match(LOCK_RE);
+    const match = parseOracleLocks(other).attach;
     if (!match) continue;
     if (match.groups?.unless && isManaAbility) continue;
     return { locked: true, sourceName: other?.card?.name };

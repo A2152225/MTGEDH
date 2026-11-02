@@ -344,7 +344,10 @@ function scoreChoiceCardTarget(
     }
 
     if (hostileGraveyardEffect && /exile target card from (?:a|target) graveyard/i.test(oracleText)) {
-      return scoreGraveyardExileTarget(game?.state, String(playerId), sourceCard, card, ownerId);
+      const tierScore = scoreGraveyardExileTarget(game?.state, String(playerId), sourceCard, card, ownerId);
+      // Within a tier, prefer exiling the opposing card that is worth more to its owner (bounded so it never crosses tiers).
+      const tieBreak = ownerId !== playerId ? Math.min(0.99, Math.max(0, scoreHostileGraveyardCardDisruption(card)) / 1000) : 0;
+      return tierScore + tieBreak;
     }
 
     if (hostileGraveyardEffect) {

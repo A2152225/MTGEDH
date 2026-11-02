@@ -23,6 +23,7 @@ import { registerIssueReportHandlers } from "./issueReport.js";
 import { registerManualActionHandlers } from "./manual-action.js";
 import { registerResolutionHandlers, initializeAIResolutionHandler, initializePriorityResolutionHandler } from "./resolution.js";
 import { installGameStallRecovery, registerGameStallHandlers } from "./gameStallSocketWiring.js";
+import { registerStateDeltaHandlers } from "./util-handlers/stateDeltaEmit.js";
 import { GameManager } from "../GameManager.js";
 import { attachSocketAuth } from "../auth/attachSocketAuth.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
@@ -157,6 +158,7 @@ export function registerSocketHandlers(
     registerManualActionHandlers(io, socket);
     registerResolutionHandlers(io, socket);
     registerGameStallHandlers(io as any, socket);
+    registerStateDeltaHandlers(io, socket);
 
     // Log disconnection reason
     socket.on("disconnect", (reason) => {

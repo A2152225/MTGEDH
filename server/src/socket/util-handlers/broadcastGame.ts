@@ -19,6 +19,7 @@ import {
 import { ts, repairMissingPriorityIfStuck } from "./repairMissingPriorityIfStuck.js";
 import { normalizeViewForEmit, logStateDebug } from "./gameStateEmitNormalize.js";
 import { withSharedBattlefieldView } from "../../state/modules/view.js";
+import { emitVersionedState, resetStateDeltaForRoom, type VersionedStatePayload } from "./stateDeltaEmit.js";
 import {
   checkAndTriggerAI,
   checkAndEmitKynaiosChoicePrompts,
@@ -70,54 +71,52 @@ function emitStateToLiveParticipant(
   let sent = false;
   for (const socketId of targets) {
     if (!socketId) continue;
-    io.to(socketId).emit("state", payload);
+    emitVersionedState(io, socketId, payload as VersionedStatePayload);
     sent = true;
   }
   return sent;
 }
 
-export type BroadcastGameDeps = {
-  scheduleAutomationResume: (
-    io: Server,
-    game: InMemoryGame,
-    gameId: string,
-    suppressUntil: number,
-  ) => void;
-  checkAndTriggerAutoPass: (io: Server, game: InMemoryGame, gameId: string) => void;
+type CoalescedEmitScope = {
+  depth: number;
+  pending: boolean;
+  forceStateReplace: boolean;
+  io?: Server;
+  gameId?: string;
 };
+const coalescedEmitScopes = new WeakMap<InMemoryGame, CoalescedEmitScope>();
 
 /**
- * Broadcasts the full state of a game to all participants.
- * Uses the game's participants() method if available, otherwise falls back to participantsList.
- *
- * This version normalizes view and mirrors minimal zone shapes back into game.state so clients
- * and other server code never observe missing per-player zones.
- * 
- * After broadcasting, checks if the current priority holder is an AI player
- * and triggers AI handling if needed.
+ * Runs a synchronous handler body with state emits coalesced: every broadcastGame inside
+ * still runs priority repair and automation hooks at its call point, but the per-player
+ * views are built and emitted once when the outermost scope exits (final state only).
  */
-export function runBroadcastGame(
+export function withCoalescedStateEmits<T>(game: InMemoryGame, fn: () => T): T {
+  let scope = coalescedEmitScopes.get(game);
+  if (!scope) {
+    scope = { depth: 0, pending: false, forceStateReplace: false };
+    coalescedEmitScopes.set(game, scope);
+  }
+  scope.depth++;
+  try {
+    return fn();
+  } finally {
+    scope.depth--;
+    if (scope.depth === 0) {
+      coalescedEmitScopes.delete(game);
+      if (scope.pending && scope.io && scope.gameId && !isGameReplayLocked(game, scope.gameId)) {
+        emitStateViews(scope.io, game, scope.gameId, scope.forceStateReplace ? { forceStateReplace: true } : {});
+      }
+    }
+  }
+}
+
+function emitStateViews(
   io: Server,
   game: InMemoryGame,
   gameId: string,
-  options: { forceStateReplace?: boolean } = {},
-  deps: BroadcastGameDeps,
+  options: { forceStateReplace?: boolean },
 ) {
-  const { scheduleAutomationResume, checkAndTriggerAutoPass } = deps;
-  if (isGameReplayLocked(game, gameId)) {
-    return;
-  }
-  // Loop-shortcut batch runs suppress mid-batch broadcasts; caller emits once at end.
-  if (Number((game.state as any)?._suppressBroadcastCount || 0) > 0) {
-    return;
-  }
-
-  if ((game.state as any)?.gameOver && !(game as any)._gameOverPersisted) {
-    if (markGameOver(gameId)) (game as any)._gameOverPersisted = true;
-  }
-
-  repairMissingPriorityIfStuck(game, gameId, '[broadcastGame]');
-
   let participants:
     | Array<{
         socketId: string;
@@ -206,6 +205,7 @@ export function runBroadcastGame(
 
       const view = normalizeViewForEmit(rawView, game);
       logStateDebug("BROADCAST_STATE", gameId, view);
+      resetStateDeltaForRoom(io, gameId);
       io.to(gameId).emit("state", {
         gameId,
         view,
@@ -221,7 +221,61 @@ export function runBroadcastGame(
     }
   }
   });
-  
+}
+
+export type BroadcastGameDeps = {
+  scheduleAutomationResume: (
+    io: Server,
+    game: InMemoryGame,
+    gameId: string,
+    suppressUntil: number,
+  ) => void;
+  checkAndTriggerAutoPass: (io: Server, game: InMemoryGame, gameId: string) => void;
+};
+
+/**
+ * Broadcasts the full state of a game to all participants.
+ * Uses the game's participants() method if available, otherwise falls back to participantsList.
+ *
+ * This version normalizes view and mirrors minimal zone shapes back into game.state so clients
+ * and other server code never observe missing per-player zones.
+ * 
+ * After broadcasting, checks if the current priority holder is an AI player
+ * and triggers AI handling if needed.
+ */
+export function runBroadcastGame(
+  io: Server,
+  game: InMemoryGame,
+  gameId: string,
+  options: { forceStateReplace?: boolean } = {},
+  deps: BroadcastGameDeps,
+) {
+  const { scheduleAutomationResume, checkAndTriggerAutoPass } = deps;
+  if (isGameReplayLocked(game, gameId)) {
+    return;
+  }
+  // Loop-shortcut batch runs suppress mid-batch broadcasts; caller emits once at end.
+  if (Number((game.state as any)?._suppressBroadcastCount || 0) > 0) {
+    return;
+  }
+
+  if ((game.state as any)?.gameOver && !(game as any)._gameOverPersisted) {
+    if (markGameOver(gameId)) (game as any)._gameOverPersisted = true;
+  }
+
+  repairMissingPriorityIfStuck(game, gameId, '[broadcastGame]');
+
+  const coalesce = coalescedEmitScopes.get(game);
+  if (coalesce) {
+    // Inside a coalescing scope: defer the view build/emit; automation hooks still run here.
+    coalesce.pending = true;
+    coalesce.io = io;
+    coalesce.gameId = gameId;
+    if (options.forceStateReplace) coalesce.forceStateReplace = true;
+  } else {
+    emitStateViews(io, game, gameId, options);
+  }
+
   const stateAny = (game.state as any) || {};
   const suppressAutomation = stateAny._suppressAutomationOnNextBroadcast === true;
   const suppressUntil = Number(stateAny._suppressAutomationUntil || 0);

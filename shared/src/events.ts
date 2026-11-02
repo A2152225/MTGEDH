@@ -406,6 +406,8 @@ export interface ServerToClientEvents {
   }) => void;
   state: (payload: { view: any }) => void;
   stateDiff: (payload: { diff: any }) => void;
+  /** Per-viewer structural delta against the last versioned "state" this socket got. */
+  stateDelta: (payload: import('./stateDelta.js').StateDeltaPayload) => void;
   priority: (payload: { player: PlayerID | null }) => void;
   gameOver: (payload: {
     gameId: GameID;

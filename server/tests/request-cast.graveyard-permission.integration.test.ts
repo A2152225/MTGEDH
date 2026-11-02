@@ -816,6 +816,8 @@ describe('requestCastSpell graveyard permission windows (integration)', () => {
     const creatureCard = {
       id: 'chainer_sable_1',
       name: 'Bronze Sable',
+      power: 2,
+      toughness: 1, // real Bronze Sable is 2/1; as a 0/0 SBA sent it straight back to the graveyard
       mana_cost: '{2}',
       manaCost: '{2}',
       type_line: 'Artifact Creature — Sable',

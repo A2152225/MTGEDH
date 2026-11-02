@@ -63,6 +63,8 @@ export function collectDeathTriggerEffectText(oracleText: string, match: RegExpM
  * - "Undying" keyword
  * - "Persist" keyword
  */
+const DEATH_DETECTION_CACHE = new Map<string, TriggeredAbility[]>();
+
 export function detectDeathTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
   if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'dies' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
@@ -152,8 +154,19 @@ export function detectDeathTriggers(card: any, permanent: any, gameState?: any):
     dieNameVariants,
     dieSelfAlternatives,
   };
+  // The early/mid/late detectors are pure in (oracle, name, id, prior triggers); replay scans call this
+  // once per permanent per death, so reuse the parsed result.
+  const cacheKey = triggers.map((t) => t.triggerType).join(',') + '\u0000' + permanentId + '\u0000' + cardName + '\u0000' + oracleText;
+  const cachedTail = DEATH_DETECTION_CACHE.get(cacheKey);
+  if (cachedTail) {
+    for (const t of cachedTail) triggers.push(structuredClone(t));
+    return triggers;
+  }
+  const before = triggers.length;
   appendDeathDetectionEarly(state);
   appendDeathDetectionMid(state);
   appendDeathDetectionLate(state);
+  if (DEATH_DETECTION_CACHE.size >= 20000) DEATH_DETECTION_CACHE.clear();
+  DEATH_DETECTION_CACHE.set(cacheKey, structuredClone(triggers.slice(before)));
   return triggers;
 }

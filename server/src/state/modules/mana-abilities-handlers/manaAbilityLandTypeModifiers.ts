@@ -9,6 +9,7 @@ import { controllerHasLeftTheGame } from '../../../../../rules-engine/src/player
 import { orderEffectsByDependency } from '../../../../../rules-engine/src/layerDependencyOrder.js';
 import { readPermanentTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 import { parseOracleLandTypeSetting } from './manaAbilityLandTypeSettingOracle.js';
+import { scopedMemo } from '../../../../../rules-engine/src/readOnlyQueryScope.js';
 
 export interface ManaAbility {
   id: string;
@@ -361,6 +362,11 @@ function isLandTypeModifierSourceActive(
 }
 
 function getActiveLandTypeModifiers(gameState: any, playerId: string): OrderedLandTypeModifier[] {
+  // Internal read-only use only; computed once per state and player inside a read-only scope.
+  return scopedMemo(gameState, `activeLandTypeModifiers:${playerId}`, () => getActiveLandTypeModifiersUncached(gameState, playerId));
+}
+
+function getActiveLandTypeModifiersUncached(gameState: any, playerId: string): OrderedLandTypeModifier[] {
   const orderedModifiers = getOrderedLandTypeModifiers(gameState, playerId);
   return orderedModifiers.filter(effect => isLandTypeModifierSourceActive(effect, orderedModifiers));
 }

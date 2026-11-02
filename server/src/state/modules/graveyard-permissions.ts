@@ -1,7 +1,8 @@
 import type { GameContext } from "../context";
 import type { DurablePermission, PlayerID } from "../../../../shared/src";
 import { isActivatableStationThresholdEffect } from "../../../../rules-engine/src/stationPermanentUtils.js";
-import { collectStaticEffectSources } from "./static-effect-sources";
+import { collectStaticEffectSources, collectStaticEffectSourcesShared } from "./static-effect-sources";
+import { scopedMemo } from "../../../../rules-engine/src/readOnlyQueryScope.js";
 import { buildDurableGraveyardPermission, clearTemporaryDurableGraveyardPermissions, getActiveDurablePermissions, getDurableGraveyardActivationPermissionForCard, upsertDurablePermission } from "./durable-permissions";
 
 import type {
@@ -818,13 +819,20 @@ function findGrantedKeywordInfo(
     }
 
     const keywordPattern = escapeRegExp(keyword);
-    for (const source of collectStaticEffectSources(state)) {
-      if (source.phasedOut) continue;
-      if (!source.affectsAllPlayers && source.controller !== String(playerId || '')) continue;
-
+    // Card-independent source filter; shared across graveyard cards in a read-only scope.
+    const candidateSources = scopedMemo(state, `gyKeywordSources:${String(playerId || '')}:${keyword}`, () => {
+      const keywordRegex = new RegExp(keywordPattern, 'i');
+      return collectStaticEffectSourcesShared(state).filter((source) => {
+        if (source.phasedOut) return false;
+        if (!source.affectsAllPlayers && source.controller !== String(playerId || '')) return false;
+        const text = source.oracleText;
+        if (!keywordRegex.test(text) || !/graveyard/i.test(text)) return false;
+        if (/\bduring your turn\b/i.test(text) && !isPlayersTurn(state, playerId)) return false;
+        return true;
+      });
+    });
+    for (const source of candidateSources) {
       const oracleText = source.oracleText;
-      if (!new RegExp(keywordPattern, 'i').test(oracleText) || !/graveyard/i.test(oracleText)) continue;
-      if (/\bduring your turn\b/i.test(oracleText) && !isPlayersTurn(state, playerId)) continue;
 
       const lines = oracleText.split(/\r?\n/);
       for (const line of lines) {

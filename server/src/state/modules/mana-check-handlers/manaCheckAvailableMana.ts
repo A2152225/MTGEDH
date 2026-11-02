@@ -30,6 +30,15 @@ import {
 import { filterOutCostedTapMatches } from "./manaCheckCostedTapFilter.js";
 import { getOpponentPermanentColors, getControlledPermanentColors } from "./manaCheckPermanentColors.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.js";
+import {
+  applyPayableCostedMana,
+  costTextOfLineAt,
+  countForEachManaAmount,
+  findScalingManaLine,
+  manaPipsInCost,
+  parseForEachManaLine,
+  type DeferredCostedMana,
+} from "./manaCheckCostedScalingMana.js";
 import { manaAbilitiesFromContinuousTapGrants } from "../mana-abilities-handlers/manaAbilityContinuousTapGrants.js";
 
 const BASIC_LAND_TYPE_TO_POOL_KEY: Record<string, string> = {
@@ -154,6 +163,9 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
   const anyBattlefieldHasteText = battlefield.some((p: any) => /haste/i.test(String(p?.card?.oracle_text || '')));
   const listsMentionHaste = (p: any): boolean => [p?.card?.keywords, p?.grantedAbilities, p?.tempAbilities, p?.temporaryAbilities]
     .some((list) => Array.isArray(list) && list.some((entry: any) => /haste/i.test(typeof entry === 'string' ? entry : JSON.stringify(entry ?? ''))));
+  // Mana-costed activations (signets, "{1}, {T}, Sacrifice ~: Add", Cabal Coffers) are netted
+  // and only added once the rest of the pool can pay their activation cost.
+  const deferredCostedMana: DeferredCostedMana[] = [];
   for (const permanent of battlefield) {
     if (permanent.controller !== playerId) continue;
     if (permanent.tapped) continue;
@@ -241,24 +253,49 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
 
     const scalingMana = getCreatureCountManaAmount(state, permanent, playerId)
       || getDevotionManaAmount(state, permanent, playerId);
-    if (scalingMana && Number(scalingMana.amount || 0) > 0) {
-      const scalingAmount = Number(scalingMana.amount || 0);
-      // Dual-ability lands (Three Tree City / Nykthos `{2}, {T}`) must not count the
-      // unpaid invest line as free N mana. Net out mana activation pips; if that
-      // leaves nothing, fall through to `{T}: Add {C}`.
-      let activationPips = 0;
-      for (const token of String((scalingMana as any).activationCost || '').match(/\{[^}]+\}/g) || []) {
-        const clean = token.replace(/[{}]/g, '').toUpperCase();
-        if (/^\d+$/.test(clean)) activationPips += Number.parseInt(clean, 10) || 0;
-        else if (/^[WUBRGC]$/.test(clean)) activationPips += 1;
-      }
-      const netAmount = Math.max(0, scalingAmount - activationPips);
-      if (netAmount > 0) {
-        applyScalingManaToOptimisticPool(pool, scalingMana.color, netAmount);
+    // Count-based lines ("Add {G} for each creature you control", Cabal Coffers) produce
+    // what actually matches, so 0 with nothing matching; never the printed single symbol.
+    // Dual-ability lands (Three Tree City / Nykthos `{2}, {T}`) net out the activation pips
+    // and keep their plain `{T}: Add {C}` alternative.
+    const scalingLine = findScalingManaLine(oracleText);
+    let manaText = oracleText;
+    let scaling: { amount: number; color: string; pips: number } | null = null;
+    if (scalingMana) {
+      scaling = {
+        amount: Number(scalingMana.amount || 0),
+        color: scalingMana.color,
+        pips: manaPipsInCost(String((scalingMana as any).activationCost || scalingLine?.costText || '')),
+      };
+    } else if (scalingLine) {
+      const parsed = parseForEachManaLine(scalingLine.line);
+      const amount = parsed ? countForEachManaAmount(state, playerId, parsed, permanent) : null;
+      if (parsed && amount !== null) scaling = { amount, color: parsed.color, pips: manaPipsInCost(parsed.costText) };
+    }
+    if (scaling) {
+      if (scalingLine) manaText = manaText.replace(scalingLine.line, '');
+      const netAmount = Math.max(0, scaling.amount - scaling.pips);
+      if (netAmount > 0 && scaling.pips === 0) {
+        applyScalingManaToOptimisticPool(pool, scaling.color, netAmount);
         continue;
       }
+      // Cost >= output (Coffers with one Swamp) still converts mana into that color:
+      // count it as one fixing mana, like costed filters below, so it never hides a castable spell.
+      const sharesTapWithOtherAbility = /\{t\}[^:\n]*:\s*add\s/.test(manaText);
+      if (netAmount === 0 && scaling.amount > 0 && scaling.pips > 0 && !sharesTapWithOtherAbility) {
+        const gain: Record<string, number> = {};
+        applyScalingManaToOptimisticPool(gain, scaling.color, 1);
+        deferredCostedMana.push({ pips: scaling.pips, gain });
+      }
+      if (netAmount > 0) {
+        const gainAmount = sharesTapWithOtherAbility ? netAmount - 1 : netAmount;
+        if (gainAmount > 0) {
+          const gain: Record<string, number> = {};
+          applyScalingManaToOptimisticPool(gain, scaling.color, gainAmount);
+          deferredCostedMana.push({ pips: scaling.pips, gain });
+        }
+      }
     }
-    
+
     // Check for mana abilities in oracle text
     // Pattern: "{T}: Add {C}", "{T}: Add {C}{C}", "{T}: Add {B} or {R}", etc.
     // Also handles costs: "{1}, {T}: Add {W}{U}" (signets)
@@ -272,7 +309,7 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     const manaAbilityNoCostPattern = /\{t\}(?:[^:]*)?:\s*add\s+([^.\n]+)/gi;
     
     // Check for abilities with activation costs first
-    const costMatches = [...oracleText.matchAll(manaAbilityWithCostPattern)];
+    const costMatches = [...manaText.matchAll(manaAbilityWithCostPattern)];
     
     for (const match of costMatches) {
       const activationCost = match[1]; // The mana cost to activate (e.g., "1" for signets)
@@ -280,7 +317,10 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
       
       // Calculate the NET mana this source provides
       // For signets: "{1}, {T}: Add {W}{U}" means you spend 1 to get 2, net +1 mana
-      const activationCostAmount = /^\d+$/.test(activationCost) ? parseInt(activationCost, 10) : 1;
+      const activationCostAmount = manaPipsInCost(costTextOfLineAt(manaText, match.index ?? 0))
+        || (/^\d+$/.test(activationCost) ? parseInt(activationCost, 10) : 1);
+      const gain: Record<string, number> = {};
+      deferredCostedMana.push({ pips: activationCostAmount, gain });
       
       // Count how much mana this produces
       const producedManaTokens = fullManaText.match(/\{([wubrgc])\}/gi) || [];
@@ -313,7 +353,7 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
           }[color];
           
           if (colorKey) {
-            pool[colorKey] = (pool[colorKey] || 0) + manaToAdd;
+            gain[colorKey] = (gain[colorKey] || 0) + manaToAdd;
           }
         }
       } else {
@@ -335,7 +375,7 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
           }[color];
           
           if (colorKey) {
-            pool[colorKey] = (pool[colorKey] || 0) + 1;
+            gain[colorKey] = (gain[colorKey] || 0) + 1;
             addedCount++;
           }
         }
@@ -344,7 +384,7 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     
     // Now check for abilities WITHOUT activation costs (basic lands, Sol Ring, etc.)
     // Filter out the ones we already processed with costs
-    const noCostMatches = filterOutCostedTapMatches([...oracleText.matchAll(manaAbilityNoCostPattern)], costMatches)
+    const noCostMatches = filterOutCostedTapMatches([...manaText.matchAll(manaAbilityNoCostPattern)], costMatches)
       .filter((match) => {
         const costText = String(match[0] || '').split(':')[0] || '';
         const removeCost = parseSelfRemoveCounterCost(costText, permanent);
@@ -629,7 +669,7 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
     }
 
     // Non-tap self remove-counter mana (Gemstone Array, Pentad Prism, etc.).
-    const nonTapManaMatches = [...oracleText.matchAll(/([^:.\n]+):\s*add\s+([^.\n]+)/gi)]
+    const nonTapManaMatches = [...manaText.matchAll(/([^:.\n]+):\s*add\s+([^.\n]+)/gi)]
       .filter((match) => {
         const costText = String(match[1] || '').trim();
         return Boolean(costText) && !/\{[^}]*\bt\b[^}]*\}/i.test(costText);
@@ -669,6 +709,7 @@ export function getAvailableMana(state: any, playerId: PlayerID): Record<string,
       }
     }
   }
-  
+
+  applyPayableCostedMana(pool, deferredCostedMana);
   return pool;
 }

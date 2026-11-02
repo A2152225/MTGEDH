@@ -35,3 +35,4 @@ export type {
   CardID,
   GameID as EventGameID
 } from "./events.js";
+export * from "./stateDelta.js";

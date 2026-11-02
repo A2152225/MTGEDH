@@ -236,8 +236,16 @@ describe('auth + server decks HTTP v1', () => {
   });
 
   it('allows 2-char usernames from loopback and rejects shorter or empty', async () => {
-    const two = 'z' + Math.floor(Math.random() * 10);
-    const ok = await register(two, 'password123', 'Short');
+    // Only 3,844 two-char names exist and the test DB persists across runs, so a random pick can
+    // collide with an earlier run's user (409). Retry on a username conflict only.
+    const alphabet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const pick = () => alphabet[Math.floor(Math.random() * 62)] + alphabet[Math.floor(Math.random() * 62)];
+    let two = pick();
+    let ok = await register(two, 'password123', 'Short');
+    for (let i = 0; i < 50 && ok.res.status === 409; i++) {
+      two = pick();
+      ok = await register(two, 'password123', 'Short');
+    }
     expect(ok.res.status).toBe(201);
     expect(ok.data.user.username).toBe(two);
     expect(ok.data.user.isAdmin).toBe(false);

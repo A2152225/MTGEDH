@@ -34,6 +34,11 @@ import {
 } from './oracleOwnKeywordText.js';
 import { readAttachmentTimestamp, readPermanentTimestamp, TIMESTAMP_BASE } from './permanentTimestamps.js';
 import { GRANT_LIST_FIELDS, readAbilityGrantTimestamp, readAbilityLossTimestamp } from './abilityEffectTimestamps.js';
+import {
+  indexedAttachmentCandidates,
+  indexedLossSources,
+  isBattlefieldEntryBatchIndexActive,
+} from './battlefieldEntryBatchIndex.js';
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -77,6 +82,10 @@ function ownOracle(perm: any): string {
     return String(faces[faceIndex].oracle_text || '');
   }
   return String(card?.oracle_text || perm?.oracle_text || '');
+}
+
+function ownOracleMentionsLose(perm: any): boolean {
+  return oracleMentionsLose(ownOracle(perm));
 }
 
 function typeLineOf(perm: any): string {
@@ -170,7 +179,10 @@ function attachmentsOf(perm: any, battlefield: readonly any[] | undefined): any[
     Array.isArray(perm?.attachedEquipment) ? perm.attachedEquipment.map((x: unknown) => String(x)) : [],
   );
   for (const x of Array.isArray(perm?.attachments) ? perm.attachments : []) attachedIds.add(String(x));
-  return battlefield.filter((candidate: any) => {
+  const pool = isBattlefieldEntryBatchIndexActive()
+    ? indexedAttachmentCandidates(battlefield, ownOracleMentionsLose, id, attachedIds)
+    : battlefield;
+  return pool.filter((candidate: any) => {
     if (!candidate || !candidate.card) return false;
     const cid = String(candidate.id || '');
     if (!cid || cid === id) return false;
@@ -450,7 +462,8 @@ export function permanentKeywordLossTimestamp(perm: any, keyword: string, battle
     if (sentence && textRemovesKeyword(sentence, kw)) note(readAttachmentTimestamp(attachment) ?? readPermanentTimestamp(attachment));
   }
   if (Array.isArray(battlefield)) {
-    for (const source of battlefield) {
+    const sources = isBattlefieldEntryBatchIndexActive() ? indexedLossSources(battlefield, ownOracleMentionsLose) : battlefield;
+    for (const source of sources) {
       if (!source?.card || source.phasedOut) continue;
       const text = ownOracle(source);
       if (!oracleMentionsLose(text)) continue;

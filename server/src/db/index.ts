@@ -462,7 +462,9 @@ export function listGames(): {
 /** Remember that this game has ended so the lobby can hide it after a restart. */
 export function markGameOver(gameId: string): boolean {
   if (!gameId) return false;
-  ensureDB();
+  // Best-effort lobby bookkeeping: called from broadcastGame, so a missing DB (tests, tools,
+  // shutdown) must not throw out of the broadcast; report not-persisted and retry later.
+  if (!db) return false;
   try {
     db!.prepare(`UPDATE games SET game_over = 1 WHERE game_id = ? AND IFNULL(game_over, 0) = 0`).run(gameId);
     return true;

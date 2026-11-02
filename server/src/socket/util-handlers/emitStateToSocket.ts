@@ -9,6 +9,7 @@ import type { GameID, PlayerID } from "../../../../shared/src/index.js";
 import { games } from "../socket.js";
 import { debugWarn } from "../../utils/debug.js";
 import { normalizeViewForEmit } from "./gameStateEmitNormalize.js";
+import { emitVersionedState } from "./stateDeltaEmit.js";
 
 /**
  * Emit a full, normalized state snapshot directly to a specific socketId for a given game,
@@ -43,7 +44,7 @@ export function emitStateToSocket(
 
     const view = normalizeViewForEmit(rawView, game);
     try {
-      io.to(socketId).emit("state", {
+      emitVersionedState(io, socketId, {
         gameId,
         view,
         seq: (game as any).seq || 0,

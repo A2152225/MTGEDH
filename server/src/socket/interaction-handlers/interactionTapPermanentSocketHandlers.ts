@@ -50,6 +50,7 @@ import {
   queueAnyColorBonusManaSelection,
   resolveManaAbilityActivationShape,
 } from "./interactionManaAbilityActivationShape.js";
+import { withCoalescedStateEmits } from "../util-handlers/broadcastGame.js";
 import { getBattlefield, type EnsureInRoomAndSeated } from "./interactionRoomAndBattlefield.js";
 
 // Tap a permanent on the battlefield
@@ -69,6 +70,8 @@ export async function handleTapPermanentRequest(
 
     const { gameId, game, pid } = ctx;
     const battlefield = getBattlefield(game);
+  // Synchronous body: coalesce the mana-pool + final broadcasts into one state emit.
+  withCoalescedStateEmits(game, () => {
 
   const resolvedPermanentId = resolveGroupedPermanentRef(game, pid as any, payloadPermanentId) || payloadPermanentId;
   const permanent = battlefield.find((p: any) => p?.id === resolvedPermanentId && p?.controller === pid);
@@ -694,4 +697,5 @@ export async function handleTapPermanentRequest(
       });
   
   broadcastGame(io, game, gameId);
+  });
 }

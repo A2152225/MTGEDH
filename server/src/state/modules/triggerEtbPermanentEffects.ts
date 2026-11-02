@@ -203,7 +203,11 @@ export function triggerETBEffectsForPermanent(
   permanent: any,
   controller: PlayerID,
   includeSelfTriggers = true,
-  options?: { readonly etbTriggerCache?: Map<string, ReturnType<typeof getETBTriggersForPermanent>> },
+  options?: {
+    readonly etbTriggerCache?: Map<string, ReturnType<typeof getETBTriggersForPermanent>>;
+    /** Per-batch watcher gate results; only for plain token batches that can't change any watcher's abilities. */
+    readonly etbGateCache?: Map<any, boolean>;
+  },
 ): void {
   const state = (ctx as any).state;
   if (!state?.battlefield) return;
@@ -258,7 +262,13 @@ export function triggerETBEffectsForPermanent(
   const etbTriggerCache = options?.etbTriggerCache;
   for (const perm of state.battlefield) {
     if (!perm || perm.id === permanent.id) continue;
-    if (!permanentHasTriggeredAbilities(perm, state, { event: 'etb', eventSubject: permanent })) continue;
+    const gateCache = options?.etbGateCache;
+    let gate = gateCache?.get(perm);
+    if (gate === undefined) {
+      gate = permanentHasTriggeredAbilities(perm, state, { event: 'etb', eventSubject: permanent });
+      gateCache?.set(perm, gate);
+    }
+    if (!gate) continue;
     const watcherId = String(perm?.id || '').trim();
     let otherTriggers = watcherId && etbTriggerCache ? etbTriggerCache.get(watcherId) : undefined;
     if (!otherTriggers) {

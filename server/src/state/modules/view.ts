@@ -17,6 +17,8 @@ import { applyRevealedInformationToZones } from "./viewRevealedInformation.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
 import { maskFaceDownExileCardForViewer, applyCurrentExiledWithSourcePlayLook } from "./impulse-exile-utils.js";
 import { maskFaceDownPermanentForViewer, maskFaceDownStackItemForViewer } from "./faceDownViewMasking.js";
+import { withReadOnlyQueryScope } from "../../../../rules-engine/src/readOnlyQueryScope.js";
+import { withBattlefieldEntryBatchIndex } from "../../../../rules-engine/src/battlefieldEntryBatchIndex.js";
 import {
   applyCurrentHideawayExamination,
   collectMissingHideawayExileCards,
@@ -121,7 +123,7 @@ export function withSharedBattlefieldView<T>(state: any, fn: () => T): T {
   if (sharedBattlefieldViewScope) return fn();
   sharedBattlefieldViewScope = { state, derived: new Map() };
   try {
-    return fn();
+    return withReadOnlyQueryScope(() => withBattlefieldEntryBatchIndex(fn));
   } finally {
     sharedBattlefieldViewScope = null;
   }
@@ -158,7 +160,16 @@ function computeViewerIndependentPermanentView(perm: BattlefieldPermanent, state
   return { effectivePower, effectiveToughness, isCommander, existingAbilities, rulesStatus };
 }
 
+/** View builds are read-only on battlefield shape: index loss sources / attachments instead of O(n^2) scans. */
 export function viewFor(
+  ctx: GameContext,
+  viewer: PlayerID | "spectator:judge",
+  _spectator: boolean
+): ClientGameView {
+  return withBattlefieldEntryBatchIndex(() => viewForUnindexed(ctx, viewer, _spectator));
+}
+
+function viewForUnindexed(
   ctx: GameContext,
   viewer: PlayerID | "spectator:judge",
   _spectator: boolean

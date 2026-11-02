@@ -1,4 +1,5 @@
 import { controllerHasLeftTheGame } from '../../../../rules-engine/src/playerInGameStatus.js';
+import { isReadOnlyQueryScopeActive, scopedMemo } from '../../../../rules-engine/src/readOnlyQueryScope.js';
 
 export type StaticEffectSourceType = 'battlefield' | 'emblem' | 'plane' | 'scheme';
 
@@ -76,7 +77,28 @@ function getBattlefieldStaticOracleText(permanent: any): string {
   return scopeOracleTextToSelectedMode(oracleText, selectedModeLabel);
 }
 
+/**
+ * Inside a read-only query scope the source list is computed once per state and option set.
+ * Callers get fresh copies so any local mutation cannot leak into the memo.
+ */
 export function collectStaticEffectSources(
+  state: any,
+  options?: { sourceTypes?: StaticEffectSourceType[] },
+): StaticEffectSource[] {
+  if (!isReadOnlyQueryScopeActive()) return collectStaticEffectSourcesUncached(state, options);
+  return collectStaticEffectSourcesShared(state, options).map((source) => ({ ...source }));
+}
+
+/** Read-only shared list (do not mutate). Memoized per state inside a read-only query scope. */
+export function collectStaticEffectSourcesShared(
+  state: any,
+  options?: { sourceTypes?: StaticEffectSourceType[] },
+): readonly StaticEffectSource[] {
+  const key = 'staticEffectSources:' + (Array.isArray(options?.sourceTypes) ? options!.sourceTypes!.join(',') : '');
+  return scopedMemo(state, key, () => collectStaticEffectSourcesUncached(state, options));
+}
+
+function collectStaticEffectSourcesUncached(
   state: any,
   options?: { sourceTypes?: StaticEffectSourceType[] },
 ): StaticEffectSource[] {

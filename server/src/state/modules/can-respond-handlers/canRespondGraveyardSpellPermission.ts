@@ -34,6 +34,18 @@ import {
   spellQualifierMatchesCard,
 } from './canRespondGraveyardPermissionMatching.js';
 
+const STATIC_GY_LINE_CACHE = new Map<string, boolean>();
+
+/** Pure: does any normalized line of this text pass isStaticGraveyardPermissionLine? */
+function oracleHasStaticGraveyardPermissionLine(oracleText: string): boolean {
+  const cached = STATIC_GY_LINE_CACHE.get(oracleText);
+  if (cached !== undefined) return cached;
+  const result = oracleText.split(/\r?\n/).some((rawLine) => isStaticGraveyardPermissionLine(normalizeRuleText(rawLine)));
+  if (STATIC_GY_LINE_CACHE.size >= 5000) STATIC_GY_LINE_CACHE.clear();
+  STATIC_GY_LINE_CACHE.set(oracleText, result);
+  return result;
+}
+
 function sourceExilesSpellCastThisWay(oracleText: string): boolean {
   const normalized = normalizeRuleText(oracleText).replace(/\s+/g, ' ').trim();
   return /\bif\s+(?:a|that|this)\s+(?:card|spell)\s+cast\s+this\s+way\s+would\s+be\s+put\s+into\s+your\s+graveyard\s*,?\s*exile\s+it\s+instead\b/.test(normalized);
@@ -299,6 +311,8 @@ export function getSpecificSpellFromGraveyardPermission(
     for (const source of getGraveyardPermissionTextSources(state, playerId)) {
       const permanentTypeLine = source.typeLine;
       const oracleText = source.oracleText;
+      // Everything below before the static-line check is pure; skip sources with no such line.
+      if (!oracleHasStaticGraveyardPermissionLine(oracleText)) continue;
       const exileAfterResolution = sourceExilesSpellCastThisWay(oracleText);
       const leaveBattlefieldReplacementDestination = sourceLeaveBattlefieldReplacementDestination(oracleText);
       const leaveBattlefieldReplacementLifeGain = sourceLeaveBattlefieldLifeGain(oracleText);

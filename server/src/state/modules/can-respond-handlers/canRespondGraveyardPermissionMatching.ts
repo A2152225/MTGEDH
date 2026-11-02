@@ -18,7 +18,8 @@ import {
   type GraveyardCastingPermission,
   type GraveyardCastingPermissionCostMode,
 } from '../graveyard-permissions.js';
-import { collectStaticEffectSources } from '../static-effect-sources.js';
+import { collectStaticEffectSourcesShared } from '../static-effect-sources.js';
+import { scopedMemo } from '../../../../../rules-engine/src/readOnlyQueryScope.js';
 import { cardManaValue } from '../../utils.js';
 import { isLandTypeLine } from './canRespondSplitSecondLandPredicates.js';
 import { isPermanentSpellType } from './canRespondSpellTypePredicates.js';
@@ -244,7 +245,8 @@ export function isPlayersTurnForPermission(state: any, playerId: PlayerID): bool
 }
 
 export function getGraveyardPermissionTextSources(state: any, playerId: PlayerID): Array<{ sourceId: string; oracleText: string; typeLine: string; sourceName: string; counters?: any }> {
-  return collectStaticEffectSources(state)
+  // Same list for every graveyard card in one read-only query scope.
+  return scopedMemo(state, `gyPermissionTextSources:${String(playerId || '')}`, () => collectStaticEffectSourcesShared(state)
     .filter((source) => !source.phasedOut && (source.affectsAllPlayers || source.controller === String(playerId || '')))
     .map((source) => ({
       sourceId: String(source.sourceId || '').trim(),
@@ -252,7 +254,7 @@ export function getGraveyardPermissionTextSources(state: any, playerId: PlayerID
       typeLine: normalizeRuleText(source.typeLine || ''),
       sourceName: String(source.sourceName || '').trim(),
       ...(source.counters ? { counters: source.counters } : {}),
-    }));
+    }))).slice();
 }
 
 function isHistoricCard(card: any): boolean {

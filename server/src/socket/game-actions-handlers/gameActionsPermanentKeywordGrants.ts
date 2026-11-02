@@ -21,6 +21,7 @@ import { debugWarn } from "../../utils/debug.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/staticEffectSpec.js";
 import { extractCreatureTypes } from "./gameActionsCastCostReduction.js";
 import { permanentHasKeywordAbility, permanentLosesKeyword } from "../../../../rules-engine/src/permanentKeywordAbilities.js";
+import { isReadOnlyQueryScopeActive, scopedMemo } from "../../../../rules-engine/src/readOnlyQueryScope.js";
 
 function cardListsKeyword(card: any, keyword: string): boolean {
   const keywords = Array.isArray(card?.keywords) ? card.keywords : [];
@@ -100,7 +101,47 @@ export function permanentHasSummoningSickness(
   return permanent?.summoningSickness === true || permanent?.enteredThisTurn === true;
 }
 
+type HasteBattlefieldIndex = { attachments: any[]; hasteText: any[] };
+
+/**
+ * Per-battlefield prefilter used inside a read-only query scope. Both lists keep battlefield
+ * order and only drop entries the loops below would skip anyway, so results are identical.
+ */
+function getHasteBattlefieldIndex(battlefield: any[]): HasteBattlefieldIndex | null {
+  if (!Array.isArray(battlefield) || !isReadOnlyQueryScopeActive()) return null;
+  return scopedMemo(battlefield, 'hasteIndex', () => {
+    const attachments: any[] = [];
+    const hasteText: any[] = [];
+    for (const perm of battlefield) {
+      if (!perm || !perm.card) continue;
+      const typeLine = (perm.card.type_line || "").toLowerCase();
+      if (typeLine.includes('equipment') || typeLine.includes('aura')) attachments.push(perm);
+      if (/haste/i.test(String(perm.card.oracle_text || ""))) hasteText.push(perm);
+    }
+    return { attachments, hasteText };
+  });
+}
+
 export function creatureHasHaste(permanent: any, battlefield: any[], controller: string): boolean {
+  if (!permanent || typeof permanent !== 'object' || !isReadOnlyQueryScopeActive()) {
+    return creatureHasHasteUncached(permanent, battlefield, controller);
+  }
+  const perPermanent = scopedMemo(battlefield, 'hasteResults', () => new WeakMap<object, Map<string, boolean>>());
+  let byController = perPermanent.get(permanent);
+  if (!byController) {
+    byController = new Map();
+    perPermanent.set(permanent, byController);
+  }
+  const key = String(controller);
+  const cached = byController.get(key);
+  if (cached !== undefined) return cached;
+  const result = creatureHasHasteUncached(permanent, battlefield, controller);
+  byController.set(key, result);
+  return result;
+}
+
+function creatureHasHasteUncached(permanent: any, battlefield: any[], controller: string): boolean {
+  const hasteIndex = getHasteBattlefieldIndex(battlefield);
   try {
     const permCard = permanent?.card || {};
     const permTypeLine = (permCard.type_line || "").toLowerCase();
@@ -171,7 +212,7 @@ export function creatureHasHaste(permanent: any, battlefield: any[], controller:
     
     // Also check by attachedTo relationship (in case attachedEquipment isn't set)
     if (permanent.id) {
-      for (const equip of battlefield) {
+      for (const equip of hasteIndex ? hasteIndex.attachments : battlefield) {
         if (!equip || !equip.card) continue;
         const equipTypeLine = (equip.card.type_line || "").toLowerCase();
         if (!equipTypeLine.includes('equipment') && !equipTypeLine.includes('aura')) continue;
@@ -185,7 +226,7 @@ export function creatureHasHaste(permanent: any, battlefield: any[], controller:
     }
     
     // 4. Check battlefield for permanents that grant haste
-    for (const perm of battlefield) {
+    for (const perm of hasteIndex ? hasteIndex.hasteText : battlefield) {
       if (!perm || !perm.card) continue;
       
       const rawGrantorOracle = String(perm.card.oracle_text || "");

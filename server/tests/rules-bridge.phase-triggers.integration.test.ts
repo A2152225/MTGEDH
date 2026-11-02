@@ -230,7 +230,8 @@ describe('RulesBridge phase-trigger integration', () => {
       (perm: any) => perm?.isToken && perm?.card?.name === 'Judge of Currents'
     );
 
-    expect(tokenCopies).toHaveLength(1);
+    // The fixture controls two token doublers (Anointed Procession + Exalted Sunborn): 1 x 2 x 2.
+    expect(tokenCopies).toHaveLength(4);
     expect(String(tokenCopies[0]?.card?.type_line || '').toLowerCase()).not.toContain('legendary');
     expect(String(tokenCopies[0]?.card?.oracle_text || '').toLowerCase()).toContain('haste');
     expect(tokenCopies[0]?.summoningSickness).toBe(false);

@@ -42,6 +42,7 @@ import { getCountersTokensHandlerDeps } from "./countersTokensHandlerDeps.js";
 import { applyGraveyardTypeEntryCounterGrants } from "../graveyardTypeEntryCounterBonus.js";
 import { applyBattlefieldTypeEntryCounterGrants } from "../battlefieldTypeEntryCounterBonus.js";
 import { runWithSimultaneousEntryBatch } from '../triggers/simultaneousEntryBatch.js';
+import { withBattlefieldEntryBatchIndex } from '../../../../../rules-engine/src/battlefieldEntryBatchIndex.js';
 
 function runSBA(ctx: GameContext): void {
   getCountersTokensHandlerDeps().runSBA(ctx);
@@ -368,6 +369,12 @@ function createTokenUnbatched(
   // Tokens from one instruction enter simultaneously: each watcher's ETB trigger list is
   // detected once per batch instead of once per token (100 Mites = O(n^2) detector scans).
   const etbTriggerCache = new Map<string, any[]>();
+  // Plain tokens can't add ability-loss sources, attachments or face changes, so watchers' loss
+  // lookups may use an append-aware battlefield index for this batch (same results, O(k) per lookup).
+  const plainTokenBatch = !/\blos(?:e|es)\b|daybound|nightbound|\b(?:aura|equipment)\b/i
+    .test(`${tokenAbilities.join('\n')} ${typeLine}`);
+  const etbGateCache = plainTokenBatch ? new Map<any, boolean>() : undefined;
+  const createTokenEntries = (): void => {
   for (let i = 0; i < Math.max(1, tokensToCreate | 0); i++) {
     const permanentId = uid("tok");
     createdPermanentIds.push(permanentId);
@@ -414,11 +421,13 @@ function createTokenUnbatched(
 
     // Fire ETB triggers (including the token's own ETBs if applicable).
     try {
-      triggerETBEffectsForPermanent(ctx as any, tokenPerm, controller, true, { etbTriggerCache });
+      triggerETBEffectsForPermanent(ctx as any, tokenPerm, controller, true, { etbTriggerCache, etbGateCache });
     } catch {
       // Defensive: do not block token creation.
     }
   }
+  };
+  if (plainTokenBatch) withBattlefieldEntryBatchIndex(createTokenEntries); else createTokenEntries();
 
   // Per-turn tracking for intervening-if templates like "if you created a token this turn".
   try {

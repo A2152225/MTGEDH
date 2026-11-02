@@ -28,6 +28,7 @@ import { creatureHasHaste } from "../game-actions.js";
 import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
 import { permanentActivatedAbilitiesLockedByAttachment } from "../../state/modules/staticActivationLockFromAttachments.js";
 import { debug, debugWarn } from "../../utils/debug.js";
+import { withReadOnlyQueryScope } from "../../../../rules-engine/src/readOnlyQueryScope.js";
 import { isInMainPhase } from "./utilMainPhaseCheck.js";
 import { isCastingLimitedToSorceryTiming } from "../../state/modules/opponentSorceryTimingLock.js"; // UI31 Teferi lock
 import { opponentTurnCastProhibitionReason, zoneCastProhibitionReason } from "../../state/modules/batch31CastLocks.js"; // UI32
@@ -42,6 +43,11 @@ import { opponentActivationProhibitionReason } from "../../state/modules/opponen
  * NOTE: Checks both affordability AND timing to ensure automation works correctly.
  */
 export function getPlayableCardIds(game: InMemoryGame, playerId: PlayerID): string[] {
+  // Read-only pass: share pure derivations (static sources, haste, grants) across its checks.
+  return withReadOnlyQueryScope(() => getPlayableCardIdsUncached(game, playerId));
+}
+
+function getPlayableCardIdsUncached(game: InMemoryGame, playerId: PlayerID): string[] {
   const playableIds: string[] = [];
   
   try {

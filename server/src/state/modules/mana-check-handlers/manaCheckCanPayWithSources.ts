@@ -6,6 +6,7 @@
 
 import type { PlayerID } from "../../../../../shared/src/index.js";
 import { debug } from "../../../utils/debug.js";
+import { scopedMemo } from "../../../../../rules-engine/src/readOnlyQueryScope.js";
 import { getAvailableMana } from "./manaCheckAvailableMana.js";
 import { canPayManaCost } from "./manaCheckCanPayManaCost.js";
 import {
@@ -100,6 +101,40 @@ function withMatchingRestrictedFloatingMana<TPool extends Record<string, number>
   return changed ? next : pool;
 }
 
+const optionHasNonManaExtraCost = (option: ExactManaSource['options'][number]): boolean => Boolean(
+  option.activationCost
+  || Number(option.lifeCost || 0) > 0
+  || option.handCost
+  || option.sacrificeCost
+  || option.returnToHandCost
+  || option.removeCounterCost
+);
+
+function getScopedAvailableMana(state: any, playerId: PlayerID): ReturnType<typeof getAvailableMana> {
+  return { ...scopedMemo(state, `canPay:available:${playerId}`, () => getAvailableMana(state, playerId)) };
+}
+
+function buildSortedExactManaSources(state: any, playerId: PlayerID): ExactManaSource[] {
+  const sources = buildExactManaSources(state, playerId);
+  // Free taps first, then activation-cost rocks, then repeatable sacrifice.
+  // Any-order DFS with a repeatable Altar still in the bag is n! × tokens.
+  const rankExactManaSource = (source: ExactManaSource): number => {
+    if (source.options.length > 0 && source.options.every((option) => !optionHasNonManaExtraCost(option))) {
+      return 0;
+    }
+    if (source.options.some((option) => option.sacrificeCost || option.handCost || option.returnToHandCost)) {
+      return 2;
+    }
+    return 1;
+  };
+  sources.sort((a, b) => {
+    const delta = rankExactManaSource(a) - rankExactManaSource(b);
+    if (delta !== 0) return delta;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+  return sources;
+}
+
 /**
  * Check whether the player can pay a mana cost using their floating mana plus untapped mana sources.
  * This exact helper is primarily used when activation-cost sources like Signets are present,
@@ -126,38 +161,16 @@ export function canPayManaCostWithAvailableSources(
     return true;
   }
 
-  const sources = buildExactManaSources(state, playerId);
-  const optionHasNonManaExtraCost = (option: ExactManaSource['options'][number]): boolean => Boolean(
-    option.activationCost
-    || Number(option.lifeCost || 0) > 0
-    || option.handCost
-    || option.sacrificeCost
-    || option.returnToHandCost
-    || option.removeCounterCost
-  );
-  // Free taps first, then activation-cost rocks, then repeatable sacrifice.
-  // Any-order DFS with a repeatable Altar still in the bag is n! × tokens.
-  const rankExactManaSource = (source: ExactManaSource): number => {
-    if (source.options.length > 0 && source.options.every((option) => !optionHasNonManaExtraCost(option))) {
-      return 0;
-    }
-    if (source.options.some((option) => option.sacrificeCost || option.handCost || option.returnToHandCost)) {
-      return 2;
-    }
-    return 1;
-  };
-  sources.sort((a, b) => {
-    const delta = rankExactManaSource(a) - rankExactManaSource(b);
-    if (delta !== 0) return delta;
-    return String(a.id || '').localeCompare(String(b.id || ''));
-  });
-  const battlefieldCandidates = buildExactSacrificeCandidates(state, playerId);
+  // Inside a read-only scope (one playable-ids pass / broadcast) the sorted source list,
+  // candidates and available-mana summary are computed once per player, not per card.
+  const sources = [...scopedMemo(state, `canPay:sources:${playerId}`, () => buildSortedExactManaSources(state, playerId))];
+  const battlefieldCandidates = [...scopedMemo(state, `canPay:sacrifice:${playerId}`, () => buildExactSacrificeCandidates(state, playerId))];
   const excludedHandCardIds = new Set(
     (Array.isArray(options?.excludedHandCardIds) ? options?.excludedHandCardIds : [])
       .map((id) => String(id || '').trim())
       .filter(Boolean),
   );
-  const handCandidates = buildExactHandCandidates(state, playerId).filter(
+  const handCandidates = scopedMemo(state, `canPay:hand:${playerId}`, () => buildExactHandCandidates(state, playerId)).filter(
     (candidate) => !excludedHandCardIds.has(String(candidate.id || '')),
   );
   const hasActivationCostSource = sources.some((source) =>
@@ -197,7 +210,7 @@ export function canPayManaCostWithAvailableSources(
     !(hasRestrictedSpendSource && restrictedSpendPurpose)
   ) {
     return canPayManaCost(
-      withMatchingRestrictedFloatingMana(getAvailableMana(state, playerId), rawFloatingPool, restrictedSpendPurpose),
+      withMatchingRestrictedFloatingMana(getScopedAvailableMana(state, playerId), rawFloatingPool, restrictedSpendPurpose),
       parsedCost,
       effectiveLifeAvailable,
     );
@@ -456,7 +469,7 @@ export function canPayManaCostWithAvailableSources(
   if (budgetExceeded) {
     debug(2, `[mana-check] exact payment search hit node budget (${EXACT_MANA_SEARCH_NODE_BUDGET}); falling back to available-mana estimate`);
     return canPayManaCost(
-      withMatchingRestrictedFloatingMana(getAvailableMana(state, playerId), rawFloatingPool, restrictedSpendPurpose),
+      withMatchingRestrictedFloatingMana(getScopedAvailableMana(state, playerId), rawFloatingPool, restrictedSpendPurpose),
       parsedCost,
       effectiveLifeAvailable,
     );

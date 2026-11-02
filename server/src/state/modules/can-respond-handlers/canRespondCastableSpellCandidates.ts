@@ -147,6 +147,20 @@ function getAvailableGraveyardCastKeywordInfo(
   return undefined;
 }
 
+/**
+ * Printed cost for a castability check. A card object with no cost field at all (stub /
+ * partially hydrated) but a positive mana value must not read as free: fall back to
+ * generic {N}, which never exceeds the real cost's total. Cards whose cost is really
+ * empty ("" from Scryfall) are unchanged.
+ */
+function resolveCandidateManaCost(castCard: any): string {
+  const printed = castCard?.mana_cost || castCard?.manaCost;
+  if (printed) return String(printed);
+  if (castCard?.mana_cost != null || castCard?.manaCost != null) return '';
+  const manaValue = Number(castCard?.cmc ?? castCard?.manaValue);
+  return Number.isFinite(manaValue) && manaValue > 0 ? `{${Math.floor(manaValue)}}` : '';
+}
+
 function canPayGraveyardCastKeywordAdditionalCost(state: any, playerId: PlayerID, card: any, keywordInfo: { keyword: GraveyardCastKeyword; additionalExileCount?: number }): boolean {
   const zones = state?.zones?.[playerId];
   if (!zones) return false;
@@ -262,7 +276,7 @@ function collectCastableSpellCandidates(
         }
 
         let castMethod: SharedSpellCastMethod = 'normal';
-        let manaCost = String(castCard?.mana_cost || castCard?.manaCost || '');
+        let manaCost = resolveCandidateManaCost(castCard);
         let grantsFlash = false;
         let unknownCostFallback = false;
         let exileAfterResolution = false;

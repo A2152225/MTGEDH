@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
+import { permanentMatchesSelectorKeywords } from './oracleIRSelectorKeywordQualifier';
 import { buildZoneObjectWithRetainedCounters } from '../../shared/src/zoneRetainedCounters';
 import { getLeaveBattlefieldDestination } from '../../shared/src/leaveBattlefieldReplacement';
 import type { OracleObjectSelector } from './oracleIR';
@@ -497,6 +498,8 @@ export function permanentMatchesSelector(
   if (sel.nontokenOnly && (perm as any)?.isToken) {
     return false;
   }
+
+  if (!permanentMatchesSelectorKeywords(perm, sel)) return false;
 
   if (sel.usesChosenCreatureType) {
     const chosenType = String(ctx.selectorContext?.chosenCreatureType || '').trim().toLowerCase();

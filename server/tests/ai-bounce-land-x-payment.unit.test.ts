@@ -116,7 +116,9 @@ describe('AI bounce-land payment and X step-down', () => {
       totalManaCost: '{9}{W}',
       cardId: 'wastes_1',
     });
-    expect(Date.now() - started).toBeLessThan(250);
+    // ~20ms in isolation; the bound only guards against a combinatorial search blow-up, and has
+    // headroom for the CPU contention of the full parallel suite (250ms flaked there).
+    expect(Date.now() - started).toBeLessThan(2000);
     expect(overX).toBeNull();
   });
 });
