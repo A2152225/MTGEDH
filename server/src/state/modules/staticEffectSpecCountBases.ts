@@ -8,6 +8,7 @@
 // Public entry symbols: resolveExtendedCountMultiplier.
 
 import { landAwareTypeLine } from './effectiveLandTypeLine.js';
+import { getEffectiveColors } from './effectiveColors.js';
 import { readDerivedStaticEffectSpecs } from './staticEffectSpec.js';
 import { permanentMatchesScopeQualifier } from './staticEffectSpecScopeQualifier.js';
 
@@ -24,7 +25,7 @@ type SpecLike = {
   sourcePermanentId?: string;
   sourceController?: string;
   grant?: { countBasis?: string; countCardType?: string; countAttachmentKinds?: readonly string[]; countExcludeSource?: boolean;
-    countCounterType?: string; countWho?: string; countKeyword?: string; countQualifier?: any };
+    countCounterType?: string; countWho?: string; countKeyword?: string; countQualifier?: any; countName?: string };
 };
 
 function playerCounterCount(state: any, players: any[], id: string, kind: string): number {
@@ -81,7 +82,8 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
     case 'controller_permanents_of_type': {
       const wanted = String(grant.countCardType || '').toLowerCase();
       const skip = grant.countExcludeSource ? String(spec.sourcePermanentId || '') : '';
-      return battlefield.filter((p) => String(p?.controller || '') === controller && (!wanted || new RegExp('\\b' + wanted + '\\b').test(typeLine(p)))
+      const ownerOk = (p: any) => (grant.countWho === 'all' ? !!p && !p.phasedOut : grant.countWho === 'opponents' ? !!String(p?.controller || '') && String(p?.controller || '') !== controller : String(p?.controller || '') === controller);
+      return battlefield.filter((p) => ownerOk(p) && (!wanted || new RegExp('\\b' + wanted + '\\b').test(typeLine(p)))
         && !(skip && String(p?.id || '') === skip) && (!grant.countQualifier || permanentMatchesScopeQualifier(p, grant.countQualifier))).length;
     }
     case 'attachments_on_source': {
@@ -95,7 +97,11 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
       return Array.isArray(zone?.hand) ? zone.hand.length : 0;
     }
     case 'controller_graveyard_cards_of_type': {
-      const graveyard = controllerZone(spec, state)?.graveyard;
+      // R36: countWho opponents / all reads the other players' graveyards.
+      const zones: any = (state as any)?.zones || {};
+      const graveyard = grant.countWho === 'opponents' || grant.countWho === 'all'
+        ? Object.keys(zones).filter((id) => grant.countWho === 'all' || id !== controller).flatMap((id) => (Array.isArray(zones[id]?.graveyard) ? zones[id].graveyard : []))
+        : controllerZone(spec, state)?.graveyard;
       const wanted = String(grant.countCardType || '').toLowerCase();
       return Array.isArray(graveyard) ? graveyard.filter((c: any) => !wanted || String(c?.type_line || c?.card?.type_line || '').toLowerCase().includes(wanted)).length : 0;
     }
@@ -132,6 +138,23 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
       const skip = grant.countExcludeSource ? String(spec.sourcePermanentId || '') : '';
       return battlefield.filter((p) => p && !p.phasedOut && /\bcreature\b/.test(typeLine(p))
         && !(skip && String(p?.id || '') === skip) && permanentHasKeyword(p, kw, state)).length;
+    }
+    case 'host_controller_hand_size': {
+      const host = battlefield.find((p) => String(p?.id || '') === String(spec.sourcePermanentId || ''));
+      const zone = (state as any)?.zones?.[String(host?.controller || '')];
+      if (typeof zone?.handCount === 'number' && Number.isFinite(zone.handCount)) return Math.max(0, Math.floor(zone.handCount));
+      return Array.isArray(zone?.hand) ? zone.hand.length : 0;
+    }
+    case 'host_color_count': {
+      const host = battlefield.find((p) => String(p?.id || '') === String(spec.sourcePermanentId || ''));
+      if (!host) return 0;
+      return new Set(getEffectiveColors(host, state).map((c) => String(c).toUpperCase()).filter((c) => 'WUBRG'.includes(c) && c)).size;
+    }
+    case 'creatures_named': {
+      const wanted = String(grant.countName || '').toLowerCase();
+      const skip = grant.countExcludeSource ? String(spec.sourcePermanentId || '') : '';
+      return battlefield.filter((p) => p && !p.phasedOut && /\bcreature\b/.test(typeLine(p)) && !(skip && String(p?.id || '') === skip)
+        && String(p?.card?.name || p?.name || '').toLowerCase() === wanted).length;
     }
     default:
       return undefined;

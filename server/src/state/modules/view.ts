@@ -14,6 +14,7 @@ import { getContinuousGrantedAbilitiesForPermanent, syncDerivedContinuousEffects
 import { collectBattlefieldAbilityBadgesForView } from "./battlefieldAbilityBadges.js";
 import { computePermanentRulesStatus } from "./viewPermanentRulesStatus.js";
 import { applyRevealedInformationToZones } from "./viewRevealedInformation.js";
+import { applyFirstDrawRevealToZones } from "./viewFirstDrawReveal.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
 import { maskFaceDownExileCardForViewer, applyCurrentExiledWithSourcePlayLook } from "./impulse-exile-utils.js";
 import { maskFaceDownPermanentForViewer, maskFaceDownStackItemForViewer } from "./faceDownViewMasking.js";
@@ -343,6 +344,7 @@ function viewForUnindexed(
   }
 
   try { applyRevealedInformationToZones(state, filteredZones as any, (pid) => libraries.get(pid as PlayerID)?.[0]); } catch { /* best-effort */ }
+  try { applyFirstDrawRevealToZones(state, filteredZones as any); } catch { /* best-effort: B51 first-draw reveal */ }
 
   const projectedPlayers: PlayerRef[] = (state.players as any as PlayerRef[]).map(
     (p) => {

@@ -8,6 +8,7 @@
 import { selfCastProhibitionReason } from './playerActionProhibitions.js'; // B34
 import { firstTurnsCastViolation } from './firstTurnsCastRestriction.js';
 import { castOnlyIfCastAnotherViolation } from './castOnlyIfCastAnotherRestriction.js';
+import { castRestrictionTailViolation } from './castRestrictionTailFamilies.js'; // B47
 
 const NUMBER_WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -57,6 +58,7 @@ export function findOracleCastingLimitViolation(
   state: any,
   playerId: string,
   spell: any,
+  castingZone?: string,
 ): { prohibited: boolean; reason?: string } {
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const pid = String(playerId || '');
@@ -67,6 +69,8 @@ export function findOracleCastingLimitViolation(
   if (castAnother) return { prohibited: true, reason: castAnother };
   const b34SelfCast = selfCastProhibitionReason(battlefield, pid, spell); // B34
   if (b34SelfCast) return { prohibited: true, reason: b34SelfCast };
+  const b47Tail = castRestrictionTailViolation(state, pid, spell, castingZone);
+  if (b47Tail) return { prohibited: true, reason: b47Tail };
   const spellTypeLine = spell?.type_line ?? spell?.card?.type_line ?? spell?.typeLine;
   const spellIsCreature = isCreatureTypeLine(spellTypeLine);
   const turnPlayer = String(state?.turnPlayer ?? state?.activePlayer ?? '');

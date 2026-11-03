@@ -41,7 +41,6 @@ const LEGACY_ONLY: readonly RegExp[] = [
   /^whenever an opponent is dealt (?:noncombat )?damage,\s*(.+)$/,
   /^whenever you play a (?:land|card) from exile(?: or cast a spell from exile)?,\s*(.+)$/,
   /^whenever you activate a loyalty ability[^,]*,\s*(.+)$/,
-  /^whenever a modified creature you control [^,]+,\s*(.+)$/,
   /^whenever a source (?:you control|an opponent controls) deals damage to you,\s*(.+)$/,
   /^when you cast or cycle (?:~|this (?:permanent|card|creature|spell)),\s*(.+)$/,
   /^whenever [^,]+ attacks for the first time each turn,\s*(.+)$/,

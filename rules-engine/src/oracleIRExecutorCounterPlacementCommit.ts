@@ -47,7 +47,7 @@ function battlefieldLikelyHasCounterModifiers(state: GameState): boolean {
     if (!oracle) continue;
     if (
       (oracle.includes('twice that many') && oracle.includes('counter'))
-      || (oracle.includes('that many plus one') && oracle.includes('+1/+1'))
+      || (oracle.includes('that many plus one') && oracle.includes('counter'))
       || (oracle.includes('double that amount') && oracle.includes('+1/+1'))
       || (oracle.includes('put twice that many') && oracle.includes('counter'))
     ) {

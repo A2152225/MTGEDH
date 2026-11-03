@@ -24,6 +24,9 @@ function titledShortNames(short: string): string[] {
   if (rank && words.length > 2) out.push(rank[1] + ' ' + words[words.length - 1]);
   const ofThe = /^([A-Z][A-Za-z'-]{2,}) of the /.exec(short);
   if (ofThe && !isCreatureTypeWord(ofThe[1])) out.push(ofThe[1]);
+  // Two-word personal names ("Dáin Ironfoot" -> "Dáin", "Elesh Norn" -> "Elesh"); not a creature type.
+  const twoWord = /^(\p{Lu}[\p{L}'-]{2,}) \p{Lu}[\p{L}'-]+$/u.exec(short);
+  if (twoWord && !isCreatureTypeWord(twoWord[1])) out.push(twoWord[1]);
   return out;
 }
 
@@ -73,6 +76,8 @@ export function normalizeSelfNameInTriggerSentence(sentence: string, cardName: s
   for (const name of selfNameVariants(cardName)) {
     text = text.replace(new RegExp(`(?<![A-Za-z'])${escapeRegex(name)}(?![A-Za-z'])`, 'g'), 'this permanent');
   }
+  // "When this Case enters" on "Case of the ...": the name variant replaced the noun after "this".
+  text = text.replace(/\b(?:this|the) this permanent\b/gi, 'this permanent');
   // Plural names ("Mikey & Mona enter") and the census tilde use the plural verb.
   text = text.replace(/(^|\s)~(?=\s)/g, '$1this permanent');
   text = text.replace(/\bthis permanent (enter|attack|die|block|leave)(?![a-z])/g, 'this permanent $1s');

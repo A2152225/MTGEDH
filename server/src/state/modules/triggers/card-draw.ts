@@ -240,7 +240,17 @@ export function getCardDrawTriggers(
     const permController = permanent.controller;
     const permTriggers = detectCardDrawTriggers(permanent.card, permanent, (ctx as any)?.state);
     
-    for (const trigger of permTriggers) {
+    for (const rawTrigger of permTriggers) {
+      // "Whenever an opponent draws a card during your turn, ..." (Troi): the turn qualifier is part
+      // of the trigger event, not the effect. Strip it and gate on whose turn it is.
+      let trigger = rawTrigger;
+      const turnQualifier = /^during (your|an opponent's|each opponent's) turn,?\s*/i.exec(String(rawTrigger.effect || ''));
+      if (turnQualifier) {
+        const activePid = String((ctx.state as any)?.turnPlayer || (ctx.state as any)?.activePlayer || '');
+        const onControllerTurn = activePid === String(permController || '');
+        if ((turnQualifier[1].toLowerCase() === 'your') !== onControllerTurn) continue;
+        trigger = { ...rawTrigger, effect: String(rawTrigger.effect).slice(turnQualifier[0].length) };
+      }
       // Intervening-if (Rule 603.4): if the condition is false at the time the trigger
       // would trigger, the ability does not trigger and should not be put on the stack.
       // If the condition is unrecognized, keep the trigger (conservative fallback).

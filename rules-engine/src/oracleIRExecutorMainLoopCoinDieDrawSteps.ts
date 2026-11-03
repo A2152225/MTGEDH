@@ -492,25 +492,48 @@ export function tryApplyMainLoopCoinDieDrawSteps(
           break;
         }
 
-        const band = step.results.find(resultBand => rolled >= resultBand.min && rolled <= resultBand.max);
-        if (!band) {
-          setLastStepOutcome(step, 'applied');
-          log.push(`[oracle-ir] No die-roll branch matched result ${rolled}`);
-          appliedSteps.push(step);
-          break;
+        // B52: bands flagged rollAgain re-roll the die and re-apply the table (capped).
+        const againForced = Array.isArray((currentCtx as any).dieRollAgainResults) ? (currentCtx as any).dieRollAgainResults as number[] : [];
+        const acceptRaw = (currentCtx as any).dieRollAgainAccept;
+        let optionalLeft = acceptRaw === true ? 19 : Math.max(0, Math.trunc(Number(acceptRaw) || 0));
+        let current = rolled;
+        let rerolls = 0;
+        for (;;) {
+          const band = step.results.find(resultBand => current >= resultBand.min && current <= resultBand.max);
+          if (!band) {
+            log.push(`[oracle-ir] No die-roll branch matched result ${current}`);
+            break;
+          }
+          const branchResult = recurse(nextState, band.steps, currentCtx, options);
+          nextState = branchResult.state;
+          log.push(`[oracle-ir] Applied die-roll branch ${band.min}-${band.max} for result ${current}`);
+          log.push(...branchResult.log);
+          appliedSteps.push(...branchResult.appliedSteps);
+          skippedSteps.push(...branchResult.skippedSteps);
+          automationGaps.push(...branchResult.automationGaps);
+          pendingOptionalSteps.push(...branchResult.pendingOptionalSteps);
+          absorbExecutionReplayMutations(branchResult);
+          const again = (band as any).rollAgain;
+          if (!again || rerolls >= 19) break;
+          if (again === 'optional') {
+            if (optionalLeft <= 0) {
+              (nextState as any).pendingDieRollAgain = { playerId: players[0], sides: step.sides, raw: band.raw, sourceName: currentCtx.sourceName };
+              log.push(`[oracle-ir] Optional roll again offered (not taken): ${band.raw}`);
+              break;
+            }
+            optionalLeft -= 1;
+          }
+          const forced = Number(againForced[rerolls]);
+          current = Number.isFinite(forced) && forced >= 1 && forced <= step.sides ? forced : Number((performDieRoll(players[0], step.sides) as any).result);
+          rerolls += 1;
+          const st: any = nextState as any;
+          const rec = { sides: step.sides, count: 1, result: current, results: [current], timestamp: Date.now() };
+          st.lastDieRoll = { playerId: players[0], ...rec };
+          st.lastDieRollByPlayer = { ...(st.lastDieRollByPlayer || {}), [players[0]]: rec };
+          log.push(`[oracle-ir] ${players[0]} rolled again d${step.sides}: ${current}`);
         }
-
-        const branchResult = recurse(nextState, band.steps, currentCtx, options);
-        nextState = branchResult.state;
         setLastStepOutcome(step, 'applied');
-        log.push(`[oracle-ir] Applied die-roll branch ${band.min}-${band.max} for result ${rolled}`);
-        log.push(...branchResult.log);
-        appliedSteps.push(...branchResult.appliedSteps);
-        skippedSteps.push(...branchResult.skippedSteps);
         appliedSteps.push(step);
-        automationGaps.push(...branchResult.automationGaps);
-        pendingOptionalSteps.push(...branchResult.pendingOptionalSteps);
-        absorbExecutionReplayMutations(branchResult);
         break;
       }
       case 'draw': {

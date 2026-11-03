@@ -8,6 +8,7 @@ type GoadedPermanentLike = {
   goaded?: unknown;
   isStaticallyGoaded?: unknown;
   staticGoadedBy?: unknown;
+  grantedAbilities?: unknown; // view projection: continuous "goaded" (Sound of Drums, Baeloth)
   mustAttackEachCombat?: unknown;
   mustAttack?: unknown;
 };
@@ -42,6 +43,7 @@ export function getPermanentGoaders(perm: GoadedPermanentLike | null | undefined
 
 export function isPermanentGoaded(perm: GoadedPermanentLike | null | undefined): boolean {
   if (perm?.isStaticallyGoaded) return true;
+  if (Array.isArray(perm?.grantedAbilities) && perm.grantedAbilities.some((a) => String(a || '').trim().toLowerCase() === 'goaded')) return true;
   return getPermanentGoaders(perm).length > 0;
 }
 

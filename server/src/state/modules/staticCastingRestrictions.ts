@@ -36,7 +36,7 @@ export function isSpellCastingProhibitedByStaticRestriction(
     countSpellsCastThisTurnByPlayer(state, String(playerId)),
     castingZone,
   );
-  if (result.canCast) return findOracleCastingLimitViolation(state, String(playerId), spell);
+  if (result.canCast) return findOracleCastingLimitViolation(state, String(playerId), spell, castingZone);
   return {
     prohibited: true,
     reason: result.reason || 'An effect prevents you from casting that spell.',

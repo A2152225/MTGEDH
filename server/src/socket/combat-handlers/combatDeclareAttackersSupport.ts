@@ -24,6 +24,7 @@ import type { PlayerID } from "../../../../shared/src/types.js";
 import { formatDeclareAttackersMessage } from "../../../../shared/src/gameLogFormat.js";
 import { getIllegalDefendingPlayerRestriction } from "../../../../rules-engine/src/attackRestrictionText.js";
 import { getDefendingLandAttackRestrictionReason } from "./combatDefendingLandRestriction.js";
+import { defenderConditionedAttackReason } from "./combatR36DefenderConditionedAttack.js"; // R36
 import { graveyardCountAttackRestrictionReason } from "./combatBatch30AttackRestrictions.js"; // B30
 import { playerIsLegalAttackTarget } from "../../../../rules-engine/src/playerInGameStatus.js";
 import { getAttackTriggersForCreatures } from "../../state/modules/triggers/combat.js";
@@ -144,6 +145,8 @@ export function getOwnerAttackRestrictionReason(
     if (b34CastGate) return b34CastGate;
     const b36ControlType = controlTypeAttackRestrictionReason(creature, options.battlefield); // B36
     if (b36ControlType) return b36ControlType;
+    const r36Defender = defenderConditionedAttackReason(creature, defendingPlayerId, options.battlefield, options.gameState); // R36
+    if (r36Defender) return r36Defender;
     const b37Already = alreadyAttackedPlayerRestrictionReason(creature, defendingPlayerId, options.gameState); // B37
     if (b37Already) return b37Already;
   }

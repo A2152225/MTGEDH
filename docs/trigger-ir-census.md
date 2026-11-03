@@ -197,3 +197,72 @@ after cards=12496 clauses=14317 ir=13344 (93.2%) legacy=973. Trek trigger lines 
 - Total power N is checked as attackers are declared (`attack-watcher-queue` `you_attack` + `minTotalPower`).
 - Turn-scoped "whenever ... this turn" sentences the registry owns no longer run at resolution (Great Train Heist Treasure leak).
 - Skipping declare attackers keeps earlier combats' attacked players (battlefront across combats).
+
+## Round 38
+
+- Split `oracleIrTriggerExecution.ts` (40,248 -> 26,114 bytes); target binding moved to `oracleIrTriggerTargetBinding.ts`.
+- Dilemmas: activated-ability mode choices (preselected and EffectProgram `mode_selection` prompts) now count as dilemmas faced, once per item.
+- Lorca graveyard trigger verified end to end (pay {B} -> return to hand).
+- Legacy runtime: "opponent draws a card during your turn" now gated on turn; typed counters ("charge") put on a self name or `this artifact/enchantment/land/spacecraft/vehicle` now trigger with the counter filter and first-time-each-turn flag.
+- Census after: ir=13344 (93.2%), legacy=973 (runtime-only fixes; classification unchanged).
+- Known gaps: chosen-name cast triggers (Kai Winn) still match any spell; intervening ifs "returned to your hand from the battlefield this turn", "Equipment or Spacecraft entered this turn", "attacked this turn" evaluate as unknown (kept).
+
+## Round 39
+
+- Census (--include-upcoming): cards=12496 clauses=14317 ir=13344 (93.2%) legacy=973 (unchanged; round focused on correctness).
+- Kai Winn: "whenever an opponent casts a spell with the chosen name" now scoped to opponents and gated on permanent.chosenCardName (generic for any chosen-name cast trigger).
+- Impulse play rider (impulsePlayRider.ts): "You may play that card this turn" follow-ups retained for counter-removed self triggers (Enterprise-D), shared with Fire Giant's Fury path.
+- Intervening-if: Miles O'Brien (returned to hand from battlefield this turn), Sulu (subtype entered under your control this turn, falls through to subtype trackers), Targ Wrangler (attacked this turn; false when flag reset, null only when unknown).
+- Unknown intervening-if clauses: the "if <words>" shorthand catch-all now returns FALLBACK; isInterveningIfSatisfied records state.unknownInterveningIfClauses and skips (policy 'skip', switchable to 'keep' via setUnknownInterveningIfPolicy). Umbrella null recognisers (defending player/enchanted/equipped/N or more...) still return null (fire) - next audit target.
+
+## Round 40
+
+- Census (--include-upcoming): ir=13348 (93.2%), legacy=969 (was 973).
+- New `rules-engine/src/triggerCondition/parseRound40BatchedEvents.ts`: batched "one or more <plural> ... enter/attack/deal combat damage (to one or more players)" rewritten to singular and tagged `quantity: one_or_more`. Becomes tapped/blocked deliberately not handled (no runtime batching).
+- New `server/src/state/modules/triggers/intervening-if-eval-attached-defender-clauses.ts`: real evaluation for defending-player (controls no X, more/fewer lands/creatures, more/fewer cards in hand) and enchanted/equipped host (power N+, tapped/untapped/attacking, colour, type or subtype).
+- Umbrellas switched to unknown (FALLBACK_INTERVENING_IF): defending player, enchanted, equipped. Kept null (fire): it/they, N or more, at least N, spent/sacrificed, counters/this turn, because they are mostly event-context clauses (kicked, bargained, mana spent) and skipping them would drop legitimate triggers.
+- Probe `server/scripts/intervening-if-unknown-probe.ts`: 16197 trigger lines, 1325 with intervening-if, 679 decided, 646 recognised-null, 38 unknown-skipped (36 distinct). Unknown residue: "isn't prepared", nearest-opponent/most-life combat damage, imprint counts, cast-from-elsewhere, modified creature died, etc. Largest null group: "if it was kicked" (65), "a player cast two or more spells last turn" (33).
+- Tests: `server/tests/trigger-ir-round40.test.ts`.
+## Round 41
+
+- Census (--include-upcoming): ir=13370 (93.4%), legacy=947 (was 13348 / 969).
+- New `server/src/state/modules/triggers/intervening-if-eval-round41-clauses.ts` (runs first in the intervening-if chain, decisive answers only):
+  - "if it/this X was/wasn't kicked|bargained|evoked|dashed|blitzed|surged|emerged|foretold|prowled" from the triggering stack item or source permanent (flags, kicker counts, alternateCostId). Negatives: kicked when `castOptionsStamped`; bargained only when `bargainResolved` (positive-only contract kept).
+  - "a player / an opponent / you cast N or more spells last turn" (per-player counts, else total < N -> false).
+  - "you cast a spell from anywhere other than your hand this turn" (castSourceZone).
+  - "all opponents were dealt combat damage this turn" (new turn-tagged `combatDamagedPlayersThisTurn`, recorded in turnCombatDamageAttackerLoop).
+  - "a modified creature died under your control this turn" (new turn-tagged `modifiedCreaturesDiedThisTurn`, CR 700.9, recorded in countersTokensMoveToGraveyard).
+- Permanent spells now carry kicked/bargained metadata onto the permanent (stackResolvePermanentCastMetadata).
+- Trigger IR: subject qualifiers `modified`, "with power greater than its base power", "with a counter / one or more counters on it", non-legendary/basic/snow; batched and singular "attacks a player / an opponent", batched "deal combat damage", "with X counters on them".
+- Intervening-if probe is static (no game state), so its counts are unchanged (679 decided / 646 null / 38 unknown); the new clauses are decided at runtime.
+- Known gaps: "whenever a modified creature you control <verb>" (singular) stays on the Round16 legacy-only path; spell-cast long tail (with cascade/convoke/flash..., outlaw, during combat) unparsed.
+- Tests: `server/tests/trigger-ir-round41.test.ts`.
+
+## Round 42
+
+- Singular "whenever a modified creature you control <verb>" now parses to IR (subject.modified) instead of legacy-only (parseRound16Events). Legacy `modified_creature_ltb` now requires the leaving creature to be modified (CR 700.9); it fired for any creature before.
+- Cast long tail: "a spell with <keyword>" / "a creature spell with flying" (spell before with/without is dropped; keyword clause validated by parseSubjectPhrase). Added cast-time keywords cascade, convoke, delve, improvise, storm, ward, toxic, flashback, affinity.
+- "outlaw" expands to Assassin / Mercenary / Pirate / Rogue / Warlock (any event).
+- "during combat" sets `duringCombat`; the matcher fails only when context `inCombat === false`. The server IR emitter fills `inCombat` from state phase/step.
+- Double-fire test (trigger-ir-round42-double-fire.test.ts): batched round-41 forms fire once; singular per creature; unmodified 0; dies and LTB once.
+- Not done: "noncreature or Dragon spell"; plural "with power greater than their base power".
+- Census (--include-upcoming): ir=13380 (93.5%), legacy=937 (was 13370 / 947).
+
+## Round 43
+
+- Generic "<type-negation> or <word> [tail]" subject split (parseSubjectPhrase `splitSubjectAlternatives`): "a noncreature or Dragon spell", "a nonartifact or Vehicle spell"; the shared tail (noun, controller) goes to both sides.
+- "with power greater than their base power" (plural) now parses like the singular (`powerAboveBase`); batched attack fires once (double-fire test).
+- Cast tail: "your third / fourth spell each turn" (ordinal; matched by spellOrdinal), "a spell that has <keyword>" (= with), "a spell from a graveyard" (castFromZone graveyard). No legacy handlers exist for these, so no double-fire.
+- Remaining legacy list is a flat long tail (top family "when this case enters" 8 cards; rest at 2 cards or fewer).
+- Not done: "a nonhuman or Zombie creature you control dies" (dies parser), "an attacking creature you control dies" (needs a last-known attacking flag).
+- Census (--include-upcoming): ir=13391 (93.5%), legacy=926 (was 13380 / 937).
+
+## Round 44
+
+- Census (`--include-upcoming`): **13419 IR / 898 legacy** (93.7%), up from 13391 / 926.
+- "When this Case enters" fix: the card-name variant `Case` was rewritten inside "this Case", giving "this this permanent". `selfNameNormalize.ts` now collapses `(this|the) this permanent` to `this permanent`.
+- Non-X or Y subjects now work in the dies / enters / attacks parsers: `excludedWord` accepts unhyphenated creature-type negations (`nonhuman`, `nonzombie`), so e.g. "a nonhuman or Zombie creature you control dies" splits into alternatives.
+- Attacking / blocking dies LKI: new filter field `combatRole` (`attacking` | `blocking`) and subject fields `attacking` / `blocking`. `permanentToTriggerMatch` copies combat status from the last-known battlefield object, so "an attacking creature you control dies" matches only creatures that were attacking.
+- Self-name short form: two-word personal names (e.g. "Dáin Ironfoot" -> "Dáin") are now recognized as self references unless the first word is a creature type (e.g. "Goblin Guide"). Heuristic: newly parsed clauses not fully audited for false positives.
+- Not done (need new emitters): coin-flip triggers, "a creature deals damage to you", "that's enchanted or equipped".
+- Tests: `server/tests/trigger-ir-round44.test.ts`.

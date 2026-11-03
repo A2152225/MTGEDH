@@ -239,6 +239,8 @@ export type DetectedOpponentSpellCastTrigger = {
   benefitIfNotPaid: string;
   description: string;
   sourceZoneRequirement?: OpponentCastSourceZone;
+  /** "spell with the chosen name": only spells whose name matches the source's chosen name. */
+  requiresChosenName?: boolean;
 };
 
 function parseOpponentCastSourceZone(raw: string): OpponentCastSourceZone | undefined {
@@ -414,7 +416,7 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any, gameS
 
   const chosenPlayerCastPatterns = [
     /whenever the chosen (?:player )?casts (?:a |an )?([\w\s]*?)spell,?\s*([^.]+)/gi,
-    /whenever (?:a player|opponent) casts (?:a |an )?spell with the chosen name,?\s*([^.]+)/gi,
+    /whenever (a player|an opponent|opponent) casts (?:a |an )?spell with the chosen name(?: or activates an ability of a source with the chosen name)?,?\s*([^.]+)/gi,
   ];
   for (const pattern of chosenPlayerCastPatterns) {
     let match: RegExpExecArray | null;
@@ -422,12 +424,15 @@ export function detectOpponentSpellCastTriggers(card: any, permanent: any, gameS
     while ((match = pattern.exec(oracleText)) !== null) {
       const effectText = String(match[match.length - 1] || '').trim();
       if (!effectText) continue;
+      const chosenName = /with the chosen name/i.test(String(match[0] || ''));
+      const opponentOnly = chosenName && /opponent/i.test(String(match[1] || ''));
       pushUniqueOpponentCastTrigger(triggers, {
-        triggerType: 'any_player_casts_any',
+        triggerType: opponentOnly ? 'opponent_casts_any' : 'any_player_casts_any',
         spellCondition: 'any',
-        casterScope: 'any_player',
+        casterScope: opponentOnly ? 'opponent' : 'any_player',
         benefitIfNotPaid: effectText,
         description: timingTriggerEffect(oracleText, match, 0),
+        ...(chosenName ? { requiresChosenName: true } : {}),
       });
     }
   }
@@ -681,6 +686,11 @@ export function getOpponentSpellCastTriggers(
     
     for (const trigger of permTriggers) {
       if (trigger.casterScope === 'opponent' && casterId === controller) continue;
+      if (trigger.requiresChosenName) {
+        const norm = (value: unknown) => String(value || '').split('//')[0].trim().toLowerCase();
+        const chosen = norm((permanent as any).chosenCardName || (permanent as any).chosenName);
+        if (!chosen || chosen !== norm(spellCard?.name)) continue;
+      }
       if (!opponentCastSourceZoneMatches(trigger.sourceZoneRequirement, castSourceZone)) continue;
       const parsedSpellMatch = spellCastConditionMatches({
         spellCondition: trigger.spellCondition,

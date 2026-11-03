@@ -85,6 +85,8 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string, s
     faceDown: Boolean(permanent?.faceDown || permanent?.isFaceDown || permanent?.card?.faceDown),
     goaded: permanent?.goaded === true,
     attackingOrBlocking: permanentIsAttackingOrBlocking(permanent),
+    attacking: permanentIsAttacking(permanent),
+    blocking: permanentIsBlocking(permanent),
     isCommander: Boolean(permanent?.isCommander || permanent?.commander || permanent?.card?.isCommander),
     ownerId: String(permanent?.owner || permanent?.card?.owner || '').trim() || undefined,
     colors: colorLetters(permanent?.card?.colors || permanent?.colors),
@@ -103,6 +105,23 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string, s
   defineLazy(match, 'keywords', () => keywordsOnPermanent(permanent, Array.isArray(state?.battlefield) ? state.battlefield : undefined));
   defineLazy(match, 'power', () => currentStat(getPermanentPowerMaybe(permanent, statContext)));
   defineLazy(match, 'toughness', () => currentStat(getPermanentToughnessMaybe(permanent, statContext)));
+  defineLazy(match, 'modified', () => {
+    // CR 700.9: counters, an Equipment attached, or an Aura its controller controls attached.
+    const counters = permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : {};
+    if (Object.values(counters).some((v: any) => Number(v) > 0)) return true;
+    if (Array.isArray(permanent?.attachedEquipment) && permanent.attachedEquipment.length > 0) return true;
+    const id = String(permanent?.id || '');
+    const ctl = String(controllerId || permanent?.controller || '');
+    const field = Array.isArray(state?.battlefield) ? state.battlefield : [];
+    return Boolean(id) && field.some((p: any) => String(p?.attachedTo || '') === id && (
+      /\bequipment\b/i.test(String(p?.card?.type_line || ''))
+      || (/\baura\b/i.test(String(p?.card?.type_line || '')) && String(p?.controller || '') === ctl)));
+  });
+  defineLazy(match, 'basePower', () => {
+    const raw = permanent?.basePower ?? permanent?.card?.power ?? permanent?.power;
+    const value = Number(raw);
+    return raw === undefined || raw === null || raw === '' || !Number.isFinite(value) ? undefined : value;
+  });
   return match;
 }
 
@@ -128,6 +147,18 @@ function defineLazy(target: object, key: string, compute: () => unknown): void {
 
 function currentStat(value: number | null): number | undefined {
   return value === null || !Number.isFinite(value) ? undefined : value;
+}
+
+function permanentIsAttacking(permanent: any): boolean {
+  return permanent?.attacking === true
+    || (typeof permanent?.attacking === 'string' && permanent.attacking.trim() !== '')
+    || permanent?.isAttacking === true;
+}
+
+function permanentIsBlocking(permanent: any): boolean {
+  return permanent?.blocking === true
+    || (Array.isArray(permanent?.blocking) && permanent.blocking.length > 0)
+    || (typeof permanent?.blocking === 'string' && permanent.blocking.trim() !== '');
 }
 
 function permanentIsAttackingOrBlocking(permanent: any): boolean {
@@ -424,6 +455,15 @@ export function parsedEventLinesFor(
   return out;
 }
 
+/** Combat phase/step from state; undefined without a state so "during combat" stays unknown. */
+function inCombatNow(state: any): boolean | undefined {
+  if (!state) return undefined;
+  const phase = String(state.phase || '').toLowerCase();
+  const step = String(state.step || '').toLowerCase();
+  if (!phase && !step) return undefined;
+  return phase.includes('combat') || /attack|block|damage|endcombat|end_combat|begincombat|begin_combat/.test(step);
+}
+
 function effectKey(effect: string): string {
   return String(effect || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -539,6 +579,7 @@ export function collectMatchingParsedEventLines(options: {
         fromZone: options.fromZone,
         damageKind: options.damageKind,
         targetPermanentIds: options.targetPermanentIds,
+        inCombat: inCombatNow(options.ctx?.state),
         ...(options.matchContext || {}),
         ...(options.blockPartnerPermanent
           ? { blockPartner: permanentToTriggerMatch(options.blockPartnerPermanent, String(options.blockPartnerPermanent?.controller || ''), options.ctx?.state) }

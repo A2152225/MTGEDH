@@ -4,6 +4,7 @@
  * event watchers (discard, dies, spell cast) scan alongside the battlefield until the turn ends (CR 603.7c-like).
  */
 
+import { IMPULSE_PLAY_RIDER } from './impulsePlayRider.js';
 import { extractModalModesFromOracleText, matchModalModeOptions } from '../../../utils/oraclePromptContext.js';
 
 // A clause may end inside a granted quoted ability (Gnawing Crescendo: ...can't block.").
@@ -25,7 +26,7 @@ const BOUND_DEALS_DAMAGE = /^(?:that creature|it) (deals (?:combat )?damage\b.*)
 const KICKED_EFFECT = /^if this spell was kicked, /i;
 
 // Follow-on sentence granting play of the exiled cards (Fire Giant's Fury): part of the trigger's effect.
-const PLAY_RIDER = /^\s+((?:until [^,.\n]+, )?you may (?:play|cast) (?:those|that|the exiled) cards?[^.\n]*\.)/i;
+const PLAY_RIDER = IMPULSE_PLAY_RIDER;
 // "a creature [you control] dealt damage this way dies" (Reckless Blaze, Ghired's Belligerence): watch only creatures the spell damaged.
 const DAMAGE_WAY_DIES = /^(a creature(?: you control)?) dealt damage this way (dies)$/i;
 // "... to that player" after "Choose target opponent/player" (Great Train Heist): bound to the targeted player.

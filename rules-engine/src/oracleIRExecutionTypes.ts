@@ -298,6 +298,10 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly sourceColors?: readonly string[];
   /** Deterministic die-roll override for tests or pre-resolved event context. */
   readonly dieRollResult?: number;
+  /** B52: deterministic results for "roll again" re-rolls, in order. */
+  readonly dieRollAgainResults?: readonly number[];
+  /** B52: how many optional "you may roll again" re-rolls the player accepts (true = always, capped). */
+  readonly dieRollAgainAccept?: boolean | number;
   /** Source provenance for the resolving object when known. */
   readonly castFromZone?: string;
   /** Source provenance for the resolving object when known. */

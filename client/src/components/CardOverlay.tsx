@@ -4,6 +4,7 @@
 import React, { useState } from 'react';
 import type { BattlefieldPermanent, KnownCardRef, PlayerID, PTBonusSource } from '../../../shared/src';
 import { readPermanentDamageMarked } from './FreeField-handlers/freeFieldDisplayUtils';
+import { isPermanentGoaded } from '../utils/combatGoad';
 
 interface Props {
   perm: BattlefieldPermanent;
@@ -47,6 +48,7 @@ const abilityLabelMap: Record<string, { short: string; color: string; descriptio
   // Static abilities
   defender: { short: 'Def', color: '#78716c', description: 'Defender - Can\'t attack' },
   haste: { short: 'Hst', color: '#f97316', description: 'Haste - Can attack/tap immediately' },
+  goaded: { short: 'Goad', color: '#dc2626', description: 'Goaded - Must attack each combat and attack a player other than the goader if able' },
   flash: { short: 'Flh', color: '#14b8a6', description: 'Flash - Can be cast at instant speed' },
   
   // Counters and growth
@@ -126,7 +128,11 @@ export function CardOverlay({
   }
 
   // Granted abilities
-  const abilities = perm.grantedAbilities || [];
+  const rawAbilities: readonly string[] = perm.grantedAbilities || [];
+  // Goad (direct goadedBy or static via projected "goaded" grant) leads so it isn't hidden past the badge cap.
+  const abilities: readonly string[] = isPermanentGoaded(perm as any)
+    ? ['goaded', ...rawAbilities.filter((a) => String(a).trim().toLowerCase() !== 'goaded')]
+    : rawAbilities;
 
   // P/T bonus sources for tooltip
   const ptSources = perm.ptSources || [];

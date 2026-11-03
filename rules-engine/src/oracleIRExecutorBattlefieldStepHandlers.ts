@@ -508,13 +508,22 @@ export function applyAddCounterStep(
     return { applied: true, state, log: ['No planeswalker to receive loyalty counters'] };
   }
 
-  if (/^(?:each of )?up to x target creatures$/i.test(normalizedTargetText)) {
-    const maxCount = Number.isFinite(Number(ctx.xValue)) ? Math.max(0, Number(ctx.xValue)) : 1;
+  const upToXCreaturesMatch = normalizedTargetText.match(/^(?:each of )?up to x target creatures( you control)?$/i);
+  if (upToXCreaturesMatch) {
+    // UI42: with a "where X is <count>" rider (Martok), X was already enforced as the target prompt's max,
+    // so every chosen creature receives counters.
+    const hasWhereX = Boolean((step as any).whereX);
+    const youControlOnly = Boolean(upToXCreaturesMatch[1]);
+    const controllerId = String(ctx.controllerId || '').trim();
     const boundIds = collectBoundBattlefieldIds(ctx);
     const matches = ((state.battlefield || []) as BattlefieldPermanent[]).filter((perm: any) => {
       const id = String(perm?.id || '').trim();
+      if (youControlOnly && controllerId && String(perm?.controller || '').trim() !== controllerId) return false;
       return boundIds.includes(id) && permanentMatchesType(perm, 'creature');
     });
+    const maxCount = hasWhereX
+      ? matches.length
+      : Number.isFinite(Number(ctx.xValue)) ? Math.max(0, Number(ctx.xValue)) : 1;
     const targets = maxCount > 0 ? matches.slice(0, maxCount) : [];
     if (targets.length === 0) {
       return { applied: true, state, log: ['No matching creatures for counters'] };

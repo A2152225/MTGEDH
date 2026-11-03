@@ -31,6 +31,7 @@ import {
 } from "../state/resolution/index.js";
 import { parsePT } from "../state/utils.js";
 import { debug, debugWarn } from "../utils/debug.js";
+import { applyTurnFaceUpCounters } from "../state/modules/turnFaceUpCounterPlacement.js"; // B49
 import {
   cloneCascadeLibrary,
   cloneCascadeZoneCard,
@@ -755,11 +756,8 @@ export function handleMorphTurnFaceUpResponse(
   delete creature.canTurnFaceUp;
 
   // Megamorph: putting a +1/+1 counter on the permanent is part of turning it face up.
-  const faceUpOracle = String(actualCard?.oracle_text || '').toLowerCase();
-  if (/\bmegamorph\b/.test(faceUpOracle)) {
-    const counters = creature.counters = creature.counters || {};
-    counters['+1/+1'] = (Number(counters['+1/+1']) || 0) + 1;
-  }
+  // B49: also "as ~ is turned face up, put N counters on it" (Hooded Hydra, Bubble Smuggler).
+  applyTurnFaceUpCounters(creature, actualCard, state);
 
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'morphTurnFaceUp', {

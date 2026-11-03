@@ -1,6 +1,6 @@
 # Phase 5 static/replacement census (owned_but_unhandled)
 
-Generated 2026-11-02T07:21:20.520Z by `npm run census:statics` (server/scripts/static-replacement-census.ts).
+Generated 2026-11-02T13:05:44.286Z by `npm run census:statics` (server/scripts/static-replacement-census.ts).
 
 Candidate lines: Commander-legal permanent faces, reminder text stripped, lines that end in a period and are
 not triggers, activated abilities, or keyword lists. A line is **declarative-handled** when
@@ -11,10 +11,10 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 | Metric | Lines |
 |---|---|
 | Candidate static/replacement lines | 9904 |
-| Declarative-handled | 2662 |
-| Owned by another subsystem | 5693 |
-| owned_but_unhandled (static) | 1319 |
-| owned_but_unhandled (replacement) | 230 |
+| Declarative-handled | 2726 |
+| Owned by another subsystem | 5798 |
+| owned_but_unhandled (static) | 1154 |
+| owned_but_unhandled (replacement) | 226 |
 
 ## Run history
 
@@ -109,6 +109,39 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 | 2026-11-02 06:42Z | 9909 | 2659 | 5691 | 1328 | 231 |
 | 2026-11-02 07:21Z | 9904 | 2662 | 5693 | 1319 | 230 |
 | B42 (end of batch) | 9904 | 2662 | 5693 | 1319 | 230 |
+| 2026-11-02 09:43Z | 9904 | 2665 | 5706 | 1303 | 230 |
+| B43 (end of batch) | 9904 | 2665 | 5706 | 1303 | 230 |
+| 2026-11-02 09:44Z | 9904 | 2665 | 5706 | 1303 | 230 |
+| B44 R32 Trek statics (upcoming incl: 10082/2714/5823/1309/236) | 9904 | 2665 | 5706 | 1303 | 230 |
+| 2026-11-02 10:01Z | 9904 | 2665 | 5710 | 1299 | 230 |
+| B44 (end of batch) | 9904 | 2665 | 5710 | 1299 | 230 |
+| B45 R33 control/static (upcoming incl: 10082/2716/5827/1305/234) | 9904 | 2665 | 5710 | 1299 | 230 |
+| B46 R34 control/static (upcoming incl: 10082/2738/5827/1283/234) | 9904 | 2686 | 5710 | 1278 | 230 |
+| 2026-11-02 10:13Z | 9904 | 2665 | 5710 | 1299 | 230 |
+| 2026-11-02 10:14Z | 9904 | 2665 | 5710 | 1299 | 230 |
+| 2026-11-02 10:18Z | 9904 | 2686 | 5710 | 1278 | 230 |
+| 2026-11-02 10:20Z | 9904 | 2686 | 5710 | 1278 | 230 |
+| B45 (end of batch) | 9904 | 2686 | 5710 | 1278 | 230 |
+| 2026-11-02 10:35Z | 9904 | 2686 | 5710 | 1278 | 230 |
+| 2026-11-02 10:50Z | 9904 | 2716 | 5714 | 1244 | 230 |
+| B46 (end of batch) | 9904 | 2716 | 5714 | 1244 | 230 |
+| 2026-11-02 12:08Z | 9904 | 2716 | 5724 | 1234 | 230 |
+| B47 (end of batch) | 9904 | 2716 | 5724 | 1234 | 230 |
+| 2026-11-02 12:09Z | 9904 | 2716 | 5724 | 1234 | 230 |
+| 2026-11-02 12:09Z | 9904 | 2716 | 5724 | 1234 | 230 |
+| 2026-11-02 12:14Z | 9904 | 2716 | 5725 | 1233 | 230 |
+| 2026-11-02 12:15Z | 9904 | 2716 | 5725 | 1233 | 230 |
+| 2026-11-02 12:15Z | 9904 | 2716 | 5726 | 1232 | 230 |
+| B48 (end of batch) | 9904 | 2716 | 5726 | 1232 | 230 |
+| 2026-11-02 12:17Z | 9904 | 2716 | 5726 | 1232 | 230 |
+| 2026-11-02 12:29Z | 9904 | 2716 | 5734 | 1228 | 226 |
+| B49 (end of batch) | 9904 | 2716 | 5734 | 1228 | 226 |
+| 2026-11-02 12:44Z | 9904 | 2715 | 5795 | 1168 | 226 |
+| B50 (end of batch) | 9904 | 2715 | 5795 | 1168 | 226 |
+| 2026-11-02 12:54Z | 9904 | 2715 | 5795 | 1168 | 226 |
+| B51 (end of batch) | 9904 | 2715 | 5795 | 1168 | 226 |
+| 2026-11-02 13:05Z | 9904 | 2726 | 5798 | 1154 | 226 |
+| B52 (end of batch) | 9904 | 2726 | 5798 | 1154 | 226 |
 
 ## Other subsystems
 
@@ -122,6 +155,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - keyword with reminder (keywordAbilities/*): 124
 - uncounterable / timing: 82
 - blocker-quality evasion (combatQualifierBlockRestriction): 63
+- d20 result band line (oracle IR die_roll_results via oracleIRParserDieRollInlineBandTables): 61
 - commander / deck rules: 58
 - partner family deck construction (partnerDeckValidation): 49
 - mana ability text: 49
@@ -164,6 +198,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - draft-only text (not applicable to constructed play): 9
 - cumulative upkeep pay life / mana (cumulativeUpkeepPayment): 9
 - variable P/T graveyard/artifact count (variablePTCalculator): 8
+- legend rule exemption (legendRuleExemptions): 8
 - minimum blockers (combatMinimumBlockers): 8
 - protection from the chosen color (combat-mechanics getPermanentProtections): 8
 - attack as though no defender, global/self/conditional (combatDefenderAttackPermission): 7
@@ -171,12 +206,14 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - aura P/T + goad (goad-effects / calculateAllPTBonuses): 7
 - untap step cap N TYPE (untapStepLimits): 6
 - entering doesn't cause abilities to trigger (triggeredAbilitySuppression): 6
+- qualified untap prohibition tail (untapQualifierProhibitions): 6
 - chosen-name activation lock (chosen-name-restrictions): 6
 - chosen type in addition (creatureTypeNow): 6
 - attached land type set (manaAbilityLandTypeModifiers): 6
 - self unblockable except by flying/reach (combatBatch25BlockRestrictions): 6
 - control-count attack/block gate (combatBatch33AttackRestrictions): 6
 - morph/megamorph/disguise turn-face-up cost (faceDownCasting): 6
+- spell convoke grant template (spellConvokeGrantTemplate): 5
 - chosen-name cast lock (chosen-name-restrictions): 5
 - COLOR creatures / basic lands don't untap (turn-phases detectDoesntUntapEffects filters): 5
 - evoke exile-a-card cost + evoke sacrifice (evokeKeyword): 5
@@ -188,6 +225,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - cast only if cast another spell this turn (castOnlyIfCastAnotherRestriction): 4
 - enters under opponent control (triggers/control-change): 4
 - graveyard targeting restriction (graveyardTargetingRestriction): 4
+- battlefield cast restriction tail (castRestrictionTailFamilies): 4
 - firebending X (attack-detection resolveFirebendingAmount): 4
 - self shuffle-into-library replacement (replacementEffectSpec): 4
 - colour-sourced targeting restriction (colorSourceTargetingRestriction): 4
@@ -196,6 +234,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - untap during each other player's untap step (turnPhaseUntapStepEffects): 4
 - self unblockable while defender controls TYPE (combatDefenderControlsUnblockable): 4
 - static convoke grant (casting-modifiers): 3
+- group untap on other turns (turnPhaseUntapStepEffects): 3
 - cowards can't block warriors (combatDefenderAttackPermission): 3
 - players can't draw cards (playersCantDrawCards): 3
 - noncombat damage to opponents +N / double (replacementBatch16LongTail damage templates): 3
@@ -225,6 +264,8 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - granted vehicle crew N (crewGrantedVehicleCrew): 2
 - empty-library draw: counters / skip instead (replacementBatch18DrawInstead): 2
 - attack as though no defender, trailing/counter/type conditions (combatDefenderAttackPermission): 2
+- self cast restriction land/life this turn (castRestrictionTailFamilies): 2
+- global permanent colour set (globalColorSetting): 2
 - hand foretell grant (foretellGrants): 2
 - extra Treasure (token template): 2
 - source damage plus replacement (replacementBatch21DamageScaling): 2
@@ -243,6 +284,8 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - opponent-turn cast lock (batch31CastLocks): 2
 - self cast prohibition (playerActionProhibitions): 2
 - attached opponent-targeting protection (permanentTargeting): 2
+- draft-only (Conspiracy draft matters; no in-game effect): 2
+- turned face up counters (turnFaceUpCounterPlacement): 2
 - already-attacked-player attack gate (combatBatch37Restrictions): 2
 - counter placement restriction (counterPlacementRestrictions): 2
 - additional land each player (calculateMaxLandsPerTurn): 2
@@ -253,20 +296,28 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - opponents must attack (attackRestrictionText): 2
 - CDA all hands count (variablePTCalculator): 2
 - team counter-kind placement ban (counterPlacementRestrictions): 2
+- enchanted destroy -> sacrifice aura + indestructible (enchantedPermanentDestroyReplacement): 2
 - keyword-qualified block evasion (combatQualifierBlockRestriction): 2
 - self creature-cast prohibition (playerActionProhibitions): 2
 - opponent extra turn skipped (replacementBatch18ExtraTurnSkip via dropSkippedExtraTurns): 2
 - graveyard scavenge grant (graveyardScavengeGrants): 2
 - equip discard cost (targetSelectionEquipDiscardCost): 2
+- defender permission after a type entered this turn (combatDefenderAttackPermission): 2
 - opponent-caused sacrifice protection (sacrificeCauseProtection): 2
 - global flying block-only-flying (combatBatch36Restrictions): 2
 - alternative equip cost choice (targetSelectionEquipAlternativeCost): 1
-- color convoke grant (convokeColorGrants): 1
+- storage matrix untap choice (untapTypeChoiceRestriction): 1
 - control-type attack gate (combatBatch36Restrictions): 1
 - nonbasic land untap prohibition (untapQualifierProhibitions): 1
 - attack last-turn attackers despite defender (combatDefenderAttackPermission): 1
+- land play restriction (landPlayRestrictionFamilies): 1
+- granted rebound (spellReboundGrant): 1
+- attached enchantment type set (attachedTypeSettingStamp): 1
 - Fasting draw-step may-skip, OPTION_CHOICE (optionalDrawStepSkip): 1
 - instant/sorcery damage cap (replacementBatch23DamageCap): 1
+- must attack + cannot attack owner or owner planeswalkers (attackRestrictionText): 1
+- scoped grant with trailing as-long-as condition (staticEffectSpecOracleParsingConditionalScopedGrants): 1
+- creatures attacking enchanted player have keywords (target_is_attacking_enchanted_player): 1
 - block SUBTYPE as though reach (combatBatch26BlockRestrictions): 1
 - prevent damage to you, counter on source (replacementBatch17DamagePrevention): 1
 - prevent damage, put that many counters (replacementBatch17DamagePrevention): 1
@@ -281,41 +332,41 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 |---|---|---|---|---|
 | 1 | static | gift a card (you may promise an opponent a gift as you cast this spell | 2 | Scrapshooter; Kitnap |
 | 2 | static | suspend x—{M}{M}{M} | 2 | Benalish Commander; Aeon Chronicler |
-| 3 | static | the "…" doesn't apply to permanents you control | 2 | Mirror Box; Sakashima of a Thousand Faces |
-| 4 | static | N—N / create N treasure tokens | 2 | Treasure Chest; Hoarding Ogre |
-| 5 | static | COLOR creatures can't attack unless their controller sacrifices a land of their choice for each COLOR creature | 2 | Flooded Woodlands; Reclamation |
-| 6 | static | during the draft, you may turn this card face down | 2 | Illusionary Informant; Whispergear Sneak |
-| 7 | static | N—N / create a ±N/±N COLOR goblin creature token | 2 | Goblin Morningstar; Swarming Goblins |
-| 8 | static | as ~ is turned face up, put N ±N/±N counters on it | 2 | Hooded Hydra; Bubble Smuggler |
-| 9 | static | N—N / create N of those tokens | 2 | Swarming Goblins; Delina, Wild Mage |
-| 10 | static | creatures you control get ±N/±N until end of turn | 2 | Roller Coaster; Kiddie Coaster |
-| 11 | replacement | if enchanted land would be destroyed, instead sacrifice ~ and that land gains indestructible until end of turn | 2 | Harmonious Emergence; Crackling Emergence |
-| 12 | replacement | as long as an artifact entered the battlefield under your control this turn, ~ can attack as though it didn't  | 2 | Mechan Shieldmate; Shipwreck Sentry |
-| 13 | static | lands don't untap during their controllers' untap steps | 2 | Hokori, Dust Drinker; Rising Waters |
-| 14 | static | reveal the first card you draw each turn | 2 | Primitive Etchings; Rowen |
-| 15 | replacement | if a source you control would deal noncombat damage to a creature an opponent controls, put that many ±N/±N co | 1 | Soul-Scar Mage |
-| 16 | static | animal may-ham — other spiders, boars, bats, bears, birds, cats, dogs, frogs, jackals, lizards, mice, otters,  | 1 | Spider-Ham, Peter Porker |
-| 17 | static | each creature you control can't be blocked as long as defending player controls an artifact land | 1 | Tanglewalker |
-| 18 | static | ~ attacks each combat if able unless you control another ally | 1 | Reckless Cohort |
-| 19 | replacement | if a creature you control would explore, instead it explores, then it explores again | 1 | Topography Tracker |
-| 20 | static | the first instant or sorcery spell you cast each turn costs {M} (or {M}) less to cast for each land you contro | 1 | Eluge, the Shoreless Sea |
-| 21 | static | as long as ~ is enchanted, it has "…" | 1 | Freewind Equenaut |
-| 22 | static | as long as ~ is untapped, each player chooses artifact, creature, or land during their untap step | 1 | Storage Matrix |
-| 23 | static | ~ can't be blocked by creatures that don't have a name | 1 | Pompous Gadabout |
-| 24 | static | noncreature spells you cast from exile have convoke | 1 | Party Thrasher |
-| 25 | static | untap all creatures you control during each other player's untap step | 1 | Drumbellower |
-| 26 | static | N—N / each player sacrifices a permanent of their choice | 1 | Earth-Cult Elemental |
-| 27 | static | N—N / each opponent sacrifices a permanent of their choice | 1 | Earth-Cult Elemental |
-| 28 | static | N / each opponent sacrifices N permanents of their choice | 1 | Earth-Cult Elemental |
-| 29 | static | each creature you control but don't own gets ±N/±N, has menace and deathtouch, and is a pirate in addition to  | 1 | Don Andres, the Renegade |
-| 30 | static | {M}{M}{M}{M} — whenever ~ attacks, you gain N life and draw a card | 1 | Playable Delusionary Hydra |
-| 31 | static | descend N — as long as there are N or more permanent cards in your graveyard, ~ gets ±N/±N and has trample | 1 | Akawalli, the Seething Tower |
-| 32 | static | descend N — as long as there are eight or more permanent cards in your graveyard, ~ gets an additional ±N/±N a | 1 | Akawalli, the Seething Tower |
-| 33 | static | goaded creatures your opponents control can't block | 1 | Bothersome Quasit |
-| 34 | static | creatures with flying can't attack you or block creatures you control | 1 | Storm, Windrider |
-| 35 | static | the "…" doesn't apply to creature tokens you control | 1 | The Master, Multiplied |
-| 36 | static | triggered abilities you control can't cause you to sacrifice or exile creature tokens you control | 1 | The Master, Multiplied |
-| 37 | static | ~ can't attack or block unless it has an even number of counters on it | 1 | Sab-Sunen, Luxa Embodied |
-| 38 | static | counters remain on ~ as it moves to any zone other than a player's hand or library | 1 | Skullbriar, the Walking Grave |
-| 39 | static | ~ can't attack alone unless he has a ±N/±N counter on him | 1 | Pipsqueak, Rebel Strongarm |
-| 40 | static | enchanted creature gets ±N/±N for each of its colors | 1 | Blessing of the Nephilim |
+| 3 | static | COLOR creatures can't attack unless their controller sacrifices a land of their choice for each COLOR creature | 2 | Flooded Woodlands; Reclamation |
+| 4 | static | creatures you control get ±N/±N until end of turn | 2 | Roller Coaster; Kiddie Coaster |
+| 5 | static | reveal the first card you draw each turn | 2 | Primitive Etchings; Rowen |
+| 6 | replacement | if a source you control would deal noncombat damage to a creature an opponent controls, put that many ±N/±N co | 1 | Soul-Scar Mage |
+| 7 | static | animal may-ham — other spiders, boars, bats, bears, birds, cats, dogs, frogs, jackals, lizards, mice, otters,  | 1 | Spider-Ham, Peter Porker |
+| 8 | static | each creature you control can't be blocked as long as defending player controls an artifact land | 1 | Tanglewalker |
+| 9 | static | ~ attacks each combat if able unless you control another ally | 1 | Reckless Cohort |
+| 10 | replacement | if a creature you control would explore, instead it explores, then it explores again | 1 | Topography Tracker |
+| 11 | static | the first instant or sorcery spell you cast each turn costs {M} (or {M}) less to cast for each land you contro | 1 | Eluge, the Shoreless Sea |
+| 12 | static | as long as ~ is enchanted, it has "…" | 1 | Freewind Equenaut |
+| 13 | static | each creature you control but don't own gets ±N/±N, has menace and deathtouch, and is a pirate in addition to  | 1 | Don Andres, the Renegade |
+| 14 | static | {M}{M}{M}{M} — whenever ~ attacks, you gain N life and draw a card | 1 | Playable Delusionary Hydra |
+| 15 | static | descend N — as long as there are N or more permanent cards in your graveyard, ~ gets ±N/±N and has trample | 1 | Akawalli, the Seething Tower |
+| 16 | static | descend N — as long as there are eight or more permanent cards in your graveyard, ~ gets an additional ±N/±N a | 1 | Akawalli, the Seething Tower |
+| 17 | static | creatures with flying can't attack you or block creatures you control | 1 | Storm, Windrider |
+| 18 | static | triggered abilities you control can't cause you to sacrifice or exile creature tokens you control | 1 | The Master, Multiplied |
+| 19 | static | counters remain on ~ as it moves to any zone other than a player's hand or library | 1 | Skullbriar, the Walking Grave |
+| 20 | static | ~ can't attack alone unless he has a ±N/±N counter on him | 1 | Pipsqueak, Rebel Strongarm |
+| 21 | static | each other creature you control has hexproof from each of its colors | 1 | Tam, Mindful First-Year |
+| 22 | static | tokens you control have "…" | 1 | Jaheira, Friend of the Forest |
+| 23 | static | you may have ~ enter as a copy of a doctor card in your graveyard that was put there from your library this tu | 1 | The Fourteenth Doctor |
+| 24 | static | you may have ~ enter as a copy of any ally creature on the battlefield | 1 | Jwari Shapeshifter |
+| 25 | static | other pegasi, unicorns, and horses you control get ±N/±N | 1 | Thurid, Mare of Destiny |
+| 26 | static | each spell you cast has split second if mana from an artifact was spent to cast it | 1 | Shadow the Hedgehog |
+| 27 | static | each player may attack only the nearest opponent in the last chosen direction and planeswalkers controlled by  | 1 | Mystic Barrier |
+| 28 | static | each sliver creature card in your graveyard has encore {M}, where x is its mana value | 1 | Sliver Gravemother |
+| 29 | static | a test of your reflexes! — when ~ enters, you may attach it to target creature you control | 1 | Magitek Scythe |
+| 30 | static | as long as there are N or more mana values among cards in your graveyard, ~ gets ±N/±N | 1 | Syndicate Infiltrator |
+| 31 | static | you've gained N or more life this turn | 1 | Case of the Uneaten Feast |
+| 32 | static | sagas you control have read ahead | 1 | Barbara Wright |
+| 33 | static | ~ can't be the target of spells that can target only walls or of abilities that can target only walls | 1 | Wall of Shadows |
+| 34 | static | during your turn, creatures you control that are equipped have first strike and vigilance | 1 | Long-Lost Lances |
+| 35 | static | enchanted creature can't become untapped and can't have counters put on it | 1 | Blossombind |
+| 36 | static | as long as ~ isn't on the battlefield, it's a ±N/±N insect creature in addition to its other types | 1 | Grist, the Hunger Tide |
+| 37 | replacement | if you would planeswalk, instead look at the top N cards of your planar deck, put N on the bottom of your plan | 1 | Susan Foreman |
+| 38 | static | minotaur spells you cast cost {M}{M} less to cast | 1 | Ragemonger |
+| 39 | static | enchanted mountain is a ±N/±N COLOR giant creature with haste | 1 | Awaken the Ancient |
+| 40 | static | ~ can't attack unless you return an enchantment you control to its owner's hand | 1 | Floodtide Serpent |

@@ -21,6 +21,7 @@ import {
   eventHasOwnField,
 } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
+import { applyTurnFaceUpCounters } from "../turnFaceUpCounterPlacement.js"; // B49
 import { hydratePermanentCardOracleInPlace } from "../cardOracleHydration.js";
 import { ResolutionStepType } from "../../resolution/index.js";
 import { consumeReplayedTriggeredAbilityStackItems } from "../replay-prompt-cleanup.js";
@@ -527,11 +528,8 @@ export function applyExecuteEffectEvents(ctx: GameContext, e: GameEvent): boolea
           delete permanent.faceUpCard;
           delete permanent.canTurnFaceUp;
 
-          const faceUpOracle = String(actualCard?.oracle_text || '').toLowerCase();
-          if (/\bmegamorph\b/.test(faceUpOracle)) {
-            const counters = permanent.counters = permanent.counters || {};
-            counters['+1/+1'] = (Number(counters['+1/+1']) || 0) + 1;
-          }
+          // B49: megamorph + "as ~ is turned face up, put N counters on it".
+          applyTurnFaceUpCounters(permanent, actualCard, (ctx as any)?.state);
 
           ctx.bumpSeq();
         } catch (err) {

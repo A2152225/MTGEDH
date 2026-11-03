@@ -572,7 +572,9 @@ export function evaluateReplacementEffectSpec(
     const counterKeys = Object.keys(event.deltas || {});
     const counterType = counterKeys[0] || '';
     const targetController = String(event.controllerId || '');
-    if (!overlaySpecsMatchCounterPlacement(spec, { counterType, targetController })) return null;
+    const targetPermRef = ((event as any).state?.battlefield || []).find((p: any) => String(p?.id || '') === String((event as any).targetPermanentId || ''));
+    const targetTypeLine = String(targetPermRef?.card?.type_line || targetPermRef?.type_line || '');
+    if (!overlaySpecsMatchCounterPlacement(spec, { counterType, targetController, targetTypeLine })) return null;
     return {
       applied: true,
       eventType: event.type,

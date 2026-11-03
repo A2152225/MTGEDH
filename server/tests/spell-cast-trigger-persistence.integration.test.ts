@@ -1157,26 +1157,28 @@ describe('cast spell trigger persistence (integration)', () => {
       abilityId: 'jump-start',
     });
 
+    // B45: targets are chosen before the discard cost is picked (CR 601.2c then 601.2h).
     let queue = ResolutionQueueManager.getQueue(jumpStartTargetGameId);
-    const discardStep = queue.steps.find((step: any) => (step as any)?.graveyardCastDiscardAsCost === true) as any;
-    expect(discardStep).toBeDefined();
-
-    await handlers['submitResolutionResponse']({
-      gameId: jumpStartTargetGameId,
-      stepId: String(discardStep.id),
-      selections: ['discard_for_jump_start_1'],
-    });
-
-    queue = ResolutionQueueManager.getQueue(jumpStartTargetGameId);
+    expect(queue.steps.some((step: any) => (step as any)?.graveyardCastDiscardAsCost === true)).toBe(false);
     const targetStep = queue.steps.find((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true) as any;
     expect(targetStep).toBeDefined();
     expect((targetStep.validTargets || []).map((target: any) => target.id)).toContain('heroic_target_1');
-    expect(targetStep.discardedCardIdsForCost).toEqual(['discard_for_jump_start_1']);
 
     await handlers['submitResolutionResponse']({
       gameId: jumpStartTargetGameId,
       stepId: String(targetStep.id),
       selections: ['heroic_target_1'],
+    });
+
+    queue = ResolutionQueueManager.getQueue(jumpStartTargetGameId);
+    const discardStep = queue.steps.find((step: any) => (step as any)?.graveyardCastDiscardAsCost === true) as any;
+    expect(discardStep).toBeDefined();
+    expect(discardStep.targetsForCast).toEqual(['heroic_target_1']);
+
+    await handlers['submitResolutionResponse']({
+      gameId: jumpStartTargetGameId,
+      stepId: String(discardStep.id),
+      selections: ['discard_for_jump_start_1'],
     });
 
     const stack = (game.state as any).stack || [];

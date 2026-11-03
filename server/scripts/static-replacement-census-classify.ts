@@ -4,6 +4,7 @@ import { detectTriggerDoublers } from '../src/state/modules/triggers/trigger-dou
 import { parseGenericCountCDA } from '../src/state/utils-handlers/variablePTGenericCountCDA.js';
 import { parseBorrowedActivatedClause } from '../src/state/modules/staticEffectSpecBorrowedActivated.js';
 import { TREK_OTHER_SYSTEMS, stripStationThresholdPrefix } from './static-replacement-census-classify-trek.js';
+import { LATE_BATCH_OTHER_SYSTEMS } from './static-replacement-census-classify-late-batches.js'; // B48
 
 /** R27: a trigger-doubling line counts as handled when trigger-doublers parses it to a supported doubler. */
 function triggerDoublerHandles(line: string, cardName: string): boolean {
@@ -202,6 +203,16 @@ const OTHER_SYSTEMS: Array<[string, RegExp]> = [
   ['control-type attack gate (combatBatch36Restrictions)', /^~ can't attack unless you control an? (?:artifact|enchantment|planeswalker)$/i],
   ['global flying block-only-flying (combatBatch36Restrictions)', /^creatures with flying can block only creatures with flying$/i],
   ['nonbasic land untap prohibition (untapQualifierProhibitions)', /^nonbasic lands don't untap during their controllers' untap steps$/i],
+  // B47 entries: families implemented or verified in batch 47.
+  ['self cast restriction land/life this turn (castRestrictionTailFamilies)', /^you can't cast (?:~|this spell) (?:if you've played a land this turn|unless an opponent lost life this turn)$/i],
+  ['battlefield cast restriction tail (castRestrictionTailFamilies)', /^(?:players can't cast spells with the same name as a nontoken permanent|each opponent who attacked with a creature this turn can't cast spells|as long as ~ is attacking, defending player can't cast spells|you can't play lands or cast spells from your hand)$/i],
+  ['qualified untap prohibition tail (untapQualifierProhibitions)', /^(?:legendary creatures|creatures with (?:an? )?[a-z0-9+\/-]+ counters? on them|[a-z]+) don't untap during their controllers' untap steps$/i],
+  // B46 entries: families implemented or verified in batch 46.
+  ['granted rebound (spellReboundGrant)', /^(?:instant and sorcery |instant |sorcery |noncreature )?spells you (?:control|cast) have rebound$/i],
+  ['attached enchantment type set (attachedTypeSettingStamp)', /^enchanted permanent is an enchantment and loses all other card types$/i],
+  ['global permanent colour set (globalColorSetting)', /^all (?:permanents|nonland permanents|creatures|artifacts|enchantments|lands) are (?:colorless|color|white|blue|black|red|green)$/i],
+  // B44 entries: families implemented or verified in batch 44.
+  ['spell convoke grant template (spellConvokeGrantTemplate)', /^(?:[a-z]+(?: and | or |, | ))*spells you cast(?: from (?:exile|your graveyard|your hand|a graveyard))? have convoke$/i],
   // B43 entries: families implemented or verified in batch 43.
   ['legend rule exemption (legendRuleExemptions)', /^the ["\u201c\u201d]?legend rule["\u201c\u201d]? doesn't apply(?: to (?:other )?[a-z ]+ you control)?\.?$/i],
   ['global lands do not untap (detectDoesntUntapEffects)', /^lands don't untap during their controllers' untap steps\.?$/i],
@@ -243,6 +254,7 @@ const OTHER_SYSTEMS: Array<[string, RegExp]> = [
   ['saga / modal bullet text', /^exile this saga|^\u2022/i],
   // R32 entries (Trek, control/static worker).
   ...TREK_OTHER_SYSTEMS,
+  ...LATE_BATCH_OTHER_SYSTEMS, // B48
 ];
 
 export interface StaticCensusLineClass { scope: 'static' | 'replacement'; system?: string }

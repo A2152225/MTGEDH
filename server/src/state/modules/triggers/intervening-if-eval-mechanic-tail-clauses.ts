@@ -169,7 +169,7 @@ export function tryEvaluateInterveningIfMechanicTailClauses(args: InterveningIfP
   }
 
   // "if a permanent was put into your hand from the battlefield this turn" (best-effort via turn-tracking)
-  if (/^if\s+a\s+permanent\s+was\s+put\s+into\s+your\s+hand\s+from\s+the\s+battlefield\s+this\s+turn$/i.test(clause)) {
+  if (/^if\s+a\s+permanent\s+was\s+(?:put\s+into|returned\s+to)\s+your\s+hand\s+from\s+the\s+battlefield\s+this\s+turn$/i.test(clause)) {
     const stateAny = (ctx as any).state as any;
     const map = stateAny?.permanentPutIntoHandFromBattlefieldThisTurn;
     const v = map?.[controllerId];

@@ -1,5 +1,6 @@
 import type { KnownCardRef } from '../../../shared/src';
 import type { OptionChoiceOption } from '../components/OptionChoiceModal';
+import { decorateOptionalPaymentCost } from './optionalPaymentCostUi';
 import { decorateBatch24OptionChoice } from './batch24ChoicePresentation';
 
 /**
@@ -211,7 +212,7 @@ export function buildGenericOptionChoiceRequestFromStep(
     sourceName: String(step.sourceName || 'Make a Choice'),
     sourceImage: typeof step.sourceImage === 'string' ? step.sourceImage : undefined,
     ...readResolutionPromptCause(step),
-    ...(decorateBatch24OptionChoice(step, withPitchColorRequirement(step), Array.isArray(step.options) ? step.options as OptionChoiceOption[] : []) as { description: string; options: OptionChoiceOption[] }),
+    ...(decorateBatch24OptionChoice(step, withPitchColorRequirement(step), decorateOptionalPaymentCost(step, Array.isArray(step.options) ? step.options as OptionChoiceOption[] : [])) as { description: string; options: OptionChoiceOption[] }),
     minSelections: Number(step.minSelections ?? 0),
     maxSelections: Number(step.maxSelections ?? 1),
     mandatory,

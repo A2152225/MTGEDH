@@ -128,6 +128,23 @@ function parseHostAuraTaxFromText(text: string): { amount: number; perHandCard: 
   return { amount, perHandCard };
 }
 
+/** R36: printed "~ can't attack (or block) unless you pay {N}" (Qal Sisma Behemoth). */
+const PRINTED_SELF_TAX_RE = /^(.+?) can(?:not|'t) attack( or block)? unless you pay \{(\d+)\}$/;
+
+function printedSelfTax(permanent: unknown, mode: 'attack' | 'block'): number {
+  const name = nameOf(permanent).toLowerCase();
+  const short = name.split(',')[0].trim();
+  const subjects = new Set(['this creature', '~', name, short, short.split(' ')[0]]);
+  for (const raw of oracleOf(permanent).toLowerCase().replace(/\u2019/g, "'").split(/\n+/)) {
+    const m = raw.replace(/\([^)]*\)/g, '').trim().replace(/\.$/, '').match(PRINTED_SELF_TAX_RE);
+    if (!m || !subjects.has(m[1].trim())) continue;
+    if (mode === 'block' && !m[2]) continue;
+    const n = parseInt(m[3], 10);
+    if (n > 0) return n;
+  }
+  return 0;
+}
+
 function attachedAuras(attacker: unknown, battlefield: readonly unknown[]): unknown[] {
   const attackerId = String((attacker as { id?: string } | null | undefined)?.id || '').trim();
   if (!attackerId) return [];
@@ -142,6 +159,7 @@ export function collectAttackerSelfAttackTax(
   battlefield: readonly unknown[],
   options?: {
     readonly players?: readonly CombatSelfTaxPlayerHand[];
+    readonly mode?: 'attack' | 'block';
   },
 ): AttackerSelfAttackTax {
   const sources: string[] = [];
@@ -172,8 +190,20 @@ export function collectAttackerSelfAttackTax(
     if (!sources.includes(auraName)) sources.push(auraName);
   }
 
+  const printed = printedSelfTax(attacker, options?.mode ?? 'attack');
+  if (printed > 0) {
+    cost += printed;
+    if (!sources.includes(sourceName)) sources.push(sourceName);
+  }
+
   return { cost, sources };
 }
 
 /** Alias: Cowed-style tax also applies when the host blocks. */
-export const collectBlockerSelfTax = collectAttackerSelfAttackTax;
+export function collectBlockerSelfTax(
+  blocker: unknown,
+  battlefield: readonly unknown[],
+  options?: { readonly players?: readonly CombatSelfTaxPlayerHand[] },
+): AttackerSelfAttackTax {
+  return collectAttackerSelfAttackTax(blocker, battlefield, { ...options, mode: 'block' });
+}

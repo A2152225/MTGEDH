@@ -3,7 +3,8 @@ import { parseOracleTextToIR } from '../../rules-engine/src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../../rules-engine/src/oracleIRExecutor';
 import { applyStaticAbilitiesToBattlefield } from '../../rules-engine/src/staticAbilitiesBattlefield';
 import { restoreAssimilatedCardsOutsideBattlefield } from '../../rules-engine/src/trekAssimilateZoneReset';
-import { countFederationCreatureTypes } from '../../rules-engine/src/trekCountBases';
+import { countFederationCreatureTypes, countDilemmasFacedThisTurn, countOpponentsAttackedThisTurn } from '../../rules-engine/src/trekCountBases';
+import { applySpellSelfTrekCountCostReduction } from '../src/state/modules/spellSelfTrekCountCostReduction';
 import { getContinuousGrantedAbilitiesForPermanent, getContinuousPTBonusForPermanent } from '../src/state/modules/staticEffectSpec';
 import { calculateVariablePT } from '../src/state/utils-handlers/variablePTCalculator';
 
@@ -174,5 +175,40 @@ describe('round 32: Assimilate follow-ups', () => {
     const sx = steps('Strange new worlds ' + D + ' All creatures get -X/-X until end of turn, where X is the number of differently named lands you control. If X is 6 or more, create two 2/1 red Klingon Warrior creature tokens with haste.', 'The Destruction of Praxis');
     expect(sx[0].kind).toBe('modify_pt');
     expect(sx[1].kind).toBe('conditional');
+  });
+});
+
+describe('round 32: dilemma and battlefront count bases', () => {
+  const lib = (p: string) => Array.from({ length: 6 }, (_, i) => ({ id: p + 'L' + i, name: 'C' + i, type_line: 'Creature' }));
+  const mk = (dilemmas: number, attacked: string[]): any => ({
+    id: 'g', turnPlayer: 'p1', stack: [],
+    dilemmasFacedThisTurn: { p1: dilemmas }, attackedPlayersThisTurnByPlayer: { p1: attacked },
+    players: ['p1', 'p2', 'p3'].map(id => ({ id, library: lib(id), hand: [], graveyard: [], exile: [] })),
+    battlefield: [{ id: 'src', controller: 'p1', owner: 'p1', counters: {}, card: { name: 'Src', type_line: 'Creature' } }],
+  });
+  const run = (text: string, name: string, state: any) => {
+    const ir: any = parseOracleTextToIR(text, name);
+    return applyOracleIRStepsToGameState(state, ir.abilities[0].steps, { controllerId: 'p1', sourceId: 'src', selectorContext: { targetOpponentId: 'p2' } } as any) as any;
+  };
+  it('counts helpers', () => {
+    expect(countDilemmasFacedThisTurn(mk(2, []), 'p1')).toBe(2);
+    expect(countOpponentsAttackedThisTurn(mk(0, ['p2', 'p3', 'p1', 'p2']), 'p1')).toBe(2);
+  });
+  it('Worf exiles X = opponents attacked', () => {
+    const r = run('Whenever you attack, exile the top X cards of your library, where X is the number of opponents you attacked this turn. Until the end of your next turn, you may play those cards.', 'Worf, Defiant Commander', mk(0, ['p2', 'p3']));
+    expect(r.state.players[0].exile.length).toBe(2);
+  });
+  it('Sisko makes a token per dilemma', () => {
+    const r = run("At the beginning of your end step, create a 1/1 red Officer creature token for each dilemma you've faced this turn.", 'Captain Benjamin Sisko', mk(2, []));
+    expect(r.state.battlefield.length).toBe(3);
+  });
+  it('Caretaker checks faced a dilemma', () => {
+    const text = 'At the beginning of each end step, if you faced a dilemma this turn, target opponent exiles cards from the top of their library until they exile a nonland card. You may cast that card without paying its mana cost.';
+    expect(run(text, 'The Caretaker', mk(1, [])).state.players[1].exile.length).toBe(1);
+    expect(run(text, 'The Caretaker', mk(0, [])).state.players[1].exile.length).toBe(0);
+  });
+  it('Own the Day costs {1} less per opponent attacked', () => {
+    const r = applySpellSelfTrekCountCostReduction({ oracleText: 'Battlefront \u2014 This spell costs {1} less to cast for each opponent you attacked this turn.', cardName: 'Own the Day', battlefield: [], playerId: 'p1', state: mk(0, ['p2', 'p3']) });
+    expect(r.generic).toBe(2);
   });
 });

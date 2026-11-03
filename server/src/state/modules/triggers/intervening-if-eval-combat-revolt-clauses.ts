@@ -182,6 +182,20 @@ export function tryEvaluateInterveningIfCombatRevoltClauses(args: InterveningIfP
     return null;
   }
 
+  // "if an Equipment or Spacecraft entered the battlefield under your control this turn" (Sulu): subtype-only
+  // subjects, checked against permanents stamped enteredThisTurn; card types stay with their dedicated trackers.
+  {
+    const m = clause.match(/^if\s+(?:an?\s+)?([a-z-]+(?:\s+or\s+(?:an?\s+)?[a-z-]+)*)\s+entered(?:\s+the\s+battlefield)?\s+under\s+your\s+control\s+this\s+turn$/i);
+    const words = m ? m[1].split(/\s+or\s+/i).map((w) => w.replace(/^an?\s+/i, '').trim().toLowerCase()) : [];
+    const cardTypes = /^(?:land|creature|artifact|enchantment|planeswalker|battle|permanent|nonland|noncreature|token|card)s?$/;
+    if (words.length && words.every((w) => !cardTypes.test(w))) {
+      const battlefield = Array.isArray((ctx as any).state?.battlefield) ? (ctx as any).state.battlefield : [];
+      const suluHit = battlefield.some((perm: any) => String(perm?.controller || '') === String(controllerId) && perm?.enteredThisTurn === true
+        && words.some((w) => new RegExp(`\\b${w}\\b`, 'i').test(String(perm?.card?.type_line || ''))));
+      if (suluHit) return true; // otherwise fall through to the subtype ETB trackers
+    }
+  }
+
   // "if this creature attacked this turn"
   if (/^if\s+this\s+creature\s+attacked\s+this\s+turn$/i.test(clause)) {
     const p: any =
@@ -200,6 +214,7 @@ export function tryEvaluateInterveningIfCombatRevoltClauses(args: InterveningIfP
     if (!p) return null;
     const attackedRaw = p.attackedThisTurn;
     if (typeof attackedRaw === 'boolean') return attackedRaw;
+    // Declare-attackers stamps attackedThisTurn on every attacker, so an unstamped permanent did not attack.
     return isPermanentAttacking(p) ? true : null;
   }
 

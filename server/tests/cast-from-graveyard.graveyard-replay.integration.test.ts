@@ -823,9 +823,17 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       abilityId: 'jump-start',
     });
 
+    // B45: targets are chosen before the discard cost is picked (CR 601.2c then 601.2h).
+    const eventStart = 0; // B46: replay the whole live log under the new cost order
+    expect(ResolutionQueueManager.getStepsForPlayer(targetedGameId, playerId).some((step) => step.type === ResolutionStepType.DISCARD_SELECTION)).toBe(false);
+    const targetStep = ResolutionQueueManager.getStepsForPlayer(targetedGameId, playerId).find((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true) as any;
+    expect(targetStep).toBeDefined();
+    expect((targetStep.validTargets || []).some((target: any) => String(target.id || '') === 'jump_start_target_creature_1')).toBe(true);
+    await handlers['submitResolutionResponse']({ gameId: targetedGameId, stepId: String(targetStep.id), selections: ['jump_start_target_creature_1'] });
+
     const discardStep = ResolutionQueueManager.getStepsForPlayer(targetedGameId, playerId).find((step) => step.type === ResolutionStepType.DISCARD_SELECTION) as any;
     expect(discardStep).toBeDefined();
-
+    expect(discardStep.targetsForCast).toEqual(['jump_start_target_creature_1']);
     await handlers['submitResolutionResponse']({
       gameId: targetedGameId,
       stepId: String(discardStep.id),
@@ -835,26 +843,28 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     const liveZones = (game.state as any).zones?.[playerId];
     expect((liveZones?.exile || []).map((card: any) => card.id)).toContain('jump_start_targeted_madness_discard_1');
     expect((liveZones?.graveyard || []).map((card: any) => card.id)).not.toContain('jump_start_targeted_madness_discard_1');
-
     const liveSteps = ResolutionQueueManager.getStepsForPlayer(targetedGameId, playerId);
-    const targetStep = liveSteps.find((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true) as any;
-    const madnessPrompt = liveSteps.find((step: any) => String((step as any)?.castFromExileCardId || '') === 'jump_start_targeted_madness_discard_1') as any;
-    expect(targetStep).toBeDefined();
-    expect((targetStep.validTargets || []).some((target: any) => String(target.id || '') === 'jump_start_target_creature_1')).toBe(true);
-    expect(madnessPrompt).toBeDefined();
+    expect(liveSteps.some((step: any) => String((step as any)?.castFromExileCardId || '') === 'jump_start_targeted_madness_discard_1')).toBe(true);
+    const summarize = (st: any, gid: string) => {
+      const z = st.zones?.[playerId] || {};
+      const ids = (a: any) => (Array.isArray(a) ? a : []).map((c: any) => String(c?.id || '')).sort();
+      return {
+        hand: ids(z.hand), graveyard: ids(z.graveyard), exile: ids(z.exile),
+        stack: (st.stack || []).map((it: any) => String(it?.card?.id || '')),
+        madnessPrompt: ResolutionQueueManager.getStepsForPlayer(gid, playerId).some((step: any) => String((step as any)?.castFromExileCardId || '') === 'jump_start_targeted_madness_discard_1'),
+        pendingTargetStep: ResolutionQueueManager.getStepsForPlayer(gid, playerId).some((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true),
+        pendingDiscardStep: ResolutionQueueManager.getStepsForPlayer(gid, playerId).some((step: any) => (step as any)?.graveyardCastDiscardAsCost === true),
+      };
+    };
+    const liveSummary = summarize(game.state, targetedGameId);
+    expect(liveSummary.pendingTargetStep).toBe(false);
+    expect(liveSummary.pendingDiscardStep).toBe(false);
 
-    const activateEvent = [...getEvents(targetedGameId)].reverse().find((event) =>
-      event.type === 'activateGraveyardAbility' &&
-      String((event as any)?.payload?.cardId || '') === 'jump_start_targeted_spell' &&
-      (event as any)?.payload?.queuedResolutionStep
-    ) as any;
-    const promptEvent = [...getEvents(targetedGameId)].reverse().find((event) => event.type === 'resolveTopOfStackPrompt' && Array.isArray((event as any)?.payload?.queuedResolutionSteps)) as any;
-
-    expect(activateEvent?.payload?.queuedResolutionStep?.graveyardSpellCastTargetSelection).toBe(true);
-    expect(activateEvent?.payload?.queuedResolutionStep?.discardedCardIdsForCost || []).not.toContain('jump_start_targeted_madness_discard_1');
-    expect(activateEvent?.payload?.queuedResolutionStep?.exiledCardIdsFromHandForCost || []).toContain('jump_start_targeted_madness_discard_1');
-    expect((promptEvent?.payload?.queuedResolutionSteps || []).some((step: any) => String((step as any)?.castFromExileCardId || '') === 'jump_start_targeted_madness_discard_1')).toBe(true);
-
+    // B46: record the live log under the new order and replay it into a fresh game.
+    const replayEvents = getEvents(targetedGameId).slice(eventStart).map((event: any) =>
+      event?.payload && typeof event.payload === 'object' ? { type: event.type, ...(event.payload as Record<string, unknown>) } : { type: event.type });
+    const types = replayEvents.map((event: any) => event.type);
+    expect(types).toContain('activateGraveyardAbility');
     const replay = await seedGame(replayGameId, 'jump_start_targeted_spell', 'Destroy target creature.\nJump-start {1}{U}', {
       manaPool: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 1 },
       hand: [madnessCard],
@@ -865,28 +875,11 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
     ];
     (replay.game.state as any).life = { [playerId]: 40, p2: 40 };
     (replay.game.state as any).battlefield = [
-      {
-        id: 'jump_start_target_creature_1',
-        controller: 'p2',
-        owner: 'p2',
-        tapped: false,
-        card: {
-          name: 'Target Dummy',
-          type_line: 'Creature - Construct',
-          oracle_text: '',
-        },
-      },
+      { id: 'jump_start_target_creature_1', controller: 'p2', owner: 'p2', tapped: false, card: { name: 'Target Dummy', type_line: 'Creature - Construct', oracle_text: '' } },
     ];
-
-    replay.game.applyEvent({ type: 'activateGraveyardAbility', ...(activateEvent?.payload || {}) } as any);
-    replay.game.applyEvent({ type: 'resolveTopOfStackPrompt', ...(promptEvent?.payload || {}) } as any);
-
-    const replayedZones = (replay.game.state as any).zones?.[playerId];
-    expect((replayedZones?.exile || []).map((card: any) => card.id)).toContain('jump_start_targeted_madness_discard_1');
-    expect((replayedZones?.graveyard || []).map((card: any) => card.id)).not.toContain('jump_start_targeted_madness_discard_1');
-    const replaySteps = ResolutionQueueManager.getStepsForPlayer(replayGameId, playerId);
-    expect(replaySteps.some((step: any) => (step as any)?.graveyardSpellCastTargetSelection === true)).toBe(true);
-    expect(replaySteps.some((step: any) => String((step as any)?.castFromExileCardId || '') === 'jump_start_targeted_madness_discard_1')).toBe(true);
+    (replay.game as any).replay(replayEvents as any);
+    expect(summarize(replay.game.state, replayGameId)).toEqual(liveSummary);
+    expect((replay.game.state as any).stack?.[0]?.targets).toEqual(['jump_start_target_creature_1']);
   });
 
   it('live retrace activation requires discarding a land card from hand', async () => {
@@ -924,35 +917,20 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       abilityId: 'retrace',
     });
 
-    const steps = ResolutionQueueManager.getStepsForPlayer(retraceGameId, playerId);
-    const discardStep = steps.find(step => step.type === ResolutionStepType.DISCARD_SELECTION) as any;
-    expect(discardStep).toBeDefined();
-    expect((discardStep.hand || []).map((card: any) => card.id)).toEqual(['retrace_land_1']);
-
-    const queuedRetraceEvent = [...getEvents(retraceGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
-    expect(queuedRetraceEvent?.payload?.cardId).toBe('retrace_1');
-    expect(queuedRetraceEvent?.payload?.queuedResolutionStep?.type).toBe('discard_selection');
-    expect(queuedRetraceEvent?.payload?.queuedResolutionStep?.graveyardCastDiscardAsCost).toBe(true);
-    expect((queuedRetraceEvent?.payload?.queuedResolutionStep?.hand || []).map((card: any) => card.id)).toEqual(['retrace_land_1']);
-
-    await handlers['submitResolutionResponse']({
-      gameId: retraceGameId,
-      stepId: String(discardStep.id),
-      selections: ['retrace_land_1'],
-    });
-
+    // B45: target selection precedes the retrace discard cost.
     const retraceTargetStep = ResolutionQueueManager
       .getStepsForPlayer(retraceGameId, playerId)
       .find((queuedStep) => (queuedStep as any)?.graveyardSpellCastTargetSelection === true) as any;
     expect(retraceTargetStep).toBeDefined();
     const retraceTargetId = (retraceTargetStep.validTargets || []).map((target: any) => target.id).find(Boolean);
     expect(retraceTargetId).toBeDefined();
+    await handlers['submitResolutionResponse']({ gameId: retraceGameId, stepId: String(retraceTargetStep.id), selections: [retraceTargetId] });
 
-    await handlers['submitResolutionResponse']({
-      gameId: retraceGameId,
-      stepId: String(retraceTargetStep.id),
-      selections: [retraceTargetId],
-    });
+    const discardStep = ResolutionQueueManager.getStepsForPlayer(retraceGameId, playerId).find(step => step.type === ResolutionStepType.DISCARD_SELECTION) as any;
+    expect(discardStep).toBeDefined();
+    expect(discardStep.graveyardCastDiscardAsCost).toBe(true);
+    expect((discardStep.hand || []).map((card: any) => card.id)).toEqual(['retrace_land_1']);
+    await handlers['submitResolutionResponse']({ gameId: retraceGameId, stepId: String(discardStep.id), selections: ['retrace_land_1'] });
 
     const zones = (game.state as any).zones?.[playerId];
     expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual(['retrace_land_1']);
@@ -1086,34 +1064,19 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       abilityId: 'escape',
     });
 
-    const steps = ResolutionQueueManager.getStepsForPlayer(escapeGameId, playerId);
-    const selectionStep = steps.find(step => step.type === ResolutionStepType.GRAVEYARD_SELECTION) as any;
-    expect(selectionStep).toBeDefined();
-    expect((selectionStep.validTargets || []).map((card: any) => card.id).sort()).toEqual(['escape_cost_1', 'escape_cost_2', 'escape_cost_3', 'escape_target_1']);
-
-    const queuedEscapeEvent = [...getEvents(escapeGameId)].reverse().find((event) => event.type === 'activateGraveyardAbility') as any;
-    expect(queuedEscapeEvent?.payload?.cardId).toBe('escape_1');
-    expect(queuedEscapeEvent?.payload?.queuedResolutionStep?.type).toBe('graveyard_selection');
-    expect(queuedEscapeEvent?.payload?.queuedResolutionStep?.graveyardCastExileAsCost).toBe(true);
-    expect((queuedEscapeEvent?.payload?.queuedResolutionStep?.validTargets || []).map((card: any) => card.id).sort()).toEqual(['escape_cost_1', 'escape_cost_2', 'escape_cost_3', 'escape_target_1']);
-
-    await handlers['submitResolutionResponse']({
-      gameId: escapeGameId,
-      stepId: String(selectionStep.id),
-      selections: ['escape_cost_1', 'escape_cost_2', 'escape_cost_3'],
-    });
-
+    // B45: target selection precedes the escape exile cost; the chosen target is not offered for exile.
     const escapeTargetStep = ResolutionQueueManager
       .getStepsForPlayer(escapeGameId, playerId)
       .find((queuedStep) => (queuedStep as any)?.graveyardSpellCastTargetSelection === true) as any;
     expect(escapeTargetStep).toBeDefined();
-    expect((escapeTargetStep.validTargets || []).map((target: any) => target.id)).toEqual(['escape_target_1']);
+    expect((escapeTargetStep.validTargets || []).map((target: any) => target.id)).toContain('escape_target_1');
+    await handlers['submitResolutionResponse']({ gameId: escapeGameId, stepId: String(escapeTargetStep.id), selections: ['escape_target_1'] });
 
-    await handlers['submitResolutionResponse']({
-      gameId: escapeGameId,
-      stepId: String(escapeTargetStep.id),
-      selections: ['escape_target_1'],
-    });
+    const selectionStep = ResolutionQueueManager.getStepsForPlayer(escapeGameId, playerId).find(step => step.type === ResolutionStepType.GRAVEYARD_SELECTION) as any;
+    expect(selectionStep).toBeDefined();
+    expect(selectionStep.graveyardCastExileAsCost).toBe(true);
+    expect((selectionStep.validTargets || []).map((card: any) => card.id).sort()).toEqual(['escape_cost_1', 'escape_cost_2', 'escape_cost_3']);
+    await handlers['submitResolutionResponse']({ gameId: escapeGameId, stepId: String(selectionStep.id), selections: ['escape_cost_1', 'escape_cost_2', 'escape_cost_3'] });
 
     const zones = (game.state as any).zones?.[playerId];
     expect((zones?.graveyard || []).map((card: any) => card.id)).toEqual(['escape_target_1']);
@@ -1413,12 +1376,18 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       .getStepsForPlayer(dreadReturnGameId, playerId)
       .find((queuedStep) => (queuedStep as any)?.graveyardSpellCastTargetSelection === true) as any;
     expect(targetStep).toBeDefined();
+    // B44: the sacrifice is deferred to cast commit (targets are chosen before costs are paid, CR 601.2c/h),
+    // so the picked creatures are still on the battlefield and are not graveyard targets yet.
     expect((targetStep.validTargets || []).map((target: any) => target.id).sort()).toEqual([
-      'dread_return_sac_1',
-      'dread_return_sac_2',
-      'dread_return_sac_3',
       'dread_return_target_1',
     ]);
+    expect([...getEvents(dreadReturnGameId)].some((event) => event.type === 'sacrificeSelectionResolve')).toBe(false);
+
+    await handlers['submitResolutionResponse']({
+      gameId: dreadReturnGameId,
+      stepId: String(targetStep.id),
+      selections: ['dread_return_target_1'],
+    });
 
     const sacrificeResolveEvent = [...getEvents(dreadReturnGameId)].reverse().find((event) => event.type === 'sacrificeSelectionResolve') as any;
     expect((sacrificeResolveEvent?.payload?.permanentIds || []).sort()).toEqual([
@@ -1426,12 +1395,6 @@ describe('cast-from-graveyard replay semantics (integration)', () => {
       'dread_return_sac_2',
       'dread_return_sac_3',
     ]);
-
-    await handlers['submitResolutionResponse']({
-      gameId: dreadReturnGameId,
-      stepId: String(targetStep.id),
-      selections: ['dread_return_target_1'],
-    });
 
     const zones = (game.state as any).zones?.[playerId];
     expect((zones?.graveyard || []).map((card: any) => card.id).sort()).toEqual([

@@ -5,6 +5,8 @@
  * Public: tryEvaluateInterveningIfKeywordShareShorthandClauses
  */
 
+import { FALLBACK_INTERVENING_IF } from './intervening-if-eval-support.js';
+import { tryEvaluateInterveningIfAttachedDefenderClauses } from './intervening-if-eval-attached-defender-clauses.js';
 import { parseCountToken, getLandsEnteredBattlefieldThisTurn } from "./intervening-if-this-turn-counts.js";
 import {
   findBattlefieldPermanentsByName,
@@ -549,12 +551,17 @@ export function tryEvaluateInterveningIfKeywordShareShorthandClauses(args: Inter
   }
 
 
+  {
+    const r = tryEvaluateInterveningIfAttachedDefenderClauses(args);
+    if (r !== undefined) return r;
+  }
+
   // Broad umbrella recognizers:
   // These intentionally return `null` (recognized-but-unknown) to avoid the fallback marker
   // for common Oracle templating we don't yet track in game state.
-  if (/^if\s+defending\s+player\b/i.test(clause)) return null;
-  if (/^if\s+enchanted\b/i.test(clause)) return null;
-  if (/^if\s+equipped\b/i.test(clause)) return null;
+  if (/^if\s+defending\s+player\b/i.test(clause)) return FALLBACK_INTERVENING_IF; // undecided shape after attached/defender evaluator: unknown-if policy
+  if (/^if\s+enchanted\b/i.test(clause)) return FALLBACK_INTERVENING_IF; // undecided shape after attached/defender evaluator: unknown-if policy
+  if (/^if\s+equipped\b/i.test(clause)) return FALLBACK_INTERVENING_IF; // undecided shape after attached/defender evaluator: unknown-if policy
   if (/^if\s+(?:it|he|she|they)\b/i.test(clause)) return null;
 
   // Numeric lead-ins tend to correspond to event/cost counters.
@@ -725,7 +732,7 @@ export function tryEvaluateInterveningIfKeywordShareShorthandClauses(args: Inter
   if (/^if\s+[a-z0-9][a-z0-9'’\- ]+\s+is\s+untapped$/i.test(clause)) return null;
 
   // Extremely context-dependent shorthand (often card-specific): "if <name>" / "if <tribe>"
-  if (/^if\s+[a-z0-9][a-z0-9'’\- ]+$/i.test(clause)) return null;
+  if (/^if\s+[a-z0-9][a-z0-9'’\- ]+$/i.test(clause)) return FALLBACK_INTERVENING_IF; // unknown shape: telemetry + unknown-if policy
 
   return undefined;
 }

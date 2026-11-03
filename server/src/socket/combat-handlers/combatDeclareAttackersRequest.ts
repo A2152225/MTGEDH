@@ -360,7 +360,7 @@ export async function handleDeclareAttackers(
       // Goaded creatures must attack a player other than the goader if able
       // ========================================================================
       // Check if creature is goaded (either via goadedBy tracking or The Sound of Drums aura)
-      const goadInfo = getCreatureGoadStatus(creature, battlefield, playerId, currentTurn);
+      const goadInfo = getCreatureGoadStatus(creature, battlefield, playerId, currentTurn, game.state);
       
       if (goadInfo.isGoaded) {
         // Creature is currently goaded

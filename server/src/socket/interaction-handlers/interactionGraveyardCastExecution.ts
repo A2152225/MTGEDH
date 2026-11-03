@@ -53,7 +53,8 @@ import {
   normalizeSelectedTargetIds,
   queueGraveyardSpellCastTargetSelection,
 } from "./interactionGraveyardSpellCastTargeting.js";
-import { queueBeamMeUpReturnStep, commitBeamMeUpReturnCost } from "./interactionGraveyardCastBeamMeUp.js"; // B42/B43
+import { queueBeamMeUpReturnStep } from "./interactionGraveyardCastBeamMeUp.js"; // B42/B43
+import { commitDeferredGraveyardCastCosts, validateDeferredGraveyardCastCosts } from "./graveyardCastDeferredCosts.js"; // B44
 
 // Simple unique ID generator for this module
 let idCounter = 0;
@@ -75,6 +76,7 @@ export function finalizeGraveyardSpellCast(params: {
   exiledCardIdsFromHandForCost?: string[];
   exiledCardIdsFromGraveyardForCost?: string[];
   beamedUpPermanentIdsForCost?: string[];
+  sacrificedPermanentIdsForCost?: string[]; // B44: paid at commit
   xValue?: number;
   stackId?: string;
   // Mana payment evidence (present when the mana cost was paid by tapping/sacrificing sources
@@ -93,8 +95,9 @@ export function finalizeGraveyardSpellCast(params: {
     return 'error';
   }
 
-  // B43: the beam me up return-to-hand cost is paid here, when the cast commits (CR 601.2h), so a cancel never strands a bounce.
-  if (!commitBeamMeUpReturnCost(params.game, params.gameId, params.playerId, params.beamedUpPermanentIdsForCost, params.emitError)) return 'error';
+  // B43/B44: deferred pick-time costs (sacrifice, beam me up return) are paid here, when the cast commits (CR 601.2h), so a cancel never strands them.
+  if (!commitDeferredGraveyardCastCosts({ game: params.game, gameId: params.gameId, playerId: params.playerId, cardId: params.cardId, cardName: String(graveyard[cardIndex]?.name || 'Spell'),
+    sacrificedPermanentIdsForCost: params.sacrificedPermanentIdsForCost, beamedUpPermanentIdsForCost: params.beamedUpPermanentIdsForCost, emitError: params.emitError })) return 'error';
   const normalizedTargets = normalizeSelectedTargetIds(params.targets);
   const [card] = graveyard.splice(cardIndex, 1);
   zones.graveyardCount = graveyard.length;
@@ -112,6 +115,7 @@ export function finalizeGraveyardSpellCast(params: {
   const stackId = String(params.stackId || '').trim() || generateId('stack');
   const stackItem = {
     id: stackId,
+    type: 'spell', // B46: typed so full replay does not scrub it as a typeless shell
     controller: params.playerId,
     card: spellCard,
     ...(params.manaCost ? { manaCost: params.manaCost } : {}),
@@ -294,123 +298,6 @@ export function continueCastFromGraveyardAbility(params: {
       : paidGraveyardExileCount >= exileCost.exileCount)
     : true;
 
-  if (discardCost && paidDiscardCount < discardCost.discardCount) {
-    const hand = Array.isArray(zones.hand) ? zones.hand : [];
-    const eligibleHand = discardCost.discardTypeRestriction
-      ? hand.filter((entry: any) => String(entry?.type_line || '').toLowerCase().includes(discardCost.discardTypeRestriction as string))
-      : hand;
-
-    if (eligibleHand.length < discardCost.discardCount) {
-      params.emitError({
-        code: 'CANNOT_PAY_COST',
-        message: discardCost.discardTypeRestriction
-          ? `Cannot cast ${cardName} using ${params.abilityId}: you need to discard ${discardCost.discardCount} ${discardCost.discardTypeRestriction} card${discardCost.discardCount === 1 ? '' : 's'}.`
-          : `Cannot cast ${cardName} using ${params.abilityId}: you need to discard ${discardCost.discardCount} card${discardCost.discardCount === 1 ? '' : 's'}.`,
-      });
-      return 'error';
-    }
-
-    const discardTypeLabel = discardCost.discardTypeRestriction ? `${discardCost.discardTypeRestriction} ` : '';
-    const discardStep = ResolutionQueueManager.addStep(params.gameId, {
-      type: ResolutionStepType.DISCARD_SELECTION,
-      playerId: params.playerId as PlayerID,
-      sourceId: params.cardId,
-      sourceName: cardName,
-      sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
-      description: `${cardName}: Discard ${discardCost.discardCount} ${discardTypeLabel}card${discardCost.discardCount === 1 ? '' : 's'} to cast it using ${params.abilityId}.`,
-      mandatory: false,
-      hand: eligibleHand,
-      discardCount: discardCost.discardCount,
-      currentHandSize: eligibleHand.length,
-      maxHandSize: Math.max(7, eligibleHand.length),
-      reason: 'activation_cost',
-      graveyardCastDiscardAsCost: true,
-      cardId: params.cardId,
-      abilityId: params.abilityId,
-      cardName,
-      manaCost: paymentManaCost || undefined,
-      lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
-      discardTypeRestriction: discardCost.discardTypeRestriction || undefined,
-      targetsForCast: normalizedTargets.length > 0 ? normalizedTargets : undefined,
-    } as any);
-
-    persistQueuedGraveyardAbilityStepActivation({
-      gameId: params.gameId,
-      game: params.game,
-      playerId: String(params.playerId),
-      cardId: String(params.cardId),
-      abilityId: String(params.abilityId),
-      queuedStep: {
-        ...(discardStep as any),
-      },
-    });
-    return 'queued';
-  }
-
-  if (exileCost && !hasPaidGraveyardExileCost) {
-    const graveyardCards = Array.isArray(zones.graveyard) ? zones.graveyard : [];
-    const eligibleGraveyardCards = graveyardCards.filter((entry: any) => String(entry?.id || '') !== String(params.cardId));
-
-    if (!exileCost.exileCountIsX && eligibleGraveyardCards.length < exileCost.exileCount) {
-      params.emitError({
-        code: 'CANNOT_PAY_COST',
-        message: `Cannot cast ${cardName} using ${params.abilityId}: you need to exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard.`,
-      });
-      return 'error';
-    }
-
-    const dynamicExileCost = exileCost.exileCountIsX === true;
-    const minExileTargets = dynamicExileCost ? 0 : exileCost.exileCount;
-    const maxExileTargets = dynamicExileCost ? eligibleGraveyardCards.length : exileCost.exileCount;
-    const description = dynamicExileCost
-      ? `${cardName}: Exile any number of other cards from your graveyard to set X and cast it using ${params.abilityId}.`
-      : `${cardName}: Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard to cast it using ${params.abilityId}.`;
-    const title = dynamicExileCost
-      ? `Choose cards to exile for X on ${cardName}`
-      : `Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} for ${cardName}`;
-
-    const exileStep = ResolutionQueueManager.addStep(params.gameId, {
-      type: ResolutionStepType.GRAVEYARD_SELECTION,
-      playerId: params.playerId as PlayerID,
-      sourceId: params.cardId,
-      sourceName: cardName,
-      sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
-      description,
-      mandatory: false,
-      targetPlayerId: params.playerId,
-      minTargets: minExileTargets,
-      maxTargets: maxExileTargets,
-      destination: 'exile',
-      cardId: params.cardId,
-      cardName,
-      title,
-      validTargets: eligibleGraveyardCards.map((graveyardCard: any) => ({
-        id: graveyardCard.id,
-        label: graveyardCard.name || 'Card',
-        description: graveyardCard.type_line || 'Card',
-        imageUrl: graveyardCard.image_uris?.small || graveyardCard.image_uris?.normal,
-      })),
-      graveyardCastExileAsCost: true,
-      exileCountIsX: dynamicExileCost || undefined,
-      abilityId: params.abilityId,
-      manaCost: paymentManaCost || undefined,
-      lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
-      targetsForCast: normalizedTargets.length > 0 ? normalizedTargets : undefined,
-    } as any);
-
-    persistQueuedGraveyardAbilityStepActivation({
-      gameId: params.gameId,
-      game: params.game,
-      playerId: String(params.playerId),
-      cardId: String(params.cardId),
-      abilityId: String(params.abilityId),
-      queuedStep: {
-        ...(exileStep as any),
-      },
-    });
-    return 'queued';
-  }
-
   if (sacrificeCost && !(Array.isArray(params.sacrificedPermanentIdsForCost) && params.sacrificedPermanentIdsForCost.length >= sacrificeCost.sacrificeCount)) {
     const resourceValidationError = getCastFromGraveyardResourceValidationError(
       params.game,
@@ -546,6 +433,136 @@ export function continueCastFromGraveyardAbility(params: {
     }
   }
 
+  // B45: discard / exile-from-hand / exile-from-graveyard cost pickers run after targeting and right before mana (CR 601.2c then 601.2h);
+  // their shared handlers pay at pick time, so they come last to keep the cancel window small.
+  if (discardCost && paidDiscardCount < discardCost.discardCount) {
+    const hand = Array.isArray(zones.hand) ? zones.hand : [];
+    const eligibleHand = discardCost.discardTypeRestriction
+      ? hand.filter((entry: any) => String(entry?.type_line || '').toLowerCase().includes(discardCost.discardTypeRestriction as string))
+      : hand;
+
+    if (eligibleHand.length < discardCost.discardCount) {
+      params.emitError({
+        code: 'CANNOT_PAY_COST',
+        message: discardCost.discardTypeRestriction
+          ? `Cannot cast ${cardName} using ${params.abilityId}: you need to discard ${discardCost.discardCount} ${discardCost.discardTypeRestriction} card${discardCost.discardCount === 1 ? '' : 's'}.`
+          : `Cannot cast ${cardName} using ${params.abilityId}: you need to discard ${discardCost.discardCount} card${discardCost.discardCount === 1 ? '' : 's'}.`,
+      });
+      return 'error';
+    }
+
+    const discardTypeLabel = discardCost.discardTypeRestriction ? `${discardCost.discardTypeRestriction} ` : '';
+    const discardStep = ResolutionQueueManager.addStep(params.gameId, {
+      type: ResolutionStepType.DISCARD_SELECTION,
+      playerId: params.playerId as PlayerID,
+      sourceId: params.cardId,
+      sourceName: cardName,
+      sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+      description: `${cardName}: Discard ${discardCost.discardCount} ${discardTypeLabel}card${discardCost.discardCount === 1 ? '' : 's'} to cast it using ${params.abilityId}.`,
+      mandatory: false,
+      hand: eligibleHand,
+      discardCount: discardCost.discardCount,
+      currentHandSize: eligibleHand.length,
+      maxHandSize: Math.max(7, eligibleHand.length),
+      reason: 'activation_cost',
+      graveyardCastDiscardAsCost: true,
+      cardId: params.cardId,
+      abilityId: params.abilityId,
+      cardName,
+      manaCost: paymentManaCost || undefined,
+      lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
+      discardTypeRestriction: discardCost.discardTypeRestriction || undefined,
+      targetsForCast: normalizedTargets.length > 0 ? normalizedTargets : undefined,
+      sacrificedPermanentIdsForCost: Array.isArray(params.sacrificedPermanentIdsForCost) && params.sacrificedPermanentIdsForCost.length > 0 ? params.sacrificedPermanentIdsForCost.slice() : undefined,
+      beamedUpPermanentIdsForCost: Array.isArray(params.beamedUpPermanentIdsForCost) && params.beamedUpPermanentIdsForCost.length > 0 ? params.beamedUpPermanentIdsForCost.slice() : undefined,
+      xValue: Number.isFinite(Number(params.xValue)) ? Math.max(0, Math.floor(Number(params.xValue))) : undefined,
+    } as any);
+
+    persistQueuedGraveyardAbilityStepActivation({
+      gameId: params.gameId,
+      game: params.game,
+      playerId: String(params.playerId),
+      cardId: String(params.cardId),
+      abilityId: String(params.abilityId),
+      queuedStep: {
+        ...(discardStep as any),
+      },
+    });
+    return 'queued';
+  }
+
+  if (exileCost && !hasPaidGraveyardExileCost) {
+    const graveyardCards = Array.isArray(zones.graveyard) ? zones.graveyard : [];
+    const eligibleGraveyardCards = graveyardCards.filter((entry: any) => String(entry?.id || '') !== String(params.cardId) && !normalizedTargets.includes(String(entry?.id || ''))); // B45: chosen spell targets are not offered for the exile cost
+
+    if (!exileCost.exileCountIsX && eligibleGraveyardCards.length < exileCost.exileCount) {
+      params.emitError({
+        code: 'CANNOT_PAY_COST',
+        message: `Cannot cast ${cardName} using ${params.abilityId}: you need to exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard.`,
+      });
+      return 'error';
+    }
+
+    const dynamicExileCost = exileCost.exileCountIsX === true;
+    const minExileTargets = dynamicExileCost ? 0 : exileCost.exileCount;
+    const maxExileTargets = dynamicExileCost ? eligibleGraveyardCards.length : exileCost.exileCount;
+    const description = dynamicExileCost
+      ? `${cardName}: Exile any number of other cards from your graveyard to set X and cast it using ${params.abilityId}.`
+      : `${cardName}: Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} from your graveyard to cast it using ${params.abilityId}.`;
+    const title = dynamicExileCost
+      ? `Choose cards to exile for X on ${cardName}`
+      : `Exile ${exileCost.exileCount} other card${exileCost.exileCount === 1 ? '' : 's'} for ${cardName}`;
+
+    const exileStep = ResolutionQueueManager.addStep(params.gameId, {
+      type: ResolutionStepType.GRAVEYARD_SELECTION,
+      playerId: params.playerId as PlayerID,
+      sourceId: params.cardId,
+      sourceName: cardName,
+      sourceImage: (card as any)?.image_uris?.small || (card as any)?.image_uris?.normal,
+      description,
+      mandatory: false,
+      targetPlayerId: params.playerId,
+      minTargets: minExileTargets,
+      maxTargets: maxExileTargets,
+      destination: 'exile',
+      cardId: params.cardId,
+      cardName,
+      title,
+      validTargets: eligibleGraveyardCards.map((graveyardCard: any) => ({
+        id: graveyardCard.id,
+        label: graveyardCard.name || 'Card',
+        description: graveyardCard.type_line || 'Card',
+        imageUrl: graveyardCard.image_uris?.small || graveyardCard.image_uris?.normal,
+      })),
+      graveyardCastExileAsCost: true,
+      exileCountIsX: dynamicExileCost || undefined,
+      abilityId: params.abilityId,
+      manaCost: paymentManaCost || undefined,
+      lifeToPayForCost: recordedLifeCost > 0 ? recordedLifeCost : undefined,
+      targetsForCast: normalizedTargets.length > 0 ? normalizedTargets : undefined,
+      sacrificedPermanentIdsForCost: Array.isArray(params.sacrificedPermanentIdsForCost) && params.sacrificedPermanentIdsForCost.length > 0 ? params.sacrificedPermanentIdsForCost.slice() : undefined,
+      beamedUpPermanentIdsForCost: Array.isArray(params.beamedUpPermanentIdsForCost) && params.beamedUpPermanentIdsForCost.length > 0 ? params.beamedUpPermanentIdsForCost.slice() : undefined,
+      discardedCardIdsForCost: Array.isArray(params.discardedCardIds) && params.discardedCardIds.length > 0 ? params.discardedCardIds.slice() : undefined,
+      exiledCardIdsFromHandForCost: Array.isArray(params.exiledCardIdsFromHandForCost) && params.exiledCardIdsFromHandForCost.length > 0 ? params.exiledCardIdsFromHandForCost.slice() : undefined,
+    } as any);
+
+    persistQueuedGraveyardAbilityStepActivation({
+      gameId: params.gameId,
+      game: params.game,
+      playerId: String(params.playerId),
+      cardId: String(params.cardId),
+      abilityId: String(params.abilityId),
+      queuedStep: {
+        ...(exileStep as any),
+      },
+    });
+    return 'queued';
+  }
+
+  // B44: re-check deferred picks before any mana or life is spent.
+  if (!validateDeferredGraveyardCastCosts({ game: params.game, gameId: params.gameId, playerId: params.playerId, cardId: params.cardId,
+    sacrificedPermanentIdsForCost: params.sacrificedPermanentIdsForCost, beamedUpPermanentIdsForCost: params.beamedUpPermanentIdsForCost, emitError: params.emitError })) return 'error';
+
   if (paymentManaCost && !params.manaCostAlreadyPaid) {
     const parsedCost = parseManaCost(paymentManaCost);
     const pool = getOrInitManaPool(params.game.state, params.playerId);
@@ -630,6 +647,7 @@ export function continueCastFromGraveyardAbility(params: {
     exiledCardIdsFromHandForCost: params.exiledCardIdsFromHandForCost,
     exiledCardIdsFromGraveyardForCost: params.exiledCardIdsFromGraveyardForCost,
     beamedUpPermanentIdsForCost: params.beamedUpPermanentIdsForCost,
+    sacrificedPermanentIdsForCost: params.sacrificedPermanentIdsForCost,
     xValue: params.xValue,
     emitError: params.emitError,
   });

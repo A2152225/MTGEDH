@@ -7,6 +7,7 @@ import { ALL_COLOR_SYMBOLS, hasSelfAllColorsCDA } from './selfAllColorsCDA.js';
 import { readDerivedContinuousEffects } from './staticEffectSpec.js';
 import { typeSetOverrideIsColorless } from './attachedTypeSettingStamp.js';
 import { COLOR_SET_PREFIX, resolveColorsWithSetting } from './colorSettingMarker.js';
+import { readGlobalColorSetting } from './globalColorSetting.js';
 
 const COLOR_WORD_TO_SYMBOL: Record<string, string> = {
   white: 'W',
@@ -100,6 +101,12 @@ export function getEffectiveColors(
     }
   }
 
+  // B46: global colour setting (Thran Lens / "All creatures are black").
+  if (state) {
+    const g = readGlobalColorSetting(state, object);
+    for (const c of g.set) setters.push(COLOR_SET_PREFIX + c);
+    if (g.colorless && g.set.length === 0) return resolveColorsWithSetting([], additions);
+  }
   // Layer 5 colour setting (Frogify): SET: entries replace the printed / CDA colours.
   return resolveColorsWithSetting(base, [...setters, ...additions]);
 }

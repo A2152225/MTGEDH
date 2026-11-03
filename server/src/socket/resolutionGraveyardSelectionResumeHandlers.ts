@@ -290,6 +290,10 @@ export async function finishGraveyardSelectionAfterApply(
         cardId,
         abilityId,
         exiledCardIdsFromGraveyardForCost: movedCardIds,
+        sacrificedPermanentIdsForCost: Array.isArray(stepAny?.sacrificedPermanentIdsForCost) ? stepAny.sacrificedPermanentIdsForCost.map((id: any) => String(id)) : undefined, // B45
+        beamedUpPermanentIdsForCost: Array.isArray(stepAny?.beamedUpPermanentIdsForCost) ? stepAny.beamedUpPermanentIdsForCost.map((id: any) => String(id)) : undefined, // B45
+        discardedCardIds: Array.isArray(stepAny?.discardedCardIdsForCost) ? stepAny.discardedCardIdsForCost.map((id: any) => String(id)) : undefined, // B45
+        exiledCardIdsFromHandForCost: Array.isArray(stepAny?.exiledCardIdsFromHandForCost) ? stepAny.exiledCardIdsFromHandForCost.map((id: any) => String(id)) : undefined, // B45
         targets: Array.isArray(stepAny?.targetsForCast) ? stepAny.targetsForCast : undefined,
         xValue: stepAny?.exileCountIsX === true
           ? movedCardIds.length

@@ -11,12 +11,13 @@ function counterEffectsForType(
   counterType: string,
   overlaySpecs: readonly ReplacementEffectSpec[],
   targetController: PlayerID,
+  targetTypeLine?: string,
 ): ReplacementEffect[] {
   const effects: ReplacementEffect[] = [];
 
   for (const spec of overlaySpecs) {
     if (spec.event !== 'counter-placement' || !spec.instead.modify) continue;
-    if (!overlaySpecsMatchCounterPlacement(spec, { counterType, targetController })) continue;
+    if (!overlaySpecsMatchCounterPlacement(spec, { counterType, targetController, targetTypeLine })) continue;
     effects.push(overlayReplacementSpecToEffect(spec));
   }
 
@@ -68,7 +69,7 @@ export function computeCounterPlacementModifiedDeltas(
     if (amount === 0) continue;
 
     if (amount > 0) {
-      const effects = counterEffectsForType(counterType, overlaySpecs, targetController);
+      const effects = counterEffectsForType(counterType, overlaySpecs, targetController, String(targetPermanent?.card?.type_line || targetPermanent?.type_line || ''));
       if (effects.length > 0) {
         amount = applyCounterPreferenceOrdering(gameState, targetController, amount, effects);
       }

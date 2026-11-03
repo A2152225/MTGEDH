@@ -1,6 +1,7 @@
 import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
 import { debugWarn } from '../../utils/debug.js';
+import { applyTurnFaceUpCounters } from './turnFaceUpCounterPlacement.js'; // B49
 import { uid, parsePT } from '../utils.js';
 import { processFaceUpTriggers } from './triggerEmissionFamilyUtils.js';
 
@@ -210,11 +211,8 @@ export function turnReturnedPermanentFaceUp(permanent: any, ctx?: GameContext): 
   delete (permanent as any).faceUpCard;
   delete (permanent as any).canTurnFaceUp;
 
-  const faceUpOracle = String(actualCard?.oracle_text || '').toLowerCase();
-  if (/\bmegamorph\b/.test(faceUpOracle)) {
-    const counters = (permanent as any).counters = (permanent as any).counters || {};
-    counters['+1/+1'] = (Number(counters['+1/+1']) || 0) + 1;
-  }
+  // B49: megamorph + "as ~ is turned face up, put N counters on it".
+  applyTurnFaceUpCounters(permanent, actualCard, (ctx as any)?.state);
 
   if (ctx && !(ctx as any).isReplaying) {
     try {

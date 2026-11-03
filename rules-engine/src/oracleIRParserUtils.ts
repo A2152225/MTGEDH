@@ -436,6 +436,11 @@ export function normalizeClauseForParse(clause: string): {
   working = working.replace(/^(?:[ivxlcdm]+)\s*(?:[-?]|[^\w\s])+\s*/i, '');
   // Trek ability words (Strange new worlds / Federation) carry no rules meaning (CR 207.2c).
   working = working.replace(/^(?:strange\s+new\s+worlds|federation)\s*(?:-|\u2014|\u2013)\s*/i, '');
+  // Generic ability word (Converge, Threshold, ...) before a one-shot effect clause.
+  working = working.replace(
+    /^(?!choose\b)[a-z][a-z']*(?:\s+[a-z][a-z']*){0,3}\s*(?:\u2014|\u2013|\s-)\s*(?=(?:all|each|target|you|create|destroy|exile|draw|return|put|this spell|until|tap|untap|deal|counter|gain|search)\b)/i,
+    ''
+  );
 
   // Cost/typal keywords whose reminder period sits inside parentheses glue onto the
   // next instruction once reminders are stripped ("Delve Target player…").

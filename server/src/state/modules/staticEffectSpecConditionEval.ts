@@ -495,6 +495,13 @@ export function specMatchesStaticCondition(
       return permanent.tapped === true;
     case 'target_is_untapped':
       return permanent.tapped !== true;
+    case 'target_is_attacking_enchanted_player': {
+      // B52: "Creatures attacking enchanted player have ..." (Curse of Hospitality and similar Curses).
+      const src: any = (state.battlefield || []).find((perm) => String(perm.id || '') === String(spec.sourcePermanentId || ''));
+      const enchanted = String(src?.enchantedPlayerId || src?.attachedTo || '').trim();
+      const attacking = (permanent as any).attacking;
+      return Boolean(enchanted) && permanentIsAttacking(permanent) && String(typeof attacking === 'string' ? attacking : (permanent as any).attackingPlayerId || '') === enchanted;
+    }
     case 'target_is_attacking':
       return permanentIsAttacking(permanent);
     case 'target_is_ring_bearer':

@@ -25,6 +25,7 @@ import {
   resolveSearchLibraryMaxResults,
 } from './oracleIRExecutorPlayerSearchLibraryMatches';
 import { normalizeOracleText, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { parseMoveZoneTypedCardsRevealedThisWay } from './oracleIRExecutorZoneOpsThisWayParsers';
 import {
   cardMatchesMoveZoneSingleTargetCriteria,
   cardMatchesType,
@@ -156,7 +157,8 @@ function filterMoveZoneSelectionCandidates(
   }
   const linkedCreature = parseMoveZoneCreatureCardExiledWithSource({ kind: 'raw', text: whatText });
   if (linkedCreature) return pool.filter((card) => cardMatchesType(card, linkedCreature.cardType));
-  if (/^one of the creature cards revealed this way$/i.test(whatText)) return pool.filter((card) => cardMatchesType(card, 'creature'));
+  const oneOfRevealed = parseMoveZoneTypedCardsRevealedThisWay({ kind: 'raw', text: whatText });
+  if (oneOfRevealed?.chooseOne) return pool.filter((card) => cardMatchesMoveZoneSingleTargetCriteria(card as any, oneOfRevealed));
 
   const anyNumberTypedFromHand = parseMoveZoneAnyNumberTypedFromYourHand({ kind: 'raw', text: whatText });
   if (anyNumberTypedFromHand) {

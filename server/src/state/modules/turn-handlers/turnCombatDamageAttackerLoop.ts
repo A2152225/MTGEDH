@@ -227,6 +227,16 @@ function dealCombatDamageAttackerLoopUnbatched(
                 ((state as any).damageTakenThisTurnByPlayer[defendingPlayerId] || 0) + effectiveDamage;
             } catch {}
 
+            // Round 41: turn-tagged combat damage per player ("if all opponents were dealt combat damage this turn").
+            try {
+              if (effectiveDamage > 0) {
+                const st = state as any;
+                if (!st.combatDamagedPlayersThisTurn || st.combatDamagedPlayersThisTurn.turn !== st.turnNumber) st.combatDamagedPlayersThisTurn = { turn: st.turnNumber, players: {} };
+                const players = st.combatDamagedPlayersThisTurn.players;
+                players[String(defendingPlayerId)] = (players[String(defendingPlayerId)] || 0) + effectiveDamage;
+              }
+            } catch {}
+
             // Track life lost this turn for common oracle checks.
             try {
               if (resolvedPlayerDamage.lifeLost > 0) {

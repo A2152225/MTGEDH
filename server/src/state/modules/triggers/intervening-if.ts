@@ -27,6 +27,7 @@ import { tryEvaluateInterveningIfFallbackBurnDownClauses } from "./intervening-i
 import { tryEvaluateInterveningIfTargetedLastFallbackClauses } from "./intervening-if-eval-targeted-last-fallback-clauses.js";
 import { tryEvaluateInterveningIfOwnControlNamedClauses } from "./intervening-if-eval-own-control-named-clauses.js";
 import { tryEvaluateInterveningIfKeywordShareShorthandClauses } from "./intervening-if-eval-keyword-share-shorthand-clauses.js";
+import { tryEvaluateInterveningIfRound41Clauses } from "./intervening-if-eval-round41-clauses.js";
 
 function normalizeText(text: string): string {
   return String(text || "")
@@ -117,6 +118,11 @@ function evaluateInterveningIfClauseInternal(
   // Parser stores intervening-if text without the leading "if" (e.g. "a creature died this turn").
   if (clause && !clause.startsWith('if ')) {
     clause = `if ${clause}`;
+  }
+
+  {
+    const r = tryEvaluateInterveningIfRound41Clauses({ ctx, controllerId, clause, sourcePermanent, refs } as any);
+    if (r !== undefined) return r;
   }
 
   {
@@ -391,5 +397,26 @@ export function isInterveningIfSatisfied(
 ): boolean | null {
   const clause = extractInterveningIfClause(descriptionOrEffect);
   if (!clause) return null;
-  return evaluateInterveningIfClause(ctx, controllerId, clause, sourcePermanent, refs);
+  const detailed = evaluateInterveningIfClauseDetailed(ctx, controllerId, clause, sourcePermanent, refs);
+  if (detailed.fallback) return handleUnknownInterveningIf(ctx, clause);
+  return detailed.value;
+}
+
+/**
+ * Unknown intervening-if policy (Rule 603.4). A recognised-shape "if ..." clause the evaluators cannot decide is
+ * recorded in state.unknownInterveningIfClauses (clause -> count) for telemetry/census follow-up.
+ * 'skip' treats it as unmet (the trigger does not fire as if met); 'keep' preserves the legacy fire-anyway behavior.
+ */
+export let unknownInterveningIfPolicy: 'skip' | 'keep' = 'skip';
+export function setUnknownInterveningIfPolicy(policy: 'skip' | 'keep'): void { unknownInterveningIfPolicy = policy; }
+
+function handleUnknownInterveningIf(ctx: GameContext, clause: string): boolean | null {
+  try {
+    const stateAny = (ctx as any)?.state as any;
+    if (stateAny) {
+      stateAny.unknownInterveningIfClauses = stateAny.unknownInterveningIfClauses || {};
+      stateAny.unknownInterveningIfClauses[clause] = (stateAny.unknownInterveningIfClauses[clause] || 0) + 1;
+    }
+  } catch { /* telemetry only */ }
+  return unknownInterveningIfPolicy === 'skip' ? false : null;
 }

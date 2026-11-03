@@ -105,6 +105,21 @@ export function propagateCastMetadataToEnteringPermanent(item: any, effectiveCar
     (newPermanent.card as any).escapedFrom = 'graveyard';
   }
 
+  // Round 41: cast-option flags (kicker, bargain) so "if it was kicked/bargained" decides on the permanent.
+  // castOptionsStamped marks a cast spell: absent flags then mean the option was not chosen.
+  if (!wasCastWithMorph) {
+    const targets = [newPermanent, newPermanent?.card].filter((o: any) => o && typeof o === 'object');
+    for (const key of ['wasKicked', 'kickerPaidCount', 'timesKicked', 'paidKickerCosts', 'wasBargained', 'bargainResolved']) {
+      const value = (item as any)?.[key] ?? (item as any)?.card?.[key] ?? (effectiveCard as any)?.[key];
+      if (value === undefined) continue;
+      for (const o of targets) if ((o as any)[key] === undefined) (o as any)[key] = value;
+    }
+    const kickKnown = [item, (item as any)?.card, effectiveCard].some((o: any) => o && typeof o.wasKicked === 'boolean');
+    if (kickKnown) {
+      for (const o of targets) (o as any).castOptionsStamped = true;
+    }
+  }
+
   // CR 107.3m: an enters-the-battlefield ability that refers to X uses the X
   // chosen for the spell that became this permanent (Spiteful Banditry).
   const rawCastX = (item as any)?.xValue ?? (effectiveCard as any)?.xValue ?? (item as any)?.card?.xValue;

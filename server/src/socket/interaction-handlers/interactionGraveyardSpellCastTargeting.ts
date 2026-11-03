@@ -387,6 +387,10 @@ export function queueGraveyardSpellCastTargetSelection(params: {
     validTargets = buildGraveyardSpellCastValidTargets(params.game, String(params.playerId), targetReqs);
   }
 
+  // B44: permanents already picked for a deferred sacrifice / beam me up cost are leaving as the cast commits; do not offer them as targets.
+  const pendingCostIds = new Set([...(params.sacrificedPermanentIdsForCost || []), ...(params.beamedUpPermanentIdsForCost || [])].map((id) => String(id)));
+  if (pendingCostIds.size > 0) validTargets = validTargets.filter((target) => !pendingCostIds.has(String(target.id)));
+
   if (validTargets.length < minTargets) {
     params.emitError({
       code: 'NO_VALID_TARGETS',

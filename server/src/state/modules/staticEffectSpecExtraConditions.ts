@@ -12,6 +12,7 @@ import { getEffectiveColors } from './effectiveColors.js';
 import { parseCommanderCondition } from './staticEffectSpecCommanderCondition.js';
 import { parseZoneCountCondition } from './staticEffectSpecZoneCountConditions.js';
 import { parseOpponentStateCondition } from './staticEffectSpecOpponentStateConditions.js';
+import { evalR35StaticCondition } from './staticEffectSpecR35Conditions.js';
 
 const COLOR_SYMBOL: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 
@@ -73,6 +74,6 @@ export function evalExtraStaticCondition(
       return !!id && battlefield.some((p) => p && String(p.attachedTo || '') === id && /\baura\b/i.test(String(p.card?.type_line || '')));
     }
     default:
-      return undefined;
+      return evalR35StaticCondition(condition, permanent, battlefield, state);
   }
 }

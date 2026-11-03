@@ -13,6 +13,7 @@ import {
 } from './staticEffectSpecOracleParseHelpers.js';
 import { parseResourceDesignationCondition } from './staticEffectSpecResourceDesignationConditions.js';
 import { parseExtraSelfCondition } from '../staticEffectSpecExtraConditions.js';
+import { parseR35SelfCondition } from '../staticEffectSpecR35Conditions.js';
 import { parseZoneCountCondition } from '../staticEffectSpecZoneCountConditions.js';
 import { parseCommanderCondition } from '../staticEffectSpecCommanderCondition.js';
 import { parseEntryLifeCondition } from '../staticEffectSpecEntryLifeConditions.js';
@@ -42,6 +43,8 @@ function singular(noun: string): string {
 /** Map a condition phrase (text after "as long as") to an evaluable static condition. */
 export function parseStaticSelfCondition(raw: string): StaticEffectCondition | null {
   const c = String(raw || '').toLowerCase().replace(/\u2019/g, "'").trim().replace(/[.,]+$/, '');
+  const r35 = parseR35SelfCondition(c);
+  if (r35) return r35;
   const resource = parseResourceDesignationCondition(c);
   if (resource) return resource;
   const zoneCount = parseZoneCountCondition(c);

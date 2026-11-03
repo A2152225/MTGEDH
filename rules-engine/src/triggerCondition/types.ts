@@ -95,7 +95,7 @@ export type TriggerSourceRelation =
 
 export type TriggerCastZone = 'hand' | 'library' | 'exile' | 'graveyard' | 'not_hand';
 
-export type TriggerOrdinal = 'first' | 'second';
+export type TriggerOrdinal = 'first' | 'second' | 'third' | 'fourth';
 
 /** 'self': the spell targets the trigger source (heroic). */
 export type TriggerTargetRelation = 'you' | 'opponent' | 'self' | 'creature' | 'creature_you_control';
@@ -151,7 +151,13 @@ export interface TriggerSubjectFilter {
   readonly dealtDamageBy?: 'source' | 'equipped';
   readonly faceDown?: boolean;
   readonly goaded?: boolean;
+  /** "with power greater than its base power" (Round 41). Needs subject.power and subject.basePower. */
+  readonly powerAboveBase?: boolean;
+  /** "modified" (CR 700.9): counters, Equipment, or an Aura its controller controls. Needs subject.modified. */
+  readonly modified?: boolean;
   readonly attackingOrBlocking?: boolean;
+  /** "an attacking creature" / "a blocking creature"; dies uses last known information. */
+  readonly combatRole?: 'attacking' | 'blocking';
   readonly commander?: boolean;
   /** "you own" / "you don't own". */
   readonly owner?: 'any' | 'you' | 'not_you';
@@ -211,6 +217,8 @@ export interface TriggerConditionIR {
   readonly orPlaneswalkerRecipient?: boolean;
   /** Parsed for census and display only; a dedicated legacy runtime fires it, so the IR matcher fails closed. */
   readonly legacyRuntimeOnly?: boolean;
+  /** "during combat": fails only when the context says the game is not in combat. */
+  readonly duringCombat?: boolean;
   /** "the fourth plan counter": the Nth counter of placedCounter. */
   readonly counterOrdinal?: number;
   /** "while it's exiled". */
@@ -252,10 +260,16 @@ export interface TriggerMatchPermanent {
   readonly keywords?: readonly string[];
   readonly counters?: Readonly<Record<string, number>>;
   readonly power?: number;
+  /** Printed / base power, for "power greater than its base power". */
+  readonly basePower?: number;
+  /** CR 700.9 modified creature. */
+  readonly modified?: boolean;
   readonly toughness?: number;
   readonly faceDown?: boolean;
   readonly goaded?: boolean;
   readonly attackingOrBlocking?: boolean;
+  readonly attacking?: boolean;
+  readonly blocking?: boolean;
   readonly isCommander?: boolean;
   readonly ownerId?: string;
   readonly colors?: readonly string[];
@@ -280,6 +294,8 @@ export interface TriggerMatchSource {
 
 export interface TriggerMatchContext {
   readonly castFromZone?: string;
+  /** True during any combat step; undefined when the caller does not know. */
+  readonly inCombat?: boolean;
   /** 1 is the first spell that player has cast this turn. */
   readonly spellOrdinal?: number;
   readonly targetControllerId?: string;

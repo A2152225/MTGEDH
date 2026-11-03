@@ -38,6 +38,7 @@ import { getEffectivePower, getEffectiveToughness } from "../util.js";
 import { getColorBlockRestrictionReason } from "./combatColorBlockRestriction.js";
 import { getExceptColorBlockRestrictionReason } from './combatExceptColorBlockRestriction.js';
 import { getQualifierBlockRestrictionReason } from "./combatQualifierBlockRestriction.js";
+import { staticGrantBlockRestrictionReason } from "./combatR35StaticBlockRestrictions.js"; // R35
 import { getBatch25BlockRestrictionReason } from "./combatBatch25BlockRestrictions.js";
 import { canBlockAsThoughReach } from "./combatBatch26BlockRestrictions.js";
 import { conditionalUnblockableReason } from "./combatBatch28ConditionalUnblockable.js"; // B28
@@ -606,6 +607,8 @@ export function canBlockAttacker(
   const blockerPower = getEffectivePower(blocker, gameState);
   {
     const attackerContinuous = getContinuousGrantedAbilitiesForPermanent(attacker, continuousGrantState(battlefield, gameState));
+    const r35Reason = staticGrantBlockRestrictionReason(blocker, attackerContinuous, continuousBlockAbilities, battlefield, gameState);
+    if (r35Reason) return { canBlock: false, reason: r35Reason };
     const qualifierReason = getQualifierBlockRestrictionReason(attacker, blocker, [...attackerRestrictionTexts, ...attackerContinuous], {
       blockerPower,
       blockerAbilities: continuousBlockAbilities,

@@ -128,6 +128,23 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
       const key = String(controller);
       (state as any).creaturesDiedThisTurnByController[key] = ((state as any).creaturesDiedThisTurnByController[key] || 0) + 1;
 
+      // Round 41: modified creatures (CR 700.9: counters, Equipment, or an Aura its controller controls).
+      try {
+        const counters = (perm as any).counters && typeof (perm as any).counters === 'object' ? (perm as any).counters : {};
+        const hasCounters = Object.values(counters).some((v: any) => Number(v) > 0);
+        const permId = String((perm as any).id || '');
+        const attached = (Array.isArray((state as any).battlefield) ? (state as any).battlefield : []).filter((p: any) => permId && String(p?.attachedTo || '') === permId);
+        const equipped = (Array.isArray((perm as any).attachedEquipment) && (perm as any).attachedEquipment.length > 0)
+          || attached.some((p: any) => /\bequipment\b/i.test(String(p?.card?.type_line || '')))
+          || attached.some((p: any) => /\baura\b/i.test(String(p?.card?.type_line || '')) && String(p?.controller || '') === key);
+        if (hasCounters || equipped) {
+          const tracker = (state as any).modifiedCreaturesDiedThisTurn;
+          if (!tracker || tracker.turn !== (state as any).turnNumber) (state as any).modifiedCreaturesDiedThisTurn = { turn: (state as any).turnNumber, byController: {} };
+          const by = (state as any).modifiedCreaturesDiedThisTurn.byController;
+          by[key] = (by[key] || 0) + 1;
+        }
+      } catch {}
+
       // Legacy alias map used by some intervening-if death-count templates.
       (state as any).creaturesDiedUnderYourControlThisTurn = (state as any).creaturesDiedUnderYourControlThisTurn || {};
       (state as any).creaturesDiedUnderYourControlThisTurn[key] = ((state as any).creaturesDiedUnderYourControlThisTurn[key] || 0) + 1;

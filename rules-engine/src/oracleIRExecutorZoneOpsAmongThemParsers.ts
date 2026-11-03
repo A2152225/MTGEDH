@@ -36,6 +36,8 @@ export type AmongThemMoveCriteria = MoveZoneSingleTargetCriteria & {
   readonly handGySplit?: boolean;
   readonly handLibraryBottomSplit?: boolean;
   readonly entersTappedFromWhat?: boolean;
+  /** UI43: 'one of the [type] cards revealed this way' - exactly one pick from the pooled reveals. */
+  readonly chooseOne?: boolean;
 };
 
 export type ContextualThemSplitSpec =

@@ -61,6 +61,8 @@ export interface ReplacementLibrarySearchMatch {
 export interface ReplacementCounterMatch {
   counterTypeIncludes?: string;
   targetControllerIsSourceController?: boolean;
+  /** Target permanent's type line must include this ("on an artifact you control"); unknown type never matches. */
+  targetTypeIncludes?: string;
 }
 
 export interface ReplacementDrawMatch {

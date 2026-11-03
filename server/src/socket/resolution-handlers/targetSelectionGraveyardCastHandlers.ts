@@ -16,8 +16,6 @@
  */
 
 import type { Server } from "socket.io";
-import { appendEvent } from "../../db/index.js";
-import type { GameContext } from "../../state/context.js";
 import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolution/index.js";
 import { debugError, debugWarn } from "../../utils/debug.js";
 import { continueCastFromGraveyardAbility } from "../interaction.js";
@@ -116,54 +114,18 @@ export async function handleGraveyardCastSacrificeAsCostTargetSelection(
       }
     }
 
-    const ctx = {
-      state: game.state,
-      libraries: (game as any).libraries,
-      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-      rng: (game as any).rng,
-      gameId,
-    } as unknown as GameContext;
-
-    const { movePermanentToGraveyard } = await import('../../state/modules/counters_tokens.js');
-    const sacrificedNames: string[] = [];
-    const sacrificedIds: string[] = [];
-    for (const chosenId of selections) {
-      const chosenPerm = battlefield.find((perm: any) => perm && String(perm.id || '') === String(chosenId));
-      const permName = String(chosenPerm?.card?.name || 'permanent');
-      const ok = movePermanentToGraveyard(ctx, String(chosenId), true);
-      if (ok) {
-        sacrificedNames.push(permName);
-        sacrificedIds.push(String(chosenId));
-      }
-    }
-
-    if (sacrificedIds.length < sacrificeCount) {
-      emitToPlayer(io, controllerId, 'error', {
-        code: 'SACRIFICE_FAILED',
-        message: 'Failed to sacrifice the required permanents',
-      });
+    // B44: record the pick only; the sacrifice is paid when the cast commits (finalizeGraveyardSpellCast), so a later cancel strands nothing.
+    if (new Set(selections.map(String)).size !== selections.length) {
+      emitToPlayer(io, controllerId, 'error', { code: 'INVALID_SELECTION', message: 'Choose different permanents.' });
       return true;
     }
-
-    try {
-      appendEvent(gameId, (game as any).seq ?? 0, 'sacrificeSelectionResolve', {
-        resolvedStepId: String(step?.id || '').trim(),
-        playerId: controllerId,
-        sourceId: cardId,
-        sourceName: cardName,
-        permanentType: String(stepAny?.sacrificePermanentType || 'permanent'),
-        permanentIds: sacrificedIds,
-        reason: String(stepAny?.sacrificeReason || step.description || '').trim(),
-      });
-    } catch (err) {
-      debugWarn(1, '[Resolution] Failed to persist graveyard sacrificeSelectionResolve:', err);
-    }
-
+    const sacrificedIds: string[] = selections.slice(0, sacrificeCount).map((id) => String(id));
+    const sacrificedNames: string[] = sacrificedIds.map((id) => String(battlefield.find((perm: any) => perm && String(perm.id || '') === id)?.card?.name || 'permanent'));
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,
       gameId,
       from: 'system',
-      message: `${getPlayerName(game, controllerId)} sacrifices ${sacrificedNames.join(', ') || 'permanents'} (${cardName}).`,
+      message: `${getPlayerName(game, controllerId)} chooses to sacrifice ${sacrificedNames.join(', ') || 'permanents'} (${cardName}; sacrificed when the cast completes).`,
       ts: Date.now(),
     });
 

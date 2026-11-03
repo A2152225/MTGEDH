@@ -24,7 +24,7 @@ import {
   inferGenericTriggeredAbilityTargetMetadata,
 } from './triggers/target-metadata.js';
 import { queueStackPutTriggers } from './triggers/stack-put.js';
-import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggers/triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, permanentToTriggerMatch } from './triggers/triggerConditionFamilyMatch.js';
 import type { TriggerConditionEvent } from '../../../../rules-engine/src/triggerCondition/index.js';
 import { primeDerivedContinuousEffectsForScan } from './staticEffectSpec.js';
 
@@ -700,6 +700,10 @@ export function processLTBTriggers(
       } else if (triggerType === 'token_ltb' || triggerType === 'token_you_control_ltb') {
         if (!leftIsToken) continue;
         if (triggerType === 'token_you_control_ltb' && leftController !== controllerId) continue;
+      } else if (triggerType === 'modified_creature_ltb') {
+        // CR 700.9: only a modified creature you control (counters, Equipment, or your Aura).
+        if (leftController !== controllerId || !leftTypeLine.includes('creature')) continue;
+        if (!(permanentToTriggerMatch(leftPermanent, leftController, detectState) as any).modified) continue;
       }
       // any_permanent_ltb / enters_or_leaves / phases_out_or_leaves: fire for any leave
 

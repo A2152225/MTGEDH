@@ -6,6 +6,7 @@
 // Leaf must not import game-state-effects.ts or game-state-effects-handlers/index.ts.
 
 import { landPlayProhibitionSource } from "../playerActionProhibitions.js"; // B34
+import { landPlayRestrictionCap } from "../landPlayRestrictionFamilies.js"; // B48
 import type { GameContext } from "../../context.js";
 import { isStationPermanentTypeLine } from "../../../../../rules-engine/src/stationPermanentUtils.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
@@ -139,6 +140,8 @@ export function calculateMaxLandsPerTurn(ctx: GameContext, playerId: string): nu
   
   const b34LandBan = landPlayProhibitionSource(battlefield as any[], playerId); // B34
   if (b34LandBan) return 0;
+  const b48LandCap = landPlayRestrictionCap(battlefield as any[], playerId); // B48
+  if (b48LandCap) maxLands = Math.min(maxLands, b48LandCap.cap);
   debug(3, `[calculateMaxLandsPerTurn] Final result for ${playerId}: ${maxLands} lands per turn`);
   return maxLands;
 }

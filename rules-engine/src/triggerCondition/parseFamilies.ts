@@ -16,6 +16,7 @@ import { parseRound14TriggerSentence } from './parseRound14Events.js';
 import { parseRound15TriggerSentence } from './parseRound15Events.js';
 import { parseRound16TriggerSentence } from './parseRound16Events.js';
 import { parseRound37TrekTriggerSentence } from './parseRound37TrekEvents.js';
+import { parseRound40BatchedTriggerSentence } from './parseRound40BatchedEvents.js';
 import { normalizeTriggerClause, parseSubjectPhrase } from './parseSubjectPhrase.js';
 import type { TriggerConditionEvent, TriggerConditionIR, TriggerWhoseTurn } from './types.js';
 
@@ -87,12 +88,15 @@ export function parseBecomesUntappedSubjectClause(clause: string): TriggerCondit
  * that targets you", "you cast your first spell each turn".
  */
 export function parseSpellCastClause(clause: string): TriggerConditionIR | null {
-  let text = normalizeTriggerClause(clause);
+  // "a spell that has convoke" reads as "a spell with convoke".
+  let text = normalizeTriggerClause(clause).replace(/ (spells?) that (?:has|have) /, ' $1 with ');
   const manaValue = / with (?:mana value|converted mana cost) (\d+) or (greater|more|less)\b/.exec(text);
   if (manaValue) text = text.replace(manaValue[0], ' ').replace(/\s+/g, ' ').trim();
   const kicked = /^(?:you cast|an opponent casts|a player casts) (?:a|an) kicked\b/.test(text);
   if (kicked) text = text.replace(/ kicked\b/, ' ').replace(/\s+/g, ' ').trim();
-  if (!text || /\b(?:this|whenever|when|commander|chosen|with|without|power|where|unless|~)\b/.test(text)) {
+  // "a spell with cascade": a trailing keyword clause is validated by parseSubjectPhrase's keyword list.
+  const guardText = text.replace(/ spells? with(?:out)? [a-z ]+$/, ' spell');
+  if (!text || /\b(?:this|whenever|when|commander|chosen|with|without|power|where|unless|~)\b/.test(guardText)) {
     return null;
   }
 
@@ -110,9 +114,9 @@ export function parseSpellCastClause(clause: string): TriggerConditionIR | null 
   }
 
   let ordinal: TriggerConditionIR['ordinal'];
-  const ordinalMatch = /^(?:your|their) (first|second)\s+/.exec(text);
+  const ordinalMatch = /^(?:your|their) (first|second|third|fourth)\s+/.exec(text);
   if (ordinalMatch) {
-    ordinal = ordinalMatch[1] as 'first' | 'second';
+    ordinal = ordinalMatch[1] as TriggerConditionIR['ordinal'];
     text = text.slice(ordinalMatch[0].length);
   }
   text = text.replace(/\beach turn\b/, ' ').replace(/\s+/g, ' ').trim();
@@ -124,7 +128,12 @@ export function parseSpellCastClause(clause: string): TriggerConditionIR | null 
     whoseTurn = /your turn/.test(duringTurn[0]) ? 'you' : 'each_opponent';
     text = text.replace(duringTurn[0], ' ').replace(/\s+/g, ' ').trim();
   }
-  const fromZone = / from (?:your |their )?(hand|graveyard|exile|library)\b/.exec(text);
+  let duringCombat = false;
+  if (/ during combat\b/.test(text)) {
+    duringCombat = true;
+    text = text.replace(/ during combat\b/, ' ').replace(/\s+/g, ' ').trim();
+  }
+  const fromZone = / from (?:your |their |a )?(hand|graveyard|exile|library)\b/.exec(text);
   if (fromZone) {
     castFromZone = fromZone[1] as TriggerConditionIR['castFromZone'];
     text = text.replace(fromZone[0], ' ').replace(/\s+/g, ' ').trim();
@@ -148,6 +157,8 @@ export function parseSpellCastClause(clause: string): TriggerConditionIR | null 
     text = text.replace(/\bthat targets an opponent\b/, ' ').replace(/\s+/g, ' ').trim();
   }
 
+  // "a spell with cascade" / "a creature spell with flying": the keyword qualifies the spell.
+  text = text.replace(/(^|\s)spells?(?= with(?:out)? )/, '$1').replace(/\s+/g, ' ').trim();
   text = text.replace(/\s+spells?$/, '').replace(/^spells?$/, '').trim();
   const subjectText = text === '' || text === 'a' || text === 'an' ? 'a permanent' : text;
   const parsed = parseSubjectPhrase(subjectText, 'spell_cast')
@@ -161,6 +172,7 @@ export function parseSpellCastClause(clause: string): TriggerConditionIR | null 
     ...(ordinal ? { ordinal } : {}),
     ...(targets ? { targets } : {}),
     ...(whoseTurn ? { whoseTurn } : {}),
+    ...(duringCombat ? { duringCombat: true } : {}),
     alternatives: parsed.alternatives.map((alternative) => ({
       ...alternative,
       controller,
@@ -629,7 +641,9 @@ const ABILITY_WORD_PREFIX = /^\s*[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:wh
 
 export function parseTriggerClause(sentence: string, cardName?: string): ParsedTriggerClause | null {
   const unlabeled = String(sentence || '').replace(ABILITY_WORD_PREFIX, '');
-  const parsed = parseTriggerEventSentence(cardName ? normalizeSelfNameInTriggerSentence(unlabeled, cardName) : unlabeled);
+  const selfNormalized = cardName ? normalizeSelfNameInTriggerSentence(unlabeled, cardName) : unlabeled;
+  const parsed = parseTriggerEventSentence(selfNormalized)
+    ?? parseRound40BatchedTriggerSentence(normalizeTriggerClause(selfNormalized), parseTriggerEventSentence as any);
   if (!parsed) return null;
   return { condition: parsed.condition, ...splitTriggerEffectRiders(parsed.effect) };
 }

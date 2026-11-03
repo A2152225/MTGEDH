@@ -37,6 +37,7 @@ import {
   resolveOracleIrContinuationStepIndex,
 } from '../oracleIrTransitionPipeline.js';
 import { applyOracleIRStepsOnServer } from './oracleIrServerApplyOnServer.js';
+import { applyDieRollAgainChoiceFromResolution } from './oracleIrServerDieRollAgainPrompts.js';
 import {
   poolKeyToManaSymbol,
   buildChosenManaFromDistribution,
@@ -570,6 +571,9 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
   if (step?.optionalPaymentPrompt === true) {
     return null;
   }
+  // B52 Delina-style "you may roll again" yes/no.
+  const dieRollAgain = applyDieRollAgainChoiceFromResolution(ctx, step, response, resumeOracleIRStepWithChoiceFromResolution);
+  if (dieRollAgain !== undefined) return dieRollAgain;
 
   const warpWorldChoice = String(step?.oracleIrWarpWorldChoice || '').trim();
   if (

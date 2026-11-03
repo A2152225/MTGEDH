@@ -144,7 +144,7 @@ export function resolveRevealUntilReferenceAmountForPlayer(
     }
   }
 
-  const untilMatch = raw.match(/^until you reveal an? (.+)$/i);
+  const untilMatch = raw.match(/^until (?:you|they|that player|he or she) reveals? an? (.+)$/i);
   if (!untilMatch) return null;
 
   const player = state.players.find((p) => p.id === playerId) as any;

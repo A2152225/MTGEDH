@@ -24,6 +24,14 @@ function countersOf(perm: any): Record<string, number> {
   return (perm?.counters && typeof perm.counters === 'object') ? perm.counters : {};
 }
 
+/** B49: per-turn entry tracking (state.<type>sEnteredBattlefieldThisTurnByController), else a battlefield scan. */
+export function typeEnteredUnderControlThisTurn(type: string, battlefield: any[], controllerId: string, gameState?: any): boolean {
+  const map = gameState?.[type + 'sEnteredBattlefieldThisTurnByController'];
+  if (map && typeof map === 'object' && Number(map[controllerId]) > 0) return true;
+  return (battlefield || []).some((p) => p && p.controller === controllerId && p.enteredThisTurn === true
+    && String(p.card?.type_line || '').toLowerCase().split(/[^a-z]+/).includes(type));
+}
+
 /** Evaluates the supported "as long as ..." conditions. Unknown conditions return false (conservative). */
 export function evaluateDefenderCondition(cond: string, source: any, battlefield: any[], controllerId: string, gameState?: any): boolean {
   let m = cond.match(/^you control (?:a|another) creature with power (\d+) or greater$/);
@@ -44,6 +52,9 @@ export function evaluateDefenderCondition(cond: string, source: any, battlefield
   }
   m = cond.match(/^~ has an? ([+-]\d+\/[+-]\d+|[a-z]+) counter on it$/);
   if (m) return Number(countersOf(source)[m[1]] || 0) > 0;
+  // B49: "as long as an artifact entered the battlefield under your control this turn" (Mechan Shieldmate).
+  m = cond.match(/^an? (artifact|creature|land|enchantment|planeswalker|battle) entered the battlefield under your control this turn$/);
+  if (m) return typeEnteredUnderControlThisTurn(m[1], battlefield, controllerId, gameState);
   return false;
 }
 

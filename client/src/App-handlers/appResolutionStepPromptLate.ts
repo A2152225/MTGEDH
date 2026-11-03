@@ -3,6 +3,7 @@
 // Public entry symbols: handleAppResolutionStepPromptLate.
 // Leaf must not import App.tsx or App-handlers/index.ts.
 
+import { getSingleModePromptDescription } from '../utils/resolutionModePromptUi';
 import { getReturnToHandCostPresentation } from '../utils/beamMeUpUi';
 import type { CastingMode } from "../components/CastingModeSelectionModal";
 import type { JoinForcesRequest } from "../components/JoinForcesModal";
@@ -525,7 +526,7 @@ export function handleAppResolutionStepPromptLate(
           cardName: step.sourceName || 'Spell',
           source: step.sourceName,
           title: step.description || 'Choose a mode',
-          description: 'Choose a mode before selecting targets.',
+          description: getSingleModePromptDescription(step as any),
           imageUrl: step.sourceImage,
           modes,
           effectId: step.sourceId,

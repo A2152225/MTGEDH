@@ -109,6 +109,30 @@ const ORACLE_COUNTER_REPLACEMENT_TEMPLATES: readonly OracleCounterReplacementTem
     },
   },
   {
+    // Lt. Cmdr. Geordi La Forge: kind- and type-qualified doubler.
+    templateId: 'charge-counters-double-artifact-you-control',
+    oracleMustIncludeAll: ['charge counters on an artifact you control', 'twice that many charge counters'],
+    spec: {
+      event: 'counter-placement',
+      match: { counterTypeIncludes: 'charge', targetControllerIsSourceController: true, targetTypeIncludes: 'artifact' },
+      instead: { modify: 'double' },
+      effectId: 'charge-counters-double-artifact',
+      reason: 'charge_counters_double_artifact',
+    },
+  },
+  {
+    // Optimization Annex.
+    templateId: 'charge-counters-plus-one-artifact-you-control',
+    oracleMustIncludeAll: ['charge counters would be put on an artifact you control', 'that many plus one'],
+    spec: {
+      event: 'counter-placement',
+      match: { counterTypeIncludes: 'charge', targetControllerIsSourceController: true, targetTypeIncludes: 'artifact' },
+      instead: { modify: 'add_flat', value: 1 },
+      effectId: 'charge-counters-plus-one-artifact',
+      reason: 'charge_counters_plus_one_artifact',
+    },
+  },
+  {
     templateId: 'opponent-put-counters-halve',
     oracleMustIncludeAll: [
       'if an opponent would put one or more counters',

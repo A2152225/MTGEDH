@@ -1,3 +1,4 @@
+import { appendImpulsePlayRider } from './impulsePlayRider.js';
 import type { GameContext } from '../../context.js';
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 
@@ -164,7 +165,7 @@ export function detectCounterPlacedTriggers(card: any, permanent: any, gameState
     /whenever you put one or more (\+1\/\+1 )?counters on (?:~|this (?:creature|permanent)|[A-Za-z][A-Za-z0-9', -]*),?\s*([^.]+)/gi,
   );
   for (const match of putCountersOnTargetMatch) {
-    const counterFilter: CounterPlacedTrigger['counterFilter'] = match[1] ? '+1/+1' : 'any';
+    const counterFilter: CounterPlacedTrigger['counterFilter'] = match[1] ? (normalizeCounterType(String(match[1]).trim()) as any) : 'any';
     const effect = collectCounterRemovedTriggerEffectText(oracleText, match, 2);
     if (!effect || triggers.some((trigger) => trigger.effect === effect)) continue;
     triggers.push({
@@ -204,12 +205,18 @@ export function detectCounterPlacedTriggers(card: any, permanent: any, gameState
     }
   }
 
-  const selfMatches = oracleText.matchAll(
-    /whenever one or more (\+1\/\+1 )?counters are put on (?:~|this (?:creature|permanent)),?\s*([^.]+)/gi,
+  // Self references by printed name ("put on U.S.S. Enterprise-D"): match the full name or the pre-comma short name.
+  const escapeName = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, (ch) => '\\' + ch);
+  const selfNames = [cardName, cardName.split(',')[0]].map((n) => n.trim()).filter((n) => n && n !== 'Unknown');
+  const selfNameOracle = selfNames.length
+    ? oracleText.replace(new RegExp(`counters are put on (?:${selfNames.map(escapeName).join('|')})\\b`, 'gi'), 'counters are put on ~')
+    : oracleText;
+  const selfMatches = selfNameOracle.matchAll(
+    /whenever one or more (\+1\/\+1 |[a-z]+ )?counters are put on (?:~|this (?:creature|permanent|artifact|enchantment|land|spacecraft|vehicle))(?: for the first time each turn)?,?\s*([^.]+)/gi,
   );
   for (const match of selfMatches) {
-    const counterFilter: CounterPlacedTrigger['counterFilter'] = match[1] ? '+1/+1' : 'any';
-    const effect = collectCounterRemovedTriggerEffectText(oracleText, match, 2);
+    const counterFilter: CounterPlacedTrigger['counterFilter'] = match[1] ? normalizeCounterType(String(match[1])) : 'any';
+    const effect = appendImpulsePlayRider(collectCounterRemovedTriggerEffectText(selfNameOracle, match, 2), selfNameOracle, (match.index || 0) + String(match[0] || '').length);
     if (!effect || triggers.some((trigger) => trigger.effect === effect)) continue;
     triggers.push({
       permanentId,

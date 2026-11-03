@@ -97,7 +97,15 @@ function subjectFilterMatches(
   if (filter.dealtDamageBy === 'equipped' && !context?.dealtDamageByEquipped) return false;
   if (filter.faceDown && !subject.faceDown) return false;
   if (filter.goaded && !subject.goaded) return false;
+  if (filter.modified && subject.modified !== true) return false;
+  if (filter.powerAboveBase) {
+    const power = subject.power;
+    const base = subject.basePower;
+    if (power === undefined || base === undefined || !Number.isFinite(power) || !Number.isFinite(base) || power <= base) return false;
+  }
   if (filter.attackingOrBlocking && !subject.attackingOrBlocking) return false;
+  if (filter.combatRole === 'attacking' && subject.attacking !== true) return false;
+  if (filter.combatRole === 'blocking' && subject.blocking !== true) return false;
   if (filter.commander && !subject.isCommander) return false;
   if (filter.historic) {
     const historic = typeLineHasWord(typeLine, 'artifact')
@@ -202,6 +210,8 @@ function qualifiersMatch(
 
   if (condition.ordinal === 'first' && context?.spellOrdinal !== 1) return false;
   if (condition.ordinal === 'second' && context?.spellOrdinal !== 2) return false;
+  if (condition.ordinal === 'third' && context?.spellOrdinal !== 3) return false;
+  if (condition.ordinal === 'fourth' && context?.spellOrdinal !== 4) return false;
 
   if (condition.targets === 'self') {
     const ids = context?.targetPermanentIds;
@@ -252,6 +262,8 @@ function qualifiersMatch(
     const partner = context?.blockPartner;
     if (!partner || !subjectFilterMatches(condition.blockPartner, partner, source, context)) return false;
   }
+
+  if (condition.duringCombat && context?.inCombat === false) return false;
 
   if (condition.whoseTurn) {
     const active = String(context?.activePlayerId || '').trim();

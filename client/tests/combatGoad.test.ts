@@ -25,6 +25,11 @@ describe('combatGoad', () => {
     expect(getPermanentGoaders({ isStaticallyGoaded: true, staticGoadedBy: ['p2'] })).toEqual(['p2']);
   });
 
+  it('detects static goad projected as a granted "goaded" ability', () => {
+    expect(isPermanentGoaded({ grantedAbilities: ['Flying', 'goaded'] })).toBe(true);
+    expect(isPermanentGoaded({ grantedAbilities: ['flying'] })).toBe(false);
+  });
+
   it('prefers a non-goader defender', () => {
     const perm = { goadedBy: ['p2'] };
     expect(preferredForcedAttackTarget(perm, ['p2', 'p3'])).toBe('p3');

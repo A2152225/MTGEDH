@@ -27,6 +27,7 @@ import { applyBatch18EmptyLibraryDrawInstead } from "../replacementBatch18DrawIn
 import { applyBatch19DrawInstead } from "../replacementBatch19DrawInstead.js";
 import { tryQueueRevealUntilKindDrawStep } from "./zonesDrawReplacementRevealUntilKind.js";
 import { isCardDrawProhibited } from "../playersCantDrawCards.js";
+import { applyFirstDrawReveal } from '../firstDrawRevealStatic.js';
 
 export type DrawCardsOptions = {
   /** Parent event (nextStep / dredge|zur choice resolve) already restores draws on replay. */
@@ -434,6 +435,10 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
   const firstDrawNumber = Math.max(1, drawnThisTurn - Number(cardsDrawn || 0) + 1);
   const drawnHand: any[] = Array.isArray((ctx.state as any)?.zones?.[String(drawingPlayerId)]?.hand) ? (ctx.state as any).zones[String(drawingPlayerId)].hand : [];
   const drawnCardFor = (drawNumber: number) => drawnHand[drawnHand.length - Number(cardsDrawn || 0) + (drawNumber - firstDrawNumber)];
+  // B51: "Reveal the first card you draw each turn" static (firstDrawRevealStatic).
+  if (firstDrawNumber === 1 && Number(cardsDrawn || 0) > 0) {
+    try { applyFirstDrawReveal(ctx, String(drawingPlayerId), 1, drawnCardFor(1)); } catch { /* reveal is informational */ }
+  }
   const drawTriggersFor = (drawNumber: number) => orderTriggersByAPNAP(ctx, getCardDrawTriggers(ctx, String(drawingPlayerId), undefined, drawNumber, drawnCardFor(drawNumber)));
   const queueGenericDrawTrigger = (trigger: any, drawIndex: number) => {
     const effect = String(trigger?.effect || '').trim();

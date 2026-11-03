@@ -1,3 +1,4 @@
+import { applyRound33AbilityPasses } from './oracleIRParserRound33Passes';
 // Extracted from rules-engine/src/oracleIRParserParseOracleTextToIR.ts (chat B 40KB split campaign).
 //
 // Late passes of the parseOracleTextToIR pipeline (reminder prunes, recoveries, surface repairs).
@@ -384,5 +385,6 @@ export function applyParseOracleTextToIRLatePasses(params: {
   abilities = expandWinIfControlDifferentNamesAbilities(abilities);
   abilities = expandWinIfCastSameNameThisGameAbilities(abilities);
   abilities = mergeRevealTopShareTypeMayCastAbilities(abilities);
+  abilities = applyRound33AbilityPasses(abilities);
   return abilities;
 }

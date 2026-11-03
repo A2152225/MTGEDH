@@ -22,6 +22,7 @@ import { clearPreparedPermanent } from "./prepared.js";
 import { applyShieldCounterDamagePrevention } from "./counter-common-effects.js";
 import { filterRestrictedCounterDeltas } from "./counterPlacementRestrictions.js";
 import { tryStaticRegenerateInsteadOfDestroy } from "./replacementBatch16LongTail.js";
+import { tryEnchantedPermanentDestroyReplacement } from "./enchantedPermanentDestroyReplacement.js"; // B49
 import { pushCardToPlayerGraveyardWithReplacements } from "./graveyardEntryUtils.js";
 import { inferManaValueConstraintFromText } from "./graveyard-mana-value.js";
 import { detectKeywords } from "./keyword-detection.js";
@@ -461,6 +462,12 @@ export function destroyPermanent(ctx: GameContext, permanentId: string, triggerD
   }
 
   if (tryStaticRegenerateInsteadOfDestroy(state, normalizedId)) {
+    bumpSeq();
+    return true;
+  }
+
+  // B49: Harmonious Emergence-style "instead sacrifice this Aura and that land gains indestructible".
+  if (tryEnchantedPermanentDestroyReplacement(state, normalizedId, (auraId) => movePermanentToGraveyard(ctx, auraId, true))) {
     bumpSeq();
     return true;
   }

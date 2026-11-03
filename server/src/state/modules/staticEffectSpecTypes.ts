@@ -90,6 +90,8 @@ export interface StaticEffectGrant {
   countWho?: 'you' | 'opponents';
   /** creatures_with_keyword: the keyword (lower-case). */
   countKeyword?: string;
+  /** creatures_named: lower-case card name. */
+  countName?: string;
   /** source_counters: count counters on the Aura/Equipment (effectSourcePermanentId), e.g. Sigil of Distinction. */
   countOnEffectSource?: boolean;
   /** attachments_on_source: attachment subtypes counted on the source (aura, equipment). */
@@ -181,7 +183,13 @@ export type StaticEffectCountBasis =
   /** "for each experience counter you have" (Kalemne), "poison counter your opponents have" (Vishgraz). */
   | 'player_counters'
   /** "for each other creature on the battlefield with flying" (Pride of the Clouds). */
-  | 'creatures_with_keyword';
+  | 'creatures_with_keyword'
+  /** R35: "for each card in its controller's hand" (attached host's controller). */
+  | 'host_controller_hand_size'
+  /** R35: "for each of its colors" (the counted-around permanent's colors). */
+  | 'host_color_count'
+  /** R35: "for each other creature on the battlefield named <name>" (countName). */
+  | 'creatures_named';
 
 export type StaticEffectLayer = 4 | 5 | 6 | 7;
 export type StaticEffectSublayer = '7a' | '7b' | '7c' | '7d';
@@ -304,7 +312,16 @@ export type StaticEffectConditionKind =
   | 'color_most_common_among_permanents'
   | 'target_lacks_mana_color'
   /** Magemark cycle: "creatures you control that are enchanted". */
-  | 'target_is_enchanted';
+  | 'target_is_enchanted'
+  /** R35 (staticEffectSpecR35Conditions.ts). */
+  | 'defending_player_controls_matching'
+  | 'defending_player_has_counter'
+  | 'any_player_hand_at_most'
+  | 'controller_spells_cast_this_turn_at_least'
+  | 'controller_controls_no_other'
+  | 'target_power_less_than_source'
+  /** B52: Curse of Hospitality -- target is attacking the player the source Aura enchants. */
+  | 'target_is_attacking_enchanted_player';
 
 export interface StaticEffectCondition {
   kind: StaticEffectConditionKind;

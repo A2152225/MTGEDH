@@ -19,6 +19,7 @@ import { buildTapTriggeredStackItem, collectTapTriggersForTapEvent, serializeTap
 import { canExertAsItAttacks, getSupportedExertAttackReward } from "../../state/modules/triggers/combat.js";
 import { isInterveningIfSatisfied } from "../../state/modules/triggers/intervening-if.js";
 import { getCurrentGoaders } from "../../state/modules/goad-effects.js";
+import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/staticEffectSpec.js";
 import { permanentHasKeyword, permanentHasSummoningSickness } from "../game-actions.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
@@ -157,12 +158,15 @@ export function getCreatureGoadStatus(
   creature: any,
   battlefield: any[],
   creatureController: PlayerID,
-  currentTurn: number
+  currentTurn: number,
+  gameState?: unknown,
 ): { isGoaded: boolean; goaders: PlayerID[] } {
   const goaders = getCurrentGoaders(creature, battlefield, currentTurn);
+  // R35: static goad from continuous specs ("Enchanted creature is goaded", Baeloth) grants the "goaded" flag.
+  const staticGoad = !!gameState && getContinuousGrantedAbilitiesForPermanent(creature, gameState).includes('goaded');
 
   return {
-    isGoaded: goaders.length > 0,
+    isGoaded: goaders.length > 0 || staticGoad,
     goaders
   };
 }
@@ -218,7 +222,7 @@ function collectForcedAttackEntries(game: any, playerId: PlayerID): ForcedAttack
     const allowedDefenderId = getNearestOpponentDirectionAllowedDefenderId(game.state, playerId);
     if (allowedDefenderId === null) continue;
 
-    const goadInfo = getCreatureGoadStatus(perm, battlefield, playerId, currentTurn);
+    const goadInfo = getCreatureGoadStatus(perm, battlefield, playerId, currentTurn, game?.state);
     if (goadInfo.isGoaded) {
       entries.push({ perm, kind: 'goad' });
       continue;

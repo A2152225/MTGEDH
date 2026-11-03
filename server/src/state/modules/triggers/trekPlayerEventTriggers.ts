@@ -81,7 +81,8 @@ export function recordDilemmaFacedOnce(ctx: any, controller: unknown, item: any,
 /** Records a dilemma when an EffectProgram choose_mode prompt is answered (modes chosen during resolution). */
 export function recordDilemmaFacedForModeChoice(game: any, step: any, response: any): void {
   const payload = step?.choiceEvent?.payload;
-  if (String(payload?.oracleStepKind || '') !== 'choose_mode' || response?.cancelled) return;
+  const isModeChoice = String(step?.type || '') === 'mode_selection' || String(payload?.oracleStepKind || '') === 'choose_mode';
+  if (!isModeChoice || response?.cancelled) return;
   const selections = Array.isArray(response?.selections) ? response.selections : [];
   if (selections.length > 0) recordDilemmaFaced(game, String(step?.playerId || response?.playerId || ''), selections.length);
 }

@@ -12,6 +12,7 @@
 import type { BattlefieldPermanent } from '../../../../../shared/src/index.js';
 import type { StaticEffectGrant, StaticEffectSpec } from '../staticEffectSpecTypes.js';
 import { buildSpec, type StaticEffectSpecSource } from './staticEffectSpecOracleParseHelpers.js';
+import { parseR36CountGrant } from '../staticEffectSpecR36CountBases.js';
 import {
   parseStaticAttachedPTBonusFromOracle,
   resolveAttachedPTBonusFromOracle,
@@ -23,6 +24,8 @@ const LAND_SUBTYPE_YOU_CONTROL_RE = /^(plains|island|swamp|mountain|forest|deser
 
 function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   const p = phrase.trim();
+  const r36 = parseR36CountGrant(p);
+  if (r36) return r36;
   let m = p.match(/^(other )?(artifact|creature|land|enchantment|planeswalker) you control$/);
   if (m) return { countBasis: 'controller_permanents_of_type', countCardType: m[2], ...(m[1] ? { countExcludeSource: true } : {}) };
   // "for each legendary creature you control" (Benalish Honor Guard), "nontoken creature", "white creature".
@@ -47,6 +50,12 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   m = p.match(/^(aura|equipment)(?: and (aura|equipment))? attached to (?:it|this creature)$/);
   if (m) return { countBasis: 'attachments_on_source', countAttachmentKinds: [m[1], m[2]].filter(Boolean) as string[] };
   if (p === 'card in your hand') return { countBasis: 'controller_hand_size' };
+  // R34: "for each creature your opponents control" (Scourge of Geier Reach).
+  m = p.match(/^(artifact|creature|land|enchantment|planeswalker|permanent) (?:your opponents control|an opponent controls)$/);
+  if (m) return { countBasis: 'controller_permanents_of_type', countCardType: m[1] === 'permanent' ? '' : m[1], countWho: 'opponents' };
+  // R34: "for each Lesson card in your graveyard" (Katara): subtype/supertype word on the type line.
+  m = p.match(/^([a-z]+) cards? in your graveyard$/);
+  if (m && !/^(?:other|nonland|noncreature)$/.test(m[1])) return { countBasis: 'controller_graveyard_cards_of_type', countCardType: m[1] };
   m = p.match(LAND_SUBTYPE_YOU_CONTROL_RE);
   if (m) return { countBasis: 'controller_lands_of_subtype', countCardType: m[1] };
   if (p === 'basic land type among lands you control') return { countBasis: 'controller_basic_land_types' };
@@ -60,6 +69,13 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   }
   m = p.match(/^(?:(artifact|creature|land|enchantment|planeswalker) )?card in your graveyard$/);
   if (m) return { countBasis: 'controller_graveyard_cards_of_type', countCardType: m[1] && CARD_TYPES.includes(m[1]) ? m[1] : '' };
+  // R35: untyped counters (Gavel of the Righteous, Luxior), host controller's hand, host colours, named creatures.
+  if (/^counter on (?:~|this (?:equipment|aura|artifact|enchantment))$/.test(p)) return { countBasis: 'source_counters', countCounterType: '', countOnEffectSource: true };
+  if (p === 'counter on it' || p === 'counter on this creature') return { countBasis: 'source_counters', countCounterType: '' };
+  if (p === "card in its controller's hand") return { countBasis: 'host_controller_hand_size' };
+  if (p === 'of its colors') return { countBasis: 'host_color_count' };
+  m = p.match(/^(other )?creature on the battlefield named ([a-z' ,-]+)$/);
+  if (m) return { countBasis: 'creatures_named', countName: m[2].trim(), ...(m[1] ? { countExcludeSource: true } : {}) };
   m = p.match(/^([a-z+\/0-9-]+) counter on (?:~|this (?:equipment|aura|artifact|enchantment))$/);
   if (m) return { countBasis: 'source_counters', countCounterType: m[1], countOnEffectSource: true };
   m = p.match(/^([a-z+\/0-9-]+) counter on (?:it|this creature)$/);
@@ -95,7 +111,7 @@ function pushWhereXSpec(specs: StaticEffectSpec[], source: StaticEffectSpecSourc
   specs.push({ ...buildSpec(source, `attached-where-x-pt:${index}`, { kind: 'self' }, grant), sourcePermanentId: hostId, effectSourcePermanentId: source.sourcePermanentId, scope: { kind: 'self' } });
 }
 
-const LINE_RE = /^(this creature|enchanted creature|equipped creature) gets ([+-]\d+)\/([+-]\d+)(?: for each ([a-z+\/0-9 ~-]+?))?(?: and ([^.]+))?$/;
+const LINE_RE = /^(this creature|enchanted creature|equipped creature) gets ([+-]\d+)\/([+-]\d+)(?: for each ([a-z+\/0-9 ~',-]+?))?(?: and ([^.]+))?$/;
 
 export function pushCountedAndAttachedPTSpecs(
   specs: StaticEffectSpec[],

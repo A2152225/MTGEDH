@@ -128,6 +128,16 @@ export const TRIGGER_SUBJECT_KEYWORDS: readonly string[] = [
   'prowess',
   'infect',
   'wither',
+  // Cast-time keywords ("whenever you cast a spell with cascade").
+  'cascade',
+  'convoke',
+  'delve',
+  'improvise',
+  'storm',
+  'ward',
+  'toxic',
+  'flashback',
+  'affinity',
 ];
 
 const REFUSE =
@@ -145,7 +155,10 @@ interface SubjectQualifiers {
   dealtDamageBy?: 'source' | 'equipped';
   faceDown: boolean;
   goaded: boolean;
+  powerAboveBase?: boolean;
+  modified?: boolean;
   attackingOrBlocking: boolean;
+  combatRole?: 'attacking' | 'blocking';
   commander: boolean;
   owner: 'any' | 'you' | 'not_you';
   historic: boolean;
@@ -177,7 +190,10 @@ function applyQualifiers(subject: TriggerSubjectFilter, qualifiers: SubjectQuali
     ...(qualifiers.dealtDamageBy ? { dealtDamageBy: qualifiers.dealtDamageBy } : {}),
     ...(qualifiers.faceDown ? { faceDown: true } : {}),
     ...(qualifiers.goaded ? { goaded: true } : {}),
+    ...(qualifiers.powerAboveBase ? { powerAboveBase: true } : {}),
+    ...(qualifiers.modified ? { modified: true } : {}),
     ...(qualifiers.attackingOrBlocking ? { attackingOrBlocking: true } : {}),
+    ...(qualifiers.combatRole ? { combatRole: qualifiers.combatRole } : {}),
     ...(qualifiers.commander ? { commander: true } : {}),
     ...(qualifiers.owner !== 'any' ? { owner: qualifiers.owner } : {}),
     ...(qualifiers.historic ? { historic: true } : {}),
@@ -193,7 +209,10 @@ function qualifiersAreRestrictive(qualifiers: SubjectQualifiers): boolean {
     || Boolean(qualifiers.dealtDamageBy)
     || qualifiers.faceDown
     || qualifiers.goaded
+    || Boolean(qualifiers.powerAboveBase)
+    || Boolean(qualifiers.modified)
     || qualifiers.attackingOrBlocking
+    || Boolean(qualifiers.combatRole)
     || qualifiers.commander
     || qualifiers.historic
     || qualifiers.colors.length > 0
@@ -209,6 +228,10 @@ function stripSubjectQualifiers(tokens: readonly string[]): { tokens: string[]; 
     if (token === 'face-down' || (token === 'face' && next === 'down')) {
       qualifiers.faceDown = true;
       if (token === 'face') index += 1;
+      continue;
+    }
+    if (token === 'modified') {
+      qualifiers.modified = true;
       continue;
     }
     if (token === 'goaded') {
@@ -237,6 +260,10 @@ function stripSubjectQualifiers(tokens: readonly string[]): { tokens: string[]; 
       index += 2;
       continue;
     }
+    if ((token === 'attacking' || token === 'blocking') && !qualifiers.combatRole && !qualifiers.attackingOrBlocking) {
+      qualifiers.combatRole = token;
+      continue;
+    }
     if (token === 'of' && next === 'the' && tokens[index + 2] === 'chosen' && (tokens[index + 3] === 'type' || (tokens[index + 3] === 'creature' && tokens[index + 4] === 'type'))) {
       qualifiers.chosenType = true;
       index += tokens[index + 3] === 'creature' ? 4 : 3;
@@ -252,6 +279,11 @@ function stripSubjectQualifiers(tokens: readonly string[]): { tokens: string[]; 
       index += 6;
       continue;
     }
+    if (token === 'with' && next === 'power' && tokens[index + 2] === 'greater' && tokens[index + 3] === 'than' && (tokens[index + 4] === 'its' || tokens[index + 4] === 'their') && tokens[index + 5] === 'base' && tokens[index + 6] === 'power') {
+      qualifiers.powerAboveBase = true;
+      index += 6;
+      continue;
+    }
     if (token === 'with' && (next === 'power' || next === 'toughness')) {
       const value = Number(tokens[index + 2]);
       const orWord = tokens[index + 3];
@@ -263,6 +295,13 @@ function stripSubjectQualifiers(tokens: readonly string[]): { tokens: string[]; 
         value,
       });
       index += 4;
+      continue;
+    }
+    // Round 41: "with a counter on it" / "with one or more counters on it" (any kind).
+    if (token === 'with' && ((next === 'a' && tokens[index + 2] === 'counter') || (next === 'one' && tokens[index + 2] === 'or' && tokens[index + 3] === 'more' && tokens[index + 4] === 'counters'))) {
+      qualifiers.counters.push({ minimum: 1 });
+      index += next === 'a' ? 2 : 4;
+      if (tokens[index + 1] === 'on' && (tokens[index + 2] === 'it' || tokens[index + 2] === 'them')) index += 2;
       continue;
     }
     if (token === 'with' && next === 'counters') {
@@ -363,6 +402,12 @@ function excludedColor(token: string): string | null {
 
 function excludedWord(token: string): string | null {
   if (NON_CARD_TYPE[token]) return NON_CARD_TYPE[token];
+  // Round 41: "nonlegendary" / "nonbasic" / "nonsnow" supertype exclusions (type-line word check).
+  const nonSuper = /^non-?(legendary|basic|snow)$/.exec(token);
+  if (nonSuper) return nonSuper[1];
+  // "nonhuman" / "nonzombie": an unhyphenated creature-type negation.
+  const nonType = /^non([a-z]+)$/.exec(token);
+  if (nonType && !nonType[1].endsWith('s') && normalizeCreatureTypeWord(nonType[1])) return normalizeCreatureTypeWord(nonType[1]);
   const hyphen = /^non-([a-z]+)$/.exec(token);
   if (!hyphen || hyphen[1].endsWith('s')) return null;
   return hyphen[1];
@@ -379,6 +424,12 @@ function keywordAt(tokens: readonly string[], index: number): { keyword: string;
 }
 
 function splitSubjectAlternatives(clause: string): string[] {
+  // "noncreature or Dragon", "nonhuman or zombie creature you control": a type negation OR'd with one
+  // word; the shared tail (noun, controller) belongs to both sides.
+  const negationOr = /^((?:an? )?non-?[a-z]+) or ((?:an? )?(?:non-?)?[a-z]+)((?: [^ ].*)?)$/.exec(clause);
+  if (negationOr && !/ or /.test(negationOr[3])) {
+    return [negationOr[1] + negationOr[3], negationOr[2] + negationOr[3]].map((part) => part.trim());
+  }
   const parts: string[] = [];
   let rest = clause;
   while (rest) {
@@ -427,7 +478,10 @@ function parseOneSubject(clause: string, event: TriggerConditionEvent, quantity:
   tokens = controllerParsed.rest;
   const stripped = stripSubjectQualifiers(tokens);
   if (!stripped) return null;
-  tokens = stripped.tokens;
+  // "outlaw" is shorthand for Assassin, Mercenary, Pirate, Rogue and Warlock.
+  tokens = stripped.tokens.flatMap((token) => (token === 'outlaw' || token === 'outlaws'
+    ? ['assassin', 'or', 'mercenary', 'or', 'pirate', 'or', 'rogue', 'or', 'warlock']
+    : [token]));
   if (controllerParsed.owner !== 'any') stripped.qualifiers.owner = controllerParsed.owner;
 
   let tokenRestriction: TriggerTokenRestriction = 'any';
@@ -499,7 +553,7 @@ function parseOneSubject(clause: string, event: TriggerConditionEvent, quantity:
 
   if (chunks.some((chunk) => chunk.types.length === 0 && chunk.subtypes.length === 0)) {
     const tokenOnly = tokenRestriction !== 'any';
-    if (!qualifiersAreRestrictive(stripped.qualifiers) && !tokenOnly && excludedWords.length === 0 && excludedColors.length === 0 && supertypes.length === 0) return null;
+    if (!qualifiersAreRestrictive(stripped.qualifiers) && !tokenOnly && keywordsWith.length === 0 && keywordsWithout.length === 0 && excludedWords.length === 0 && excludedColors.length === 0 && supertypes.length === 0) return null;
     chunks.splice(0, chunks.length, { types: ['permanent'], subtypes: [] });
   }
   shareCardTypes(chunks);

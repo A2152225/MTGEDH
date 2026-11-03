@@ -5,6 +5,7 @@
 // Public entry points:
 //   parseOracleTextToIR
 
+import { splitInlineDieRollBandTables } from './oracleIRParserDieRollInlineBandTables'; // B50
 import type { OracleEffectStep, OracleIRAbility, OracleIRResult } from './oracleIR';
 import { applyParseOracleTextToIRLatePasses } from './oracleIRParserParseOracleTextToIRLatePasses';
 import {
@@ -244,6 +245,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandActivatedAbilityCostReductionStaticAbilities(abilities);
   abilities = applyGlobalImpulseUpgrades(abilities, normalizedOracleText);
   abilities = mergeDieRollResultTableAbilities(abilities);
+  abilities = splitInlineDieRollBandTables(abilities); // B50
   abilities = mergeRevealFollowupAbilities(abilities);
   abilities = mergeSearchLibraryToHandFollowupAbilities(abilities);
   abilities = mergeSearchLibraryPutOnTopFollowupAbilities(abilities);
@@ -415,6 +417,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandLandAnimationUnknownAbilities(abilities);
   abilities = expandCreateEmblemUnknownAbilities(abilities, cardName);
   abilities = mergeDieRollResultTableAbilities(abilities);
+  abilities = splitInlineDieRollBandTables(abilities); // B50
   abilities = annotateTokenCreationMetadataAbilities(abilities, normalizedOracleText);
   abilities = annotateDamageMetadataAbilities(abilities);
   abilities = annotateDrawMetadataAbilities(abilities);

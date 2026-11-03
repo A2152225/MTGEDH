@@ -80,6 +80,9 @@ export async function tryResumeDiscardActivationCosts(
         abilityId,
         discardedCardIds: discardedCardIdsForCost,
         exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost,
+        sacrificedPermanentIdsForCost: Array.isArray(stepAny?.sacrificedPermanentIdsForCost) ? stepAny.sacrificedPermanentIdsForCost.map((id: any) => String(id)) : undefined, // B45
+        beamedUpPermanentIdsForCost: Array.isArray(stepAny?.beamedUpPermanentIdsForCost) ? stepAny.beamedUpPermanentIdsForCost.map((id: any) => String(id)) : undefined, // B45
+        exiledCardIdsFromGraveyardForCost: Array.isArray(stepAny?.exiledCardIdsFromGraveyardForCost) ? stepAny.exiledCardIdsFromGraveyardForCost.map((id: any) => String(id)) : undefined, // B45
         targets: Array.isArray(stepAny?.targetsForCast) ? stepAny.targetsForCast : undefined,
         xValue: Number.isFinite(Number(stepAny?.xValue)) ? Math.max(0, Math.floor(Number(stepAny.xValue))) : undefined,
         emitError: (payload) => emitToPlayer(io, controllerId as any, 'error', payload),

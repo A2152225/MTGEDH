@@ -99,6 +99,7 @@ import {
 } from './oracleIrServerZoneDraftPilesChaosPrompts.js';
 import { queueWarpWorldChoicePromptsFromOracleIRResult } from './oracleIrServerWarpWorldChoicePrompts.js';
 import { queueCoinIgnoreOnePromptsFromOracleIRResult } from './oracleIrServerCoinIgnoreOnePrompts.js';
+import { queueDieRollAgainPromptFromOracleIRResult } from './oracleIrServerDieRollAgainPrompts.js';
 import {
   queueCopyPermanentChoicePromptsFromOracleIRResult,
   queueMoveZoneChoicePromptsFromOracleIRResult,
@@ -715,6 +716,7 @@ export function applyOracleIRStepsOnServer(
     sourceId: String(irCtx.sourceId || '').trim() || undefined,
     irCtx,
   });
+  queueDieRollAgainPromptFromOracleIRResult(ctx, state, result, { controller, sourceName: String(irCtx.sourceName || '').trim() || 'Ability', sourceId: String(irCtx.sourceId || '').trim() || undefined, irCtx }); // B52
   queueSeparateIntoPilesPromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',

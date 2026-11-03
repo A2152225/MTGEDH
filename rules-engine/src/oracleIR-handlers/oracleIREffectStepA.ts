@@ -69,6 +69,8 @@ export type OracleEffectStepA =
         readonly max: number;
         readonly raw: string;
         readonly steps: readonly OracleEffectStep[];
+        /** B52: band ends with "(You may) roll again" -- re-roll and re-apply the table. */
+        readonly rollAgain?: 'optional' | 'mandatory';
       }[];
       readonly optional?: boolean;
       readonly sequence?: 'then';

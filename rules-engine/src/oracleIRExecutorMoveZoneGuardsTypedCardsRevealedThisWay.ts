@@ -84,7 +84,20 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
         effectiveCriteria,
       );
     });
-    const matchingIds = matchingRefs.map((ref) => ref.cardId);
+    if (parsedTypedCardsRevealedThisWay?.chooseOne && matchingRefs.length > 0) {
+      // UI43: one pick; prompt (card-image choice) when several reveals qualify and nothing is chosen yet.
+      const picked = matchingRefs.find((ref) => preferredIds.includes(ref.cardId));
+      if (!picked && matchingRefs.length > 1) {
+        return {
+          applied: false,
+          message: `Skipped move zone (choose one of the cards revealed this way): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: { classification: 'player_choice' },
+        };
+      }
+      matchingRefs.splice(0, matchingRefs.length, picked || matchingRefs[0]);
+    }
+    const matchingIds = matchingRefs.map((ref) => ref.cardId);
     if (matchingRefs.length === 0 && !parsedRevealedThisWayRestToLibrary) {
       return buildAppliedResult({ state: nextState, log: [`No matching revealed-this-way cards: ${step.raw}`] });
     }

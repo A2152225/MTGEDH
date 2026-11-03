@@ -32,6 +32,8 @@ export function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
     // Winter Orb / Imi Statue caps are read before anything untaps ("as long as ~ is untapped").
     const untapLimits = getUntapStepLimits((ctx as any).state, playerId);
     const cappedCandidates: any[] = [];
+    // B48: Storage Matrix reads which permanents were tapped as the untap step began.
+    const b48UntapState = { ...((ctx as any).state || {}), untapStepTappedAtStart: new Set(battlefield.filter((p: any) => p?.tapped).map((p: any) => p.id)) };
     const isCapped = (perm: any) => untapLimits.some((l) => l.kind === 'permanent' || new RegExp('\\b' + l.kind + '\\b').test(String(perm?.card?.type_line || perm?.type_line || '').toLowerCase()));
 
     for (const permanent of battlefield) {
@@ -43,7 +45,7 @@ export function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
           continue;
         }
 
-        const b35QualUntap = qualifiedUntapProhibitionSource(battlefield as any[], permanent); // B35
+        const b35QualUntap = qualifiedUntapProhibitionSource(battlefield as any[], permanent, b48UntapState); // B35 (B48 state)
         if (b35QualUntap) {
           skippedDueToEffects++;
           continue;

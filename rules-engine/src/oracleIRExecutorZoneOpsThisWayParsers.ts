@@ -637,8 +637,14 @@ export function parseMoveZoneTypedCardsRevealedThisWay(what: {
   if (/^all creature cards of the chosen type revealed this way$/i.test(raw)) {
     return { cardType: 'creature', anyNumber: true, usesChosenCreatureType: true };
   }
-  const match = raw.match(/^all\s+(.+?)\s+cards?\s+revealed this way$/i);
-  if (!match) return null;
+  // UI43: 'one of the creature cards revealed this way' (Gift of Perfection), pooled across every revealing player.
+  const oneOfMatch = raw.match(/^one of the\s+(.+?)\s+cards\s+revealed this way$/i);
+  if (oneOfMatch) {
+    const parsedOneOf = parseRevealedThisWayTypeText(String(oneOfMatch[1] || '').trim());
+    return parsedOneOf ? { ...parsedOneOf, chooseOne: true } : null;
+  }
+  const match = raw.match(/^all\s+(.+?)\s+cards?\s+revealed this way$/i);
+  if (!match) return null;
   return parseRevealedThisWayTypeText(String(match[1] || '').trim());
 }
 

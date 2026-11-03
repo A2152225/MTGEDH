@@ -1,3 +1,4 @@
+import { bindConditionalWhereX } from './oracleIRExecutorConditionalWhereXBinding';
 // Origin parent: oracleIRExecutorMainLoop.ts
 // Cluster moved: applyOracleIRStepsToGameStateImpl switch cases counter_spell through
 // default (exile, piles, sacrifice, choose_mode, conditional, unless_*, modify_damage).
@@ -384,7 +385,7 @@ export function tryApplyMainLoopLateSteps(
           condition: step.condition,
           nextState,
           controllerId,
-          ctx: currentCtx,
+          ctx: bindConditionalWhereX(step, nextState, controllerId, currentCtx),
           lastActionOutcome,
           lastStepOutcome,
           lastConditionalEvaluation,

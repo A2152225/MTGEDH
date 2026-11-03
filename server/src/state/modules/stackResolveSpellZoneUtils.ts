@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { appendEvent } from '../../db/index.js';
+import { spellHasGrantedRebound } from './spellReboundGrant.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { normalizeOracleResolutionText } from './oracleIrSpellLegacySupplemental.js';
 import { shouldExileStackCardInsteadOfGraveyard } from './stack-zone-replacements.js';
@@ -221,7 +222,7 @@ export function moveResolvedInstantOrSorceryAfterResolution(
   const layout = (card as any)?.layout;
   const wasAdventure = item?.castAsAdventure === true;
 
-  const hasRebound = /\brebound\b/i.test(oracleText);
+  const hasRebound = /\brebound\b/i.test(oracleText) || spellHasGrantedRebound(state, String(controller), effectiveCard || card); // B46 granted rebound
   const wasCastFromHand = item?.castFromHand === true || item?.source === 'hand';
   const wasCastFromRebound = item?.castFromRebound === true;
   const castWithAbility = String(

@@ -301,10 +301,14 @@ export function overlaySpecsMatchMill(
 
 export function overlaySpecsMatchCounterPlacement(
   spec: ReplacementEffectSpec,
-  input: { counterType: string; targetController: string },
+  input: { counterType: string; targetController: string; targetTypeLine?: string },
 ): boolean {
   const match = spec.match;
   if (!match) return true;
+  if ((match as any).targetTypeIncludes
+    && !String(input.targetTypeLine || '').toLowerCase().includes(String((match as any).targetTypeIncludes))) {
+    return false;
+  }
   if (match.counterTypeIncludes
     && !String(input.counterType || '').includes(String(match.counterTypeIncludes))) {
     return false;

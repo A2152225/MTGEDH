@@ -1,5 +1,20 @@
 import { inferManaValueConstraintFromText, type DynamicManaValueContext } from './graveyard-mana-value.js';
 import { parseBattlefieldCounterClause } from './triggerDelayedEffectUtils.js';
+import { evaluateModifyPtWhereX } from '../../../../rules-engine/src/oracleIRExecutorModifyPtWhereEvaluator.js';
+
+/** UI42: "up to X target ..., where X is <count>" -> the computed X (null when it can't be evaluated). */
+export function evaluateUpToXTargetCount(lowerEffectText: string, context?: DynamicManaValueContext): number | null {
+  const where = String(lowerEffectText || '').match(/\bwhere (x is [^.;]+)/i);
+  const state = (context as any)?.gameState;
+  const controllerId = String((context as any)?.controllerId || '').trim();
+  if (!where || !state || !controllerId) return null;
+  try {
+    const value = evaluateModifyPtWhereX(state as any, controllerId as any, where[1].trim());
+    return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Modal "choose one/two —" effects choose modes before targets (CR 700.2).
@@ -272,6 +287,11 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
         return id && id !== controllerId;
       }).length;
       maxTargets = Math.max(1, opponentCount || 3);
+    } else if (/\bup to x target\b/.test(lower)) {
+      // UI42: X is a computed count (Martok: opponents you attacked this turn), evaluated when the trigger is put on the stack.
+      minTargets = 0;
+      const computed = evaluateUpToXTargetCount(lower, context);
+      maxTargets = computed ?? 99;
     } else if (/\bup to one target\b/.test(lower)) {
       minTargets = 0;
       maxTargets = 1;
