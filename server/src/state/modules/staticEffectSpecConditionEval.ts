@@ -2,7 +2,7 @@
 // Origin parent: server/src/state/modules/staticEffectSpec.ts
 // Cluster: specMatchesStaticCondition + StaticConditionState (unknown kinds do not grant).
 // Public entry symbols: specMatchesStaticCondition, StaticConditionState,
-// permanentHasKeywordAbility, StaticKeywordResolver.
+// permanentHasKeywordAbility, StaticKeywordResolver, readStaticConditionCurrentPower.
 
 import { COLOR_SET_PREFIX, resolveColorsWithSetting } from './colorSettingMarker.js';
 import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
@@ -94,9 +94,19 @@ function isCreaturePermanent(permanent: BattlefieldPermanent): boolean {
     || ((permanent as any).layer4AddedTypes || []).includes('Creature'); // layer 4 stamp (Opalescence)
 }
 
+function permanentHasLegendarySupertype(permanent: BattlefieldPermanent): boolean {
+  if ((permanent as any).continuousNotLegendary === true) return false;
+  const typeLine = String((permanent.card as any)?.type_line || (permanent as any).type_line || '').toLowerCase();
+  if (typeLine.includes('legendary')) return true;
+  const extras = [
+    ...(((permanent as any).continuousTypeAdditions || []) as unknown[]),
+    ...(((permanent as any).layer4AddedTypes || []) as unknown[]),
+  ];
+  return extras.some((entry) => String(entry || '').toLowerCase() === 'legendary');
+}
+
 function isLegendaryCreaturePermanent(permanent: BattlefieldPermanent): boolean {
-  const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
-  return typeLine.includes('legendary') && isCreaturePermanent(permanent);
+  return permanentHasLegendarySupertype(permanent) && isCreaturePermanent(permanent);
 }
 
 function isLandPermanent(permanent: BattlefieldPermanent): boolean {
@@ -282,6 +292,11 @@ export function registerStaticConditionCurrentPowerResolver(resolver: CurrentPow
   currentPowerResolver = resolver;
 }
 
+/** Current power for static-effect / goad conditions: uses the registered no-resync reader. */
+export function readStaticConditionCurrentPower(permanent: BattlefieldPermanent, state?: StaticConditionState): number {
+  return readPermanentPower(permanent, state);
+}
+
 function readPermanentPower(permanent: BattlefieldPermanent, state?: StaticConditionState): number {
   const guardKey = String((permanent as { id?: unknown }).id ?? '');
   if (currentPowerResolver && state && guardKey && !permanentsResolvingCurrentPower.has(guardKey)) {
@@ -460,8 +475,135 @@ export function specMatchesStaticCondition(
       return permanent.isToken === true;
     case 'target_is_not_token':
       return permanent.isToken !== true;
+    case 'target_has_name': {
+      const wanted = String((condition as any).cardName || '').trim().toLowerCase();
+      if (!wanted) return false;
+      return String((permanent.card as any)?.name || (permanent as any).name || '').trim().toLowerCase() === wanted;
+    }
+    case 'target_controller_controls_at_most': {
+      const controller = String((permanent as any).controller || '');
+      const wanted = String((condition as any).cardType || '').trim().toLowerCase();
+      const amount = Number((condition as any).amount || 0);
+      if (!controller || !(amount >= 0)) return false;
+      const count = (state.battlefield || []).filter((p: any) => {
+        if (String(p?.controller || '') !== controller || p?.phasedOut) return false;
+        if (!wanted) return true;
+        return new RegExp('\\b' + wanted + '\\b').test(String(p?.card?.type_line || '').toLowerCase());
+      }).length;
+      return count <= amount;
+    }
+    case 'target_power_at_least': {
+      const min = Number((condition as any).power ?? (condition as any).amount ?? 0);
+      if (!Number.isFinite(min)) return false;
+      return readPermanentPower(permanent, state) >= min;
+    }
+    case 'source_controller_visited_attraction_this_turn': {
+      const controller = String(spec.sourceController || '');
+      if (!controller) return false;
+      if (Number((state as any).attractionsVisitedThisTurnByController?.[controller] || 0) > 0) return true;
+      if ((state as any).visitedAttractionThisTurn === true) return true;
+      const list: any[] = Array.isArray((state as any).attractionsVisitedThisTurn)
+        ? (state as any).attractionsVisitedThisTurn
+        : [];
+      return list.some((e) => String(e?.controller || e?.playerId || e?.visitorId || '') === controller);
+    }
+    case 'target_is_monstrous':
+      return (permanent as any).isMonstrous === true
+        || (permanent as any).monstrous === true
+        || (permanent as any).card?.monstrous === true;
+    case 'source_controller_controls_artifact_or_enchantment': {
+      const controller = String(spec.sourceController || '');
+      if (!controller) return false;
+      return (state.battlefield || []).some((p: any) => {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) return false;
+        const tl = String(p.card?.type_line || '').toLowerCase();
+        return /\bartifact\b/.test(tl) || /\benchantment\b/.test(tl);
+      });
+    }
+    case 'source_controller_controls_creature_type_any': {
+      const controller = String(spec.sourceController || '');
+      const types = Array.isArray((condition as any).creatureTypes)
+        ? (condition as any).creatureTypes.map((t: unknown) => String(t || '').toLowerCase()).filter(Boolean)
+        : [String(condition.creatureType || '').toLowerCase()].filter(Boolean);
+      if (!controller || types.length === 0) return false;
+      const sourceId = String(spec.sourcePermanentId || '');
+      const other = (condition as any).other === true;
+      return (state.battlefield || []).some((p: any) => {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) return false;
+        if (other && String(p.id || '') === sourceId) return false;
+        const tl = String(p.card?.type_line || '').toLowerCase();
+        if (!/\bcreature\b/.test(tl)) return false;
+        return types.some((t: string) => new RegExp('\\b' + t.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\b').test(tl));
+      });
+    }
+    case 'source_controller_sacrificed_permanent_this_turn': {
+      const controller = String(spec.sourceController || '');
+      if (!controller) return false;
+      return Number((state as any).permanentsSacrificedThisTurn?.[controller] || 0) > 0;
+    }
+    case 'source_counter_exactly': {
+      const sourceId = String(spec.sourcePermanentId || '');
+      const source = (state.battlefield || []).find((p: any) => String(p?.id || '') === sourceId);
+      const wanted = String(condition.counterType || '').trim().toLowerCase();
+      const amount = Number(condition.amount ?? 0);
+      if (!source || !wanted || !Number.isFinite(amount)) return false;
+      const counters = ((source as any).counters || {}) as Record<string, unknown>;
+      const entry = Object.entries(counters).find(([k]) => String(k).toLowerCase() === wanted);
+      return Number(entry?.[1] || 0) === amount;
+    }
+    case 'battlefield_has_creature_with_counter': {
+      const wanted = String(condition.counterType || '').trim().toLowerCase();
+      if (!wanted) return false;
+      return (state.battlefield || []).some((p: any) => {
+        if (!p || p.phasedOut) return false;
+        if (!/\bcreature\b/.test(String(p.card?.type_line || '').toLowerCase())) return false;
+        const counters = (p.counters || {}) as Record<string, unknown>;
+        return Object.entries(counters).some(([k, v]) => String(k).toLowerCase() === wanted && Number(v) > 0);
+      });
+    }
+    case 'source_exiled_card_types_at_least': {
+      const sourceId = String(spec.sourcePermanentId || '').trim();
+      const source = sourceId
+        ? (state.battlefield || []).find((p: any) => String(p?.id || '') === sourceId)
+        : undefined;
+      const entries: any[] = [];
+      if (Array.isArray((source as any)?.exiledCards)) entries.push(...(source as any).exiledCards);
+      const exileZone = (state as any).zones?.exile || (state as any).exile || [];
+      if (Array.isArray(exileZone)) {
+        for (const card of exileZone) {
+          if (String(card?.exiledWithSourceId || card?.exiledWith || card?.card?.exiledWithSourceId || '') === sourceId) {
+            entries.push(card);
+          }
+        }
+      }
+      const types = new Set<string>();
+      for (const card of entries) {
+        const tl = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+        for (const t of ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'kindred', 'tribal', 'sorcery']) {
+          if (new RegExp('\\b' + t + '\\b').test(tl)) types.add(t === 'tribal' ? 'kindred' : t);
+        }
+      }
+      return types.size >= Number((condition as any).amount || 0);
+    }
+    case 'controller_noncreature_spells_cast_at_least': {
+      const controller = String(spec.sourceController || '');
+      const amount = Number((condition as any).amount || 0);
+      if (!controller || !(amount > 0)) return false;
+      const keyed = Number((state as any).noncreatureSpellsCastThisTurn?.[controller] || 0);
+      if (keyed >= amount) return true;
+      const list: any[] = Array.isArray((state as any).spellsCastThisTurn) ? (state as any).spellsCastThisTurn : [];
+      const mine = list.filter((e) => {
+        if (String(e?.casterId ?? e?.playerId ?? e?.controllerId ?? e?.controller ?? '') !== controller) return false;
+        const tl = String(e?.type_line || e?.card?.type_line || '').toLowerCase();
+        if (tl) return !/\bcreature\b/.test(tl);
+        return e?.isCreature !== true && e?.creature !== true;
+      }).length;
+      return mine >= amount;
+    }
     case 'during_source_controller_turn':
       return String(state.turnPlayer || '') === String(spec.sourceController || '');
+    case 'not_during_source_controller_turn':
+      return String(state.turnPlayer || '') !== String(spec.sourceController || '');
     case 'source_controller_controls_matching':
       return sourceControllerControlsMatching(spec, condition, state);
     case 'source_controller_life_at_least': {
@@ -512,6 +654,20 @@ export function specMatchesStaticCondition(
       return sourceControllerGraveyardCount(spec, state) >= Number(condition.amount || 0);
     case 'source_controller_attacked_this_turn':
       return sourceControllerAttackedThisTurn(spec, state);
+    case 'source_controller_committed_crime_this_turn': {
+      const controller = String(spec.sourceController || '');
+      const map = (state as any).committedCrimeThisTurn;
+      return Boolean(controller) && !!map && (map[controller] === true || map[controller] === 1);
+    }
+    case 'target_attacked_battle_this_turn': {
+      if ((permanent as any).attackedBattleThisTurn === true) return true;
+      const attacking = String((permanent as any).attacking || '').trim();
+      if (!attacking) return false;
+      return (state.battlefield || []).some((perm) => {
+        if (String(perm?.id || '') !== attacking) return false;
+        return /\bbattle\b/i.test(String((perm.card as any)?.type_line || (perm as any).type_line || ''));
+      });
+    }
     case 'target_is_equipped':
       return permanentIsEquipped(permanent, state);
     case 'source_in_graveyard':
@@ -531,6 +687,15 @@ export function specMatchesStaticCondition(
       return hasKeyword(permanent, String(condition.keyword || ''));
     case 'target_lacks_keyword':
       return !hasKeyword(permanent, String(condition.keyword || ''));
+    case 'target_lacks_keywords': {
+      // "without flying or islandwalk" = lacks every listed keyword. Must use hasKeyword
+      // (resolver) so Levitation/Gravity Sphere layer-6 grants/losses are visible to Moat.
+      const keywords = Array.isArray(condition.keywords) && condition.keywords.length > 0
+        ? condition.keywords
+        : (condition.keyword ? [condition.keyword] : []);
+      if (keywords.length === 0) return false;
+      return keywords.every((keyword) => !hasKeyword(permanent, String(keyword || '')));
+    }
     case 'target_lacks_all_keywords': {
       const keywords = Array.isArray(condition.keywords) && condition.keywords.length > 0
         ? condition.keywords
@@ -561,6 +726,14 @@ export function specMatchesStaticCondition(
       const owner = String((permanent as any).owner || permanent.controller || '').trim();
       return owner === controller;
     }
+    case 'target_not_owned_by_source_controller': {
+      // B58: Don Andres - controlled but not owned by the source controller.
+      const controller = String(spec.sourceController || '').trim();
+      if (!controller) return false;
+      const owner = String((permanent as any).owner || '').trim();
+      if (!owner) return false;
+      return owner !== controller;
+    }
     case 'target_has_type': {
       const cardType = String(condition.cardType || '').trim().toLowerCase().replace(/[^a-z]/g, '');
       if (!cardType) return false;
@@ -579,6 +752,42 @@ export function specMatchesStaticCondition(
       return permanentColorSymbols(permanent).length >= 2;
     case 'target_is_modified':
       return permanentIsModified(permanent, state);
+    case 'target_is_enchanted_or_equipped': {
+      if (permanentIsEquipped(permanent, state)) return true;
+      const id = String(permanent.id || '');
+      return !!id && (state.battlefield || []).some((b: any) => String(b?.attachedTo || '') === id && /\baura\b/i.test(String(b?.card?.type_line || '')));
+    }
+    case 'target_is_attacking_source_controller': {
+      if (!permanentIsAttacking(permanent)) return false;
+      const controller = String(spec.sourceController || '');
+      if (!controller) return false;
+      const attacking = (permanent as any).attacking;
+      const target = String(typeof attacking === 'string' ? attacking : (permanent as any).attackingPlayerId || '');
+      return target === controller;
+    }
+    case 'controller_library_empty': {
+      const controller = String(spec.sourceController || '');
+      if (!controller) return false;
+      const zone = (state as any)?.zones?.[controller];
+      if (typeof zone?.libraryCount === 'number') return zone.libraryCount === 0;
+      return Array.isArray(zone?.library) && zone.library.length === 0;
+    }
+    case 'target_is_zombie_or_token': {
+      if (permanent.isToken === true || (permanent as any).card?.isToken === true) return true;
+      const tl = String((permanent.card as any)?.type_line || (permanent as any).type_line || '').toLowerCase();
+      return /\bzombie\b/.test(tl);
+    }
+    case 'controller_controls_creature_with_counter_at_least': {
+      const controller = String(spec.sourceController || '');
+      const counterType = String((condition as any).counterType || '').toLowerCase();
+      const amount = Number((condition as any).amount || 0);
+      if (!controller || !counterType || !(amount > 0)) return false;
+      return (state.battlefield || []).some((p: any) => {
+        if (String(p?.controller || '') !== controller) return false;
+        if (!/\bcreature\b/i.test(String(p?.card?.type_line || ''))) return false;
+        return Number(p?.counters?.[counterType] || 0) >= amount;
+      });
+    }
     case 'target_has_mana_color_and_lacks_keyword':
       return creatureHasManaColor(permanent, String(condition.color || ''))
         && !hasKeyword(permanent, String(condition.keyword || ''));

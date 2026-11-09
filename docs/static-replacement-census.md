@@ -1,6 +1,6 @@
 # Phase 5 static/replacement census (owned_but_unhandled)
 
-Generated 2026-11-02T13:05:44.286Z by `npm run census:statics` (server/scripts/static-replacement-census.ts).
+Generated 2026-11-09T21:40:06.082Z by `npm run census:statics` (server/scripts/static-replacement-census.ts).
 
 Candidate lines: Commander-legal permanent faces, reminder text stripped, lines that end in a period and are
 not triggers, activated abilities, or keyword lists. A line is **declarative-handled** when
@@ -11,10 +11,10 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 | Metric | Lines |
 |---|---|
 | Candidate static/replacement lines | 9904 |
-| Declarative-handled | 2726 |
-| Owned by another subsystem | 5798 |
-| owned_but_unhandled (static) | 1154 |
-| owned_but_unhandled (replacement) | 226 |
+| Declarative-handled | 2732 |
+| Owned by another subsystem | 6320 |
+| owned_but_unhandled (static) | 673 |
+| owned_but_unhandled (replacement) | 179 |
 
 ## Run history
 
@@ -142,27 +142,78 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 | B51 (end of batch) | 9904 | 2715 | 5795 | 1168 | 226 |
 | 2026-11-02 13:05Z | 9904 | 2726 | 5798 | 1154 | 226 |
 | B52 (end of batch) | 9904 | 2726 | 5798 | 1154 | 226 |
+| 2026-11-09 09:32Z | 9904 | 2754 | 5823 | 1101 | 226 |
+| B53 (end of batch) | 9904 | 2754 | 5823 | 1101 | 226 |
+| 2026-11-09 09:36Z | 9904 | 2754 | 5828 | 1096 | 226 |
+| B54 (end of batch) | 9904 | 2754 | 5828 | 1096 | 226 |
+| 2026-11-09 09:44Z | 9904 | 2754 | 5839 | 1087 | 224 |
+| B55 (end of batch) | 9904 | 2754 | 5839 | 1087 | 224 |
+| B56 (end of batch)* | 9904 | 2757 | 5848 | 1075 | 224 |
+| 2026-11-09 10:02Z | 9904 | 2757 | 5847 | 1076 | 224 |
+| 2026-11-09 10:02Z | 9904 | 2757 | 5847 | 1076 | 224 |
+| 2026-11-09 10:03Z | 9904 | 2757 | 5847 | 1076 | 224 |
+| 2026-11-09 10:09Z | 9904 | 2757 | 5856 | 1068 | 223 |
+| B57 (end of batch) | 9904 | 2757 | 5857 | 1068 | 222 |
+| 2026-11-09 10:10Z | 9904 | 2757 | 5857 | 1068 | 222 |
+| 2026-11-09 10:26Z | 9904 | 2765 | 5861 | 1059 | 219 |
+| B58 (end of batch) | 9904 | 2765 | 5861 | 1059 | 219 |
+| 2026-11-09 10:34Z | 9904 | 2775 | 5911 | 1001 | 217 |
+| B59 (end of batch) | 9904 | 2775 | 5911 | 1001 | 217 |
+| B60 (end of batch) | 9904 | 2785 | 5924 | 979 | 216 |
+| B61 (end of batch) | 9904 | 2787 | 5929 | 972 | 216 |
+| B62 (end of batch) | 9904 | 2789 | 5941 | 958 | 216 |
+| B63 (end of batch) | 9904 | 2789 | 5955 | 948 | 212 |
+| B64 (end of batch) | 9904 | 2787 | 5970 | 948 | 199 |
+| B65 (end of batch) | 9904 | 2788 | 5980 | 940 | 196 |
+| B66 (end of batch) | 9904 | 2788 | 5984 | 938 | 194 |
+| 2026-11-09 10:48Z | 9904 | 2785 | 5922 | 981 | 216 |
+| 2026-11-09 10:51Z | 9904 | 2785 | 5924 | 979 | 216 |
+| 2026-11-09 11:07Z | 9904 | 2787 | 5929 | 972 | 216 |
+| 2026-11-09 11:20Z | 9904 | 2789 | 5941 | 958 | 216 |
+| 2026-11-09 11:31Z | 9904 | 2789 | 5955 | 948 | 212 |
+| 2026-11-09 20:18Z | 9904 | 2787 | 5970 | 948 | 199 |
+| 2026-11-09 20:28Z | 9904 | 2788 | 5980 | 940 | 196 |
+| 2026-11-09 20:32Z | 9904 | 2788 | 5984 | 938 | 194 |
+| 2026-11-09 20:40Z | 9904 | 2716 | 6104 | 891 | 193 |
+| 2026-11-09 20:41Z | 9904 | 2730 | 6090 | 891 | 193 |
+| 2026-11-09 20:46Z | 9904 | 2730 | 6117 | 864 | 193 |
+| B68 (end of batch) | 9904 | 2730 | 6117 | 864 | 193 |
+| 2026-11-09 20:54Z | 9904 | 2733 | 6134 | 844 | 193 |
+| B69 (end of batch) | 9904 | 2733 | 6134 | 844 | 193 |
+| 2026-11-09 20:55Z | 9904 | 2733 | 6134 | 844 | 193 |
+| 2026-11-09 20:59Z | 9904 | 2733 | 6174 | 811 | 186 |
+| 2026-11-09 21:05Z | 9904 | 2736 | 6217 | 769 | 182 |
+| 2026-11-09 21:12Z | 9904 | 2737 | 6230 | 756 | 181 |
+| 2026-11-09 21:13Z | 9904 | 2737 | 6232 | 754 | 181 |
+| 2026-11-09 21:14Z | 9904 | 2737 | 6233 | 753 | 181 |
+| 2026-11-09 21:19Z | 9904 | 2731 | 6251 | 741 | 181 |
+| 2026-11-09 21:23Z | 9904 | 2730 | 6279 | 714 | 181 |
+| 2026-11-09 21:29Z | 9904 | 2730 | 6289 | 705 | 180 |
+| 2026-11-09 21:36Z | 9904 | 2732 | 6312 | 681 | 179 |
+| 2026-11-09 21:40Z | 9904 | 2732 | 6320 | 673 | 179 |
 
 ## Other subsystems
 
 - enters tapped / with counters / as-enters choice: 1569
 - attached host P/T or keyword grant (oracle reader): 751
 - saga / modal bullet text: 588
-- cost modification: 573
-- cast/play permission: 291
+- cost modification: 580
+- cast/play permission: 290
 - combat evasion / requirement (oracle reader): 269
 - untap restriction / hand size (oracle reader): 197
 - keyword with reminder (keywordAbilities/*): 124
 - uncounterable / timing: 82
+- all creature-type have keyword (typedAndKeywordLords): 64
 - blocker-quality evasion (combatQualifierBlockRestriction): 63
 - d20 result band line (oracle IR die_roll_results via oracleIRParserDieRollInlineBandTables): 61
 - commander / deck rules: 58
 - partner family deck construction (partnerDeckValidation): 49
 - mana ability text: 49
+- sticker ability sheet (stickers / Un-set): 43
 - variable P/T count (variablePTCalculator): 42
 - enters prepared (prepared): 40
 - control Aura layer 2 (staticEffectSpecAuraControl): 40
-- copy entry exceptions (copyEntryExceptions): 35
+- copy entry exceptions (copyEntryExceptions): 37
 - trigger doubling (trigger-doublers): 33
 - attack needs defender land type (combatDefendingLandRestriction): 33
 - power-only CDA (variablePowerOnlyCalculator): 30
@@ -172,13 +223,16 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - Theros god devotion type-loss (updateGodCreatureStatus): 22
 - revealed hands/library top flags (revealedInformationFlags): 21
 - generic count CDA (variablePTGenericCountCDA): 21
+- Visit ability word (Attraction visit trigger): 21
 - casting limits (staticCastingRestrictions + OracleExtras): 19
 - damage by toughness (turnCombatDamageByToughness): 17
 - kicker incl. and/or two-cost kicker (kickerCostUtils): 15
 - assign combat damage as though unblocked (combatAssignAsThoughUnblocked): 15
 - multikicker (multikickerCastUtils): 15
 - color can't-be-blocked-by (combatColorBlockRestriction): 14
+- cumulative upkeep non-mana (cumulativeUpkeep): 14
 - borrowed activated abilities (staticEffectSpecBorrowedActivated): 13
+- Case to-solve condition (caseSolve): 13
 - maximum hand size set/increase/reduce (handSizeStaticModifiers): 13
 - skip draw step (turnStepDrawTurnAction): 13
 - planeswalker loyalty / saga / class: 12
@@ -190,8 +244,11 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - planeswalker quoted loyalty grants (planeswalkerGrantedLoyaltyAbilities): 10
 - global activation lock (staticActivationLockFromAttachments): 10
 - landwalk blockable-as-though (combatLandwalkOverrides): 10
+- land animation aura (attachedTypeSettingStamp / setBasePT / attachedExtras): 10
+- Companion deck restriction (companion): 10
 - attached unblockable (combatBatch28ConditionalUnblockable): 9
 - attached/except color block restriction (combatExceptColorBlockRestriction): 9
+- ability-word bang trigger (when/whenever/at): 9
 - amplify N (amplifyEntry): 9
 - assist (assistPayment): 9
 - must block each combat (combatMustBlockEachCombat): 9
@@ -201,18 +258,23 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - legend rule exemption (legendRuleExemptions): 8
 - minimum blockers (combatMinimumBlockers): 8
 - protection from the chosen color (combat-mechanics getPermanentProtections): 8
+- monstrous self keyword (conditionalSelfGrants): 8
 - attack as though no defender, global/self/conditional (combatDefenderAttackPermission): 7
+- cant attack alone (combatBatch53AttackAlone): 7
+- equipped for-each source counters (batch73LongTailStatics): 7
 - attached activation lock (staticActivationLockFromAttachments): 7
 - aura P/T + goad (goad-effects / calculateAllPTBonuses): 7
 - untap step cap N TYPE (untapStepLimits): 6
 - entering doesn't cause abilities to trigger (triggeredAbilitySuppression): 6
 - qualified untap prohibition tail (untapQualifierProhibitions): 6
 - chosen-name activation lock (chosen-name-restrictions): 6
+- Descend ability word trigger (not as-long-as static): 6
 - chosen type in addition (creatureTypeNow): 6
 - attached land type set (manaAbilityLandTypeModifiers): 6
 - self unblockable except by flying/reach (combatBatch25BlockRestrictions): 6
 - control-count attack/block gate (combatBatch33AttackRestrictions): 6
 - morph/megamorph/disguise turn-face-up cost (faceDownCasting): 6
+- self unblockable while defender controls TYPE (combatDefenderControlsUnblockable): 5
 - spell convoke grant template (spellConvokeGrantTemplate): 5
 - chosen-name cast lock (chosen-name-restrictions): 5
 - COLOR creatures / basic lands don't untap (turn-phases detectDoesntUntapEffects filters): 5
@@ -223,30 +285,38 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - qualified untap prohibition (untapQualifierProhibitions): 5
 - damage can't be prevented (gameStateEffectsMillDamage canDamageBePrevented): 4
 - cast only if cast another spell this turn (castOnlyIfCastAnotherRestriction): 4
+- clone entry copy (asEntersCopyChoice): 4
 - enters under opponent control (triggers/control-change): 4
+- group untap during each other player's untap step (turnPhaseUntapStepEffects): 4
 - graveyard targeting restriction (graveyardTargetingRestriction): 4
 - battlefield cast restriction tail (castRestrictionTailFamilies): 4
 - firebending X (attack-detection resolveFirebendingAmount): 4
 - self shuffle-into-library replacement (replacementEffectSpec): 4
+- gift keyword (keywordAbilities/gift): 4
 - colour-sourced targeting restriction (colorSourceTargetingRestriction): 4
+- other subtype-or anthem (batch65LongTailStatics): 4
+- enters untapped override (landsEnterUntappedOverride): 4
 - attached P/T and loses flying (permanentKeywordAbilities): 4
 - crew/saddle as though power were N greater (crewSaddlePowerBonus): 4
 - untap during each other player's untap step (turnPhaseUntapStepEffects): 4
-- self unblockable while defender controls TYPE (combatDefenderControlsUnblockable): 4
+- prevent all combat damage to self (prevention / replacementBatch64): 4
 - static convoke grant (casting-modifiers): 3
 - group untap on other turns (turnPhaseUntapStepEffects): 3
 - cowards can't block warriors (combatDefenderAttackPermission): 3
 - players can't draw cards (playersCantDrawCards): 3
+- attacker/blocker self-tax aura or printed (combatAttackerSelfTax): 3
 - noncombat damage to opponents +N / double (replacementBatch16LongTail damage templates): 3
 - can't cast during your first turns (firstTurnsCastRestriction): 3
 - flagbearer targeting requirement (flagbearerTargeting): 3
-- enters untapped override (landsEnterUntappedOverride): 3
+- reveal first draw each turn (firstDrawRevealStatic): 3
 - own graveyard -> exile from anywhere (zone-change template): 3
 - morph/disguise non-mana or mixed turn-face-up cost (turnFaceUpCostComponents): 3
 - per-draw replacement: skip / exile face up / graveyard return / opponent redirect (replacementBatch19DrawInstead): 3
+- self power block evasion (batch74LongTailStatics): 3
 - spell lifelink grant (spellLifelinkGrant): 3
-- clone entry copy (asEntersCopyChoice): 3
+- hexproof until dealt combat damage (selfStateGrants): 3
 - zone cast lock (batch31CastLocks): 3
+- enchanted/fortified land keywords (attachmentKeywordGrants): 3
 - "~ is all colors" CDA (selfAllColorsCDA via getEffectiveColors): 3
 - activate abilities as though haste (gameActionsPermanentKeywordGrants): 3
 - regenerate instead of destroy (replacementBatch16LongTail): 3
@@ -264,26 +334,46 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - granted vehicle crew N (crewGrantedVehicleCrew): 2
 - empty-library draw: counters / skip instead (replacementBatch18DrawInstead): 2
 - attack as though no defender, trailing/counter/type conditions (combatDefenderAttackPermission): 2
+- counters remain across zones (zoneRetainedCounters): 2
 - self cast restriction land/life this turn (castRestrictionTailFamilies): 2
 - global permanent colour set (globalColorSetting): 2
+- attack only nearest opponent in chosen direction (mysticBarrierAttackDirection): 2
+- graveyard encore grant (graveyardEncoreGrants): 2
+- cant become untapped on enchanted host (untapQualifierProhibitions): 2
 - hand foretell grant (foretellGrants): 2
 - extra Treasure (token template): 2
 - source damage plus replacement (replacementBatch21DamageScaling): 2
+- draw-per-turn cap (playersCantDrawCards): 2
 - drawn-cards conditional unblockable (combatBatch28ConditionalUnblockable): 2
+- counters put this turn self keyword (batch62LongTailStatics): 2
+- players who chose war/peace anthem (playerChoseWarPeaceAnthems): 2
+- food or golem creature anthem (batch62LongTailStatics): 2
 - prevent damage, remove +1/+1 counters [+ tokens/rad] (replacementBatch17DamagePrevention): 2
 - creatures don't untap (turn-phases all_creatures untap prevention): 2
+- power equal multi-subtype count (variablePowerOnlyCalculator): 2
 - echo non-mana cost (echoNonManaCost): 2
+- self grant after committing a crime (conditionalSelfGrants): 2
+- noncombat damage prevent + life/counters follow-up (replacementBatch18NoncombatPrevention): 2
 - CDA life paid on entry (asEntersPayAnyLife): 2
 - attached block-only-flying (combatBatch30AttachedBlockRestrictions): 2
+- graveyard escape grant (graveyard-permissions): 2
+- split color creatures on battlefield CDA (variablePowerOnlyCalculator): 2
 - sorcery-timing cast lock (opponentSorceryTimingLock): 2
+- equip energy or life cost (equip cost): 2
+- self keyword while type card in GY (conditionalSelfGrants): 2
 - maximum blockers (combatBatch30BlockLimits): 2
 - graveyard-count attack gate (combatBatch30AttackRestrictions): 2
 - artifact and/or color block restriction (combatBatch31BlockRestrictions): 2
+- suspend keyword (suspendCard / turnStepUpkeep): 2
+- can't be blocked except by defender/walls (evasion): 2
 - non-subtype creatures can't attack (combatBatch33AttackRestrictions): 2
+- COLOR creatures can't attack unless controller sacrifices a land (attackCostPermanentPayment): 2
+- zone enter lock (batch31CastLocks): 2
 - damage becomes counters (damage side-effect template): 2
 - opponent-turn cast lock (batch31CastLocks): 2
 - self cast prohibition (playerActionProhibitions): 2
 - attached opponent-targeting protection (permanentTargeting): 2
+- exact counter self P/T (conditionalSelfGrants): 2
 - draft-only (Conspiracy draft matters; no in-game effect): 2
 - turned face up counters (turnFaceUpCounterPlacement): 2
 - already-attacked-player attack gate (combatBatch37Restrictions): 2
@@ -305,24 +395,252 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - defender permission after a type entered this turn (combatDefenderAttackPermission): 2
 - opponent-caused sacrifice protection (sacrificeCauseProtection): 2
 - global flying block-only-flying (combatBatch36Restrictions): 2
+- noncombat damage becomes counters on opponent creature (Soul-Scar Mage): 1
+- must attack unless you control another Ally (attackRequirementTextExtras): 1
+- explore-again replacement (keywordActionRepetition): 1
 - alternative equip cost choice (targetSelectionEquipAlternativeCost): 1
 - storage matrix untap choice (untapTypeChoiceRestriction): 1
 - control-type attack gate (combatBatch36Restrictions): 1
 - nonbasic land untap prohibition (untapQualifierProhibitions): 1
+- creatures with keyword cant attack you or block your creatures (AttackYouTax): 1
+- triggered abilities cant sacrifice/exile your creature tokens (tokenSacrificeExileLock): 1
 - attack last-turn attackers despite defender (combatDefenderAttackPermission): 1
 - land play restriction (landPlayRestrictionFamilies): 1
 - granted rebound (spellReboundGrant): 1
 - attached enchantment type set (attachedTypeSettingStamp): 1
+- clone enter as Doctor from GY this turn (asEntersCopyChoice): 1
+- spells have split second if artifact mana spent (shadowSplitSecondGrant): 1
 - Fasting draw-step may-skip, OPTION_CHOICE (optionalDrawStepSkip): 1
+- sagas you control have read ahead (triggerSagaEntryChapters): 1
+- wall-only target restriction (wallOnlyTargetRestriction): 1
+- equipped creatures during your turn keyword grant (TypedAndKeywordLords): 1
 - instant/sorcery damage cap (replacementBatch23DamageCap): 1
+- off-battlefield CDA creature types (offBattlefieldCda): 1
 - must attack + cannot attack owner or owner planeswalkers (attackRestrictionText): 1
+- planeswalk replacement (planechase / planar deck): 1
 - scoped grant with trailing as-long-as condition (staticEffectSpecOracleParsingConditionalScopedGrants): 1
 - creatures attacking enchanted player have keywords (target_is_attacking_enchanted_player): 1
+- self can't attack unless return TYPE to hand (attackCostPermanentPayment): 1
+- hand cycling grant (handCyclingGrants): 1
+- as-attached name+type choose (Psychic Paper): 1
+- protection from the chosen player (combat-mechanics getPermanentProtections): 1
 - block SUBTYPE as though reach (combatBatch26BlockRestrictions): 1
+- draft-only reveal card pool (Conspiracy draft): 1
+- echo cost equals life total (echo keyword): 1
+- creatures you control with no abilities can't be blocked by creatures with abilities (combatNoAbilitiesBlockRestriction): 1
+- player protection from chosen name (Runed Halo): 1
+- lands lose non-mana abilities (Blood Sun): 1
+- mobilize X from GY creature count (mobilize keyword): 1
+- sticker kicker on creature spells (sticker kicker): 1
+- as-though haste unless entered this turn (creatureHasHaste): 1
+- graveyard-top creature text copy (gyTopTextCopyStatic): 1
+- same-name nonbasic land play lock (landPlaySameNameRestriction): 1
+- land type setting chosen basics (manaAbilityLandTypeSettingOracle): 1
+- devotion increase each color/combo (devotionBonusStatic): 1
+- attack/block tap-creature cost (attackBlockTapCost): 1
+- equipment you control have equip cost (equipmentEquipCostGrants): 1
+- equipped base P/T equal life (batch62LongTailStatics): 1
+- counters put this turn creature lord (batch62LongTailStatics): 1
+- untapped prevent N creature combat damage to you (replacementBatch63): 1
+- combat damage prevent and shuffle into library (replacementBatch63): 1
+- quest-counter attack trigger (trigger): 1
+- creatures attacking last chosen player have keywords (batch63AttackChosenPlayerGrants): 1
+- commander spells have cascade (cascadeCastGrants): 1
+- tokens plus a mutagen token (replacementEffectSpecTokenOracleTemplates): 1
+- self infect while opponent poisoned (opponent_poison_at_least): 1
+- mounts and vehicles hexproof during turn (batch62LongTailStatics): 1
+- land creature or land entered this turn self (controller_land_creature_or_land_entered_this_turn): 1
+- draw exile library face down (replacementBatch19DrawInstead): 1
+- loyalty threshold creature CDA (batch63LoyaltyCdaStatics): 1
+- cards in graveyards lose all abilities (gyLoseAllAbilitiesStatic): 1
+- discarded this turn alternate cast cost (casting-modifiers): 1
+- chosen-color instant/sorcery damage redirect to controller (replacementBatch66): 1
+- enchanted permanent is legendary (attachedExtras): 1
+- equip alternate pay or remove counter (equip cost): 1
+- max attackers against source permanent (batch65LongTailStatics): 1
+- your-turn mountains where-x pump (batch68LongTailStatics): 1
+- self P/T during turns other than yours (batch65LongTailStatics): 1
+- spell damage to you or another prevent (replacementBatch64): 1
+- spell damage to opponent plus N (replacementBatch64): 1
+- creatures with counters damage double (replacementBatch65): 1
+- as you cascade put land from exile (Averna cascade): 1
 - prevent damage to you, counter on source (replacementBatch17DamagePrevention): 1
+- each card-type creature has keywords (typedAndKeywordLords): 1
+- power-at-most creatures block evasion (batch66LongTailStatics): 1
+- other type attack each combat if able (batch66LongTailStatics): 1
+- instant/sorcery storm grant (stormCastGrants): 1
+- self cascade if graveyard card types (cascadeCastGrants): 1
+- self every nonbasic land type (batch69LongTailStatics): 1
+- N-headed coin first flip comes up heads (coin flip): 1
+- self keyword after attacking a battle (conditionalSelfGrants): 1
+- owned off-battlefield vampire madness grant (Falkenrath Gorger): 1
+- opponent type can't block and can't attack you (batch69LongTailStatics): 1
+- hand size equal to counters on source (handSizeStaticModifiers): 1
+- nongreen source targeting restriction (colorSourceTargetingRestriction): 1
+- protection from own colors (batch68LongTailStatics): 1
+- learn instead return from GY (Retriever Phoenix): 1
+- non-horror slime base P/T (batch68LongTailStatics): 1
+- tokens plus a frog creature token (replacementEffectSpecTokenOracleTemplates): 1
+- chosen-type creatures on battlefield CDA (variablePowerOnlyCalculator): 1
+- off-battlefield creature flash grant (offBattlefieldFlashGrants): 1
+- CDA forests sacrificed as entered (Wood Elemental): 1
+- borrow last chosen exiled card abilities (Koh): 1
+- graveyard sneak grant (graveyard-permissions): 1
+- basic land type mana remaps (Reality Twist): 1
+- self haste while no opponent controls colored creatures (conditionalSelfGrants): 1
+- instant/sorcery from hand cascade grant (cascadeCastGrants): 1
+- power equal +1/+1 counters on lands CDA (variablePowerOnlyCalculator): 1
+- draw from exiled pile instead (Parallel Thoughts): 1
+- lethal damage by power not toughness (Zilortha combat): 1
+- morph sacrifice cost (morph keyword): 1
+- as turned face up attach aura (morph / manifest): 1
+- enchanted artifact becomes creature P/T = MV (batch70LongTailStatics): 1
+- prevent damage to opponent, each opponent mills (gameStateEffectsMillDamage): 1
+- permanents can't phase in (phasing lock): 1
+- self keyword while desert on board or in GY (conditionalSelfGrants): 1
+- chosen player damage double (replacementBatch64): 1
+- cast target must be tapped (Enthralling Hold): 1
+- first historic spell has convoke (convoke grant): 1
+- oil-counter creature anthem (batch69LongTailStatics): 1
+- type spells have freerunning (freerunning grant): 1
+- self can't block high power unless pay (combat tax): 1
+- noncreature artifacts become MV creatures (Titania's Song): 1
+- spell damage prevent N globally (replacementBatch64): 1
+- top library creature color anthem (Crown of Convergence): 1
+- basic land mana N times (mana replacement): 1
+- other transformed permanents keyword lord (batch70LongTailStatics): 1
+- damage prevent and give control (Kharn): 1
+- self pump+keyword while life AND opponent life (conditionalSelfGrants): 1
+- saga spells have replicate equal mana cost (replicateCastUtils): 1
+- opponents without flying/reach can't block low power (Sidar Kondo): 1
+- madness pay N colorless (madness keyword): 1
+- enchanted player damage double (replacementBatch64): 1
+- equipment attach toughness gate (equipment restriction): 1
+- enchanted or equipped creature-token anthem (batch70LongTailStatics): 1
+- protection from exiled card types (Mirror Golem): 1
+- hand slivercycling grant (handCyclingGrants): 1
+- untapped guardian of noncreature artifacts (Guardian Beast): 1
+- opponent who cast can't attack (Angelic Arbiter): 1
+- first tokens become copies of equipped (Mirrormind Crown): 1
+- counters among creatures as-though no defender (Backstreet Bruiser): 1
+- most permanents cast/play lock (Damping Engine): 1
+- damage becomes sacrifice permanents (Dralnu): 1
+- opponent-source damage to you prevent N (replacementBatch64): 1
+- enter as copy of any equipment (asEntersCopyChoice): 1
+- chosen-type creature trigger doubler (trigger-doublers): 1
+- self pump per noncreature nonland in GY (countedPT): 1
+- players can't pay life or sacrifice creatures to cast/activate (Angel of Jubilation): 1
+- attacking +X lands defending player (Elturel Survivors): 1
+- empty library base P/T + keywords (batch71LongTailStatics): 1
+- power = N plus opponent GY card types CDA (variablePTControlledCountCDA): 1
+- type you control combat damage mills player (gameStateEffectsMillDamage): 1
+- instant/sorcery GY threshold self pump (batch71LongTailStatics): 1
+- during end step warrior tokens can't be sacrificed (Zurgo): 1
+- aura+equipment attached count + ward (countedPT): 1
+- wizard you control damage double (replacementBatch64): 1
+- protection from colors among permanents (batch71LongTailStatics): 1
+- equip remove charge counter (equip cost): 1
+- self pump while controlling leveled creature (batch71LongTailStatics): 1
+- zombies and/or tokens anthem (batch71LongTailStatics): 1
+- opponent discard to top of library (Nephalia Academy): 1
+- equip pay life per hand card (equip cost): 1
+- all creatures -X hand size (batch71LongTailStatics): 1
+- graveyard unearth grant (graveyard-permissions): 1
+- each legendary creature anthem (batch71LongTailStatics): 1
+- same-name nontoken creature anthem (Mirror Box): 1
+- ice-counter permanents are snow (batch71LongTailStatics): 1
+- non-human werewolves can't transform (Immerwolf): 1
+- warp pay life cost (warp keyword): 1
+- blocking creatures +N per source counters (Crescendo): 1
 - prevent damage, put that many counters (replacementBatch17DamagePrevention): 1
+- self -N per chosen player hand (Nyxathid): 1
+- copy spell plus one additional (Twinning Staff): 1
+- face-down enchanted can't turn face up (Unable to Scream): 1
+- self pump per cycling card in GY (Vile Manifestation): 1
+- gold-counter wall + defender (batch71LongTailStatics): 1
+- equipped +X from counters on equipment (batch71LongTailStatics): 1
+- enchanted color loses all abilities (Ray of Frost): 1
+- during turn self + enchantment creatures keywords (Yuna): 1
+- creatures attacking you P/T (batch71LongTailStatics): 1
+- chosen player reveals draws (Booby Trap): 1
+- delirium as-though no defender (Geist): 1
+- can't be target of COLOR or COLOR opponent spells (Fiendslayer): 1
+- planeswalkers ignore 0 loyalty (Sanctum Lurker): 1
+- enchanted -X/-Y snow lands (Snowblind): 1
+- land mana produces only {M} (Contamination): 1
+- can't attack unless pay per counter (Phyrexian Marauder): 1
+- can't attack unless control knight or soldier (War Falcon): 1
+- red spell damage plus N (replacementBatch64): 1
 - equip pay life (equipNonManaCosts): 1
+- draw from bottom of library (River Song): 1
+- players keep unspent mana (Upwelling): 1
+- battlefield-has combat lock (selfCombatConditions): 1
+- modified as-though no defender (combatDefenderAttackPermission): 1
+- power = creatures with keyword CDA (variablePowerOnlyCalculator): 1
+- basic land controller shroud (batch73LongTailStatics): 1
+- self+enchanted dual count anthem (batch74LongTailStatics): 1
+- lands you control are basic (batch73LongTailStatics): 1
+- named creature anthem (batch72LongTailStatics): 1
+- token isn't legendary (batch72LongTailStatics): 1
+- another source you control damage plus N (replacementBatch64): 1
+- mounts/vehicles haste (batch72LongTailStatics): 1
+- nonland permanents chosen color set (batch73LongTailStatics): 1
+- exiled card types self pump (batch73LongTailStatics): 1
+- red source damage to player plus N (replacementBatch65): 1
+- power = nonbasic lands opponents control CDA (variablePowerOnlyCalculator): 1
+- opponents must attack with at least N (attackRequirement): 1
+- noncreature spells cast keyword (conditionalSelfGrants): 1
+- graveyard unearth grant creatures (graveyard-permissions): 1
+- oil/counter at-most keywords (selfCounterThreshold): 1
+- legendary where-x anthem (batch73LongTailStatics): 1
+- P/T = spirits and/or enchantments CDA (variablePTCalculator): 1
+- players can't cast during combat (staticCastingRestrictions): 1
+- power = colorless creatures CDA (variablePowerOnlyCalculator): 1
+- other colorless bloodthirst (batch74LongTailStatics): 1
+- can't be equipped (batch73LongTailStatics): 1
+- can't be targeted unless attacked/blocked (targeting): 1
+- on-battlefield also land (batch74LongTailStatics): 1
+- graveyard retrace grant (graveyard-permissions): 1
+- graveyard jump-start exactly-N-colors (graveyard-permissions): 1
+- enchanted can't attack or block (batch74LongTailStatics): 1
+- non-phyrexian per-turn cast cap (staticCastingRestrictions): 1
+- chroma mana-symbol anthem (batch74LongTailStatics): 1
+- equip as though instant (equipTiming): 1
+- threshold type anthem (batch74LongTailStatics): 1
+- power = opponents' type CDA (variablePowerOnlyCalculator): 1
+- chosen player hand size set (handSizeStaticModifiers): 1
+- named equipment indestructible (batch75LongTailStatics): 1
+- enchanted as-though no defender (combatDefenderAttackPermission): 1
+- noncreature artifacts MV creatures (batch75LongTailStatics): 1
+- self combat lock power at least (selfCombatConditions): 1
+- greatest GY power self pump (batch75LongTailStatics): 1
+- other named-creature self anthem (batch75LongTailStatics): 1
+- visited attraction indestructible (batch75LongTailStatics): 1
+- attached otherwise type PT (conditionalAttachedPT): 1
+- opponents can't cast COLOR creature spells (staticCastingRestrictions): 1
+- except by artifact creatures (combatBatch31): 1
+- except by vehicles (combatBatch31): 1
+- vehicles you control anthem (batch76LongTailStatics): 1
+- unspent mana self pump (batch77LongTailStatics): 1
+- metalcraft self animate (batch76LongTailStatics): 1
+- self+enchanted all-GY creature pump (batch76LongTailStatics): 1
+- artifact-or-enchantment self keyword (conditionalSelfGrants): 1
+- other villains are heroes (batch77LongTailStatics): 1
+- non-aura enchantments MV creatures (layer4TypeSetting): 1
+- other modular grant (batch77LongTailStatics): 1
+- defending player artifacts unblockable (combatBatch25): 1
+- another type-or-type self pump (conditionalSelfGrants): 1
+- delirium opponent hand size (handSizeStaticModifiers): 1
+- enchanted flying/reach block + hexproof (batch77LongTailStatics): 1
+- other named creature buff+keywords (batch76LongTailStatics): 1
+- menace creatures min blockers (batch76LongTailStatics): 1
+- saga lore self keywords (batch77LongTailStatics): 1
+- sacrificed permanent self pump (conditionalSelfGrants): 1
+- battlefield counter self keywords (batch76LongTailStatics): 1
+- chosen PW type hexproof (batch77LongTailStatics): 1
 - strange new worlds count basis (trekCountBases): 1
+- prevent damage to you and mill (replacementBatch17DamagePrevention): 1
+- prevent damage to you and exile from graveyard (replacementBatch17DamagePrevention): 1
 - reveal-until-kind draw replacement (zonesDrawReplacementRevealUntilKind): 1
 - alternative reconfigure cost choice (targetSelectionEquipAlternativeCost): 1
 
@@ -330,43 +648,43 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 
 | # | Scope | Family | Cards | Example cards |
 |---|---|---|---|---|
-| 1 | static | gift a card (you may promise an opponent a gift as you cast this spell | 2 | Scrapshooter; Kitnap |
-| 2 | static | suspend x—{M}{M}{M} | 2 | Benalish Commander; Aeon Chronicler |
-| 3 | static | COLOR creatures can't attack unless their controller sacrifices a land of their choice for each COLOR creature | 2 | Flooded Woodlands; Reclamation |
-| 4 | static | creatures you control get ±N/±N until end of turn | 2 | Roller Coaster; Kiddie Coaster |
-| 5 | static | reveal the first card you draw each turn | 2 | Primitive Etchings; Rowen |
-| 6 | replacement | if a source you control would deal noncombat damage to a creature an opponent controls, put that many ±N/±N co | 1 | Soul-Scar Mage |
-| 7 | static | animal may-ham — other spiders, boars, bats, bears, birds, cats, dogs, frogs, jackals, lizards, mice, otters,  | 1 | Spider-Ham, Peter Porker |
-| 8 | static | each creature you control can't be blocked as long as defending player controls an artifact land | 1 | Tanglewalker |
-| 9 | static | ~ attacks each combat if able unless you control another ally | 1 | Reckless Cohort |
-| 10 | replacement | if a creature you control would explore, instead it explores, then it explores again | 1 | Topography Tracker |
-| 11 | static | the first instant or sorcery spell you cast each turn costs {M} (or {M}) less to cast for each land you contro | 1 | Eluge, the Shoreless Sea |
-| 12 | static | as long as ~ is enchanted, it has "…" | 1 | Freewind Equenaut |
-| 13 | static | each creature you control but don't own gets ±N/±N, has menace and deathtouch, and is a pirate in addition to  | 1 | Don Andres, the Renegade |
-| 14 | static | {M}{M}{M}{M} — whenever ~ attacks, you gain N life and draw a card | 1 | Playable Delusionary Hydra |
-| 15 | static | descend N — as long as there are N or more permanent cards in your graveyard, ~ gets ±N/±N and has trample | 1 | Akawalli, the Seething Tower |
-| 16 | static | descend N — as long as there are eight or more permanent cards in your graveyard, ~ gets an additional ±N/±N a | 1 | Akawalli, the Seething Tower |
-| 17 | static | creatures with flying can't attack you or block creatures you control | 1 | Storm, Windrider |
-| 18 | static | triggered abilities you control can't cause you to sacrifice or exile creature tokens you control | 1 | The Master, Multiplied |
-| 19 | static | counters remain on ~ as it moves to any zone other than a player's hand or library | 1 | Skullbriar, the Walking Grave |
-| 20 | static | ~ can't attack alone unless he has a ±N/±N counter on him | 1 | Pipsqueak, Rebel Strongarm |
-| 21 | static | each other creature you control has hexproof from each of its colors | 1 | Tam, Mindful First-Year |
-| 22 | static | tokens you control have "…" | 1 | Jaheira, Friend of the Forest |
-| 23 | static | you may have ~ enter as a copy of a doctor card in your graveyard that was put there from your library this tu | 1 | The Fourteenth Doctor |
-| 24 | static | you may have ~ enter as a copy of any ally creature on the battlefield | 1 | Jwari Shapeshifter |
-| 25 | static | other pegasi, unicorns, and horses you control get ±N/±N | 1 | Thurid, Mare of Destiny |
-| 26 | static | each spell you cast has split second if mana from an artifact was spent to cast it | 1 | Shadow the Hedgehog |
-| 27 | static | each player may attack only the nearest opponent in the last chosen direction and planeswalkers controlled by  | 1 | Mystic Barrier |
-| 28 | static | each sliver creature card in your graveyard has encore {M}, where x is its mana value | 1 | Sliver Gravemother |
-| 29 | static | a test of your reflexes! — when ~ enters, you may attach it to target creature you control | 1 | Magitek Scythe |
-| 30 | static | as long as there are N or more mana values among cards in your graveyard, ~ gets ±N/±N | 1 | Syndicate Infiltrator |
-| 31 | static | you've gained N or more life this turn | 1 | Case of the Uneaten Feast |
-| 32 | static | sagas you control have read ahead | 1 | Barbara Wright |
-| 33 | static | ~ can't be the target of spells that can target only walls or of abilities that can target only walls | 1 | Wall of Shadows |
-| 34 | static | during your turn, creatures you control that are equipped have first strike and vigilance | 1 | Long-Lost Lances |
-| 35 | static | enchanted creature can't become untapped and can't have counters put on it | 1 | Blossombind |
-| 36 | static | as long as ~ isn't on the battlefield, it's a ±N/±N insect creature in addition to its other types | 1 | Grist, the Hunger Tide |
-| 37 | replacement | if you would planeswalk, instead look at the top N cards of your planar deck, put N on the bottom of your plan | 1 | Susan Foreman |
-| 38 | static | minotaur spells you cast cost {M}{M} less to cast | 1 | Ragemonger |
-| 39 | static | enchanted mountain is a ±N/±N COLOR giant creature with haste | 1 | Awaken the Ancient |
-| 40 | static | ~ can't attack unless you return an enchantment you control to its owner's hand | 1 | Floodtide Serpent |
+| 1 | static | as long as ~ is enchanted, equipped, and has a counter on it, ~ has "…" | 1 | Kosei, Penitent Warlord |
+| 2 | static | ~ attacks an opponent with the most life among your opponents each combat if able unless you control a creatur | 1 | Galactus, Devourer of Worlds |
+| 3 | static | create N treasure tokens, then sacrifice ~ and open an attraction | 1 | Pick-a-Beeble |
+| 4 | static | spend only mana produced by creatures to cast this spell | 1 | Myr Superion |
+| 5 | replacement | if you would create a fish token, create a ±N/±N COLOR shark creature token instead | 1 | Fisher's Talent |
+| 6 | replacement | if you would create a shark token, create an ±N/±N COLOR octopus creature token instead | 1 | Fisher's Talent |
+| 7 | static | as ~ transforms into ~, attach it to a player | 1 | Curse of Leeches // Leeching Lurker |
+| 8 | replacement | if you would scry a number of cards, scry that many cards plus N instead | 1 | Kenessos, Priest of Thassa |
+| 9 | replacement | if a creature an opponent controls would die, instead exile it and put a number of ±N/±N counters equal to tha | 1 | Ravenous Slime |
+| 10 | replacement | if you would proliferate, proliferate twice instead | 1 | Tekuthal, Inquiry Dominus |
+| 11 | replacement | if you would lose the game, instead exile ~ and your life total becomes equal to your starting life total | 1 | Exquisite Archangel |
+| 12 | replacement | if you would draw a card while your library has no cards in it, instead return a creature card from your grave | 1 | Out of the Tombs |
+| 13 | static | each creature has "…" | 1 | Endless Whispers |
+| 14 | static | COLOR creatures have "…" | 1 | Breath of Dreams |
+| 15 | replacement | if you would draw a card, reveal the top card of your library instead | 1 | Enduring Renewal |
+| 16 | static | as long as ~ is attached to a creature, ~ can't be attacked and has "…" | 1 | The Aetherspark |
+| 17 | replacement | if a source would deal damage to a player, you may prevent x of that damage, where x is the number of clerics  | 1 | Battletide Alchemist |
+| 18 | replacement | if combat damage would be dealt to ~, prevent that damage and exile that many cards from the top of your libra | 1 | Gloom Surgeon |
+| 19 | static | each human creature you control has "…" | 1 | Titan of Eternal Fire |
+| 20 | static | ~ can't attack or block unless you pay {M} for each ±N/±N counter on it | 1 | Myr Prototype |
+| 21 | replacement | during your turn, as long as you haven't activated an exhaust ability this turn, you may activate exhaust abil | 1 | Elvish Refueler |
+| 22 | replacement | if a rigger you control would assemble a contraption, it assembles N contraptions instead | 1 | Steamflogger Boss |
+| 23 | static | any time you could mulligan and this card is in your hand, you may exile all the cards from your hand, then dr | 1 | Serum Powder |
+| 24 | replacement | if a noncreature source you control would deal damage to a creature, battle, or opponent, it deals that much d | 1 | Invasion of Regatha // Disciples of the Inferno |
+| 25 | static | if ~ is unblocked, you may have it assign its combat damage to a creature defending player controls | 1 | Cunning Giant |
+| 26 | replacement | prevent all damage that would be dealt to a creature by another creature if they share a color | 1 | Well-Laid Plans |
+| 27 | static | nitro-N — whenever ~ attacks, you may sacrifice an artifact | 1 | Ace, Fearless Rebel |
+| 28 | replacement | if you would draw a card, look at the top N cards of your library instead | 1 | Tomorrow, Azami's Familiar |
+| 29 | replacement | the first time you would draw a card each turn except the first card you draw during each of your draw steps,  | 1 | Reed Richards, Smartest Man |
+| 30 | static | bestow—{M}, collect evidence N | 1 | Detective's Phoenix |
+| 31 | static | each creature spell you cast with mana value N or greater has blitz | 1 | Henzie "Toolbox" Torre |
+| 32 | replacement | if a creature dealt damage this turn by a source you controlled would die, exile it instead | 1 | Kumano Faces Kakkazan // Etching of Kumano |
+| 33 | static | as long as ~ is modified, it has "…" (equipment, auras you control, and counters are modifications | 1 | Orochi Merge-Keeper |
+| 34 | static | other zombies have "…" | 1 | Zombie Master |
+| 35 | static | ~ can't be the target of abilities your opponents control | 1 | Shanna, Sisay's Legacy |
+| 36 | replacement | if a modular triggered ability would put N or more ±N/±N counters on a creature you control, that many plus N  | 1 | Zabaz, the Glimmerwasp |
+| 37 | static | commander creatures you own have menace and "…" (a creature with menace can't be blocked except by N or more c | 1 | Criminal Past |
+| 38 | static | enchanted creature gets ±N/±N for each name sticker on ~ with N or fewer letters | 1 | Last Voyage of the _____ |
+| 39 | static | sliver spells you cast have cascade | 1 | The First Sliver |
+| 40 | static | ~ can be attached only to a creature with power N or greater | 1 | O-Naginata |

@@ -214,7 +214,9 @@ function isCreature(permanent: BattlefieldPermanent): boolean {
  * Get effective power of a creature for conditional goad checks
  */
 export function getEffectivePower(creature: BattlefieldPermanent, gameState?: unknown): number {
-  // With a game state, read the shared current P/T (anthems, pumps, set-base effects) for battlefield creatures.
+  // With a game state, read the shared current P/T (anthems, pumps, set-base effects).
+  // Safe during derived-sync because getCurrentPowerToughness skips nested sync while
+  // _syncingDerivedContinuousEffects is set (same no-resync compute path static conditions use).
   const current = gameState ? readCurrentPowerFromHook(gameState, creature) : null;
   if (current !== null) return Math.max(0, current);
 
@@ -222,12 +224,12 @@ export function getEffectivePower(creature: BattlefieldPermanent, gameState?: un
   if (typeof creature.effectivePower === 'number') {
     return creature.effectivePower;
   }
-  
+
   // Fallback calculation
   const basePower = creature.basePower ?? 0;
   const plusCounters = creature.counters?.['+1/+1'] ?? 0;
   const minusCounters = creature.counters?.['-1/-1'] ?? 0;
-  
+
   return Math.max(0, basePower + plusCounters - minusCounters);
 }
 

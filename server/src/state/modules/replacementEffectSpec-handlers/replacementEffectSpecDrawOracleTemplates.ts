@@ -87,6 +87,22 @@ const ORACLE_DRAW_REPLACEMENT_TEMPLATES: readonly OracleDrawReplacementTemplate[
     },
   },
   {
+    // B63: Asmodeus the Archfiend ? Binding Contract
+    templateId: 'controller-draw-exile-library-face-down',
+    oracleMustIncludeAll: [
+      'if you would draw a card',
+      'exile the top card of your library face down instead',
+    ],
+    spec: {
+      event: 'card-draw',
+      match: { drawingPlayerIsSourceController: true },
+      instead: {},
+      effectId: 'controller-draw-exile-library-face-down',
+      reason: 'controller_draw_exile_library_face_down',
+      metadata: { exileLibraryTopFaceDown: true },
+    },
+  },
+  {
     templateId: 'controller-extra-draw',
     oracleMustIncludeAll: ['if you would draw a card', 'draw two cards instead'],
     oracleMustExcludeAny: ['except the first one you draw'],

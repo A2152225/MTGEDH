@@ -101,6 +101,8 @@ const OTHER_SYSTEMS: Array<[string, RegExp]> = [
   ['must attack each combat (attackRequirementTextExtras)', /^(?!.*(?:gets [+-]\w+\/[+-]\w+, has |and can't attack you))(?:.*?)(?:(?:enchanted|equipped) creature (?:[^.()]*?\band )?attacks (?:or blocks )?each combat if able|(?:^|\W)~ attacks or blocks each combat if able|all creatures attack each combat if able)/i],
   ['day/night on enter (day-night ensureInitial)', /neither day nor night, it becomes (?:day|night) as ~ enters/i],
   ['protection from the chosen color (combat-mechanics getPermanentProtections)', /^(?:enchanted creature|~) has protection from the chosen color/i],
+  // B57: True-Name Nemesis
+  ['protection from the chosen player (combat-mechanics getPermanentProtections)', /^(?:this creature|~) has protection from the chosen player\.?$/i],
   ['attached activation lock (staticActivationLockFromAttachments)', /(?:enchanted|equipped) (?:creature|permanent|artifact|land)(?:'s| (?!can't (?:attack or )?block, and its activated)[^.]*\band its) activated abilities can't be activated/i],
   ['damage by toughness (turnCombatDamageByToughness)', /^(?!as long as enchanted creature has )(?:.*?)assigns? combat damage equal to (?:its|their) toughness rather than (?:its|their) power/i],
   ['paired / graveyard-count quoted grants (PairedThresholdQuotedGrants)', /is paired with another creature, each of those creatures has "/i],
@@ -119,14 +121,14 @@ const OTHER_SYSTEMS: Array<[string, RegExp]> = [
   ['self unblockable except by flying/reach (combatBatch25BlockRestrictions)', /^(?:~|this creature) can't be blocked except by creatures with (?:flying|reach)(?:,? (?:and\/or|or|and) (?:flying|reach))?\b/i],
   ['self unblockable while attacking alone (combatBatch25BlockRestrictions)', /^(?:~|this creature) can't be blocked as long as it's attacking alone\b/i],
   ['cast only if cast another spell this turn (castOnlyIfCastAnotherRestriction)', /^cast this spell only if you've cast another (?:[a-z]+ )?spell this turn\b/i],
-  ['self unblockable while defender controls TYPE (combatDefenderControlsUnblockable)', /^(?:~|this creature) can't be blocked as long as defending player controls an? (?:artifact|enchantment|creature|planeswalker)\b/i],
+  ['self unblockable while defender controls TYPE (combatDefenderControlsUnblockable)', /^(?:~|this creature|(?:each )?(?:creature|creatures) you control) can't be blocked as long as defending player controls an? (?:artifact|enchantment|creature|planeswalker|artifact land)\b/i],
   ['block SUBTYPE as though reach (combatBatch26BlockRestrictions)', /^(?:~|this creature) can block [a-z]+ as though (?:it|this creature) had reach\b/i],
   ['players can\'t draw cards (playersCantDrawCards)', /^(?:players|your opponents) can't draw cards\b/i],
   ['COLOR creatures / basic lands don\'t untap (turn-phases detectDoesntUntapEffects filters)', /^(?:white|blue|black|red|green) creatures don't untap during their controllers' untap steps\b|^(?:plains|islands|swamps|mountains|forests) don't untap during their controllers' untap steps\b/i],
   ['untap step cap N TYPE (untapStepLimits)', /^(?:as long as (?:~|this [a-z]+) is untapped, )?(?:players|your opponents|each player) can't untap more than (?:one|two|three|four|five|\d+) (?:artifact|land|creature|permanent)s? during their untap steps?\b/i],
   ['entering doesn\'t cause abilities to trigger (triggeredAbilitySuppression)', /^(?:artifacts?|creatures?|permanents?)(?:(?:,| and| or) (?:artifacts?|creatures?|permanents?))* entering(?: the battlefield)?(?: or dying)? (?:don't|doesn't) cause abilities to trigger\b/i],
   ['block shadow as though (blockAsThoughShadow)', /^(?:~|this creature|creatures you control) can block creatures with shadow as though (?:it|they) had shadow\b/i],
-  ['enters untapped override (landsEnterUntappedOverride)', /^(?:basic )?(?:lands|permanents|creatures|artifacts) you control enter untapped\b/i],
+  ['enters untapped override (landsEnterUntappedOverride)', /^(?:basic )?(?:lands|permanents|creatures|artifacts|gates?) you control enter untapped\b/i],
   ['revealed hands/library top flags (revealedInformationFlags)', /^(?:(?:players|each player|your opponents|you) )?plays? with (?:their hands?|your hand|the top card of (?:their librar(?:y|ies)|your library)) revealed\b/i],
   ['escape graveyard cast (interactionGraveyardCastExecution)', /^escape\W/i],
   // Batch 6 readers (tests: batch6-redirect-lich-landwalk-mana.unit.test.ts).
@@ -142,7 +144,8 @@ const OTHER_SYSTEMS: Array<[string, RegExp]> = [
   ['color can\'t-be-blocked-by (combatColorBlockRestriction)', /^(?:~|this creature|it)? ?can(?:not|'t) be blocked by (?:(?:white|blue|black|red|green)(?:,? (?:or )?)?)+ creatures\b/i],
   ['variable P/T count (variablePTCalculator)', /power and toughness are each equal to the number of (?:lands you control|cards in your hand|creatures you control)\b/i],
   ['control Aura layer 2 (staticEffectSpecAuraControl)', /\byou control enchanted (?:creature|permanent|artifact|land|planeswalker)\b/i],
-  ['cost modification', /\bcosts? (?:\{[^}]+\}|\w+) (?:less|more)\b|\bcost (?:\{[^}]+\}|\w+) (?:less|more)\b|\brather than pay\b|\bwithout paying\b|as an additional cost/i],
+  // B58: Eluge-style "{U} (or {1}) less" between the symbol and less/more.
+  ['cost modification', /\bcosts? (?:(?:\{[^}]+\})+|\w+)(?:\s*\([^)]*\))? (?:less|more)\b|\bcost (?:(?:\{[^}]+\})+|\w+)(?:\s*\([^)]*\))? (?:less|more)\b|\brather than pay\b|\bwithout paying\b|as an additional cost/i],
   ['enters tapped / with counters / as-enters choice', /\benters? (?:the battlefield )?(?:tapped|with)\b|^as (?:~|this \w+) enters\b|\benters as a copy\b/i],
   ['cast/play permission', /\byou may (?:cast|play|look at)\b|\bcan be cast\b|\bflash as though\b|as though (?:it|they) had flash/i],
   ['uncounterable / timing', /\bcan't be countered\b|\bspend mana as though\b|\bmana of any type\b/i],
@@ -162,7 +165,9 @@ const OTHER_SYSTEMS: Array<[string, RegExp]> = [
   ['drawn-cards conditional unblockable (combatBatch28ConditionalUnblockable)', /^~ can't be blocked as long as you've drawn \w+ or more cards this turn$/i],
   ['spell lifelink grant (spellLifelinkGrant)', /^instant and sorcery spells you control have lifelink$/i],
   ['enters under opponent control (triggers/control-change)', /^~ enters under the control of an opponent of your choice$/i],
-  ['clone entry copy (asEntersCopyChoice)', /^you may have ~ enter as a copy of any creature on the battlefield$/i],
+  // B59: Jwari / generic subtype clones; Doctor graveyard-from-library stays in LATE_BATCH.
+  ['clone entry copy (asEntersCopyChoice)', /^you may have ~ enter as a copy of any(?: [a-z]+)? creature on the battlefield$/i],
+  ['clone entry copy you control except name (copyEntryExceptions)', /^you may have ~ enter as a copy of a creature you control, except (?:his|her|its) name is .+$/i],
   ['source damage plus replacement (replacementBatch21DamageScaling)', /^if a source you control would deal damage to an opponent or a permanent an opponent controls, it deals that much damage plus/i],
   // B29 entries: families implemented in batch 29 or verified as already implemented.
   ['exiled-card name cast lock (exiledCardNameCastLock)', /^(?:your opponents|players) can't cast spells with the same name as (?:the exiled cards?|a card exiled with ~)$/i],
@@ -265,6 +270,17 @@ export function classifyStaticCensusLine(rawLine: string, cardName: string): Sta
   // Batch 19: saga/chapter lines are chapter triggers (CR 714.2b), and keyword lines with reminder text ("Enchant creature (Target ...)") are keywords, not statics.
   if (/^(?:i|ii|iii|iv|v|vi|vii)(?:\s*,\s*(?:i|ii|iii|iv|v|vi|vii))*\s*(?:\u2014|--?)\s+/i.test(line)) return null;
   if (/^enchant [a-z ,]+\(/i.test(line)) return null;
+  // B67/B68: ability-word prefixes are stripped below; classify Visit / Companion / Descend / Case / bang-triggers first.
+  if (/^visit\s*[\u2014\u2013-]/i.test(line)) return { scope: 'static', system: 'Visit ability word (Attraction visit trigger)' };
+  if (/^companion\s*[\u2014\u2013-]/i.test(line)) return { scope: 'static', system: 'Companion deck restriction (companion)' };
+  if (/^descend \d+\s*[\u2014\u2013-]\s*(?:when|whenever|at)\b/i.test(line)) {
+    return { scope: 'static', system: 'Descend ability word trigger (not as-long-as static)' };
+  }
+  if (/^to solve\s*[\u2014\u2013-]/i.test(line)) return { scope: 'static', system: 'Case to-solve condition (caseSolve)' };
+  // "Tunnel Snakes Rule! — Whenever …" — bang ability words are not stripped by ABILITY_WORD.
+  if (/!.{0,3}[\u2014\u2013-]\s*(?:when|whenever|at)\b/i.test(line)) {
+    return { scope: 'static', system: 'ability-word bang trigger (when/whenever/at)' };
+  }
   const body = stripStationThresholdPrefix(line).replace(ABILITY_WORD, '');
   if (/^(?:when|whenever|at)\b/i.test(body)) return null;
   // Activated ability: a cost before a colon outside quotes (incl. loyalty +1:).

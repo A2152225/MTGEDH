@@ -260,6 +260,18 @@ export function applyCombatEvents(ctx: GameContext, e: GameEvent): boolean {
 
               // Match live combat: mark that this permanent attacked this turn.
               (perm as any).attackedThisTurn = true;
+              // B67: War Historian — stamp when the attack target is a battle.
+              try {
+                const tid = String(targetPermanentId || '').trim();
+                if (tid) {
+                  const targetPerm = battlefield.find((p: any) => String(p?.id || '') === tid);
+                  if (targetPerm && /\bbattle\b/i.test(String(targetPerm?.card?.type_line || ''))) {
+                    (perm as any).attackedBattleThisTurn = true;
+                  }
+                }
+              } catch {
+                /* ignore */
+              }
 
               // Track total creatures attacked this turn for the attacking player.
               try {

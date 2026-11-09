@@ -12,6 +12,7 @@ import { debug, debugError } from "../../utils/debug.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { ensureGame } from "../util.js";
 import { ensureAIDeckProfile, summarizeAIHandPlan } from "./aiDeckProfileHandlers.js";
+import { recordDecision, traceContextFromGame } from "./aiDecisionTrace.js";
 
 /**
  * Mulligan thresholds
@@ -115,6 +116,20 @@ export async function handleAIMulligan(
   }
   
   debug(1, '[AI] AI making mulligan decision:', { gameId, playerId });
+
+  const finishMulligan = (keep: boolean, note: string): boolean => {
+    recordDecision({
+      ...traceContextFromGame(game, gameId, playerId),
+      kind: 'mulligan',
+      candidates: [
+        { kind: 'keep', score: keep ? 1 : 0 },
+        { kind: 'mulligan', score: keep ? 0 : 1 },
+      ],
+      chosen: keep ? 0 : 1,
+      note,
+    });
+    return keep;
+  };
   
   try {
     // Get the AI's current hand and mulligan state
@@ -123,7 +138,7 @@ export async function handleAIMulligan(
     
     if (hand.length === 0) {
       debug(1, '[AI] Empty hand, keeping by default');
-      return true; // Empty hand, nothing to mulligan
+      return finishMulligan(true, 'empty-hand');
     }
     
     // Get current mulligan count
@@ -200,29 +215,29 @@ export async function handleAIMulligan(
       // Only mulligan if truly unplayable
       if (landCount === 0) {
         debug(1, '[AI] Zero lands with small hand after mulligan - still mulliganing (unplayable)');
-        return false;
+        return finishMulligan(false, "mulligan");
       }
       
       if (nonLandCount === 0) {
         debug(1, '[AI] All lands with small hand after mulligan - still mulliganing (no spells)');
-        return false;
+        return finishMulligan(false, "mulligan");
       }
       
       // Otherwise keep - even 1 land is better than going to 4 cards
       debug(1, '[AI] Hand is playable, keeping to avoid going to 4 or fewer cards');
-      return true;
+      return finishMulligan(true, "keep");
     }
     
     // Rule 2: Mulligan if zero lands (unplayable hand)
     if (landCount === 0) {
       debug(1, '[AI] Zero lands in hand, mulliganing');
-      return false; // Mulligan
+      return finishMulligan(false, "Mulligan");
     }
     
     // Rule 3: Mulligan if all lands and no spells (unlikely to win)
     if (nonLandCount === 0) {
       debug(1, '[AI] All lands in hand, mulliganing');
-      return false; // Mulligan
+      return finishMulligan(false, "Mulligan");
     }
     
     // Rule 4: If only 1 land, check for mana acceleration and hand size considerations
@@ -233,19 +248,19 @@ export async function handleAIMulligan(
         // Check if we'd still have a reasonable hand size after mulligan
         if (effectiveHandSizeAfterMulligan >= 6) {
           debug(1, '[AI] 1 land but has mana acceleration and low-cost spells, and mulligan cost is low, keeping');
-          return true; // Keep - can play mana rock/dork turn 1-2
+          return finishMulligan(true, "Keep - can play mana rock/dork turn 1-2");
         } else {
           // Hand size after mulligan would be 5 or less - 1 land is risky
           debug(1, '[AI] 1 land with acceleration but mulligan cost is high - still too risky, mulliganing');
-          return false;
+          return finishMulligan(false, "mulligan");
         }
       }
       if (handPlan.strongestPair >= 9 && manaSourceCount >= 1 && effectiveHandSizeAfterMulligan >= 6) {
         debug(1, '[AI] 1 land hand has strong internal synergy plus acceleration, keeping');
-        return true;
+        return finishMulligan(true, "keep");
       }
       debug(1, '[AI] Only 1 land without sufficient mana acceleration, mulliganing');
-      return false; // Mulligan
+      return finishMulligan(false, "Mulligan");
     }
     
     // Rule 5: If 2 lands, evaluate playability and mulligan cost
@@ -255,7 +270,7 @@ export async function handleAIMulligan(
       // If effective hand size after mulligan would be 5 or less, be conservative
       if (effectiveHandSizeAfterMulligan <= 5) {
         debug(1, '[AI] 2 lands with high mulligan cost (would go to 5 or fewer), keeping');
-        return true;
+        return finishMulligan(true, "keep");
       }
       
       // With 6+ cards after mulligan, we can be pickier
@@ -265,61 +280,61 @@ export async function handleAIMulligan(
       
       if (manaSourceCount >= 1) {
         debug(1, '[AI] 2 lands with mana acceleration, keeping');
-        return true; // Keep - 2 lands + rock/dork is playable
+        return finishMulligan(true, "Keep - 2 lands + rock/dork is playable");
       }
 
       if (handPlan.strongestPair >= 8 || handPlan.themedCards >= 3 || handPlan.comboPieces >= 1) {
         debug(1, '[AI] 2 lands with strong deck-theme synergy, keeping');
-        return true;
+        return finishMulligan(true, "keep");
       }
       
       if (lowCostSpellCount >= 2) {
         debug(1, '[AI] 2 lands with multiple low-cost spells, keeping');
-        return true; // Keep - can play early spells
+        return finishMulligan(true, "Keep - can play early spells");
       }
       
       // 2 lands with mostly high-cost spells is risky in a 7-card hand with low mulligan cost
       if (handSize === OPENING_HAND_SIZE && effectiveHandSizeAfterMulligan >= 6 && 
           highCostSpellCount >= 3 && lowCostSpellCount === 0) {
         debug(1, '[AI] 2 lands with mostly high-cost spells in opening hand, mulliganing');
-        return false; // Mulligan - hand is too slow
+        return finishMulligan(false, "Mulligan - hand is too slow");
       }
       
       // Otherwise keep 2 lands
       debug(1, '[AI] 2 lands, keeping');
-      return true;
+      return finishMulligan(true, "keep");
     }
     
     // Rule 6: Keep hands with 3-5 lands (good mana ratio)
     if (landCount >= 3 && landCount <= 5) {
       if (profile && handPlan.themedCards === 0 && highCostSpellCount >= 4 && effectiveHandSizeAfterMulligan >= 6) {
         debug(1, '[AI] 3-5 lands but hand is off-plan and top-heavy, mulliganing');
-        return false;
+        return finishMulligan(false, "mulligan");
       }
       debug(1, '[AI] Hand has good land count (3-5 lands), keeping');
-      return true;
+      return finishMulligan(true, "keep");
     }
     
     // Rule 7: Mulligan hands with 6+ lands in opening hand (too flooded)
     // BUT: Only if the mulligan cost is reasonable (would still have 6+ cards)
     if (landCount >= 6 && handSize === OPENING_HAND_SIZE && effectiveHandSizeAfterMulligan >= 6) {
       debug(1, '[AI] 6+ lands in opening hand with reasonable mulligan cost, mulliganing');
-      return false; // Mulligan
+      return finishMulligan(false, "Mulligan");
     }
     
     // If we have 6+ lands but mulligan cost is high, keep it
     if (landCount >= 6) {
       debug(1, '[AI] 6+ lands but mulligan cost too high, keeping');
-      return true;
+      return finishMulligan(true, "keep");
     }
     
     // Default: keep hand
     debug(1, '[AI] Hand evaluation complete, keeping');
-    return true;
+    return finishMulligan(true, "keep");
     
   } catch (error) {
     debugError(1, '[AI] Error making mulligan decision:', error);
-    return true; // Default to keeping hand on error
+    return finishMulligan(true, "Default to keeping hand on error");
   }
 }
 

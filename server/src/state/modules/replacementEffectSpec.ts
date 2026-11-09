@@ -48,6 +48,8 @@ import { collectOraclePatternMillReplacementSpecsFromState } from './replacement
 import { collectOraclePatternZoneChangeReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecZoneChangeOracleTemplates.js';
 import { matchesZoneChangeOwnershipExtras } from './replacementEffectSpec-handlers/replacementEffectSpecZoneChangeDiesExileTemplates.js';
 import { collectDamageSideEffectSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecDamageSideEffectTemplates.js';
+import { collectBatch63DamageSideEffectSpecsFromState } from './replacementBatch63DamageReplacements.js';
+import { collectBatch66DamageRedirectSpecs } from './replacementBatch66DamageRedirect.js';
 import { collectLifeGainDrawInsteadSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeGainDrawInsteadTemplates.js';
 import { collectOraclePatternLoseGameReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLoseGameOracleTemplates.js';
 import { collectOraclePatternLifeFloorDamageReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeFloorDamageOracleTemplates.js';
@@ -335,6 +337,8 @@ function collectReplacementEffectSpecsFromStateUncached(state: unknown): Replace
   specs.push(...collectOraclePatternLoseGameReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternLifeFloorDamageReplacementSpecsFromState(state));
   specs.push(...collectDamageSideEffectSpecsFromState(state));
+  specs.push(...collectBatch63DamageSideEffectSpecsFromState(state));
+  specs.push(...collectBatch66DamageRedirectSpecs(state));
   specs.push(...collectLifeGainDrawInsteadSpecsFromState(state));
   return specs;
 }

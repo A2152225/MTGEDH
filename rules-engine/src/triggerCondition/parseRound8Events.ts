@@ -51,7 +51,7 @@ function selfCondition(event: TriggerConditionIR['event'], extra: Partial<Trigge
 function subjectCondition(subjectText: string, event: TriggerConditionIR['event'], extra: Partial<TriggerConditionIR> = {}): TriggerConditionIR | null {
   const trimmed = subjectText.trim();
   if (new RegExp('^' + SELF + '$').test(trimmed)) return selfCondition(event, extra);
-  if (/\b(?:you|player|and|or)\b/.test(trimmed.replace(/ you control$| an opponent controls$/, ''))) return null;
+  if (/\b(?:you|player|and|or)\b/.test(trimmed.replace(/ you control\b| an opponent controls\b/g, ''))) return null;
   const parsed = parseBlockedSubjectClause(trimmed, event as any);
   if (!parsed) return null;
   return { ...parsed, event, ...extra } as TriggerConditionIR;
@@ -86,6 +86,11 @@ function result(condition: TriggerConditionIR | null, effect: string): Round8Tri
 }
 
 export function parseRound8TriggerSentence(text: string): Round8TriggerSentence | null {
+  const youTurnFaceUp = /^(?:whenever|when) (you|an opponent|a player) turns? ((?:a|an|another) .+?) face up,\s*(.+)$/.exec(text);
+  if (youTurnFaceUp) {
+    const parsed = subjectCondition(youTurnFaceUp[2], 'turned_face_up');
+    return result(parsed ? withController(parsed, ACTOR_CONTROLLER[youTurnFaceUp[1]] ?? 'any') : null, youTurnFaceUp[3]);
+  }
   const faceUpSelf = new RegExp('^(?:whenever|when) ' + SELF + ' is turned face up,\\s*(.+)$').exec(text);
   if (faceUpSelf) return result(selfCondition('turned_face_up'), faceUpSelf[1]);
   const faceUp = /^(?:whenever|when) ((?:a|an|another) .+?) is turned face up,\s*(.+)$/.exec(text);
@@ -95,6 +100,10 @@ export function parseRound8TriggerSentence(text: string): Round8TriggerSentence 
   if (entersOrTransforms) return result(selfCondition('enters', { pairedEvent: 'transforms' }), entersOrTransforms[1]);
   const transformsInto = new RegExp('^(?:whenever|when) ' + SELF + ' transforms into ' + FACE_NAME + ',\\s*(.+)$').exec(text);
   if (transformsInto) return result(selfCondition('transforms'), transformsInto[1]);
+  const transformsIntoType = /^(?:whenever|when) ((?:a|an|another) .+?) transforms into (?:a|an) (non-[a-z]+(?: [a-z]+)?|[a-z]+),\s*(.+)$/i.exec(text);
+  if (transformsIntoType) {
+    return result(subjectCondition(transformsIntoType[1], 'transforms'), transformsIntoType[3]);
+  }
 
   const classLevel = /^(?:whenever|when) this class becomes level (\d+),\s*(.+)$/.exec(text);
   if (classLevel) return result(selfCondition('class_level', { classLevel: Number(classLevel[1]) }), classLevel[2]);
@@ -107,6 +116,46 @@ export function parseRound8TriggerSentence(text: string): Round8TriggerSentence 
     return result(parsed ? withController(parsed, ACTOR_CONTROLLER[actorTaps[1]] ?? 'any') : null, actorTaps[3]);
   }
 
+  const noCreaturesBF = /^(?:whenever|when) (?:there are )?no creatures (?:are )?on the battlefield,\s*(.+)$/.exec(text);
+  if (noCreaturesBF) {
+    const parsed = parseSubjectPhrase('a creature', 'controls_none' as any);
+    return result(parsed ? withController({ ...parsed, event: 'controls_none' } as TriggerConditionIR, 'any') : null, noCreaturesBF[1]);
+  }
+  const controlNOrMore = /^(?:whenever|when) you control (\d+|seven|eight|nine|ten) or more ([a-z]+),\s*(.+)$/.exec(text);
+  if (controlNOrMore) {
+    const n = ({ seven: 7, eight: 8, nine: 9, ten: 10 } as Record<string, number>)[controlNOrMore[1]] ?? Number(controlNOrMore[1]);
+    const parsed = parseSubjectPhrase('a ' + controlNOrMore[2].replace(/s$/, ''), 'controls_none' as any);
+    return result(parsed ? withController({ ...parsed, event: 'controls_none', controlMinimum: n } as any, 'you') : null, controlNOrMore[3]);
+  }
+  const hasNoCounters = /^(?:whenever|when) (this (?:enchantment|creature|permanent|artifact|land)|~) has no ([+0-9\/-]+|[a-z][a-z0-9/+-]*)? ?counters on it,\s*(.+)$/.exec(text);
+  if (hasNoCounters) {
+    return result(selfCondition('controls_none' as any, { noCounters: hasNoCounters[2] ? hasNoCounters[2].trim() : 'any' } as any), hasNoCounters[3]);
+  }
+  const oppControlsPower = /^(?:whenever|when) an opponent controls a creature with (power|toughness) (\d+) or (greater|more|less),\s*(.+)$/.exec(text);
+  if (oppControlsPower) {
+    const parsed = parseSubjectPhrase('a creature with ' + oppControlsPower[1] + ' ' + oppControlsPower[2] + ' or ' + oppControlsPower[3], 'controls_none' as any);
+    return result(parsed ? withController({ ...parsed, event: 'controls_none' } as TriggerConditionIR, 'not_you') : null, oppControlsPower[4]);
+  }
+  const youControlTough = /^(?:whenever|when) you control a creature with (power|toughness) (\d+) or (greater|more|less),\s*(.+)$/.exec(text);
+  if (youControlTough) {
+    const parsed = parseSubjectPhrase('a creature with ' + youControlTough[1] + ' ' + youControlTough[2] + ' or ' + youControlTough[3], 'controls_none' as any);
+    return result(parsed ? withController({ ...parsed, event: 'controls_none' } as TriggerConditionIR, 'you') : null, youControlTough[4]);
+  }
+  const powerIsOrGreater = /^(?:whenever|when) (this creature'?s?|~'?s?) power is (\d+) or greater,\s*(.+)$/.exec(text);
+  if (powerIsOrGreater) {
+    return result(selfCondition('controls_none' as any, { powerMinimum: Number(powerIsOrGreater[2]) } as any), powerIsOrGreater[3]);
+  }
+  const tideOrMore = /^(?:whenever|when) there are (\d+|one|two|three|four|five|six|seven|eight|nine|ten) or more ([a-z0-9/+-]+) counters on (this (?:creature|permanent|enchantment)|~),\s*(.+)$/.exec(text);
+  if (tideOrMore) {
+    const WORD_N: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+    const n = WORD_N[tideOrMore[1]] ?? Number(tideOrMore[1]);
+    return result(selfCondition('controls_none' as any, { counterMinimum: n, noCounters: tideOrMore[2] } as any), tideOrMore[4]);
+  }
+  const phasesIn = /^(?:whenever|when) (.+?) phases? in,\s*(.+)$/.exec(text);
+  if (phasesIn) {
+    const subj = phasesIn[1].replace(/~ or another /, 'another ').replace(/this (?:creature|permanent) or another /, 'another ');
+    return result(subjectCondition(subj, 'phases_in' as any), phasesIn[2]);
+  }
   const controlsNone = /^(?:whenever|when) you control no ([a-z ]+?),\s*(.+)$/.exec(text);
   if (controlsNone) {
     const singular = controlsNone[1] === 'plains' ? 'plains' : controlsNone[1].replace(/ies$/, 'y').replace(/(?<!s)s$/, '');

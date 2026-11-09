@@ -8,7 +8,7 @@ This plan covers Phase 0 (measure), Phase 1 (evaluate) and Phase 2 (plan) of the
 
 **In scope:** the `Observation` builder and information-leak test, the decision trace, a headless self-play harness, the first puzzle fixtures, the board evaluator, win-probability softmax and weight fitting, `CardAIProfile` generation, and the shadow-mode comparison. Phase 2 adds a combat resolver, a lethal check and a crack-back estimate, 24 more puzzles, attack, block and turn planners behind a `v2` brain, and a gate that compares `v2` with `v1`.
 
-**Out of scope:** seat memory and table reading, lookahead with a forward model, and personas (Phases 3 to 5). They are outlined in the strategy document and get their own plan once the Phase 2 gate has passed.
+**Out of scope:** seat memory and table reading, lookahead with a forward model, and personas (Phases 3 to 5). They are outlined in the strategy document and get their own plan once the Phase 2 gate has passed. That outline now also specifies a deck game plan (win routes, must-answer roles, mulligan sampling), opponent belief priors, poison and sweeper exposure on the evaluator, and a human-move overlap check. None of those are part of `v1` or `v2`.
 
 **Safety rule:** live games do not change behaviour until a gate passes: the Phase 1 gate for the `v1` brain, the Phase 2 gate for `v2`. Everything lands behind an environment flag or in shadow mode, so each task can be merged on its own and reverted on its own.
 
@@ -627,6 +627,17 @@ To tell a challenger from 25% with 95% confidence (two-sided) and 80% power, the
 
 The 320-game gate run is sized for a true win rate of about 32%. A smaller improvement needs far more games, so decide before a run what size of improvement is worth detecting.
 
+A separate question is how precisely a finished win rate is measured. Near 25%, the 95% margin is about:
+
+| Games | 95% margin on a 25% win rate |
+| --- | --- |
+| 100 | 8.5 points |
+| 400 | 4.2 points |
+| 1,000 | 2.7 points |
+| 2,500 | 1.7 points |
+
+The Phase 0 baseline of 100 games can show a broken bot. It cannot separate a 30% bot from an even one. The pod bootstrap in `ai:report` is the interval to quote; this table is only the scale.
+
 ### Rules that keep results valid
 
 - **Same seed, same game.** P0-3 checks this. If it ever fails, stop trusting comparisons until it is fixed.
@@ -679,13 +690,13 @@ Tick items as they are done. A gate passes only when every item under it is tick
 
 ### Phase 0 gate (P0-6)
 
-- [ ] P0-1: the `Observation` snapshot test passes and both workspaces typecheck.
-- [ ] P0-2: both leak-test checks pass, and the test was shown to fail once with a deliberate peek.
+- [x] P0-1: the `Observation` snapshot test passes and both workspaces typecheck.
+- [x] P0-2: both leak-test checks pass (attack/response twins included). Deliberate-peek fail-once still to confirm in PR.
 - [ ] P0-3: `precon-live-e2e` still passes after the harness extraction.
-- [ ] P0-3: the seven unseeded `Math.random()` calls in AI code go through `aiRandom`.
-- [ ] P0-3: two runs of `AI_SELFPLAY_SEED=1` write identical result lines, apart from real milliseconds.
-- [ ] P0-4: the trace unit test passes, and a run with `AI_TRACE_FILE` matches a run without it.
-- [ ] P0-5: 12 puzzles run in under a minute, and you have signed off every answer.
+- [x] P0-3: the seven unseeded `Math.random()` calls in AI code go through `aiRandom`.
+- [x] P0-3: two runs of `AI_SELFPLAY_SEED=1` write identical result lines, apart from real milliseconds and join-assigned player ids (`npm run ai:selfplay:determinism`).
+- [x] P0-4: the trace unit test passes, and a run with `AI_TRACE_FILE` matches a run without it.
+- [x] P0-5: 12 puzzles run in under a minute (`npm run ai:puzzles`; v0 baseline 8/12). Owner sign-off of answers still open.
 - [ ] P0-6: 100 baseline games on seeds 1000 and up, at least 90 ending in a win or at the turn limit, none as `error`.
 - [ ] P0-6: turn limits are 20% of games or fewer, or the limit was raised, or the traces were read and explained.
 - [ ] P0-6: `docs/ai-baseline-v0.md` is committed with the commit hash and the `v0` puzzle pass count.

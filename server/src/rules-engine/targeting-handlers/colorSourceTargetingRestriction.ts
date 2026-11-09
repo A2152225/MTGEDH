@@ -21,6 +21,22 @@ export function parseColorSourceTargetingRestriction(oracleText: string): string
   return out;
 }
 
+/**
+ * B68: Gaea's Revenge — "can't be the target of nongreen spells or abilities from nongreen sources."
+ * Returns the color the source must include to be legal (e.g. green for nongreen).
+ */
+export function parseNonColorSourceTargetingRequirement(oracleText: string): string[] {
+  const text = String(oracleText || '');
+  const re = /can't be the target of non(white|blue|black|red|green) spells or abilities from non\1 sources/gi;
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const sym = COLOR_WORD_TO_SYMBOL[m[1].toLowerCase()];
+    if (sym && !out.includes(sym)) out.push(sym);
+  }
+  return out;
+}
+
 function manaCostColors(card: any): string[] {
   const cost = String(card?.mana_cost || card?.manaCost || '');
   if (!cost) return [];
@@ -79,9 +95,20 @@ export function resolveTargetingSourceColors(state: any, sourceId?: string): str
 /** True when the restriction on `perm` forbids a source with id `sourceId`. Unknown sources are allowed. */
 export function isBlockedByColorSourceTargetingRestriction(perm: any, state: any, sourceId?: string): boolean {
   if (!perm || perm.isFaceDown === true) return false;
-  const restricted = parseColorSourceTargetingRestriction(String(perm.card?.oracle_text || ''));
-  if (restricted.length === 0) return false;
+  const oracle = String(perm.card?.oracle_text || '');
+  const restricted = parseColorSourceTargetingRestriction(oracle);
+  const required = parseNonColorSourceTargetingRequirement(oracle);
+  if (restricted.length === 0 && required.length === 0) return false;
   const colors = resolveTargetingSourceColors(state, sourceId);
-  if (!colors || colors.length === 0) return false;
-  return colors.some(c => restricted.includes(c));
+  if (!colors) return false;
+  if (restricted.length > 0) {
+    // Forbidden-color mode: block when the source has any listed color (colorless is free).
+    if (colors.length === 0) return false;
+    if (colors.some((c) => restricted.includes(c))) return true;
+  }
+  if (required.length > 0) {
+    // Nongreen mode: block when the source lacks every required color (colorless is nongreen).
+    if (!required.every((c) => colors.includes(c))) return true;
+  }
+  return false;
 }

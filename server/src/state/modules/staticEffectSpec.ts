@@ -1,5 +1,6 @@
 import type { BattlefieldPermanent, PlayerID } from '../../../../shared/src/index.js';
 import { addIntrinsicAlsoCreatureTypes } from './intrinsicAlsoCreatureTypes.js';
+import { getEffectiveColors } from './effectiveColors.js';
 import { permanentHasCreatureType } from '../../../../shared/src/creatureTypes.js';
 import type { ContinuousEffectResult } from '../../rules-engine/staticEffects.js';
 import { buildContinuousEffectsBase } from './continuousEffectsBase.js';
@@ -19,6 +20,7 @@ import {
   type StaticConditionState,
   type StaticKeywordResolver,
 } from './staticEffectSpecConditionEval.js';
+import { grantSetsBasePt, resolveSetBasePtGrantValues } from './setBasePtGrantValues.js';
 import { controllerHasLeftTheGame } from '../../../../rules-engine/src/playerInGameStatus.js';
 import { staticSourceAbilitiesRemoved } from '../../../../rules-engine/src/permanentKeywordAbilities.js';
 import { expireSourceLinkedPtModifiers } from './sourceLinkedPtModifiers.js';
@@ -143,6 +145,24 @@ function resolveStaticCountMultiplier(
       return countOtherCreaturesSharingType(target, battlefield);
     case 'other_creatures_matching_scope':
       return countOtherCreaturesMatchingScope(target, spec, battlefield);
+    case 'host_color_count': {
+      // B61: "for each of its colors" counts the recipient (Knight of New Alara), not the source.
+      return new Set(
+        getEffectiveColors(target, state)
+          .map((c) => String(c).toUpperCase())
+          .filter((c) => 'WUBRG'.includes(c) && c),
+      ).size;
+    }
+    case 'recipient_mana_symbols': {
+      // B74: Light from Within — count COLOR mana symbols in the recipient's mana cost.
+      const COLOR: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+      const raw = String(grant.countColor || '').trim().toLowerCase();
+      const sym = COLOR[raw] || (/^[wubrg]$/i.test(raw) ? raw.toUpperCase() : '');
+      if (!sym) return 0;
+      const cost = String((target as any)?.card?.mana_cost || (target as any)?.mana_cost || '').toUpperCase();
+      const tokens = cost.match(/\{[^}]+\}/g) || [];
+      return tokens.reduce((sum, t) => sum + (t.includes(sym) ? 1 : 0), 0);
+    }
     default:
       return resolvePhase5CountMultiplier(spec, battlefield, state);
   }
@@ -386,6 +406,7 @@ function specConditionDependsOnKeyword(spec: StaticEffectSpec): boolean {
   const kind = spec.condition?.kind;
   return kind === 'target_has_keyword'
     || kind === 'target_lacks_keyword'
+    || kind === 'target_lacks_keywords'
     || kind === 'target_lacks_all_keywords';
 }
 
@@ -437,6 +458,10 @@ export function applyDeclarativeStaticSpecs(
   specs: readonly StaticEffectSpec[],
   state: StaticConditionState,
 ): ContinuousEffectResult {
+  const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+  for (const perm of battlefield) {
+    if (perm && (perm as any).continuousNotLegendary) delete (perm as any).continuousNotLegendary;
+  }
   if (specs.length === 0) return base;
 
   const result: ContinuousEffectResult = {
@@ -452,7 +477,6 @@ export function applyDeclarativeStaticSpecs(
     ),
   };
 
-  const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
   seedContinuousTypeAdditionsForStaticPass(battlefield, result.typeAdditions);
   const orderedSpecs = sortStaticEffectSpecsForApplication(specs, state);
   const keywordResolver = bindKeywordResolver(orderedSpecs, state);
@@ -484,7 +508,37 @@ export function applyDeclarativeStaticSpecs(
         agg.tDelta += toughness;
       }
 
-      const grantedAbilities = Array.isArray(spec.grant.abilities) ? spec.grant.abilities : [];
+      const grantedAbilities = Array.isArray(spec.grant.abilities) ? [...spec.grant.abilities] : [];
+      // B58: Tam - expand hexproof from each of the recipient's colors.
+      if ((spec.grant as any).hexproofFromOwnColors === true) {
+        const COLOR_NAME: Record<string, string> = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' };
+        for (const sym of getEffectiveColors(permanent, state)) {
+          const name = COLOR_NAME[String(sym || '').toUpperCase()];
+          if (name) grantedAbilities.push(`hexproof from ${name}`);
+        }
+      }
+      // B68: Earnest Fellowship - protection from each of the recipient's colors.
+      if ((spec.grant as any).protectionFromOwnColors === true) {
+        const COLOR_NAME: Record<string, string> = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' };
+        for (const sym of getEffectiveColors(permanent, state)) {
+          const name = COLOR_NAME[String(sym || '').toUpperCase()];
+          if (name) grantedAbilities.push(`protection from ${name}`);
+        }
+      }
+      // B71: Empty-Shrine Kannushi - protection from each color among permanents you control.
+      if ((spec.grant as any).protectionFromColorsAmongPermanentsYouControl === true) {
+        const COLOR_NAME: Record<string, string> = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' };
+        const controller = String(spec.sourceController || '');
+        const seen = new Set<string>();
+        for (const other of battlefield) {
+          if (!other || String(other.controller || '') !== controller) continue;
+          for (const sym of getEffectiveColors(other, state)) {
+            const name = COLOR_NAME[String(sym || '').toUpperCase()];
+            if (name) seen.add(name);
+          }
+        }
+        for (const name of seen) grantedAbilities.push(`protection from ${name}`);
+      }
       const copiedActivated = spec.grant.copyActivatedFromExiledWithCardType
         ? collectActivatedAbilitiesExiledWithSource(
           state,
@@ -509,6 +563,11 @@ export function applyDeclarativeStaticSpecs(
       recordDeclarativeTypeAdditions(result, permanent, spec.grant.typeAdditions, spec.grant.loseOtherCreatureTypes);
 
       recordDeclarativeColorAdditions(result as any, permanentId, spec.grant.colorAdditions);
+
+      // B72: Aeve — stamp so legend-rule SBA skips token copies that aren't legendary.
+      if (spec.grant.notLegendary) {
+        (permanent as any).continuousNotLegendary = true;
+      }
     }
   }
 
@@ -659,12 +718,14 @@ export function resolveSetBasePTFromStaticSpecs(
   let result: { power: number; toughness: number } | null = null;
   const keywordResolver = bindKeywordResolver(specs, state as StaticConditionState);
   for (const spec of specs) {
-    if (spec.grant.setPower === undefined && spec.grant.setToughness === undefined) continue;
+    if (!grantSetsBasePt(spec.grant)) continue;
     if (!permanentMatchesScope(permanent, spec)) continue;
     if (!specMatchesStaticCondition(permanent, spec, state as StaticConditionState, keywordResolver)) continue;
+    const values = resolveSetBasePtGrantValues(spec.grant, state, String(spec.sourceController || ''), permanent);
+    if (!values) continue;
     result = {
-      power: Number(spec.grant.setPower ?? result?.power ?? 0),
-      toughness: Number(spec.grant.setToughness ?? result?.toughness ?? 0),
+      power: Number(values.power ?? result?.power ?? 0),
+      toughness: Number(values.toughness ?? result?.toughness ?? 0),
     };
   }
   return result;
@@ -684,12 +745,13 @@ export function collectSetBasePTEntriesFromStaticSpecs(
   const entries: Array<{ power?: number; toughness?: number; timestamp: number }> = [];
   const keywordResolver = bindKeywordResolver(specs, state as StaticConditionState);
   for (const spec of specs) {
-    if (spec.grant.setPower === undefined && spec.grant.setToughness === undefined) continue;
+    if (!grantSetsBasePt(spec.grant)) continue;
     if (!permanentMatchesScope(permanent, spec)) continue;
     if (!specMatchesStaticCondition(permanent, spec, state as StaticConditionState, keywordResolver)) continue;
+    const values = resolveSetBasePtGrantValues(spec.grant, state, String(spec.sourceController || ''), permanent);
+    if (!values) continue;
     entries.push({
-      ...(spec.grant.setPower !== undefined ? { power: Number(spec.grant.setPower) } : {}),
-      ...(spec.grant.setToughness !== undefined ? { toughness: Number(spec.grant.setToughness) } : {}),
+      ...values,
       timestamp: getStaticEffectSourceTimestamp(state, String(spec.sourcePermanentId || ''), options),
     });
   }
@@ -734,6 +796,21 @@ export function getContinuousGrantedAbilitiesForPermanent(
 export function syncDerivedContinuousEffects(state: unknown): ContinuousEffectResult | null {
   if (!state || typeof state !== 'object') return null;
   if (!Array.isArray((state as { battlefield?: unknown }).battlefield)) return null;
+  // Nested getCurrentPowerToughness during condition eval must not re-enter sync (power-compared
+  // statics like Baeloth goad hydrate oracle then read power mid-recompute).
+  const st = state as { _syncingDerivedContinuousEffects?: boolean; _derivedContinuousEffects?: ContinuousEffectResult };
+  if (st._syncingDerivedContinuousEffects) {
+    return st._derivedContinuousEffects ?? null;
+  }
+  st._syncingDerivedContinuousEffects = true;
+  try {
+    return syncDerivedContinuousEffectsBody(state);
+  } finally {
+    delete st._syncingDerivedContinuousEffects;
+  }
+}
+
+function syncDerivedContinuousEffectsBody(state: unknown): ContinuousEffectResult | null {
   try {
     hydrateBattlefieldOracleText((state as { battlefield?: unknown }).battlefield);
   } catch {

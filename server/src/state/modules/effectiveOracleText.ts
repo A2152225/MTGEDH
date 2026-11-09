@@ -1,3 +1,4 @@
+import { applyGyTopTextCopyOverlay, oracleHasGyTopCreatureTextCopy } from './gyTopTextCopyStatic.js';
 /**
  * Continuous oracle-text rewrites (Swirl the Mists / Mind Bend style).
  * Overlays are applied when reading rules text — printed oracle is not mutated.
@@ -82,11 +83,19 @@ export function getEffectiveOracleText(
   cardOrPermanent: { oracle_text?: string; card?: { oracle_text?: string } } | null | undefined,
   state?: unknown,
 ): string {
-  const printed = String(
+  let printed = String(
     (cardOrPermanent as any)?.oracle_text
     || (cardOrPermanent as any)?.card?.oracle_text
     || '',
   );
+  // B61: Volrath's Shapeshifter ? copy full text from top GY creature card.
+  if (state && oracleHasGyTopCreatureTextCopy(printed) && (cardOrPermanent as any)?.card) {
+    const overlaid = applyGyTopTextCopyOverlay(cardOrPermanent as any, state);
+    printed = String(overlaid?.oracle_text || printed);
+  } else if (state && oracleHasGyTopCreatureTextCopy(printed) && (cardOrPermanent as any)?.controller) {
+    const overlaid = applyGyTopTextCopyOverlay({ card: cardOrPermanent, controller: (cardOrPermanent as any).controller }, state);
+    printed = String(overlaid?.oracle_text || printed);
+  }
   if (!state) return printed;
   // Every overlay only rewrites color words; skip the battlefield scan (O(board) per call,
   // called per permanent by continuous-effect passes) when there is nothing to rewrite.

@@ -73,6 +73,10 @@ const NONCREATURE_SUBTYPE_WORDS: Readonly<Record<string, string>> = {
   food: 'food',
   foods: 'food',
   blood: 'blood',
+  treasure: 'treasure',
+  treasures: 'treasure',
+  junk: 'junk',
+  gold: 'gold',
   cartouche: 'cartouche',
   cartouches: 'cartouche',
   shrine: 'shrine',
@@ -141,7 +145,7 @@ export const TRIGGER_SUBJECT_KEYWORDS: readonly string[] = [
 ];
 
 const REFUSE =
-  /\b(?:enchanted|equipped|target|mana|where|unless|whenever|when)\b/i;
+  /\b(?:enchanted|target|mana|where|unless|whenever|when)\b/i;
 
 interface SubjectChunk {
   types: string[];
@@ -157,6 +161,7 @@ interface SubjectQualifiers {
   goaded: boolean;
   powerAboveBase?: boolean;
   modified?: boolean;
+  equipped?: boolean;
   attackingOrBlocking: boolean;
   combatRole?: 'attacking' | 'blocking';
   commander: boolean;
@@ -192,6 +197,7 @@ function applyQualifiers(subject: TriggerSubjectFilter, qualifiers: SubjectQuali
     ...(qualifiers.goaded ? { goaded: true } : {}),
     ...(qualifiers.powerAboveBase ? { powerAboveBase: true } : {}),
     ...(qualifiers.modified ? { modified: true } : {}),
+    ...(qualifiers.equipped ? { equipped: true } : {}),
     ...(qualifiers.attackingOrBlocking ? { attackingOrBlocking: true } : {}),
     ...(qualifiers.combatRole ? { combatRole: qualifiers.combatRole } : {}),
     ...(qualifiers.commander ? { commander: true } : {}),
@@ -211,6 +217,7 @@ function qualifiersAreRestrictive(qualifiers: SubjectQualifiers): boolean {
     || qualifiers.goaded
     || Boolean(qualifiers.powerAboveBase)
     || Boolean(qualifiers.modified)
+    || Boolean(qualifiers.equipped)
     || qualifiers.attackingOrBlocking
     || Boolean(qualifiers.combatRole)
     || qualifiers.commander
@@ -240,6 +247,10 @@ function stripSubjectQualifiers(tokens: readonly string[]): { tokens: string[]; 
     }
     if (token === 'commander' || token === 'commanders') {
       qualifiers.commander = true;
+      continue;
+    }
+    if (token === 'equipped') {
+      qualifiers.equipped = true;
       continue;
     }
     if (token === 'historic') {
@@ -335,6 +346,8 @@ const MID_CONTROLLER_PHRASES: readonly (readonly string[])[] = [
   ['you', "don't", 'control'],
   ['you', 'do', 'not', 'control'],
   ['an', 'opponent', 'controls'],
+  ['your', 'opponents', 'control'],
+  ['your', 'opponent', 'controls'],
   ['you', 'control'],
 ];
 
@@ -383,9 +396,19 @@ function consumeController(tokens: readonly string[]): { controller: TriggerCont
     rest.splice(rest.length - 4, 4);
     return { controller: 'not_you', owner, rest };
   }
+  if (endsWith('your', 'opponents', 'control') || endsWith('opponents', 'control')) {
+    const n = endsWith('your', 'opponents', 'control') ? 3 : 2;
+    rest.splice(rest.length - n, n);
+    return { controller: 'not_you', owner, rest };
+  }
   if (endsWith('an', 'opponent', 'controls')) {
     rest.splice(rest.length - 3, 3);
     return { controller: 'not_you', owner, rest };
+  }
+  if (endsWith('an', 'opponent', 'owns')) {
+    rest.splice(rest.length - 3, 3);
+    owner = 'not_you';
+    return { controller: 'any', owner, rest };
   }
   if (endsWith('you', 'control')) {
     rest.splice(rest.length - 2, 2);
@@ -429,6 +452,11 @@ function splitSubjectAlternatives(clause: string): string[] {
   const negationOr = /^((?:an? )?non-?[a-z]+) or ((?:an? )?(?:non-?)?[a-z]+)((?: [^ ].*)?)$/.exec(clause);
   if (negationOr && !/ or /.test(negationOr[3])) {
     return [negationOr[1] + negationOr[3], negationOr[2] + negationOr[3]].map((part) => part.trim());
+  }
+  // "a green or white creature" / "red or blue permanent"
+  const colorOr = /^((?:an? )?(?:white|blue|black|red|green)) or ((?:white|blue|black|red|green))((?: .+)?)$/.exec(clause);
+  if (colorOr && !/ or /.test(colorOr[3])) {
+    return [colorOr[1] + colorOr[3], colorOr[2] + colorOr[3]].map((part) => part.trim());
   }
   const parts: string[] = [];
   let rest = clause;
@@ -598,6 +626,7 @@ function parseOneSubject(clause: string, event: TriggerConditionEvent, quantity:
 }
 
 export function parseSubjectPhrase(clause: string, event: TriggerConditionEvent): TriggerConditionIR | null {
+  clause = String(clause || '').replace(/\band\/or\b/gi, 'or').replace(/,(?=\s*non)/gi, '').replace(/\s+/g, ' ').trim();
   const normalized = normalizeTriggerClause(clause);
   if (!normalized || REFUSE.test(normalized)) return null;
 

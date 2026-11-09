@@ -1,3 +1,15 @@
+/** Minimum total card count required to create/update a saved deck (server or local). */
+export const MIN_SAVED_DECK_CARDS = 5;
+
+export function isBelowMinSavedDeckCards(cardCount: number, min: number = MIN_SAVED_DECK_CARDS): boolean {
+  return !Number.isFinite(cardCount) || cardCount < min;
+}
+
+export function formatMinSavedDeckCardsError(cardCount: number, min: number = MIN_SAVED_DECK_CARDS): string {
+  const got = Number.isFinite(cardCount) ? Math.max(0, Math.floor(cardCount)) : 0;
+  return `Deck must have at least ${min} cards to save (got ${got}).`;
+}
+
 export interface SavedDeckSummary {
   id: string;
   name: string;

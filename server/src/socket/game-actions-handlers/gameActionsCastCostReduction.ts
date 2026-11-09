@@ -228,6 +228,48 @@ export function calculateCostReduction(
         reduction.generic += typePairReduction.reduction;
         reduction.messages.push(`${perm.card?.name || 'Permanent'}: -{${typePairReduction.reduction}}`);
       }
+
+      // B53 subtype spell cost reduction:
+      // "Minotaur spells you cast cost {B}{R} less to cast." (Ragemonger / Edgewalker)
+      // "Goblin spells you cast cost {1} less to cast." (generic fallback beyond hardcoded names)
+      {
+        const CARD_TYPE_WORDS = new Set([
+          'creature','artifact','enchantment','instant','sorcery','planeswalker','battle','land',
+          'historic','multicolored','monocolored','colorless','white','blue','black','red','green',
+          'legendary','snow','noncreature','nonartifact','nonenchantment','permanent',
+        ]);
+        const COLOR_NAME: Record<string, string> = {
+          w: 'white', u: 'blue', b: 'black', r: 'red', g: 'green', c: 'colorless',
+        };
+        const subtypeCost = permOracle.match(
+          /(?:^|[.\n]\s*)([a-z][a-z-]*)\s+spells\s+you\s+cast\s+cost\s*((?:\{[wubrgc0-9]+\})+)\s+less(?:\s+to\s+cast)?/i,
+        );
+        if (subtypeCost) {
+          const subtype = String(subtypeCost[1] || '').toLowerCase();
+          if (subtype && !CARD_TYPE_WORDS.has(subtype)) {
+            const matchesType = cardCreatureTypes.includes(subtype) || cardTypeLine.includes(subtype) || hasChangeling;
+            if (matchesType) {
+              const tokens = String(subtypeCost[2] || '').match(/\{([wubrgc0-9]+)\}/gi) || [];
+              let applied = false;
+              const parts: string[] = [];
+              for (const tok of tokens) {
+                const inner = tok.replace(/[{}]/g, '').toLowerCase();
+                if (/^\d+$/.test(inner)) {
+                  const n = parseInt(inner, 10) || 0;
+                  if (n > 0) { reduction.generic += n; parts.push(`{${n}}`); applied = true; }
+                } else if (COLOR_NAME[inner]) {
+                  reduction.colors[COLOR_NAME[inner]] = (reduction.colors[COLOR_NAME[inner]] || 0) + 1;
+                  parts.push(`{${inner.toUpperCase()}}`);
+                  applied = true;
+                }
+              }
+              if (applied) {
+                reduction.messages.push(`${perm.card?.name || 'Permanent'}: -${parts.join('')} (${subtype})`);
+              }
+            }
+          }
+        }
+      }
       
       // ============================================
       // CARD TYPE BASED REDUCTIONS

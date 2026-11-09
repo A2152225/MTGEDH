@@ -82,6 +82,8 @@ export function triggerSubjectIRVerdict(options: {
     controllerId: String(options.sourcePermanent?.controller || '').trim(),
     attachedToId: String(options.sourcePermanent?.attachedTo || '').trim(),
     chosenCreatureType: String(options.sourcePermanent?.chosenCreatureType || '').trim() || undefined,
+    chosenColor: String(options.sourcePermanent?.chosenColor || options.sourcePermanent?.card?.chosenColor || '').trim() || undefined,
+    chosenCardName: String(options.sourcePermanent?.chosenCardName || options.sourcePermanent?.card?.chosenCardName || options.sourcePermanent?.chosenName || '').trim() || undefined,
   };
   return lines.some((line) => triggerConditionMatches(
     { event: line.condition.event, quantity: line.condition.quantity, alternatives: line.condition.alternatives },
@@ -120,6 +122,8 @@ export function spellCastTriggerIRVerdict(options: {
         id: String(options.sourcePermanent?.id || '').trim(),
         controllerId: String(options.sourcePermanent?.controller || '').trim(),
         chosenCreatureType: String(options.sourcePermanent?.chosenCreatureType || '').trim() || undefined,
+        chosenColor: String(options.sourcePermanent?.chosenColor || options.sourcePermanent?.card?.chosenColor || '').trim() || undefined,
+        chosenCardName: String(options.sourcePermanent?.chosenCardName || options.sourcePermanent?.card?.chosenCardName || options.sourcePermanent?.chosenName || '').trim() || undefined,
       },
     );
   }

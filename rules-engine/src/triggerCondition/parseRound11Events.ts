@@ -31,10 +31,10 @@ export function parseRound11TriggerSentence(text: string, reparse: Reparse): Rou
   const attackPlayer = /^(whenever|when)\s+you attack a player,\s*(.+)$/.exec(text);
   if (attackPlayer) return reparse(`${attackPlayer[1]} you attack, ${attackPlayer[2]}`);
 
-  const firstLife = /^(whenever|when)\s+(you|an opponent|a player)\s+gains? life for the first time each turn,\s*(.+)$/.exec(text);
+  const firstLife = /^(whenever|when)\s+(you|an opponent|a player)\s+gains? life for the first time (?:each turn|during each of your turns),\s*(.+)$/.exec(text);
   if (firstLife) {
     const base = reparse(`whenever ${firstLife[2]} gain${firstLife[2] === 'you' ? '' : 's'} life, ${firstLife[3]}`);
-    return base ? { ...base, condition: { ...base.condition, onceEachTurn: true } } : null;
+    return base ? { ...base, condition: { ...base.condition, onceEachTurn: true, ...(/during each of your turns/.test(text) ? { whoseTurn: 'you' as const } : {}) } } : null;
   }
 
   const untapped = /^(?:whenever|when)\s+this land enters untapped,\s*(.+)$/.exec(text);

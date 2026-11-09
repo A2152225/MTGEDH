@@ -7,6 +7,7 @@ import {
   sacrificePermanent,
 } from './upkeep-triggers.js';
 import { maybeProcessPendingAttractionVisitRoll } from './triggers/attraction-visit.js';
+import { queueParsedKeywordAction } from './triggerEmissionFamilyUtils.js';
 
 export type SagaChapterStackTrigger = {
   permanentId: string;
@@ -187,6 +188,7 @@ export function maybeSacrificeSagaAfterChapterResolve(
   if (triggerItem?.sagaSacrificeAfterResolve !== true && triggerItem?.effectData?.sagaSacrificeAfterResolve !== true) {
     return;
   }
+  queueParsedKeywordAction(ctx, String(controller), 'saga_final_chapter');
 
   const permanentId = String(
     triggerItem?.source

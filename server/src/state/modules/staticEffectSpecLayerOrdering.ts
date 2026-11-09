@@ -20,7 +20,9 @@ const SUBLAYER_SORT_ORDER: Record<StaticEffectSublayer, number> = { '7a': 0, '7b
 
 function specHasPowerToughnessGrant(spec: StaticEffectSpec): boolean {
   return Number(spec.grant.power || 0) !== 0 || Number(spec.grant.toughness || 0) !== 0
-    || spec.grant.setPower !== undefined || spec.grant.setToughness !== undefined;
+    || spec.grant.setPower !== undefined || spec.grant.setToughness !== undefined
+    || spec.grant.setPowerFromControllerLife === true || spec.grant.setToughnessFromControllerLife === true
+    || (spec.grant as any).setPowerToughnessFromManaValue === true;
 }
 
 export function inferStaticEffectLayer(spec: StaticEffectSpec): StaticEffectLayer {

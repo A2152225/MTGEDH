@@ -23,6 +23,30 @@ export function countDevotionSymbolsInManaCost(manaCost: string, colors: readonl
   return total;
 }
 
+const DEVOTION_INCREASE_RE =
+  /your devotion to each color and each combination of colors is increased by (one|two|three|four|five|\d+)/i;
+const DEVOTION_INCREASE_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+
+/** B61: Altar of the Pantheon ? flat bonus added to every devotion query. */
+export function devotionIncreaseBonusAmongPermanents(
+  permanents: readonly any[],
+  playerId: string,
+): number {
+  const controller = String(playerId || '');
+  if (!controller) return 0;
+  let bonus = 0;
+  for (const permanent of permanents) {
+    if (!permanent || String(permanent.controller || '') !== controller) continue;
+    if (permanent.phasedOut === true) continue;
+    const oracle = String(permanent.card?.oracle_text || permanent.oracle_text || '');
+    const m = oracle.match(DEVOTION_INCREASE_RE);
+    if (!m) continue;
+    const raw = String(m[1] || '').toLowerCase();
+    bonus += /^\d+$/.test(raw) ? Math.max(0, Math.floor(Number(raw))) : (DEVOTION_INCREASE_WORDS[raw] || 0);
+  }
+  return bonus;
+}
+
 export function countDevotionAmongPermanents(
   permanents: readonly any[],
   playerId: string,
@@ -38,5 +62,7 @@ export function countDevotionAmongPermanents(
     );
     total += countDevotionSymbolsInManaCost(manaCost, colors);
   }
+  // B61: Altar of the Pantheon ? devotion to each color/combo increased by N.
+  total += devotionIncreaseBonusAmongPermanents(permanents, controller);
   return total;
 }

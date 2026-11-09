@@ -695,12 +695,19 @@ export function handleAppResolutionStepPromptLate(
             : undefined;
         
         const returnCostUi = getReturnToHandCostPresentation(step); // UI41 beam me up / return-to-hand costs
+        const attackPermCostUi = (step as any)?.attackCostPermanentPayment === true
+          ? {
+              title: String(step.description || (String((step as any).combatAction || '') === 'block' ? 'Pay to block' : 'Pay to attack')),
+              description: String(step.targetDescription || 'Choose permanents you control'),
+              confirmLabel: String((step as any).confirmLabel || (String((step as any).permanentCostKind || '') === 'tap' ? (String((step as any).combatAction || '') === 'block' ? 'Tap and block' : 'Tap and attack') : String((step as any).permanentCostKind || '') === 'return_to_hand' ? 'Return and attack' : 'Sacrifice and attack')),
+            }
+          : undefined;
         setTargetModalData({
           cardId: step.sourceId || '',
           source: { name: step.sourceName || 'Effect', imageUrl: step.sourceImage },
-          title: returnCostUi?.title || step.description || `Choose target`,
-          ...(returnCostUi ? { confirmLabel: returnCostUi.confirmLabel } : {}),
-          description: returnCostUi ? returnCostUi.description : (selectedModeUi?.description && (!step.targetDescription || step.targetDescription === 'target')
+          title: attackPermCostUi?.title || returnCostUi?.title || step.description || `Choose target`,
+          ...(attackPermCostUi ? { confirmLabel: attackPermCostUi.confirmLabel, attackCostPermanentPayment: true } : returnCostUi ? { confirmLabel: returnCostUi.confirmLabel } : {}),
+          description: attackPermCostUi ? attackPermCostUi.description : returnCostUi ? returnCostUi.description : (selectedModeUi?.description && (!step.targetDescription || step.targetDescription === 'target')
             ? selectedModeUi.description
             : (step.targetDescription || (step.type === 'mentor_target'
               ? 'Choose an attacking creature with lesser power.'

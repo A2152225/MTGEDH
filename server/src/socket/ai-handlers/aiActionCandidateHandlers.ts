@@ -51,6 +51,11 @@ import { findCastableSpells } from "./aiFindCastableSpells.js";
 import { getPaymentSources } from "./aiPaymentSources.js";
 import { aiEngine, getAIPendingSpellCastStatus } from "./aiScheduler.js";
 import { calculateSpellPriority } from "./aiSpellPriority.js";
+import {
+  candidatesFromAIActionList,
+  recordDecision,
+  traceContextFromGame,
+} from "./aiDecisionTrace.js";
 
 function getAIActionContext(game: any): any {
   return getAIHandlerDeps().getAIActionContext(game);
@@ -591,7 +596,19 @@ export async function tryAIResponseActions(
   }
 
   const responseCandidates = await enumerateAIActionCandidates(game, playerId, { mode: 'response' });
-  for (const candidate of responseCandidates) {
+  const responseTraceCandidates = candidatesFromAIActionList(responseCandidates);
+  const recordResponseChoice = (chosen: number | null, note?: string) => {
+    recordDecision({
+      ...traceContextFromGame(game, gameId, playerId),
+      kind: 'response',
+      candidates: responseTraceCandidates,
+      chosen,
+      note,
+    });
+  };
+
+  for (let candidateIndex = 0; candidateIndex < responseCandidates.length; candidateIndex++) {
+    const candidate = responseCandidates[candidateIndex];
     if (candidate.kind === 'activate_ability') {
       const permanentId = String(candidate.ability.action?.permanentId || '');
       if (didAIResponseAbilityFailThisWindow(gameId, game, playerId, permanentId)) {
@@ -606,6 +623,7 @@ export async function tryAIResponseActions(
 
       debug(1, '[AI] Taking response-window activated ability:', candidate.ability.action.cardName);
       if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action, false)) {
+        recordResponseChoice(candidateIndex);
         return true;
       }
 
@@ -630,10 +648,12 @@ export async function tryAIResponseActions(
       const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
       const castProgressed = await executeAICastSpell(io, gameId, playerId, candidateSpell);
       if (castProgressed) {
+        recordResponseChoice(candidateIndex);
         return true;
       }
 
       if (didAICastAttemptChangeControlFlow(gameId, game, playerId, candidateSpell, beforeCast)) {
+        recordResponseChoice(candidateIndex, 'control-flow-changed');
         return true;
       }
     }
@@ -643,6 +663,7 @@ export async function tryAIResponseActions(
       const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
       const castProgressed = await executeAICastCommander(io, gameId, playerId, candidate.commander);
       if (castProgressed) {
+        recordResponseChoice(candidateIndex);
         return true;
       }
 
@@ -650,6 +671,7 @@ export async function tryAIResponseActions(
         card: candidate.commander.card,
         sourceZone: 'command',
       }, beforeCast)) {
+        recordResponseChoice(candidateIndex, 'control-flow-changed');
         return true;
       }
     }

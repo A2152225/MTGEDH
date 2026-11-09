@@ -259,8 +259,8 @@ function parseSetBasePTFromAttachedAuraOracle(
     return { power: parseInt(match[1], 10), toughness: parseInt(match[2], 10) };
   }
 
-  // Zendikon-style animation: "Enchanted land is a 5/3 green Elemental creature. It's still a land."
-  match = text.match(/enchanted (?:artifact|land) is an? (\d+)\/(\d+) [a-z ]*?creature\b[^.]*\.\s*it(?:'|\u2019)s still an? (?:artifact|land)\b/i);
+  // Zendikon / Awaken the Ancient / Living Terrain animation P/T.
+  match = text.match(/enchanted (?:artifact|land|mountain|island|swamp|forest|plains) is an? (\d+)\/(\d+) [a-z ]*?creature\b(?: with [a-z ,]+?)?(?:\.\s*it(?:'|\u2019)?s| that(?:'|\u2019)?s) still an? (?:artifact|land)\b/i);
   if (match) {
     return { power: parseInt(match[1], 10), toughness: parseInt(match[2], 10) };
   }

@@ -23,6 +23,7 @@ import { isInterveningIfSatisfied } from './intervening-if.js';
 import { permanentHasTriggeredAbilities, type TriggerEventKind } from './triggeredAbilitySuppression.js';
 import { resolveEnchantedControllerId, resolveEnchantedPlayerId } from './phaseWhoseTurn.js';
 import { getPermanentPowerMaybe, getPermanentToughnessMaybe } from './intervening-if-permanent-and-player.js';
+import { getEffectiveColors } from '../effectiveColors.js';
 
 /**
  * Keywords the object has right now. With a battlefield, continuous grants (lords, auras,
@@ -89,7 +90,9 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string, s
     blocking: permanentIsBlocking(permanent),
     isCommander: Boolean(permanent?.isCommander || permanent?.commander || permanent?.card?.isCommander),
     ownerId: String(permanent?.owner || permanent?.card?.owner || '').trim() || undefined,
-    colors: colorLetters(permanent?.card?.colors || permanent?.colors),
+    colors: state
+      ? colorLetters(getEffectiveColors(permanent?.card || permanent, state))
+      : colorLetters(permanent?.card?.colors || permanent?.colors),
   } as TriggerMatchPermanent;
   // Keywords (battlefield-wide grant scan) and current P/T are O(board) each and most
   // conditions never read them ("counters are put on this creature"); compute on first
@@ -105,6 +108,13 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string, s
   defineLazy(match, 'keywords', () => keywordsOnPermanent(permanent, Array.isArray(state?.battlefield) ? state.battlefield : undefined));
   defineLazy(match, 'power', () => currentStat(getPermanentPowerMaybe(permanent, statContext)));
   defineLazy(match, 'toughness', () => currentStat(getPermanentToughnessMaybe(permanent, statContext)));
+  defineLazy(match, 'equipped', () => {
+    if (permanent?.isEquipped === true || permanent?.equipped === true) return true;
+    if (Array.isArray(permanent?.attachedEquipment) && permanent.attachedEquipment.length > 0) return true;
+    const id = String(permanent?.id || '');
+    const field = Array.isArray(state?.battlefield) ? state.battlefield : [];
+    return Boolean(id) && field.some((p: any) => String(p?.attachedTo || '') === id && /\bequipment\b/i.test(String(p?.card?.type_line || '')));
+  });
   defineLazy(match, 'modified', () => {
     // CR 700.9: counters, an Equipment attached, or an Aura its controller controls attached.
     const counters = permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : {};
@@ -559,6 +569,8 @@ export function collectMatchingParsedEventLines(options: {
         controllerId: String(options.sourcePermanent?.controller || '').trim(),
         attachedToId: String(options.sourcePermanent?.attachedTo || '').trim(),
         chosenCreatureType: String(options.sourcePermanent?.chosenCreatureType || '').trim() || undefined,
+        chosenColor: String(options.sourcePermanent?.chosenColor || options.sourcePermanent?.card?.chosenColor || '').trim() || undefined,
+        chosenCardName: String(options.sourcePermanent?.chosenCardName || options.sourcePermanent?.card?.chosenCardName || options.sourcePermanent?.chosenName || '').trim() || undefined,
         saddled: Boolean(options.sourcePermanent?.saddled),
         tapped: options.sourcePermanent?.tapped === true,
       },

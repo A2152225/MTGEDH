@@ -22,6 +22,9 @@ const PREVENT_AND_REMOVE =
 
 // Batch 16: Phytohydra / Lichenthrope.
 const DAMAGE_BECOMES_COUNTERS = /^if damage would be dealt to ~, put that many ([+-]1\/[+-]1) counters on (?:it|~) instead$/;
+// B55: Soul-Scar Mage — noncombat damage from your sources becomes -1/-1 on an opponent's creature.
+const NONCOMBAT_DAMAGE_BECOMES_COUNTERS_ON_OPPONENT =
+  /^if a source you control would deal noncombat damage to a creature an opponent controls, put that many ([+-]1\/[+-]1) counters on that creature instead$/;
 
 export function collectDamageSideEffectSpecsFromState(state: unknown): ReplacementEffectSpec[] {
   const specs: ReplacementEffectSpec[] = [];
@@ -32,7 +35,7 @@ export function collectDamageSideEffectSpecsFromState(state: unknown): Replaceme
     if (!perm || typeof perm !== 'object' || !perm.card || perm.phasedOut === true) continue;
     const sourcePermanentId = String(perm.id || '').trim();
     const oracle = readCardOracleText(perm.card);
-    if (!sourcePermanentId || !oracle || !/would be dealt/i.test(oracle)) continue;
+    if (!sourcePermanentId || !oracle || !/would (?:be dealt|deal)/i.test(oracle)) continue;
     const sourceName = String(perm.card?.name || 'Unknown').trim();
     const base = { sourcePermanentId, sourceController: String(perm.controller || '').trim(), sourceName };
     const sentences = selfReferenceSentences(oracle, sourceName);
@@ -84,6 +87,20 @@ export function collectDamageSideEffectSpecsFromState(state: unknown): Replaceme
         });
       }
     });
+    for (const raw of oracle.toLowerCase().replace(/\u2019/g, "'").split(/\n+/)) {
+      const line = raw.replace(/\([^)]*\)/g, '').trim().replace(/\.$/, '');
+      const nc = line.match(NONCOMBAT_DAMAGE_BECOMES_COUNTERS_ON_OPPONENT);
+      if (!nc) continue;
+      specs.push({
+        ...base,
+        id: sourcePermanentId + ':noncombat-damage-becomes-counters-opponent',
+        event: 'damage-prevention-cost',
+        instead: {},
+        effectId: 'damage-becomes-counters-on-opponent-creature',
+        reason: 'damage_becomes_counters_on_opponent_creature',
+        metadata: { counter: nc[1], addCountersInstead: true, noncombatOnly: true, onOpponentCreature: true },
+      });
+    }
   }
   return specs;
 }

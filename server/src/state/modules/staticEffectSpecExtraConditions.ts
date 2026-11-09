@@ -22,6 +22,9 @@ export function parseExtraSelfCondition(raw: string): StaticEffectCondition | nu
   if (m) return { kind: 'color_most_common_among_permanents', color: m[1] } as StaticEffectCondition;
   m = c.match(/^an opponent controls an? (?:(white|blue|black|red|green) )?([a-z]+)$/);
   if (m) return { kind: 'opponent_controls_matching', ...(m[1] ? { color: m[1] } : {}), cardType: m[2] } as StaticEffectCondition;
+  // B72: Glacial Crasher — "there is a Mountain on the battlefield"
+  m = c.match(/^there is an? ([a-z]+) on the battlefield$/);
+  if (m) return { kind: 'battlefield_has_matching', cardType: m[1] } as StaticEffectCondition;
   m = c.match(/^(?:it|this creature|~)(?:'s| is) (white|blue|black|red|green)$/);
   if (m) return { kind: 'target_has_mana_color', color: m[1] } as StaticEffectCondition;
   const commander = parseCommanderCondition(c);

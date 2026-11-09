@@ -22,16 +22,36 @@ export function parseOpponentStateCondition(raw: string): StaticEffectCondition 
   if (m && num(m[1]) !== undefined) return { kind: 'opponent_life_at_most', amount: num(m[1]) } as any;
   m = c.match(/^(?:your opponents control no|no opponent controls an?|no opponents control any) ([a-z]+?)s?$/);
   if (m) return { kind: 'no_opponent_controls_matching', cardType: singular(m[1]) } as any;
+  // B69: Kavu Runner — "no opponent controls a white or blue creature"
+  m = c.match(/^no opponent controls an? (white|blue|black|red|green)(?: or (white|blue|black|red|green))? creatures?$/);
+  if (m) {
+    const colors = [m[1], m[2]].filter(Boolean) as string[];
+    return { kind: 'no_opponent_controls_matching', cardType: 'creature', colors } as any;
+  }
+  // B69: Windwright Mage — "an artifact card is in your graveyard"
+  m = c.match(/^(?:there (?:is|are) )?(?:an? )?([a-z]+) cards? (?:is |are )?in your graveyard$/);
+  if (m) return { kind: 'controller_graveyard_type_at_least', cardType: m[1], amount: 1 } as any;
+  // B69: Solitary Camel — Desert on board or in graveyard
+  if (/^you control an? desert or there is an? desert cards? in your graveyard$/.test(c)) {
+    return { kind: 'controller_desert_or_desert_in_graveyard' } as any;
+  }
   m = c.match(/^a library has (\w+) or fewer cards in it$/);
   if (m && num(m[1]) !== undefined) return { kind: 'any_library_at_most', amount: num(m[1]) } as any;
   if (/^an opponent's life total is less than half (?:their|his or her) starting life total$/.test(c)) return { kind: 'opponent_life_below_half_starting' } as any;
   m = c.match(/^an opponent has (\w+) or more poison counters$/);
   if (m && num(m[1]) !== undefined) return { kind: 'opponent_poison_at_least', amount: num(m[1]) } as any;
+  // B62: Viridian Betrayers
+  if (/^an opponent is poisoned$/.test(c)) return { kind: 'opponent_poison_at_least', amount: 1 } as any;
   m = c.match(/^you control exactly (\w+) creatures?$/);
   if (m && num(m[1]) !== undefined) return { kind: 'controller_creature_count_exactly', amount: num(m[1]) } as any;
   // "has defender as long as it's a Wall" (Mistform Wall).
   m = c.match(/^(?:it|this creature|~)(?:'s| is) an? ([a-z]+)$/);
   if (m && isCreatureTypeWord(m[1][0].toUpperCase() + m[1].slice(1))) return { kind: 'target_has_creature_type', creatureType: m[1] } as any;
+  // B71: Magmatic Channeler — "four or more instant and/or sorcery cards in your graveyard"
+  m = c.match(/^there (?:is|are) (\w+)( or more)? instant and\/or sorcery cards? in your graveyard$/);
+  if (m && num(m[1]) !== undefined && (m[2] || num(m[1]) === 1)) {
+    return { kind: 'controller_graveyard_type_at_least', cardType: 'instant_or_sorcery', amount: num(m[1]) } as any;
+  }
   m = c.match(/^there (?:is|are) (\w+)( or more)? ([a-z]+) cards? in your graveyard$/);
   if (m && num(m[1]) !== undefined && (m[2] || num(m[1]) === 1)) return { kind: 'controller_graveyard_type_at_least', cardType: m[3], amount: num(m[1]) } as any;
   return null;
@@ -54,11 +74,36 @@ export function evalOpponentStateCondition(condition: { kind?: string; cardType?
         const life = lifeOf(state, id);
         return typeof life === 'number' && life <= Number(condition.amount || 0);
       });
-    case 'no_opponent_controls_matching':
+    case 'no_opponent_controls_matching': {
+      const colors = Array.isArray((condition as any).colors) ? (condition as any).colors as string[] : undefined;
+      if (colors && colors.length > 0) {
+        return !!controller && !colors.some((color) => opponentControlsMatching(
+          { cardType: condition.cardType, color },
+          controller,
+          battlefield as any,
+          state,
+        ));
+      }
       return !!controller && !opponentControlsMatching({ cardType: condition.cardType }, controller, battlefield as any, state);
+    }
+    case 'controller_desert_or_desert_in_graveyard': {
+      if (!controller) return false;
+      const onBoard = battlefield.some((p: any) => String(p?.controller || '') === controller
+        && /\bdesert\b/i.test(String(p?.card?.type_line || p?.type_line || '')));
+      if (onBoard) return true;
+      const gy = state?.zones?.[controller]?.graveyard;
+      return Array.isArray(gy) && gy.some((card: any) => /\bdesert\b/i.test(String(card?.type_line || card?.card?.type_line || '')));
+    }
     case 'controller_graveyard_type_at_least': {
       const gy = state?.zones?.[controller]?.graveyard;
-      const re = new RegExp('\\b' + String(condition.cardType || '') + '\\b');
+      const cardType = String(condition.cardType || '').toLowerCase();
+      // B58: Descend - "permanent cards" means any permanent card type on the type line.
+      // B71: Magmatic Channeler - instant and/or sorcery.
+      const re = cardType === 'permanent'
+        ? /\b(?:creature|artifact|enchantment|land|planeswalker|battle|kindred|tribal)\b/
+        : cardType === 'instant_or_sorcery'
+          ? /\b(?:instant|sorcery)\b/
+          : new RegExp('\\b' + cardType.replace(/[^a-z]/g, '') + '\\b');
       const n = Array.isArray(gy) ? gy.filter((card: any) => re.test(String(card?.type_line || card?.card?.type_line || '').toLowerCase())).length : 0;
       return n >= Number(condition.amount || 1);
     }

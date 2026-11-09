@@ -46,6 +46,7 @@ import {
   isCardPlayableFromExile,
 } from './canRespondTopLibraryFlashExile.js';
 import { getOrComputeCachedSpellCandidates } from './canRespondPriorityCache.js';
+import { cardHasGrantedOffBattlefieldFlash } from '../offBattlefieldFlashGrants.js';
 
 function spellMatchesCandidateMode(card: any, mode: SharedSpellCandidateMode, grantsFlash: boolean): boolean {
   if (mode === 'main') {
@@ -277,7 +278,8 @@ function collectCastableSpellCandidates(
 
         let castMethod: SharedSpellCastMethod = 'normal';
         let manaCost = resolveCandidateManaCost(castCard);
-        let grantsFlash = false;
+        // B68: Teferi — creature cards you own off the battlefield have flash.
+        let grantsFlash = cardHasGrantedOffBattlefieldFlash(state, playerId, castCard);
         let unknownCostFallback = false;
         let exileAfterResolution = false;
         let leaveBattlefieldReplacementDestination: 'exile' | undefined;
@@ -298,7 +300,7 @@ function collectCastableSpellCandidates(
           if (!topSpellPermission.canCast) {
             continue;
           }
-          grantsFlash = topSpellPermission.grantsFlash === true;
+          grantsFlash = grantsFlash || topSpellPermission.grantsFlash === true;
           libraryPermissionCostMode = String((topSpellPermission as any).costMode || '').trim() || undefined;
           spendManaAsThoughAnyType = (topSpellPermission as any).spendManaAsThoughAnyType === true;
           if (libraryPermissionCostMode === 'without_paying_mana_cost') {
@@ -383,7 +385,7 @@ function collectCastableSpellCandidates(
             || durableCostMode === 'without_paying_mana_cost';
           spendManaAsThoughAnyType = (card as any)?.spendManaAsThoughAnyType === true
             || (durablePermission?.metadata as any)?.spendManaAsThoughAnyType === true;
-          grantsFlash = durableGrantsFlash;
+          grantsFlash = grantsFlash || durableGrantsFlash;
           exileCastPermissionId = String(durablePermission?.id || '').trim() || undefined;
           if (castWithoutPayingManaCost) {
             freeCastIntent = true;

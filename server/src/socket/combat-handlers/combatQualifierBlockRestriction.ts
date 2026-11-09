@@ -13,7 +13,9 @@
 export type QualifierBlockRestriction =
   | { kind: 'stat'; stat: 'power' | 'toughness'; comparison: 'at_least' | 'at_most'; amount: number; text: string }
   | { kind: 'type'; typeWord: string; text: string; negate?: boolean }
-  | { kind: 'keyword'; keyword: string; text: string };
+  | { kind: 'keyword'; keyword: string; text: string }
+  // B57: Jasmine Boreal — can't be blocked by creatures with abilities.
+  | { kind: 'has_abilities'; text: string };
 
 const NUMBER_WORDS: Record<string, number> = {
   zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -23,6 +25,7 @@ const SELF_PREFIX = "(?:^|[\\n.]\\s*)(?:this creature|this permanent|it|~)?\\s*c
 const STAT_RE = new RegExp(SELF_PREFIX + '(?:creatures|blockers) with (power|toughness) (\\d+|[a-z]+) or (greater|more|less)\\b', 'gi');
 const TYPE_RE = new RegExp(SELF_PREFIX + '(?:(artifact|enchantment|legendary|land|token|snow|colorless|multicolored) creatures|([a-z]+?)s)(?=\\s*(?:$|[.,\\n]))', 'gi');
 const KEYWORD_RE = new RegExp(SELF_PREFIX + 'creatures with (flying|reach|defender|first strike|deathtouch|haste|trample|horsemanship|shadow|menace|vigilance|lifelink|indestructible)\\b', 'gi');
+const HAS_ABILITIES_RE = new RegExp(SELF_PREFIX + 'creatures with abilities\\b', 'gi');
 
 // R35: "can't be blocked by non-Wall creatures" (Flow of Maggots): blockers lacking the type are barred.
 const NON_TYPE_RE = new RegExp(SELF_PREFIX + 'non-?([a-z]+) creatures\\b', 'gi');
@@ -62,6 +65,9 @@ export function parseQualifierBlockRestrictions(texts: readonly string[]): Quali
     }
     for (const m of text.matchAll(KEYWORD_RE)) {
       out.push({ kind: 'keyword', keyword: m[1], text: m[0].trim() });
+    }
+    for (const m of text.matchAll(HAS_ABILITIES_RE)) {
+      out.push({ kind: 'has_abilities', text: m[0].trim() });
     }
   }
   return out;
@@ -123,8 +129,15 @@ export function getQualifierBlockRestrictionReason(
       if (hit) return `Attacker ${restriction.text.replace(/^[\n.\s]+/, '')}`;
     } else if (restriction.kind === 'type') {
       if (blockerHasType(blocker, restriction.typeWord) !== Boolean(restriction.negate)) return `Attacker ${restriction.text.replace(/^[\n.\s]+/, '')}`;
-    } else if (blockerHasKeyword(blocker, restriction.keyword, stats.blockerAbilities)) {
-      return `Attacker ${restriction.text.replace(/^[\n.\s]+/, '')}`;
+    } else if (restriction.kind === 'keyword') {
+      if (blockerHasKeyword(blocker, restriction.keyword, stats.blockerAbilities)) {
+        return `Attacker ${restriction.text.replace(/^[\n.\s]+/, '')}`;
+      }
+    } else if (restriction.kind === 'has_abilities') {
+      const extras = stats.blockerAbilities || [];
+      const hasGranted = extras.some((a) => String(a || '').trim());
+      const oracle = normalize(String(blocker?.card?.oracle_text || blocker?.oracle_text || ''));
+      if (hasGranted || oracle.length > 0) return `Attacker ${restriction.text.replace(/^[\n.\s]+/, '')}`;
     }
   }
   return null;

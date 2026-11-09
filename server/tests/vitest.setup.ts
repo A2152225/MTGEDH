@@ -99,6 +99,9 @@ beforeAll(() => {
   sweepStaleTestDatabases();
   // Warm card lookup once per worker so integration tests do not pay rebuild cost mid-test.
   ensureLocalCardLookupIndexSync();
+  // Aux decks/users DB is :memory: under vitest (resolveAuxDbFile), but shared per worker.
+  // Tests that seed saved decks (including AI eval fixtures) must track+delete them —
+  // see tests/helpers/savedDeckTestCleanup.ts and tests/aux-db-isolation.meta.test.ts.
 });
 
 afterAll(() => {

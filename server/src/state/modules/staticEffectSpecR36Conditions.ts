@@ -51,6 +51,18 @@ function spellMatches(entry: any, match: string): boolean {
   return new RegExp('\\b' + match + '\\b').test(tl);
 }
 
+
+function permanentHasKeywordOrGrant(permanent: any, keyword: string): boolean {
+  const kw = String(keyword || '').trim().toLowerCase();
+  if (!kw) return false;
+  if (permanentMatchesScopeQualifier(permanent, { keyword: kw })) return true;
+  const lists = [permanent?.keywords, permanent?.card?.keywords, permanent?.grantedAbilities, permanent?.continuousAbilities];
+  for (const list of lists) {
+    if (Array.isArray(list) && list.some((e) => String(e || '').trim().toLowerCase() === kw)) return true;
+  }
+  return false;
+}
+
 /** Returns undefined for kinds this module does not own. */
 export function evalR36StaticCondition(condition: any, permanent: any, battlefield: readonly any[], state?: unknown): boolean | undefined {
   const st: any = state || {};
@@ -80,8 +92,11 @@ export function evalR36StaticCondition(condition: any, permanent: any, battlefie
       return list.some((e) => String(e?.casterId ?? e?.playerId ?? e?.controller ?? '') === controller && spellMatches(e, String(condition.match || '')));
     }
     case 'target_lacks_keywords': {
+      // Prefer conditionEval's hasKeyword path (resolver). This fallback is for callers that
+      // reach R36 directly — still check grantedAbilities / continuousAbilities, not only printed.
       const kws: string[] = Array.isArray(condition.keywords) ? condition.keywords : [];
-      return !kws.some((k) => permanentMatchesScopeQualifier(permanent, { keyword: k }));
+      if (kws.length === 0) return false;
+      return kws.every((k) => !permanentHasKeywordOrGrant(permanent, String(k || '')));
     }
     default:
       return undefined;

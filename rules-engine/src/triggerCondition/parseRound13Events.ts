@@ -43,14 +43,14 @@ export function parseRound13TriggerSentence(text: string, reparse: Reparse): Par
   if (adversary) return withFields(reparse('when this creature enters, ' + adversary[1]), { legacyRuntimeOnly: true });
 
   const thatTurnEnd = /^at the beginning of that turn's end step,\s*(.+)$/.exec(text);
-  if (thatTurnEnd) return withFields(reparse('at the beginning of the end step, ' + thatTurnEnd[1]), { legacyRuntimeOnly: true });
+  if (thatTurnEnd) return withFields(reparse('at the beginning of the end step, ' + thatTurnEnd[1]), { delayedNextTurn: true, delayedRider: true, whoseTurn: 'that_player' } as any);
 
   const discardThisWay = /^when(?:ever)? you discard (?:a|one or more)(?: nonland| land| creature)? cards? this way,\s*(.+)$/.exec(text);
   if (discardThisWay) return withFields(reparse('whenever you discard a card, ' + discardThisWay[1]), { legacyRuntimeOnly: true });
 
   const curseAttacked = /^whenever enchanted player is attacked,\s*(.+)$/.exec(text);
   if (curseAttacked) {
-    return withFields(reparse('whenever a creature attacks you or a planeswalker you control, ' + curseAttacked[1]), { attackedPlayer: undefined, legacyRuntimeOnly: true });
+    return withFields(reparse('whenever a creature attacks, ' + curseAttacked[1]), { attackedPlayer: 'enchanted' });
   }
   return null;
 }

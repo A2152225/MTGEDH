@@ -12,6 +12,7 @@ import { AIStrategy, AIDecisionType, type AIDecision, type AIDecisionContext, ty
 import { shouldPreserveInCombat } from './aiEngineValueSupport';
 import { playerIsLegalAttackTarget } from './playerInGameStatus';
 import { planAIBlocks } from './aiEngineBlockPlanning';
+import { aiRandom } from './aiRandom';
 
 type CombatDeckModifiers = { attackBias: number; preserveBias: number };
 type CombatValueEvaluation = { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number };
@@ -389,7 +390,7 @@ export function makeBasicAttackDecision(
     !archetypes.includes(SynergyArchetype.TOKENS) &&
     deps.shouldMakeMistake(difficulty)
   ) {
-    if (Math.random() < 0.5) {
+    if (aiRandom() < 0.5) {
       regularAttackers = regularAttackers.slice(0, Math.floor(regularAttackers.length / 2));
     } else {
       // Overcommit mistake: still avoid throwing small death-payoff creatures into blocks.

@@ -5,8 +5,9 @@ import { AddressInfo } from 'node:net';
 import { registerAuthHttpRoutes, validateRegisterBody } from '../src/auth/authHttp.js';
 import { isLoopbackRemoteAddress } from '../src/auth/loopback.js';
 import { registerDeckHttpRoutes } from '../src/decks/decksHttp.js';
-import { deleteDeck, getDeck, listPublicDecks } from '../src/db/decks.js';
+import { getDeck, listPublicDecks } from '../src/db/decks.js';
 import { deleteUserCascade } from '../src/db/users.js';
+import { createSavedDeckTracker } from './helpers/savedDeckTestCleanup.js';
 
 async function startTestApp(): Promise<{ server: Server; base: string }> {
   const app = express();
@@ -27,7 +28,8 @@ describe('auth + server decks HTTP v1', () => {
   let server: Server;
   let base = '';
   const createdUserIds: string[] = [];
-  const createdDeckIds: string[] = [];
+  const savedDecks = createSavedDeckTracker();
+  savedDecks.installAfterAll();
 
   beforeAll(async () => {
     const started = await startTestApp();
@@ -36,9 +38,6 @@ describe('auth + server decks HTTP v1', () => {
   });
 
   afterAll(async () => {
-    for (const id of createdDeckIds) {
-      try { deleteDeck(id); } catch { /* ignore */ }
-    }
     for (const id of createdUserIds) {
       try { deleteUserCascade(id); } catch { /* ignore */ }
     }
@@ -139,7 +138,7 @@ describe('auth + server decks HTTP v1', () => {
     });
     expect(created.res.status).toBe(200);
     const deckId = created.data.deckId as string;
-    createdDeckIds.push(deckId);
+    savedDecks.track(deckId);
 
     const pub = await json('/api/decks');
     expect(pub.res.status).toBe(200);
@@ -176,7 +175,8 @@ describe('auth + server decks HTTP v1', () => {
       headers: authHeader(owner.data.token),
       body: JSON.stringify({ name: 'Pub', text: '1 Command Tower', visibility: 'public' }),
     });
-    createdDeckIds.push(priv.data.deckId, pub.data.deckId);
+    savedDecks.track(priv.data.deckId);
+    savedDecks.track(pub.data.deckId);
 
     const updPriv = await json(`/api/decks/${priv.data.deckId}`, {
       method: 'PUT',
@@ -214,7 +214,7 @@ describe('auth + server decks HTTP v1', () => {
       headers: authHeader(owner.data.token),
       body: JSON.stringify({ name: 'Lockme', text: '1 Sol Ring', visibility: 'public' }),
     });
-    createdDeckIds.push(created.data.deckId);
+    savedDecks.track(created.data.deckId);
 
     const post = await json('/api/decks', {
       method: 'POST',
@@ -318,7 +318,7 @@ describe('auth + server decks HTTP v1', () => {
     });
     expect(created.res.status).toBe(200);
     const deckId = created.data.deckId as string;
-    createdDeckIds.push(deckId);
+    savedDecks.track(deckId);
 
     const otherEdit = await json(`/api/decks/${deckId}`, {
       method: 'PUT',

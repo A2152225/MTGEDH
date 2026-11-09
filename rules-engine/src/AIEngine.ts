@@ -176,6 +176,7 @@ import {
 } from './aiEngineStrategySupport';
 import { makeSacrificeDecision as makeSacrificeDecisionFromSupport } from './aiEngineSacrificeSupport';
 import { analyzeLibraryForPlanning } from './AIEngine-handlers/aiEngineAnalyzeLibraryForPlanning';
+import { aiRandom } from './aiRandom';
 
 /**
  * AI Strategy level determines decision-making sophistication
@@ -296,7 +297,7 @@ export class AIEngine {
     // 0.4 * (1-0.5)^2 = 0.10 (10% at difficulty 0.5)
     // 0.4 * (1-1)^2 = 0.00 (0% at difficulty 1.0)
     const mistakeRate = 0.4 * Math.pow(1 - difficulty, 2);
-    return Math.random() < mistakeRate;
+    return aiRandom() < mistakeRate;
   }
   
   /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseTriggerClause } from '../../rules-engine/src/triggerCondition/index.js';
+import { parseTriggerClause, triggerConditionMatches } from '../../rules-engine/src/triggerCondition/index.js';
 
 const cond = (text: string, name?: string) => (parseTriggerClause(text, name) as any)?.condition;
 
@@ -14,11 +14,21 @@ describe('round 16: mapped wordings', () => {
   });
 });
 
+
+describe('round 16: Adventure spell now IR', () => {
+  it('Whenever you cast an Adventure spell, draw a card.', () => {
+    const c = cond('Whenever you cast an Adventure spell, draw a card.');
+    expect(c).toMatchObject({ event: 'spell_cast', hasAdventure: true });
+    expect(c?.legacyRuntimeOnly).not.toBe(true);
+    const src = { controllerId: 'p1' } as any;
+    expect(triggerConditionMatches(c, { id: 's', typeLine: 'Creature - Human', controllerId: 'p1', hasAdventure: true } as any, src)).toBe(true);
+    expect(triggerConditionMatches(c, { id: 's', typeLine: 'Creature - Human', controllerId: 'p1' } as any, src)).toBe(false);
+  });
+});
 describe('round 16: legacy-runtime tail', () => {
   const legacy = [
     'Whenever you roll a 1, draw a card.',
     'Whenever you cast a spell with {X} in its mana cost, draw a card.',
-    'Whenever you cast an Adventure spell, draw a card.',
     "Whenever you cast a spell you don't own, draw a card.",
     'Whenever one or more nonland cards are milled, draw a card.',
     'Whenever you put one or more +1/+1 counters on a creature you control, draw a card.',

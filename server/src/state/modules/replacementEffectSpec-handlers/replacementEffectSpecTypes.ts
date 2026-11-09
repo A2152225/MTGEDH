@@ -150,6 +150,18 @@ export interface ReplacementDamageMatch {
   damageSourceColorIncludes?: string;
   /** Only apply when the damage event is noncombat damage. */
   noncombatDamageOnly?: boolean;
+  /** B64: damage source is any resolving/stacked spell (Rem Karolus / Plated Pegasus / Sulfuric Vapors). */
+  damageSourceIsSpell?: boolean;
+  /** B64: damage source permanent must not be the replacement source ("another source"). */
+  damageSourceIsNotSource?: boolean;
+  /** B64: receiving player is the player this Aura is attached to (Curse of Bloodletting). */
+  receivingPlayerIsEnchantedBySource?: boolean;
+  /** B64: receiver is the chosen player on the source, or a permanent they control (Sawhorn). */
+  receivingIsChosenPlayerOrTheirPermanent?: boolean;
+  /** B64: damage source permanent has this creature type (Kuja Wizard). */
+  damageSourceHasCreatureType?: string;
+  /** B65: damage source permanent has any counter (Raphael). */
+  damageSourceHasAnyCounter?: boolean;
 }
 
 export interface ReplacementLoseGameMatch {

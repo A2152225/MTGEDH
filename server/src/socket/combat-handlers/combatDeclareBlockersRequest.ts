@@ -34,6 +34,7 @@ import {
 } from "../../state/modules/staticEffectSpecAttackYouTax.js";
 import { collectBlockerSelfTax } from "../../../../shared/src/combatAttackerSelfTax.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
+import { enqueueBlockTapCreatureCostIfNeeded } from "./attackCostPermanentPaymentEnqueue.js";
 
 export function lookupBattlefieldPermanentName(battlefield: any[], permanentId: string): string {
   const perm = battlefield.find((entry: any) => entry?.id === permanentId);
@@ -651,6 +652,11 @@ export async function handleDeclareBlockers(
         code: "TOO_MANY_BLOCKERS",
         message: `${maximumViolation.name} can't be blocked by more than ${maximumViolation.max} creature${maximumViolation.max === 1 ? '' : 's'}.`,
       });
+      return;
+    }
+
+    // Hollow Warrior tap-creature block cost before mana/life block tax.
+    if (enqueueBlockTapCreatureCostIfNeeded(io, game, gameId, playerId, resolvedBlockers as any)) {
       return;
     }
 

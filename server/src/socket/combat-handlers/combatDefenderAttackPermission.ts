@@ -44,6 +44,12 @@ export function evaluateDefenderCondition(cond: string, source: any, battlefield
       && getEffectivePower(p, gameState) >= n);
   }
   if (cond === '~ has a counter on it') return Object.values(countersOf(source)).some((n) => Number(n) > 0);
+  // B75: Pillar of War — "as long as this creature is enchanted"
+  if (cond === '~ is enchanted' || cond === 'it is enchanted' || cond === "it's enchanted") {
+    const id = String(source?.id || '');
+    return !!id && battlefield.some((p) => p && String(p.attachedTo || '') === id
+      && /\baura\b/i.test(String(p.card?.type_line || '')));
+  }
   m = cond.match(/^you control an? ([a-z]+)$/);
   if (m) {
     const word = m[1];
@@ -60,6 +66,16 @@ export function evaluateDefenderCondition(cond: string, source: any, battlefield
 
 const SELF_RE = /^(?:as long as (.+?), )?(?:~|it) can attack as though it didn't have defender(?: as long as (.+))?$/;
 const GLOBAL_RE = /^(?:as long as (.+?), )?(?:creatures you control|each creature you control) can attack as though (?:they|it) didn't have defender$/;
+// B72: Guardians of Oboro — "Modified creatures you control can attack as though they didn't have defender."
+const MODIFIED_RE = /^(?:as long as (.+?), )?modified creatures you control can attack as though (?:they|it) didn't have defender$/;
+
+function permanentIsModified(permanent: any, battlefield: any[]): boolean {
+  if (Object.values(countersOf(permanent)).some((n) => Number(n) > 0)) return true;
+  const id = String(permanent?.id || '');
+  if (!id) return false;
+  return (battlefield || []).some((p) => p && String(p.attachedTo || '') === id
+    && /\b(aura|equipment)\b/i.test(String(p.card?.type_line || '')));
+}
 
 /**
  * True when some static ability lets `permanent` attack despite defender.
@@ -124,6 +140,9 @@ function canAttackDespiteDefenderUnrestricted(permanent: any, battlefield: any[]
       if (s.includes(':')) continue;
       let m = s.match(GLOBAL_RE);
       if (m && (!m[1] || evaluateDefenderCondition(m[1], perm, battlefield, controllerId, gameState))) return true;
+      m = s.match(MODIFIED_RE);
+      if (m && permanentIsModified(permanent, battlefield)
+        && (!m[1] || evaluateDefenderCondition(m[1], perm, battlefield, controllerId, gameState))) return true;
       m = s.match(SELF_RE);
       const selfCond = m ? (m[1] || m[2]) : undefined;
       if (m && perm.id === permanent?.id

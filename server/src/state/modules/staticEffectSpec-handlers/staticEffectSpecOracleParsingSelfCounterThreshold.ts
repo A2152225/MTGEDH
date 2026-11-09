@@ -4,17 +4,22 @@
 //   "As long as this creature has five or more counters on it, it has flying and is an Angel in addition to its other types." (Hero of Bretagard)
 //   "This creature has trample as long as it has ten or more +1/+1 counters on it." (Primordial Hydra)
 //   "This creature gets +3/+0 as long as it has three or more oil counters on it." (Armored Scrapgorger)
-// Condition: source_counter_at_least (counterType 'any' = total of all kinds).
+// B72: "or fewer" + Otherwise (Evolved Spinoderm).
+// Condition: source_counter_at_least / source_counter_at_most (counterType 'any' = total of all kinds).
 // Public entry symbols: pushSelfCounterThresholdSpecs.
 
 import type { StaticEffectGrant, StaticEffectSpec } from '../staticEffectSpecTypes.js';
 import { buildSpec, parseAbilitiesFromTail, type StaticEffectSpecSource } from './staticEffectSpecOracleParseHelpers.js';
+import { splitOtherwiseClause, parseOtherwiseGrant } from './staticEffectSpecOtherwiseClause.js';
 
 const NUM: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, fifteen: 15, twenty: 20 };
 const SELF = '(this [a-z]+|~|[^,.]+?)';
-const COUNT = '(\\w+) or more (?:([a-z0-9+\\/-]+) )?counters on (?:it|him|her)';
-const LEAD = new RegExp('^as long as ' + SELF + ' has ' + COUNT + ', (?:it|he|she) (.+)$');
-const TRAIL = new RegExp('^' + SELF + ' ((?:has|gets) .+?) as long as (?:it|he|she) has ' + COUNT + '$');
+const COUNT_MORE = '(\\w+) or more (?:([a-z0-9+\\/-]+) )?counters on (?:it|him|her)';
+const COUNT_FEWER = '(\\w+) or fewer (?:([a-z0-9+\\/-]+) )?counters on (?:it|him|her)';
+const LEAD_MORE = new RegExp('^as long as ' + SELF + ' has ' + COUNT_MORE + ', (?:it|he|she) (.+)$');
+const TRAIL_MORE = new RegExp('^' + SELF + ' ((?:has|gets) .+?) as long as (?:it|he|she) has ' + COUNT_MORE + '$');
+const LEAD_FEWER = new RegExp('^as long as ' + SELF + ' has ' + COUNT_FEWER + ', (?:it|he|she) (.+)$');
+const TRAIL_FEWER = new RegExp('^' + SELF + ' ((?:has|gets) .+?) as long as (?:it|he|she) has ' + COUNT_FEWER + '$');
 
 function parseTail(tail: string): StaticEffectGrant | null {
   let rest = tail.trim();
@@ -45,22 +50,38 @@ export function pushSelfCounterThresholdSpecs(specs: StaticEffectSpec[], source:
   const short = name.split(',')[0].trim();
   const lines = String(oracle || '').replace(/[\u2019]/g, "'").split(/\n+/).map((l) => l.replace(/\([^)]*\)/g, '').trim());
   lines.forEach((raw, index) => {
-    const line = raw.toLowerCase().replace(/^[a-z ]+ \u2014 /, '').replace(/\.$/, '').replace(/\b(it|he|she)'s /g, '$1 is ');
+    const [main, otherwiseRest] = splitOtherwiseClause(raw.toLowerCase());
+    const line = main.replace(/^[a-z ]+ \u2014 /, '').replace(/\.$/, '').replace(/\b(it|he|she)'s /g, '$1 is ');
     let subject = '', n = '', kind = '', tail = '';
-    const lead = LEAD.exec(line);
-    if (lead) { [, subject, n, kind, tail] = lead; } else {
-      const trail = TRAIL.exec(line);
-      if (!trail) return;
-      [, subject, tail, n, kind] = trail;
-    }
+    let atMost = false;
+    const leadMore = LEAD_MORE.exec(line);
+    const trailMore = leadMore ? null : TRAIL_MORE.exec(line);
+    const leadFewer = (!leadMore && !trailMore) ? LEAD_FEWER.exec(line) : null;
+    const trailFewer = (!leadMore && !trailMore && !leadFewer) ? TRAIL_FEWER.exec(line) : null;
+    if (leadMore) { [, subject, n, kind, tail] = leadMore; }
+    else if (trailMore) { [, subject, tail, n, kind] = trailMore; }
+    else if (leadFewer) { [, subject, n, kind, tail] = leadFewer; atMost = true; }
+    else if (trailFewer) { [, subject, tail, n, kind] = trailFewer; atMost = true; }
+    else return;
     if (!/^this [a-z]+$/.test(subject) && subject !== '~' && subject !== name && subject !== short) return;
     const amount = NUM[n] ?? Number(n);
     if (!Number.isFinite(amount) || amount <= 0) return;
     const grant = parseTail(tail);
     if (!grant) return;
     const counterType = kind || 'any';
-    if (specs.some((s) => String(s.sourcePermanentId) === String(source.sourcePermanentId) && (s.condition as any)?.kind === 'source_counter_at_least'
+    const condKind = atMost ? 'source_counter_at_most' : 'source_counter_at_least';
+    if (specs.some((s) => String(s.sourcePermanentId) === String(source.sourcePermanentId) && (s.condition as any)?.kind === condKind
       && Number((s.condition as any)?.amount) === amount && String((s.condition as any)?.counterType) === counterType)) return;
-    specs.push(buildSpec(source, 'self-counter-threshold:' + index, { kind: 'self' }, grant, { kind: 'source_counter_at_least', counterType, amount } as any));
+    const condition = { kind: condKind, counterType, amount } as any;
+    specs.push(buildSpec(source, 'self-counter-threshold:' + index, { kind: 'self' }, grant, condition));
+    if (otherwiseRest) {
+      const otherwiseGrant = parseOtherwiseGrant(otherwiseRest, 'it|he|she|this [a-z]+|~');
+      if (otherwiseGrant) {
+        specs.push({
+          ...buildSpec(source, 'self-counter-threshold-otherwise:' + index, { kind: 'self' }, otherwiseGrant, condition),
+          conditionNegated: true,
+        });
+      }
+    }
   });
 }

@@ -86,12 +86,15 @@ export function parseAttachmentGrantedKeywordsFromOracle(oracleText: string): st
   const oracle = String(oracleText || '');
   const granted = new Set<string>();
 
+  // B72: Consecrate Land / Darksteel Garrison — enchanted/equipped/fortified land (and other hosts).
+  const verb = '(?:equipped|enchanted|fortified)';
+  const host = '(?:creature|land|permanent|artifact|enchantment|planeswalker|equipment|vehicle)';
   const hasGainPatterns = [
-    /(?:equipped|enchanted)\s+creature\s+has\s+([^.]+)/gi,
-    /(?:equipped|enchanted)\s+creature\s+gains?\s+([^.]+)/gi,
-    /(?:equipped|enchanted)\s+creature\s+gets?\s+[+\-]?\d*\s*\/\s*[+\-]?\d*\s+and\s+(?:has|gains?)\s+([^.]+)/gi,
+    new RegExp(`${verb}\\s+${host}\\s+has\\s+([^.]+)`, 'gi'),
+    new RegExp(`${verb}\\s+${host}\\s+gains?\\s+([^.]+)`, 'gi'),
+    new RegExp(`${verb}\\s+${host}\\s+gets?\\s+[+\\-]?\\d*\\s*\\/\\s*[+\\-]?\\d*\\s+and\\s+(?:has|gains?)\\s+([^.]+)`, 'gi'),
     // "gets +4/+4, has flying and first strike, and is an Angel…"
-    /(?:equipped|enchanted)\s+creature\s+gets?\s+[+\-]?\d+\s*\/\s*[+\-]?\d+\s*,\s*(?:and\s+)?(?:has|gains?)\s+([^.]+)/gi,
+    new RegExp(`${verb}\\s+${host}\\s+gets?\\s+[+\\-]?\\d+\\s*\\/\\s*[+\\-]?\\d+\\s*,\\s*(?:and\\s+)?(?:has|gains?)\\s+([^.]+)`, 'gi'),
   ];
 
   for (const pattern of hasGainPatterns) {
@@ -102,7 +105,7 @@ export function parseAttachmentGrantedKeywordsFromOracle(oracleText: string): st
     }
   }
 
-  const isPattern = /(?:equipped|enchanted)\s+creature\s+is\s+([^.]+)/gi;
+  const isPattern = /(?:equipped|enchanted|fortified)\s+(?:creature|land|permanent|artifact|enchantment|planeswalker|equipment|vehicle)\s+is\s+([^.]+)/gi;
   isPattern.lastIndex = 0;
   let isMatch: RegExpExecArray | null;
   while ((isMatch = isPattern.exec(oracle)) !== null) {

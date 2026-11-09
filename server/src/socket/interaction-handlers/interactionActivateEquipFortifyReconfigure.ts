@@ -12,6 +12,7 @@ import { energyCostError, equipLifeCostError, equipSacrificeCandidates, parseEne
 import { parseAlternativeCostOptions } from "../../state/modules/alternativeCostOptions.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { parseEquipAbilitiesFromOracle, permanentMatchesEquipQualifier } from "../../../../shared/src/equipAbilities.js";
+import { cheaperEquipCost, getGrantedEquipmentEquipCost } from "../../state/modules/equipmentEquipCostGrants.js";
 import { appendEvent } from "../../db";
 import { isCreatureNow } from "../../state/creatureTypeNow.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
@@ -77,7 +78,12 @@ export async function tryHandleActivateEquipFortifyReconfigure(
     }
     
     const selectedEquip = equipAbilities[selectedAbilityIndex] || equipAbilities[0] || null;
-    const equipCost = selectedEquip?.cost || "{0}";
+    let equipCost = selectedEquip?.cost || "{0}";
+    {
+      const grantedEquip = getGrantedEquipmentEquipCost(game.state, String(pid));
+      const reduced = cheaperEquipCost(equipCost, grantedEquip);
+      if (reduced) equipCost = reduced;
+    }
     const equipQualifier = selectedEquip?.qualifier || { kind: 'any' as const, raw: null };
     const b33EquipLife = equipLifeCostError(game.state, String(pid), equipCost);
     if (b33EquipLife) {

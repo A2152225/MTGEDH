@@ -17,12 +17,13 @@ import { markPlayerOutOfPriority } from './priorityEligibility.js';
 import { removeLeavingPlayerGameObjects } from './playerLeavingGame.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 
-export type B19DrawKind = 'skip' | 'exile_face_up' | 'return_from_graveyard' | 'opponent_redirect';
+export type B19DrawKind = 'skip' | 'exile_face_up' | 'exile_face_down' | 'return_from_graveyard' | 'opponent_redirect';
 export interface B19DrawSource { kind: B19DrawKind; sourceId: string; controller: string; sourceName: string }
 
 const PATTERNS: Array<[RegExp, B19DrawKind]> = [
   [/if a player would draw a card, that player skips that draw instead/, 'skip'],
   [/if a player would draw a card, that player exiles that card face up instead/, 'exile_face_up'],
+  [/if you would draw a card, exile the top card of your library face down instead/, 'exile_face_down'],
   [/if you would draw a card, return a card from your graveyard to your hand instead/, 'return_from_graveyard'],
   [/if an opponent would draw a card except the first one they draw in each of their draw steps, instead that player skips that draw and you draw a card/, 'opponent_redirect'],
 ];
@@ -57,6 +58,23 @@ function syncLibrary(ctx: GameContext, pid: string, lib: KnownCardRef[]): void {
   ctx.libraries.set(pid as PlayerID, lib);
   const zone = ctx.state.zones?.[pid];
   if (zone) { Reflect.set(zone, 'library', lib); zone.libraryCount = lib.length; }
+}
+
+function exileTopFaceDown(ctx: GameContext, pid: string, src: B19DrawSource): boolean {
+  const zones: any = (ctx.state as any)?.zones?.[pid];
+  if (!zones) return false;
+  const library: any[] = Array.isArray(zones.library) ? zones.library : [];
+  if (!library.length) return false;
+  const card = library.pop();
+  zones.libraryCount = library.length;
+  const exile: unknown[] = Array.isArray(zones.exile) ? zones.exile : [];
+  exile.push({
+    ...card, zone: 'exile', faceUp: false, faceDown: true,
+    exiledWithSourceId: src.sourceId, exiledBy: pid,
+  });
+  Reflect.set(zones, 'exile', exile);
+  zones.exileCount = exile.length;
+  return true;
 }
 
 function exileTop(ctx: GameContext, pid: string, src: B19DrawSource): boolean {
@@ -191,6 +209,12 @@ export function applyBatch19DrawInstead(
         exileTop(ctx, playerId, src);
         record(ctx, playerId, src, 'exiled the top card face up instead of drawing');
         return true;
+      case 'exile_face_down': {
+        if (playerId !== src.controller) break;
+        exileTopFaceDown(ctx, playerId, src);
+        record(ctx, playerId, src, 'exiled the top card face down instead of drawing');
+        return true;
+      }
       case 'return_from_graveyard': {
         if (playerId !== src.controller) break;
         const r = returnFromGraveyard(ctx, playerId, src);

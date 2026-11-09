@@ -66,6 +66,10 @@ describe('resolutionChoicePrimitives', () => {
       maxValue: 10,
       xCount: 2,
       affordableXHint: undefined,
+      costPerX: undefined,
+      mandatory: false,
+      asEntersPayAnyLife: false,
+      cancellable: false,
     });
   });
 

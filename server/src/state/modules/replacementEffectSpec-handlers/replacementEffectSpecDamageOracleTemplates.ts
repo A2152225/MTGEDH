@@ -11,6 +11,8 @@ import type { ReplacementEffectSpec } from './replacementEffectSpecTypes.js';
 import { BATCH16_DAMAGE_TEMPLATES } from '../replacementBatch16LongTail.js';
 import { collectBatch21DamageScalingSpecs } from '../replacementBatch21DamageScaling.js';
 import { collectBatch23DamageCapSpecs, damageSourceIsInstantOrSorcerySpell } from '../replacementBatch23DamageCap.js';
+import { collectBatch64DamageReplacementSpecs, damageSourceIsAnySpell, readSpellColorsForDamageSource } from '../replacementBatch64DamageReplacements.js';
+import { collectBatch65DamageReplacementSpecs } from '../replacementBatch65DamageReplacements.js';
 import { normalizeOraclePatternText, readCardOracleText } from './replacementEffectSpecOracleTextUtils.js';
 import { collectOraclePatternDamagePreventionSpecsFromState, matchesDamagePreventionExtras } from './replacementEffectSpecDamagePreventionOracleTemplates.js';
 
@@ -184,6 +186,16 @@ export function collectOraclePatternDamageReplacementSpecsFromState(state: unkno
 
     specs.push(...collectBatch21DamageScalingSpecs(oracle, { sourcePermanentId, sourceController, sourceName, counters: permRecord.counters }, state));
     specs.push(...collectBatch23DamageCapSpecs(oracle, { sourcePermanentId, sourceController, sourceName }));
+    specs.push(...collectBatch64DamageReplacementSpecs(readCardOracleText(permRecord.card), {
+      sourcePermanentId,
+      sourceController,
+      sourceName,
+    }));
+    specs.push(...collectBatch65DamageReplacementSpecs(readCardOracleText(permRecord.card), {
+      sourcePermanentId,
+      sourceController,
+      sourceName,
+    }));
 
     const preventAllBut = parsePreventAllButAnotherTypeDamageSpec(oracle);
     if (preventAllBut) {
@@ -441,6 +453,62 @@ export function overlaySpecsMatchDamage(
   }
   if (match.damageSourceIsInstantOrSorcerySpell === true
     && !damageSourceIsInstantOrSorcerySpell(state, String(input.damageSourcePermanentId || ''))) return false;
+  if (match.damageSourceIsSpell === true
+    && !damageSourceIsAnySpell(state, String(input.damageSourcePermanentId || ''))) return false;
+  if (match.damageSourceIsNotSource === true) {
+    const damageSourceId = String(input.damageSourcePermanentId || '').trim();
+    if (!damageSourceId || damageSourceId === String(spec.sourcePermanentId || '').trim()) return false;
+  }
+  if (match.receivingPlayerIsEnchantedBySource === true) {
+    if (String(input.targetPermanentId || '').trim()) return false;
+    const auraId = String(spec.sourcePermanentId || '').trim();
+    if (!auraId || !state) return false;
+    const aura = findBattlefieldPermanent(state, auraId);
+    const enchanted = String((aura as { attachedTo?: string; enchantedPlayerId?: string } | undefined)?.attachedTo
+      || (aura as { enchantedPlayerId?: string } | undefined)?.enchantedPlayerId || '').trim();
+    if (!enchanted || receiver !== enchanted) return false;
+  }
+  if (match.receivingIsChosenPlayerOrTheirPermanent === true) {
+    const sourcePerm = findBattlefieldPermanent(state || {}, String(spec.sourcePermanentId || '').trim()) as {
+      chosenPlayer?: string; chosenPlayerId?: string; card?: { chosenPlayer?: string };
+    } | undefined;
+    const chosen = String(
+      sourcePerm?.chosenPlayer || sourcePerm?.chosenPlayerId || sourcePerm?.card?.chosenPlayer || '',
+    ).trim();
+    if (!chosen) return false;
+    const targetPermanentId = String(input.targetPermanentId || '').trim();
+    if (!targetPermanentId) {
+      if (receiver !== chosen) return false;
+    } else {
+      if (!state) return false;
+      const target = findBattlefieldPermanent(state, targetPermanentId);
+      if (!target || String(target.controller || '') !== chosen) return false;
+    }
+  }
+  if (match.damageSourceHasCreatureType) {
+    const damageSourceId = String(input.damageSourcePermanentId || '').trim();
+    if (!damageSourceId || !state) return false;
+    const dmgSource = findBattlefieldPermanent(state, damageSourceId);
+    if (!dmgSource) return false;
+    const wanted = String(match.damageSourceHasCreatureType).toLowerCase();
+    if (!permanentHasCreatureTypeNow(dmgSource as any, wanted)) {
+      const tl = String((dmgSource as any)?.card?.type_line || (dmgSource as any)?.type_line || '').toLowerCase();
+      if (!tl.split(/[^a-z0-9/-]+/).includes(wanted)) return false;
+    }
+  }
+  if (match.damageSourceHasAnyCounter === true) {
+    const damageSourceId = String(input.damageSourcePermanentId || '').trim();
+    if (!damageSourceId || !state) return false;
+    const dmgSource = findBattlefieldPermanent(state, damageSourceId) as { counters?: Record<string, unknown> } | undefined;
+    if (!dmgSource) return false;
+    const counters = dmgSource.counters || {};
+    const hasCounter = Object.values(counters).some((v) => Number(v) > 0);
+    if (!hasCounter) return false;
+  }
+  if (match.damageSourceColorIncludes && match.damageSourceIsSpell === true) {
+    const colors = readSpellColorsForDamageSource(state, String(input.damageSourcePermanentId || ''));
+    if (!colors.includes(String(match.damageSourceColorIncludes).toUpperCase())) return false;
+  }
   if (match.damageSourceIsEnchantedBySource === true) {
     const damageSourceId = String(input.damageSourcePermanentId || '').trim();
     const auraId = String(spec.sourcePermanentId || '').trim();
@@ -468,6 +536,8 @@ export function overlaySpecsMatchDamage(
       const targetPermanent = findBattlefieldPermanent(state, targetPermanentId);
       if (!targetPermanent) return false;
       if (String(targetPermanent.controller || '') !== sourceController) return false;
+      if (match.receivingPermanentIsNotSource === true
+        && targetPermanentId === String(spec.sourcePermanentId || '').trim()) return false;
       if (typeTokens.length > 0 && !permanentMatchesDamageTypeTokens(targetPermanent, typeTokens)) {
         return false;
       }

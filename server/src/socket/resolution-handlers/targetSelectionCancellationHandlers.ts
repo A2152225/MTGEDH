@@ -26,6 +26,7 @@ import type {
 import { emitWardCounterOutcome, tryCounterByWard } from "../resolutionWardUtils.js";
 import { broadcastGame, getPlayerName } from "../util.js";
 import { emitPendingCastPaymentIfNeeded } from "./resolutionPendingCastPaymentPrompt.js";
+import { handleAttackCostPermanentPaymentCancelled } from "./attackCostPermanentPaymentHandlers.js";
 
 /** Cancellation-aware handling for special TARGET_SELECTION steps. */
 export function handleCancelledTargetSelectionResponse(
@@ -100,6 +101,12 @@ export function handleCancelledTargetSelectionResponse(
       });
       return;
     }
+  }
+
+  // Attack permanent-cost decline: remove those attackers and resume with the rest.
+  if (stepAny?.attackCostPermanentPayment === true) {
+    void handleAttackCostPermanentPaymentCancelled(io, game, gameId, step, response);
+    return;
   }
 
   // Activated-ability additional-cost: sacrifice selection cancellation = activation cancelled.

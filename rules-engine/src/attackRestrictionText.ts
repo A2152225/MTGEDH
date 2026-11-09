@@ -90,6 +90,8 @@ export function parseSelfCombatRestrictions(oracleText: string): SelfCombatRestr
   let mustAttackEachCombat = false;
   for (const sentence of splitRestrictionSentences(normalized)) {
     if (!/\battacks each combat if able\b/i.test(sentence)) continue;
+    // B58: conditional must-attack ("unless you control another Ally") is owned by attackRequirementTextExtras.
+    if (/\bunless\b/i.test(sentence)) continue;
     if (OTHER_MUST_ATTACK_SUBJECT.test(sentence) && !/^(?:this creature|this permanent|it)\b/i.test(sentence)) {
       continue;
     }
@@ -177,10 +179,25 @@ export function permanentHasMustAttackRequirement(
       return true;
     }
     const sourceController = String(source?.controller || '').trim();
-    if (
+    // B66: Goblin Rabblemaster — "Other Goblin creatures you control attack each combat if able."
+    // Checked before the generic "creatures you control attack…" pattern, which would also match.
+    const otherType = text.match(
+      /other ([a-z][a-z'-]*) creatures? you control\s+attacks?\s+each combat if able/i,
+    );
+    if (sourceController && sourceController === attackingPlayerId && otherType) {
+      const sourceId = String(source?.id || '').trim();
+      const selfId = String(permanent?.id || '').trim();
+      if (!(sourceId && selfId && sourceId === selfId)) {
+        const wanted = String(otherType[1] || '').toLowerCase().replace(/s$/, '');
+        const tl = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+        if (wanted && new RegExp(`\\b${wanted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(tl)) {
+          return true;
+        }
+      }
+    } else if (
       sourceController &&
       sourceController === attackingPlayerId &&
-      /creatures you control\s+attack(?:s)?\s+each combat if able/i.test(text)
+      /(?<!other [a-z][a-z'-]* )creatures you control\s+attack(?:s)?\s+each combat if able/i.test(text)
     ) {
       return true;
     }

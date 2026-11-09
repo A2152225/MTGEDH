@@ -14,7 +14,7 @@ type Parsed = { condition: TriggerConditionIR; effect: string };
 type Reparse = (sentence: string) => Parsed | null;
 
 const SELF = '(?:this (?:creature|permanent|card|artifact|enchantment|land|saga)|~|it)';
-const ORDINALS: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7 };
+const ORDINALS: Record<string, number> = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10 };
 
 function withFields(base: Parsed | null, fields: Record<string, unknown>): Parsed | null {
   return base ? { ...base, condition: { ...base.condition, ...fields } as TriggerConditionIR } : null;
@@ -25,16 +25,31 @@ export function parseRound12TriggerSentence(text: string, reparse: Reparse): Par
   if (noRecipient) {
     return withFields(reparse(noRecipient[1] + ' ' + noRecipient[2] + ' deals combat damage to a player, ' + noRecipient[3]), { event: 'deals_combat_damage' });
   }
+  const dealtToYou = /^(?:whenever|when)\s+combat damage is dealt to you,\s*(.+)$/.exec(text);
+  if (dealtToYou) {
+    return withFields(reparse('whenever a creature deals combat damage to a player, ' + dealtToYou[1]), { damagedPlayer: 'you' });
+  }
 
   const attacksWhile = /^(whenever|when)\s+(.+?)\s+attacks while you control (.+?),\s*(.+)$/.exec(text);
   if (attacksWhile) {
     return reparse(attacksWhile[1] + ' ' + attacksWhile[2] + ' attacks, if you control ' + attacksWhile[3] + ', ' + attacksWhile[4]);
   }
 
-  const nthCounter = new RegExp('^when the (first|second|third|fourth|fifth|sixth|seventh) ([a-z-]+) counter is put on (' + SELF + '),\\s*(.+)$').exec(text);
+  const nthCounter = new RegExp('^when the (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth) ([a-z+0-9/-]+) counter is put on (' + SELF + '|this enchantment|this permanent|this creature|~),\\s*(.+)$').exec(text);
   if (nthCounter) {
     return withFields(reparse('whenever a counter is put on ' + nthCounter[3] + ', ' + nthCounter[4]), {
-      placedCounter: nthCounter[2], counterOrdinal: ORDINALS[nthCounter[1]], legacyRuntimeOnly: true,
+      placedCounter: nthCounter[2], counterOrdinal: ORDINALS[nthCounter[1]] ?? ({ eighth: 8, ninth: 9, tenth: 10 } as Record<string, number>)[nthCounter[1]],
+    });
+  }
+  const nthPlus = /^when the (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth) \+1\/\+1 counter is put on (.+?),\s*(.+)$/.exec(text);
+  if (nthPlus) {
+    const ord = ORDINALS[nthPlus[1]] ?? ({ eighth: 8, ninth: 9, tenth: 10 } as Record<string, number>)[nthPlus[1]];
+    const viaName = withFields(reparse('whenever a +1/+1 counter is put on ' + nthPlus[2] + ', ' + nthPlus[3]), {
+      placedCounter: '+1/+1', counterOrdinal: ord,
+    });
+    if (viaName) return viaName;
+    return withFields(reparse('whenever a +1/+1 counter is put on this permanent, ' + nthPlus[3]), {
+      placedCounter: '+1/+1', counterOrdinal: ord,
     });
   }
 
@@ -51,9 +66,13 @@ export function parseRound12TriggerSentence(text: string, reparse: Reparse): Par
     return withFields(reparse('whenever you discard a card, ' + oppDiscard[1]), { causedByOpponent: true, legacyRuntimeOnly: true });
   }
 
-  const nextSpell = /^when you next cast (.+?) spells? this turn,\s*(.+)$/.exec(text);
+  const castThatSpell = /^when you cast that spell,\s*(.+)$/.exec(text);
+  if (castThatSpell) {
+    return withFields(reparse('whenever you cast a spell, ' + castThatSpell[1]), { thatSpell: true, nextSpellThisTurn: true } as any);
+  }
+  const nextSpell = /^when you next cast (.+?) spells?(?: of that type)? this turn,\s*(.+)$/.exec(text);
   if (nextSpell) {
-    return withFields(reparse('whenever you cast ' + nextSpell[1] + ' spell, ' + nextSpell[2]), { nextSpellThisTurn: true, legacyRuntimeOnly: true });
+    return withFields(reparse('whenever you cast ' + nextSpell[1] + ' spell, ' + nextSpell[2]), { nextSpellThisTurn: true, ...(/ of that type this turn/.test(text) ? { ofChosenType: true } : {}) } as any);
   }
   return null;
 }

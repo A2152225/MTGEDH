@@ -11,6 +11,7 @@
 export type TriggerConditionEvent =
   | 'dies'
   | 'put_into_graveyard'
+  | 'put_into_library'
   | 'enters'
   | 'attacks'
   | 'blocks'
@@ -77,13 +78,16 @@ export type TriggerConditionEvent =
   | 'plays_land'
   | 'unlocks_door'
   | 'turned_face_up'
+  | 'phases_in'
+  /** Standalone "When you/they do" rider; parent-scheduled, not a permanent detector. */
+  | 'reflexive_do'
   | 'class_level'
   | 'tapped_for_mana'
   | 'controls_none'
   | 'room_fully_unlocked'
   | 'performs';
 
-export type TriggerControllerRelation = 'any' | 'you' | 'not_you';
+export type TriggerControllerRelation = 'any' | 'you' | 'not_you' | 'enchanted_player';
 
 export type TriggerSourceRelation =
   | 'any'
@@ -95,10 +99,10 @@ export type TriggerSourceRelation =
 
 export type TriggerCastZone = 'hand' | 'library' | 'exile' | 'graveyard' | 'not_hand';
 
-export type TriggerOrdinal = 'first' | 'second' | 'third' | 'fourth';
+export type TriggerOrdinal = 'first' | 'second' | 'third' | 'fourth' | 'fifth' | 'sixth' | 'seventh' | 'eighth' | 'ninth' | 'tenth' | 'twelfth';
 
 /** 'self': the spell targets the trigger source (heroic). */
-export type TriggerTargetRelation = 'you' | 'opponent' | 'self' | 'creature' | 'creature_you_control';
+export type TriggerTargetRelation = 'you' | 'opponent' | 'self' | 'self_only' | 'creature' | 'creature_you_control' | 'creature_you_dont_control' | 'permanent' | 'you_or_creature_you_control' | 'opponent_or_creature_opponent_controls' | 'artifact_or_land' | 'single_creature_you_control' | 'single_creature_other' | 'creature_or_vehicle_you_control';
 
 export type TriggerWhoseTurn =
   | 'you'
@@ -108,7 +112,9 @@ export type TriggerWhoseTurn =
   | 'enchanted_controller'
   | 'exiled_card_owner'
   | 'monarch'
-  | 'chosen_player';
+  | 'chosen_player'
+  | 'each_other_player'
+  | 'that_player';
 
 export type TriggerTokenRestriction = 'any' | 'token' | 'nontoken';
 
@@ -147,6 +153,8 @@ export interface TriggerSubjectFilter {
   readonly stats?: readonly { readonly stat: 'power' | 'toughness' | 'mana_value'; readonly op: 'gte' | 'lte'; readonly value: number }[];
   /** "of the chosen type". */
   readonly chosenType?: boolean;
+  /** "of the chosen color". */
+  readonly chosenColor?: boolean;
   /** "dealt damage by this creature / equipped creature this turn". */
   readonly dealtDamageBy?: 'source' | 'equipped';
   readonly faceDown?: boolean;
@@ -155,6 +163,12 @@ export interface TriggerSubjectFilter {
   readonly powerAboveBase?: boolean;
   /** "modified" (CR 700.9): counters, Equipment, or an Aura its controller controls. Needs subject.modified. */
   readonly modified?: boolean;
+  readonly suspected?: boolean;
+  readonly doubleFaced?: boolean;
+  readonly excludeBasicLand?: boolean;
+  readonly keywordsWithAny?: readonly string[];
+  /** "an equipped creature". Needs subject.equipped. */
+  readonly equipped?: boolean;
   readonly attackingOrBlocking?: boolean;
   /** "an attacking creature" / "a blocking creature"; dies uses last known information. */
   readonly combatRole?: 'attacking' | 'blocking';
@@ -179,7 +193,7 @@ export interface TriggerConditionAlternative {
 
 export interface TriggerConditionIR {
   readonly event: TriggerConditionEvent;
-  readonly fromZone?: 'battlefield' | 'anywhere' | 'library' | 'hand' | 'graveyard' | 'exile' | 'not_hand';
+  readonly fromZone?: 'battlefield' | 'anywhere' | 'library' | 'hand' | 'graveyard' | 'exile' | 'not_hand' | 'hand_or_battlefield' | 'battlefield_or_graveyard' | 'library_or_graveyard';
   /** A second event in "create or sacrifice". The sacrifice emitter also queues it. */
   readonly pairedEvent?: TriggerConditionEvent;
   /** Zone the paired event must come from (graveyard half of "enters or is put into a graveyard from the battlefield"). */
@@ -190,8 +204,34 @@ export interface TriggerConditionIR {
   readonly actionAmount?: number;
   /** "is dealt combat damage" versus any damage. Absent means any damage. */
   readonly damageKind?: 'any' | 'combat' | 'noncombat';
+  /** Leave the battlefield without dying (bounce/exile/etc.). */
+  readonly notDying?: boolean;
+  /** End of the first combat phase (extra combats). */
+  readonly firstCombat?: boolean;
+  /** Delayed: fires on your/that player's next turn end step (one-shot rider). */
+  readonly delayedNextTurn?: boolean;
+  /** Standalone "When you/they do" actor. Match always fails; parents own the rider. */
+  readonly reflexiveActor?: 'you' | 'they';
+  /** Parent-scheduled delayed watcher (that creature dies this turn, next end step, …). */
+  readonly delayedRider?: boolean;
+  /** Untap trigger restricted to the untap step. */
+  readonly duringUntapStep?: boolean;
+  /** "whenever a red creature or spell": subject may be a spell on the stack. */
+  readonly orSpellSubject?: boolean;
+  /** "when you cast that spell" (referenced spell from parent effect). */
+  readonly thatSpell?: boolean;
+  /** "of that type" on next-cast riders. */
+  readonly ofChosenType?: boolean;
+  /** "one or more opponents each lose exactly N". */
+  readonly eachOpponent?: boolean;
+  /** Excess damage was dealt. */
+  readonly requiresExcess?: boolean;
   /** "for the first time each turn". */
   readonly onceEachTurn?: boolean;
+  /** Exact life lost/gained amount. */
+  readonly lifeAmount?: number;
+  /** Require exact lifeAmount (not at-least). */
+  readonly exactLife?: boolean;
   /** "your graveyard" / "an opponent's graveyard". Absent or any is every graveyard. */
   readonly zoneOwner?: 'you' | 'not_you' | 'any';
   /** "your library" is the source's. "their library" is the actor's. */
@@ -219,22 +259,119 @@ export interface TriggerConditionIR {
   readonly legacyRuntimeOnly?: boolean;
   /** "during combat": fails only when the context says the game is not in combat. */
   readonly duringCombat?: boolean;
+  /** "with the chosen name". */
+  readonly requiresChosenName?: boolean;
+  /** "other than the first spell they cast each turn". */
+  readonly excludeFirstSpellEachTurn?: boolean;
+  /** Also fires when the subject is a spell copy. */
+  readonly orSpellCopy?: boolean;
+  /** "that has an Adventure". */
+  readonly hasAdventure?: boolean;
+  /** "you or a permanent you control becomes the target". */
+  readonly orControllerPlayer?: boolean;
+  /** "becomes attached to this creature": attachment host must be the trigger source. */
+  readonly attachedToSource?: boolean;
   /** "the fourth plan counter": the Nth counter of placedCounter. */
   readonly counterOrdinal?: number;
   /** "while it's exiled". */
   readonly whileExiled?: boolean;
   /** "a spell or ability an opponent controls causes you to discard". */
   readonly causedByOpponent?: boolean;
+  /** "a spell or ability you control exiles...". */
+  readonly causedByYou?: boolean;
+  /** "when you spend this mana to cast ..." — cast used mana from the source. */
+  readonly requiresSourceMana?: boolean;
   /** "when you next cast ... this turn" (delayed, one-shot). */
   readonly nextSpellThisTurn?: boolean;
   /** "blocks or becomes blocked by a nonblack creature". Fails closed without context.blockPartner. */
   readonly blockPartner?: TriggerSubjectFilter;
+  /** "creature with the same name" as the source. */
+  readonly sameNameAsSource?: boolean;
+  /** "becomes blocked by two or more creatures". */
+  readonly minBlockers?: number;
+  /** Block partner must have been dealt damage this turn. */
+  readonly blockPartnerDealtDamageThisTurn?: boolean;
+  /** "a creature that fought this way". */
+  readonly foughtThisWay?: boolean;
+  /** "a player other than this permanent's owner controls it". */
+  readonly controllerNotOwner?: boolean;
+  /** Attack batch excludes the source (non-~ / non-Name). */
+  readonly excludeSourceFromAttackers?: boolean;
+  /** Exclude creatures sharing the source's name word (non-Gideon). */
+  readonly excludeAttackerName?: string;
+  /** Opponent must control a permanent named X. */
+  readonly requiresOpponentControlsNamed?: string;
+  readonly requireSubjectName?: string;
+  readonly lifeMaximum?: number;
+  readonly lifeMinimum?: number;
+  readonly hasKeyword?: string;
+  readonly excludeSource?: boolean;
+  readonly fromYou?: boolean;
+  readonly attackDifferentPlayers?: boolean;
+  readonly sagaSubject?: boolean;
+  readonly delayedNextAttack?: boolean;
+  readonly spellNotOwned?: boolean;
+  /** "whenever a player kicks a spell". */
+  readonly kickedSpell?: boolean;
+  readonly requireEquippedAttacker?: boolean;
+  readonly hasXInCost?: boolean;
+  readonly dealtDamageBySource?: boolean;
+  readonly requireToken?: boolean;
+  readonly sourceIsDiscarded?: boolean;
+  readonly upkeepOrdinal?: "first" | "second";
+  readonly withoutBeingPlayed?: boolean;
+  readonly noSharedCreatureTypeWithBattlefieldOrGraveyard?: boolean;
+  readonly sharesColorOrManaValueWithExiled?: boolean;
+  readonly sameNameAsExiledWithSource?: boolean;
+  readonly linkedWithSource?: boolean;
+  readonly putOntoBattlefieldWithSource?: boolean;
+  readonly lifeGainCausedByWhiteInstantOrSorcery?: boolean;
+  readonly abilitySourceNamed?: string;
+  readonly abilitySourceType?: string;
+  readonly chosenPowerOrToughness?: boolean;
+  readonly thisTurn?: boolean;
+  readonly minAttackers?: number;
+  readonly thisWay?: boolean;
+  readonly enchantedOpponent?: boolean;
+  readonly targetsOnlyNonland?: boolean;
+  readonly targetsOpponent?: boolean;
+  readonly orHasKeyword?: string;
+  readonly basicLand?: boolean;
+  readonly nonland?: boolean;
+  readonly includeSource?: boolean;
+  readonly counterMinimum?: number;
+  readonly sourceAmongAttackers?: boolean;
+  readonly abilityResolves?: boolean;
+  readonly resolveOrdinal?: number;
+  readonly chosenPlayer?: boolean;
+  readonly manaValueLessThanResult?: boolean;
+  readonly powerBecomes?: number;
+  readonly damageRecipientOwner?: boolean;
+  readonly blockPartnerLesserPower?: boolean;
+  readonly orPlayerSubject?: boolean;
+  readonly minTotalPower?: number;
+  readonly requireAttackerName?: string;
+  readonly chosenName?: boolean;
+  readonly spellManaValue?: number;
+  readonly chosenManaValue?: boolean;
+  readonly minDamageAmount?: number;
+  readonly naturalRoll?: number;
+  readonly exiledWithSource?: boolean;
+  readonly manaValueEqualsChargeCounters?: boolean;
+  readonly damagePrevented?: boolean;
+  readonly cumulativeUpkeepUnpaid?: boolean;
+  readonly losesGame?: 'chosen_player' | 'enchanted_player' | 'any' | 'not_you';
+  readonly loyaltyMaximum?: number;
+  readonly chargeCounterMinimum?: number;
+  readonly emptyZone?: 'hand' | 'graveyard';
+  readonly targetsOnlySubtype?: string;
+  readonly destroyedByOpponent?: boolean;
   /** Battalion: how many other creatures must attack with the subject. */
   readonly minOtherAttackers?: number;
   /** "becomes level N" (Class). */
   readonly classLevel?: number;
   /** "attacks you or a planeswalker you control". Needs context.attackedPlayerId. */
-  readonly attackedPlayer?: 'you' | 'enchanted' | 'opponent';
+  readonly attackedPlayer?: 'you' | 'enchanted' | 'opponent' | 'any';
   /** "attacks you": the attack must target the player, not a planeswalker or battle. Needs context.attackedTargetIsPlayer. */
   readonly attackedTargetType?: 'player';
   /** "deals combat damage to enchanted player". Needs context.damagedPlayerId. */
@@ -245,12 +382,15 @@ export interface TriggerConditionIR {
   readonly playerSubject?: boolean;
   /** "becomes the target of a spell or ability [you control | an opponent controls]". */
   readonly targetedBy?: { readonly controller: TriggerControllerRelation; readonly kind: 'spell' | 'ability' | 'spell_or_ability' };
+  /** Ability word / keyword ability name on the targeting ability ("backup"). */
+  readonly abilityWord?: string;
   /** "deals damage to an opponent / a player / a creature". */
   readonly damageRecipient?: 'any' | 'player' | 'opponent' | 'creature';
 }
 
 export interface TriggerMatchPermanent {
   readonly id: string;
+  readonly name?: string;
   readonly typeLine: string;
   readonly controllerId: string;
   readonly isToken?: boolean;
@@ -264,6 +404,8 @@ export interface TriggerMatchPermanent {
   readonly basePower?: number;
   /** CR 700.9 modified creature. */
   readonly modified?: boolean;
+  /** Has Equipment attached. */
+  readonly equipped?: boolean;
   readonly toughness?: number;
   readonly faceDown?: boolean;
   readonly goaded?: boolean;
@@ -277,6 +419,8 @@ export interface TriggerMatchPermanent {
   readonly manaValue?: number;
   /** The spell was kicked. */
   readonly kicked?: boolean;
+  /** Spell/card has an Adventure half. */
+  readonly hasAdventure?: boolean;
 }
 
 export interface TriggerMatchSource {
@@ -288,6 +432,10 @@ export interface TriggerMatchSource {
   readonly chosenCreatureType?: string;
   /** Mount currently saddled. */
   readonly saddled?: boolean;
+  /** As-you-choose name (Curse of Silence). */
+  readonly chosenCardName?: string;
+  /** As-you-choose color letter (w/u/b/r/g). */
+  readonly chosenColor?: string;
   /** Source is tapped now. Needed by requiresUntapped. */
   readonly tapped?: boolean;
 }
@@ -296,12 +444,21 @@ export interface TriggerMatchContext {
   readonly castFromZone?: string;
   /** True during any combat step; undefined when the caller does not know. */
   readonly inCombat?: boolean;
+  /** Permanent id the subject just attached to (becomes_attached). */
+  readonly attachedToId?: string;
   /** 1 is the first spell that player has cast this turn. */
   readonly spellOrdinal?: number;
+  /** Printed name of the cast/copied spell. */
+  readonly spellName?: string;
+  /** The event subject is a spell or ability copy. */
+  readonly isSpellCopy?: boolean;
+  /** Fallback chosen name when the source does not carry one. */
+  readonly chosenCardName?: string;
   readonly targetControllerId?: string;
   /** Permanent ids the spell targets. Required for targets 'self'. */
   readonly targetPermanentIds?: readonly string[];
   /** Targeted permanents' type lines and controllers. Required for targets 'creature' / 'creature_you_control'. */
+  readonly lifeAmount?: number;
   readonly targetPermanents?: readonly { readonly typeLine: string; readonly controllerId: string }[];
   readonly activePlayerId?: string;
   readonly enchantedPlayerId?: string;
@@ -318,6 +475,8 @@ export interface TriggerMatchContext {
   /** Zone the object came from. "battlefield" is required for from-battlefield clauses. */
   readonly fromZone?: string;
   readonly damageKind?: string;
+  readonly excessDamage?: boolean;
+  readonly toZone?: string;
   readonly enchantedControllerId?: string;
   readonly exiledCardOwnerId?: string;
   /** The other creature in a block. Required for blockPartner filters. */
@@ -330,14 +489,57 @@ export interface TriggerMatchContext {
   readonly attackedTargetIsPlayer?: boolean;
   /** Player dealt combat damage (deals_combat_damage_to_player watchers). */
   readonly damagedPlayerId?: string;
+  /** Ability word on the ability that targeted ("backup"). */
+  readonly abilityWord?: string;
   /** Level a Class just reached (class_level). */
   readonly classLevel?: number;
   /** The event subject is a player (pseudo-subject), not a permanent. */
   readonly subjectIsPlayer?: boolean;
+  /** A targeted object is a player (targets you / an opponent). */
+  readonly targetIsPlayer?: boolean;
+  /** Referenced / delayed-trigger player ("that player"). */
+  readonly thatPlayerId?: string;
+  readonly referencedPlayerId?: string;
   /** Controller of the targeting spell or ability, and which it is. */
   readonly targetingControllerId?: string;
   readonly targetingKind?: 'spell' | 'ability';
   /** Player dealt the damage, or the damaged permanent is a creature. */
   readonly damageRecipientPlayerId?: string;
   readonly damageRecipientIsCreature?: boolean;
+  readonly blockerCount?: number;
+  readonly blockPartnerDealtDamageThisTurn?: boolean;
+  readonly foughtThisWay?: boolean;
+  readonly controllerId?: string;
+  readonly sourceControllerId?: string;
+  readonly opponentControlsNamed?: readonly string[];
+  readonly totalAttackerPower?: number;
+  readonly damageAmount?: number;
+  readonly naturalRoll?: number;
+  readonly chargeCountersOnSource?: number;
+  readonly damagePrevented?: boolean;
+  readonly loyaltyCounters?: number;
+  readonly spellManaValue?: number;
+  readonly spellColors?: readonly string[];
+  readonly abilityResolveCount?: number;
+  readonly revealedManaValue?: number;
+  readonly rollResult?: number;
+  readonly subjectPower?: number;
+  readonly chosenManaValue?: number;
+  readonly playerLife?: number;
+  readonly attackedPlayerIds?: readonly string[];
+  readonly spellOwnerId?: string;
+  readonly previousControllerId?: string;
+  readonly upkeepOrdinal?: number | "first" | "second";
+  readonly withoutBeingPlayed?: boolean;
+  readonly exiledCardManaValue?: number;
+  readonly exiledCardColors?: readonly string[];
+  readonly exiledCardNames?: readonly string[];
+  readonly sharesCreatureTypeWithBattlefield?: boolean;
+  readonly sharesCreatureTypeWithGraveyard?: boolean;
+  readonly lifeGainFromWhiteInstantOrSorcery?: boolean;
+  readonly abilitySourceName?: string;
+  readonly abilitySourceTypeLine?: string;
+  readonly linkedToSource?: boolean;
+  readonly spellPower?: number;
+  readonly spellToughness?: number;
 }

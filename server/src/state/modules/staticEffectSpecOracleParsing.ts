@@ -50,6 +50,21 @@ import { pushTypedAndKeywordLordSpecs } from './staticEffectSpec-handlers/static
 import { pushQuotedNumericAndBasePTLordSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingQuotedNumericBasePT.js';
 import { pushBorrowedActivatedSelfSpecs } from './staticEffectSpecBorrowedActivated.js';
 import { pushConditionalSelfGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalSelfGrants.js';
+import { pushOpponentKeywordMirrorGrantSpecs } from './staticEffectSpec-handlers/opponentKeywordMirrorGrants.js';
+import { pushBatch62LongTailStaticSpecs } from './staticEffectSpec-handlers/batch62LongTailStatics.js';
+import { pushBatch63LongTailStaticSpecs } from './staticEffectSpec-handlers/batch63LongTailStatics.js';
+import { pushBatch65LongTailStaticSpecs } from './staticEffectSpec-handlers/batch65LongTailStatics.js';
+import { pushBatch66LongTailStaticSpecs } from './staticEffectSpec-handlers/batch66LongTailStatics.js';
+import { pushBatch68LongTailStaticSpecs } from './staticEffectSpec-handlers/batch68LongTailStatics.js';
+import { pushBatch69LongTailStaticSpecs } from './staticEffectSpec-handlers/batch69LongTailStatics.js';
+import { pushBatch70LongTailStaticSpecs } from './staticEffectSpec-handlers/batch70LongTailStatics.js';
+import { pushBatch71LongTailStaticSpecs } from './staticEffectSpec-handlers/batch71LongTailStatics.js';
+import { pushBatch72LongTailStaticSpecs } from './staticEffectSpec-handlers/batch72LongTailStatics.js';
+import { pushBatch73LongTailStaticSpecs } from './staticEffectSpec-handlers/batch73LongTailStatics.js';
+import { pushBatch74LongTailStaticSpecs } from './staticEffectSpec-handlers/batch74LongTailStatics.js';
+import { pushBatch75LongTailStaticSpecs } from './staticEffectSpec-handlers/batch75LongTailStatics.js';
+import { pushBatch76LongTailStaticSpecs } from './staticEffectSpec-handlers/batch76LongTailStatics.js';
+import { pushBatch77LongTailStaticSpecs } from './staticEffectSpec-handlers/batch77LongTailStatics.js';
 import { pushConditionalScopedGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalScopedGrants.js';
 import { splitStationThresholdLines, gateStationThresholdSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingStationThresholds.js';
 import { pushTrekSelfStaticSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingTrekStatics.js';
@@ -130,6 +145,21 @@ function parseStaticEffectSpecsFromOraclePermanentCore(
   // "As long as <condition>, this creature has X" - evaluated against current state. Runs even
   // beside a dynamic lord line (Svyelun: conditional self indestructible + Merfolk ward lord).
   pushConditionalSelfGrantSpecs(specs, source, oracle);
+  pushOpponentKeywordMirrorGrantSpecs(specs, source, oracle);
+  pushBatch62LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch63LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch65LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch66LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch68LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch69LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch70LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch71LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch72LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch73LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch74LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch75LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch76LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch77LongTailStaticSpecs(specs, source, perm, oracle);
   pushConditionalScopedGrantSpecs(specs, source, oracle);
   pushTrekSelfStaticSpecs(specs, source, oracle);
   pushGlobalGrantSpecs(specs, source, oracle);

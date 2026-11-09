@@ -53,6 +53,21 @@ export function collectDiesExileReplacementSpecsFromState(state: unknown): Repla
           ...(m[1] ? { metadata: { nontokenOnly: true } } : {}),
         });
       }
+      // B59: Ravenloft Adventurer - exile and put a hit counter on it.
+      const hit = s.match(/^if a creature an opponent controls would die, instead exile it and put an? ([a-z]+) counter on it$/);
+      if (hit) {
+        specs.push({
+          ...base, id: `${sourcePermanentId}:opponent-creature-die-exile-hit-counter`, event: 'zone-change',
+          match: {
+            sourceZone: 'battlefield', destinationZone: 'graveyard', objectTypeLineIncludes: 'creature',
+            objectControllerIsOpponentOfSource: true,
+          },
+          instead: { redirectZone: 'exile' },
+          effectId: 'opponent-creature-die-exile-hit-counter',
+          reason: 'opponent_creature_die_exile_hit_counter',
+          metadata: { putCounterOnExiled: hit[1] },
+        });
+      }
     }
   }
   return specs;

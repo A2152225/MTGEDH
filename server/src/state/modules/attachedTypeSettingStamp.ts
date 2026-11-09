@@ -51,10 +51,13 @@ export function parseAttachedTypeSettingFromOracle(oracle: unknown): AttachedTyp
 
 /** "Enchanted artifact is a creature with base power and toughness 5/5 in addition to its other types" (Ensoul Artifact). */
 export function attachedMakesHostCreature(oracle: unknown): boolean {
-  const text = String(oracle || '').toLowerCase();
+  const text = String(oracle || '').toLowerCase().replace(/\u2019/g, "'");
   return /\benchanted (?:artifact|permanent|land|enchantment) is an? (?:[a-z ]+ )?creature with base power and toughness \d+\/\d+ in addition to its other types/.test(text)
-    // Zendikons: "Enchanted land is a 5/3 green Elemental creature. It's still a land."
-    || /\benchanted (?:artifact|land) is an? \d+\/\d+ [a-z ]*?creature\b[^.]*\.\s*it(?:'|\u2019)s still an? (?:artifact|land)\b/.test(text);
+    // Zendikons / Awaken the Ancient / Living Terrain:
+    // "Enchanted land is a 5/3 green Elemental creature. It's still a land."
+    // "Enchanted Mountain is a 7/7 red Giant creature with haste. It's still a land."
+    // "Enchanted land is a 5/6 green Treefolk creature that's still a land."
+    || /\benchanted (?:artifact|land|mountain|island|swamp|forest|plains) is an? \d+\/\d+ [a-z ]*?creature\b(?: with [a-z ,]+?)?(?:\.\s*it's| that's) still an? (?:artifact|land)\b/.test(text);
 }
 
 function hostSupertypes(perm: any): string[] {

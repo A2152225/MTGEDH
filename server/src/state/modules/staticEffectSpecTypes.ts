@@ -34,6 +34,8 @@ export interface StaticEffectScopeQualifier {
   /** Printed colour letters ("white legendary creatures"). */
   colors?: readonly string[];
   legendary?: boolean;
+  /** B73: Sheltering Prayers — Basic lands. */
+  basic?: boolean;
   /** Type-line word for non-creature groups ("Treasures you control"). */
   subtype?: string;
   /** Excluded card type ("each nonland permanent you control"). */
@@ -57,11 +59,25 @@ export interface StaticEffectGrant {
   /** Layer 7b characteristic-setting ("have base power and toughness N/M"). */
   setPower?: number;
   setToughness?: number;
+  /** B62: Aettir ? set base power to controller life total. */
+  setPowerFromControllerLife?: boolean;
+  /** B62: Aettir ? set base toughness to controller life total. */
+  setToughnessFromControllerLife?: boolean;
+  /** B70: Animate Artifact — base P/T each equal to the recipient's mana value. */
+  setPowerToughnessFromManaValue?: boolean;
   /** Layer 4 type-changing ("are Bears in addition"). */
   typeAdditions?: readonly string[];
   /** "is a <creature type>" (CR 205.1b): typeAdditions replace the printed creature subtypes (Goddric). */
   loseOtherCreatureTypes?: boolean;
+  /** B72: Aeve — "~ isn't legendary if it's a token" (removes Legendary for legend rule / type checks). */
+  notLegendary?: boolean;
   abilities?: readonly string[];
+  /** B58: Tam - grant hexproof from each of the recipient's colors. */
+  hexproofFromOwnColors?: boolean;
+  /** B68: Earnest Fellowship - protection from each of the recipient's colors. */
+  protectionFromOwnColors?: boolean;
+  /** B71: Empty-Shrine Kannushi - protection from each color among permanents you control. */
+  protectionFromColorsAmongPermanentsYouControl?: boolean;
   playerHexproof?: boolean;
   playerShroud?: boolean;
   /** Color words/symbols added in addition to printed colors (layer 5). */
@@ -92,6 +108,8 @@ export interface StaticEffectGrant {
   countKeyword?: string;
   /** creatures_named: lower-case card name. */
   countName?: string;
+  /** B74: recipient_mana_symbols — color word (white/blue/…) or letter (W/U/…). */
+  countColor?: string;
   /** source_counters: count counters on the Aura/Equipment (effectSourcePermanentId), e.g. Sigil of Distinction. */
   countOnEffectSource?: boolean;
   /** attachments_on_source: attachment subtypes counted on the source (aura, equipment). */
@@ -123,6 +141,8 @@ export interface StaticEffectGrant {
   attackYouMaxAttackers?: number;
   /** Silent Arbiter / Dueling Grounds: no more than N creatures can attack each combat. */
   maxAttackersEachCombat?: number;
+  /** Eternal Wanderer: no more than N creatures can attack this permanent each combat. */
+  maxAttackersAgainstSource?: number;
   /** Silent Arbiter / Dueling Grounds: no more than N creatures can block each combat. */
   maxBlockersEachCombat?: number;
   /**
@@ -189,7 +209,13 @@ export type StaticEffectCountBasis =
   /** R35: "for each of its colors" (the counted-around permanent's colors). */
   | 'host_color_count'
   /** R35: "for each other creature on the battlefield named <name>" (countName). */
-  | 'creatures_named';
+  | 'creatures_named'
+  /** B74: Light from Within — for each COLOR mana symbol in the recipient's mana cost. */
+  | 'recipient_mana_symbols'
+  /** B75: Coram — greatest power among creature cards in all graveyards. */
+  | 'greatest_power_among_creature_cards_in_all_graveyards'
+  /** B77: Omnath — for each unspent mana you have. */
+  | 'controller_unspent_mana';
 
 export type StaticEffectLayer = 4 | 5 | 6 | 7;
 export type StaticEffectSublayer = '7a' | '7b' | '7c' | '7d';
@@ -200,6 +226,8 @@ export type StaticEffectConditionKind =
   | 'target_is_not_token'
   | 'target_is_token_during_source_controller_turn'
   | 'during_source_controller_turn'
+  /** Mesa Lynx: during turns other than yours. */
+  | 'not_during_source_controller_turn'
   | 'target_has_mana_color'
   | 'target_is_not_black_creature'
   | 'target_is_not_human_creature'
@@ -220,6 +248,8 @@ export type StaticEffectConditionKind =
   /** Moat / Katabatic: creatures with / without a keyword. */
   | 'target_has_keyword'
   | 'target_lacks_keyword'
+  /** Stormtide / mass combat: lacks any of the listed keywords (flying or islandwalk). */
+  | 'target_lacks_keywords'
   /** Island Sanctuary stamp: lacks every listed keyword (flying and/or islandwalk). */
   | 'target_lacks_all_keywords'
   /** Ensnaring Bridge: power > cards in source controller’s hand. */
@@ -233,6 +263,8 @@ export type StaticEffectConditionKind =
   /** Backgrounds: commander creatures you own. */
   | 'target_is_commander'
   | 'target_owned_by_source_controller'
+  /** B58: Don Andres - creatures you control but don't own. */
+  | 'target_not_owned_by_source_controller'
   /** Artifact / enchantment / land creature lords (card type, not subtype). */
   | 'target_has_type'
   /** OTJ designation: Assassin, Mercenary, Pirate, Rogue, or Warlock. */
@@ -242,6 +274,16 @@ export type StaticEffectConditionKind =
   | 'target_is_multicolored'
   /** CR 700.9: counters, Equipment, or Auras. */
   | 'target_is_modified'
+  /** B70: Koll — enchanted or equipped (Aura or Equipment attached). */
+  | 'target_is_enchanted_or_equipped'
+  /** B71: Boarded Window — creatures attacking you. */
+  | 'target_is_attacking_source_controller'
+  /** B71: Living Conundrum — no cards in your library. */
+  | 'controller_library_empty'
+  /** B71: On Wings of Gold — Zombie and/or token. */
+  | 'target_is_zombie_or_token'
+  /** B71: Champion's Drake — you control a creature with N+ counters of a type. */
+  | 'controller_controls_creature_with_counter_at_least'
   /** Fledgling Osprey: as long as it's enchanted (any Aura). */
   | 'target_is_enchanted'
   /** Karakyk Guardian: "if it hasn't dealt damage yet" (permanent.hasDealtDamage, set when it deals damage). */
@@ -281,9 +323,17 @@ export type StaticEffectConditionKind =
   /** R26: "you control exactly one creature" (Deadly Wanderings). */
   | 'controller_creature_count_exactly'
   | 'controller_gained_life_this_turn'
+  /** B60: Essence Channeler - as long as you've lost life this turn. */
+  | 'controller_lost_life_this_turn'
+  /** B60: Gloom Stalker - as long as you've completed a dungeon. */
+  | 'controller_completed_dungeon'
+  /** B60: Swordsworn Cavalier - another <type> entered under your control this turn. */
+  | 'controller_creature_type_entered_this_turn'
   | 'controller_attacked_with_at_least'
   | 'controller_nonland_entered_at_least'
   | 'controller_graveyard_card_types_at_least'
+  /** B59: "N or more mana values among cards in your graveyard". */
+  | 'controller_graveyard_mana_values_at_least'
   | 'controller_library_top_is_color'
   | 'source_attached_is_tapped'
   | 'source_attached_is_untapped'
@@ -309,6 +359,7 @@ export type StaticEffectConditionKind =
   | 'source_controller_has_enduring_story'
   /** "as long as an opponent controls a white permanent" (Black Scarab): color? + cardType. */
   | 'opponent_controls_matching'
+  | 'opponent_controls_creature_with_keyword_excluding_name'
   | 'color_most_common_among_permanents'
   | 'target_lacks_mana_color'
   /** Magemark cycle: "creatures you control that are enchanted". */
@@ -321,7 +372,53 @@ export type StaticEffectConditionKind =
   | 'controller_controls_no_other'
   | 'target_power_less_than_source'
   /** B52: Curse of Hospitality -- target is attacking the player the source Aura enchants. */
-  | 'target_is_attacking_enchanted_player';
+  | 'target_is_attacking_enchanted_player'
+  /** B62: Beast / Kid Loki ? counters put on the permanent this turn. */
+  | 'target_had_counters_put_this_turn'
+  /** B62: Archangel of Strife ? creature's controller chose war/peace on the source. */
+  | 'target_controller_chose_option_on_source'
+  /** B62: Brenard / Miriam ? type_line matches any of the listed subtypes. */
+  | 'target_has_any_subtype'
+  /** B62: Earth Rumble ? land creature you control OR a land entered under you this turn. */
+  | 'controller_land_creature_or_land_entered_this_turn'
+  /** B63: Triarch ? creatures attacking the last chosen player. */
+  | 'target_is_attacking_last_chosen_player_on_source'
+  /** B67: Omenport Vigilante / Slickshot — as long as you've committed a crime this turn. */
+  | 'source_controller_committed_crime_this_turn'
+  /** B67: War Historian — as long as it attacked a battle this turn. */
+  | 'target_attacked_battle_this_turn'
+  /** B69: Solitary Camel — Desert you control or Desert card in graveyard. */
+  | 'controller_desert_or_desert_in_graveyard'
+  /** B72: Rohgahh — creatures you control named <Name>. */
+  | 'target_has_name'
+  /** B72: Evolved Spinoderm — N or fewer counters on source. */
+  | 'source_counter_at_most'
+  /** B72: Lyse Hext — cast N+ noncreature spells this turn. */
+  | 'controller_noncreature_spells_cast_at_least'
+  /** B72: Glacial Crasher — there is a Mountain (etc.) on the battlefield. */
+  | 'battlefield_has_matching'
+  /** B73: Sheltering Prayers — that player controls ≤N permanents of a type. */
+  | 'target_controller_controls_at_most'
+  /** B73: Keen-Eyed Curator — N+ card types among cards exiled with source. */
+  | 'source_exiled_card_types_at_least'
+  /** B75: Technodrome — power is N or greater. */
+  | 'target_power_at_least'
+  /** B75: Soul Swindler — visited an Attraction this turn. */
+  | 'source_controller_visited_attraction_this_turn'
+  /** B76: Chillerpillar — as long as it is monstrous. */
+  | 'target_is_monstrous'
+  /** B76: Flutterfox — you control an artifact or enchantment. */
+  | 'source_controller_controls_artifact_or_enchantment'
+  /** B76: Hungry Ridgewolf — another Wolf or Werewolf. */
+  | 'source_controller_controls_creature_type_any'
+  /** B76: Goblin Blast-Runner — sacrificed a permanent this turn. */
+  | 'source_controller_sacrificed_permanent_this_turn'
+  /** B76: Homarid — exactly N counters of a type on source. */
+  | 'source_counter_exactly'
+  /** B76: Tenacious Hunter — a creature has a given counter. */
+  | 'battlefield_has_creature_with_counter'
+  /** B77: Tom Bombadil — N+ lore counters among Sagas you control. */
+  | 'source_controller_saga_lore_counters_at_least';
 
 export interface StaticEffectCondition {
   kind: StaticEffectConditionKind;
@@ -339,6 +436,8 @@ export interface StaticEffectCondition {
   power?: number;
   /** Creature type for target_has_creature_type (Inkling). */
   creatureType?: string;
+  /** B76: source_controller_controls_creature_type_any — any of these creature types. */
+  creatureTypes?: readonly string[];
   /** Card type for target_has_type (artifact / enchantment / land). */
   cardType?: string;
   /** source_controller_controls_matching: how many, and whether the source is excluded. */
@@ -353,6 +452,12 @@ export interface StaticEffectCondition {
   exact?: boolean;
   /** Mode label / bullet text for source_chose_option. */
   option?: string;
+  /** B61: Escaped Shapeshifter - excluded creature name. */
+  excludedName?: string;
+  /** B62: target_has_any_subtype ? lower-case subtype words (food, golem, mount). */
+  subtypes?: readonly string[];
+  /** B72: target_has_name — exact card name (lower-cased compare). */
+  cardName?: string;
 }
 
 export interface StaticEffectSpec {

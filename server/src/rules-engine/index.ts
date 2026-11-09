@@ -400,8 +400,16 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
   
   for (const perm of battlefieldPermanents) {
     const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
-    // Check for "legendary" supertype on any permanent (creatures, planeswalkers, lands, …)
-    if (!typeLine.includes('legendary')) continue;
+    // Printed legendary, or layer-4 grant (B67: "Enchanted permanent is legendary").
+    const extras = [
+      ...(((perm as any).continuousTypeAdditions || []) as unknown[]),
+      ...(((perm as any).layer4AddedTypes || []) as unknown[]),
+    ];
+    // B72: Aeve — continuousNotLegendary removes the Legendary supertype for SBA.
+    if ((perm as any).continuousNotLegendary === true) continue;
+    const isLegendary = typeLine.includes('legendary')
+      || extras.some((entry) => String(entry || '').toLowerCase() === 'legendary');
+    if (!isLegendary) continue;
     
     // The legend rule is based on control, not ownership. Battlefield replay can
     // retain owner-only shells for permanents that have already left play; those

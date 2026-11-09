@@ -254,6 +254,37 @@ export function collectAttackYouMaxAttackersForDefender(
 }
 
 /**
+ * Lowest "no more than N creatures can attack ~" cap for a specific permanent
+ * (Eternal Wanderer). Null max means no cap.
+ */
+export function collectMaxAttackersAgainstPermanent(
+  state: StaticConditionState & { battlefield?: readonly BattlefieldPermanent[] },
+  permanentId: string,
+): AttackYouMaxAttackersForDefender {
+  const targetId = String(permanentId || '').trim();
+  if (!targetId) return { max: null, sources: [] };
+  const specs = collectStaticEffectSpecsFromState(state);
+  const keywordResolver = bindKeywordResolver(specs, state);
+  const dummy = { id: '' } as BattlefieldPermanent;
+  let max: number | null = null;
+  const sources: string[] = [];
+  for (const spec of specs) {
+    if (String(spec.sourcePermanentId || '').trim() !== targetId) continue;
+    const cap = Number((spec.grant as any).maxAttackersAgainstSource);
+    if (!Number.isFinite(cap) || cap <= 0) continue;
+    if (!specMatchesStaticCondition(dummy, spec, state, keywordResolver)) continue;
+    if (max === null || cap < max) {
+      max = cap;
+      sources.length = 0;
+      sources.push(String(spec.sourceName || spec.id || 'an effect'));
+    } else if (cap === max) {
+      sources.push(String(spec.sourceName || spec.id || 'an effect'));
+    }
+  }
+  return { max, sources };
+}
+
+/**
  * Lowest global "no more than N creatures can attack each combat" cap
  * (Silent Arbiter / Dueling Grounds). Null max means no cap.
  */

@@ -54,7 +54,10 @@ function parseSubject(s: string): Subject | null {
   }
   m = s.match(new RegExp('^creatures' + CTRL + ' with (-1\\/-1|\\+1\\/\\+1) counters on them$'));
   if (m) return { scope: { kind: kindFor(m[1]), qualifier: { counter: m[2] } }, ptOk: false };
-  m = s.match(new RegExp('^creatures' + CTRL + ' without ([a-z]+)(?:,? or ([a-z]+))?$'));
+  // Require "or" so Moat ("Creatures without flying can't attack") stays on MassCantAttack's
+  // target_lacks_keyword path (keyword-resolver aware). Stormtide-style "without flying or
+  // islandwalk" still lands here as target_lacks_keywords.
+  m = s.match(new RegExp('^creatures' + CTRL + ' without ([a-z]+),? or ([a-z]+)$'));
   if (m) return { scope: { kind: kindFor(m[1]) }, extra: { kind: 'target_lacks_keywords', keywords: [m[2], m[3]].filter(Boolean) }, ptOk: false };
   return null;
 }
@@ -71,8 +74,15 @@ export function pushR36MassCombatSpecs(
   const sameScope = (a: StaticEffectScope, b: StaticEffectScope) => JSON.stringify(a) === JSON.stringify(b);
   const lines = String(oracle || '').toLowerCase().replace(/\u2019/g, "'").split(/\n+/);
   lines.forEach((raw, index) => {
-    const line = raw.replace(/\([^)]*\)/g, '').trim().replace(/\.$/, '');
+    let line = raw.replace(/\([^)]*\)/g, '').trim().replace(/\.$/, '');
     if (!line || /^(?:when|whenever|at|if)\b|:/.test(line)) return;
+    // B56: Detective of the Month — leading "As long as you have the city's blessing, ..."
+    let leadingCondition: ReturnType<typeof parseStaticSelfCondition> = null;
+    const leadAsLongAs = line.match(/^as long as ([^,]+),\s*(.+)$/);
+    if (leadAsLongAs) {
+      leadingCondition = parseStaticSelfCondition(leadAsLongAs[1]);
+      if (leadingCondition) line = String(leadAsLongAs[2] || '').trim();
+    }
     const pm = line.match(PRED);
     if (pm) {
       const subj = parseSubject(pm[1]);
@@ -83,7 +93,11 @@ export function pushR36MassCombatSpecs(
         && (s.grant?.abilities || []).some((a: string) => abilities.includes(a)))) return;
       const id = 'r36-mass-combat:' + index;
       if (!pm[3]) {
-        specs.push(buildSpec(source, id, scope, { abilities }, subj.extra));
+        if (leadingCondition) {
+          specs.push(buildSpec(source, id, scope, { abilities }, leadingCondition));
+        } else {
+          specs.push(buildSpec(source, id, scope, { abilities }, subj.extra));
+        }
         return;
       }
       if (subj.extra) return;

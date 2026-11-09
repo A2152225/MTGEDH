@@ -4,6 +4,7 @@
 //   "Each other creature you control with a +1/+1 counter on it has haste." (Exava)
 //   "White legendary creatures you control have "bands with other legendary creatures."" (Cathedral of Serra)
 //   "Each legendary permanent you control has ward {2}." / "Treasures you control have "..."" / "Each creature you control has ward {1}."
+// B59: "Tokens you control have "{T}: Add {G}."" (Jaheira, Friend of the Forest).
 // Ward keeps its cost ("ward {1}") so getGrantedWardCost can read it. Lines another handler already
 // covered (same abilities from this source) are skipped.
 // Public entry symbols: pushQualifiedGrantSpecs.
@@ -20,7 +21,8 @@ export function pushQualifiedGrantSpecs(specs: StaticEffectSpec[], source: Stati
   const lines = String(oracle || '').replace(/[\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').split(/\n+/)
     .map((l) => l.replace(/\([^)]*\)/g, '').trim());
   lines.forEach((raw, index) => {
-    const line = raw.toLowerCase();
+    // B60: Rushblade Commander — EDH singleton team falls back to "you control".
+    const line = raw.toLowerCase().replace(/\byour team controls\b/g, 'you control');
     const m = LINE_RE.exec(line.replace(/\.$/, ''));
     if (!m) return;
     const [, other, adjRaw, noun, counterRaw, tailLower] = m;
@@ -47,6 +49,11 @@ export function pushQualifiedGrantSpecs(specs: StaticEffectSpec[], source: Stati
     let scope: StaticEffectScope;
     if (noun === 'creature') scope = { kind: other ? 'other_creatures_you_control' : 'creatures_you_control' };
     else if (noun === 'permanent') scope = { kind: other ? 'other_permanents_you_control' : 'permanents_you_control' };
+    else if (noun === 'token') {
+      // B59: Jaheira - Tokens you control have "...".
+      scope = { kind: other ? 'other_permanents_you_control' : 'permanents_you_control' };
+      qualifier.token = true;
+    }
     else if (isCreatureTypeWord(noun[0].toUpperCase() + noun.slice(1))) scope = { kind: other ? 'other_creatures_you_control' : 'creatures_you_control', creatureType: noun[0].toUpperCase() + noun.slice(1) };
     else if (/^(?:artifact|enchantment|land|planeswalker|treasure|food|clue|equipment|aura|vehicle|blood|map|gold)$/.test(noun)) { scope = { kind: other ? 'other_permanents_you_control' : 'permanents_you_control' }; qualifier.subtype = noun; }
     else return;

@@ -146,6 +146,11 @@ function creatureHasHasteUncached(permanent: any, battlefield: any[], controller
     const permCard = permanent?.card || {};
     const permTypeLine = (permCard.type_line || "").toLowerCase();
     const permOracleText = (permCard.oracle_text || "").toLowerCase();
+    // B58: Chaos Lord - can attack as though it had haste unless it entered this turn.
+    if (/can attack as though it had haste unless it entered this turn/.test(permOracleText)
+      && permanent?.enteredThisTurn !== true) {
+      return true;
+    }
     
     const otherHasteLord = oracleTextGrantsKeywordOnlyToOthers(permOracleText, 'haste');
 

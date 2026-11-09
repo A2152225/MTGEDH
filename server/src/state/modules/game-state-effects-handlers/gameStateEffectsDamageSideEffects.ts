@@ -8,6 +8,8 @@
 import type { GameContext } from "../../context.js";
 import { applyBatch17DamagePrevention } from "../replacementBatch17DamagePrevention.js";
 import { applyBatch18NoncombatPrevention } from "../replacementBatch18NoncombatPrevention.js";
+import { applyBatch63DamageSideEffects, collectBatch63DamageSideEffectSpecsFromState } from "../replacementBatch63DamageReplacements.js";
+import { applyBatch66DamageRedirect, collectBatch66DamageRedirectSpecs } from "../replacementBatch66DamageRedirect.js";
 import { collectDamageSideEffectSpecsFromState } from "../replacementEffectSpec-handlers/replacementEffectSpecDamageSideEffectTemplates.js";
 
 function markDamage(perm: any, amount: number): void {
@@ -43,10 +45,39 @@ export function applyDamageSideEffectReplacements(
   if (b17) return b17;
   const b18 = applyBatch18NoncombatPrevention(state, damageAmount, damageReceiver, targetPermanentId, isCombatDamage);
   if (b18) return b18;
-  const specs = collectDamageSideEffectSpecsFromState(state);
+  const b63 = applyBatch63DamageSideEffects(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
+  if (b63) return b63;
+  const b66 = applyBatch66DamageRedirect(state, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId);
+  if (b66) return b66;
+  const specs = [
+    ...collectDamageSideEffectSpecsFromState(state),
+    ...collectBatch63DamageSideEffectSpecsFromState(state),
+    ...collectBatch66DamageRedirectSpecs(state),
+  ];
   if (!specs.length) return null;
   const find = (id: string) => (id ? battlefield.find((p: any) => String(p?.id || '') === id) : undefined);
   const targetId = String(targetPermanentId || '').trim();
+
+  // B55: Soul-Scar Mage — your noncombat damage to an opponent's creature becomes -1/-1 counters.
+  if (targetId && isCombatDamage !== true) {
+    const target = find(targetId);
+    const targetController = String(target?.controller || '');
+    for (const spec of specs) {
+      if (spec.event !== 'damage-prevention-cost') continue;
+      const md = (spec.metadata || {}) as Record<string, unknown>;
+      if (md.onOpponentCreature !== true) continue;
+      const controller = String(spec.sourceController || '');
+      if (!controller || !target || targetController === controller) continue;
+      const dealer = find(String(damageSourcePermanentId || '').trim());
+      const dealerController = String(dealer?.controller || damageDealer || '');
+      if (dealerController && dealerController !== controller) continue;
+      if (!/\bcreature\b/i.test(String(target?.card?.type_line || target?.type_line || ''))) continue;
+      const kind = String(md.counter || '-1/-1');
+      target.counters = target.counters || {};
+      target.counters[kind] = Math.max(0, Number(target.counters[kind]) || 0) + damageAmount;
+      return { amount: 0, modifiers: [`${spec.sourceName}: ${damageAmount} ${kind} counter(s) instead of noncombat damage`] } as any;
+    }
+  }
 
   if (targetId) {
     for (const spec of specs) {

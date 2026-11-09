@@ -36,12 +36,12 @@ function normalizeIdList(raw: any): string[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
-export function hasZoneRetainedCountersAbility(obj: any): boolean {
-  const oracleText = getOracleText(obj).toLowerCase();
-  if (oracleText.includes("counters remain on it as it moves to any zone other than a player's hand or library")) {
-    return true;
-  }
+const COUNTERS_REMAIN_RE =
+  /counters remain on (?:it|this permanent|me|~|[a-z][a-z0-9 ,'.-]*) as it moves to any zone other than a player's hand or library/i;
 
+export function hasZoneRetainedCountersAbility(obj: any): boolean {
+  const oracleText = getOracleText(obj);
+  if (COUNTERS_REMAIN_RE.test(oracleText)) return true;
   return getCardName(obj).toLowerCase() === 'skullbriar, the walking grave';
 }
 

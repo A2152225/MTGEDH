@@ -1,6 +1,7 @@
 import type { BattlefieldPermanent } from '../../shared/src';
 import { cardAnalyzer } from './CardAnalyzer';
 import { AIDecisionType, type AIDecision, type AIDecisionContext } from './AIEngine';
+import { aiRandom } from './aiRandom';
 
 export function makeTargetDecision(
   context: AIDecisionContext,
@@ -86,7 +87,7 @@ export function makeTargetDecision(
     selectedTargets = playerOptions.slice(0, targetCount).map((p: any) => (typeof p === 'string' ? p : p.id));
     reasoning = 'Targeting opponent with lowest life';
   } else {
-    const shuffled = [...options].sort(() => Math.random() - 0.5);
+    const shuffled = [...options].sort(() => aiRandom() - 0.5);
     selectedTargets = shuffled.slice(0, targetCount).map((t: any) => (typeof t === 'string' ? t : t.id));
     reasoning = 'Random target selection';
   }

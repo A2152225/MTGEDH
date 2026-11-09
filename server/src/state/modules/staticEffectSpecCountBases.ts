@@ -103,7 +103,12 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
         ? Object.keys(zones).filter((id) => grant.countWho === 'all' || id !== controller).flatMap((id) => (Array.isArray(zones[id]?.graveyard) ? zones[id].graveyard : []))
         : controllerZone(spec, state)?.graveyard;
       const wanted = String(grant.countCardType || '').toLowerCase();
-      return Array.isArray(graveyard) ? graveyard.filter((c: any) => !wanted || String(c?.type_line || c?.card?.type_line || '').toLowerCase().includes(wanted)).length : 0;
+      return Array.isArray(graveyard) ? graveyard.filter((c: any) => {
+        const tl = String(c?.type_line || c?.card?.type_line || '').toLowerCase();
+        // B70: Xande — noncreature, nonland cards.
+        if (wanted === 'noncreature_nonland') return !/\bcreature\b/.test(tl) && !/\bland\b/.test(tl);
+        return !wanted || tl.includes(wanted);
+      }).length : 0;
     }
     case 'controller_lands_of_subtype': {
       const re = new RegExp('\\b' + String(grant.countCardType || '').toLowerCase() + '\\b');
@@ -153,8 +158,33 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
     case 'creatures_named': {
       const wanted = String(grant.countName || '').toLowerCase();
       const skip = grant.countExcludeSource ? String(spec.sourcePermanentId || '') : '';
-      return battlefield.filter((p) => p && !p.phasedOut && /\bcreature\b/.test(typeLine(p)) && !(skip && String(p?.id || '') === skip)
+      return battlefield.filter((p) => p && !p.phasedOut && String(p?.controller || '') === controller
+        && /\bcreature\b/.test(typeLine(p)) && !(skip && String(p?.id || '') === skip)
         && String(p?.card?.name || p?.name || '').toLowerCase() === wanted).length;
+    }
+    case 'greatest_power_among_creature_cards_in_all_graveyards': {
+      const zones: any = (state as any)?.zones || {};
+      let best = 0;
+      for (const id of Object.keys(zones)) {
+        const gy = zones[id]?.graveyard;
+        if (!Array.isArray(gy)) continue;
+        for (const card of gy) {
+          const tl = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+          if (!/\bcreature\b/.test(tl)) continue;
+          const p = Number(card?.power ?? card?.card?.power);
+          if (Number.isFinite(p) && p > best) best = p;
+        }
+      }
+      return best;
+    }
+    case 'controller_unspent_mana': {
+      const pool = (state as any)?.manaPool?.[controller] || {};
+      let total = 0;
+      if (typeof pool === 'number') return Math.max(0, Math.floor(pool));
+      if (pool && typeof pool === 'object') {
+        for (const v of Object.values(pool)) total += Number(v) || 0;
+      }
+      return Math.max(0, Math.floor(total));
     }
     default:
       return undefined;

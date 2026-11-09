@@ -10,6 +10,7 @@ import type { ReplacementEffectSpec } from './replacementEffectSpecTypes.js';
 import { normalizeOraclePatternText, readCardOracleText } from './replacementEffectSpecOracleTextUtils.js';
 import { parseBatch18PreventAllSentence, matchesBatch18PreventAll } from '../replacementBatch18PreventAll.js';
 import { parseBatch19PreventAllSentence, matchesBatch19PreventAll } from '../replacementBatch19PreventAll.js';
+import { parseBatch63DamagePreventionSentence } from '../replacementBatch63DamageReplacements.js';
 
 type SpecBody = Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
 
@@ -37,8 +38,12 @@ export function selfReferenceSentences(oracle: string, cardName: string): string
   if (shortName && shortName !== name && shortName.length >= 3) {
     text = text.replace(new RegExp('\\b' + escapeRegExp(shortName) + '\\b', 'g'), () => '~');
   }
-  text = text.replace(/\bthis (?:creature|permanent)\b/g, '~');
-  return text.split(/(?<=\.)\s+/).map((s) => s.replace(/\.$/, '').trim()).filter(Boolean);
+  text = text.replace(/\bthis (?:creature|permanent|artifact|enchantment)\b/g, '~');
+  return text.split(/(?<=\.)\s+/).map((s) => s
+    // Ability words / flavor leads: "Immune —", "Flare Star —", "The Betrayer —"
+    .replace(/^[a-z][a-z0-9' !?.+-]*[\u2014\u2013-]\s*/i, '')
+    .replace(/\.$/, '')
+    .trim()).filter(Boolean);
 }
 
 function prevent(id: string, match: SpecBody['match']): SpecBody {
@@ -52,6 +57,21 @@ export function parseDamagePreventionSentence(sentence: string, next: string | u
 
   if (/^(?:if damage would be dealt to ~, prevent that damage|prevent all damage that would be dealt to ~)$/.test(s)) {
     return followUpCost ? [] : [prevent('prevent-all-damage-to-self', { receivingPermanentIsSource: true })];
+  }
+  // B64 / Batch 18 census: noncombat prevent sentences (Purity / Stormwild Capridor).
+  // Follow-up life / counters still apply via replacementBatch18NoncombatPrevention.
+  if (/^if noncombat damage would be dealt to you, prevent that damage$/.test(s)) {
+    return [prevent('prevent-noncombat-damage-to-you', {
+      receivingIsPlayerOnly: true,
+      receivingPlayerIsSourceController: true,
+      noncombatDamageOnly: true,
+    })];
+  }
+  if (/^if noncombat damage would be dealt to ~, prevent that damage$/.test(s)) {
+    return [prevent('prevent-noncombat-damage-to-self', {
+      receivingPermanentIsSource: true,
+      noncombatDamageOnly: true,
+    })];
   }
   // Batch 15 prevention shapes.
   if (/^during your turn, prevent all damage that would be dealt to ~$/.test(s)) {
@@ -104,6 +124,8 @@ export function parseDamagePreventionSentence(sentence: string, next: string | u
       reason: 'prevent_n_damage_to_you',
     }];
   }
+  const b63 = parseBatch63DamagePreventionSentence(s);
+  if (b63.length) return b63;
   const b18 = parseBatch18PreventAllSentence(s);
   return b18.length > 0 ? b18 : parseBatch19PreventAllSentence(s);
 }
@@ -172,13 +194,19 @@ export function matchesDamagePreventionExtras(
     const blocking = Array.isArray(self?.blocking) ? self.blocking.map(String) : [];
     if (!blocking.includes(String(input.damageSourcePermanentId || '').trim())) return false;
   }
-  const needsSource = match.damageSourceIsCreature === true || !!match.damageSourceColorIncludes;
+  // Spell-sourced color checks are handled in overlaySpecsMatchDamage (resolving spell colors).
+  const needsSource = match.damageSourceIsCreature === true
+    || (!!match.damageSourceColorIncludes && match.damageSourceIsSpell !== true);
   if (needsSource) {
     const dmgSource = findPermanent(state, String(input.damageSourcePermanentId || '').trim());
     if (!dmgSource) return false;
     if (match.damageSourceIsCreature === true
       && !String(dmgSource.card?.type_line || dmgSource.type_line || '').toLowerCase().includes('creature')) return false;
     if (match.damageSourceColorIncludes && !readColors(dmgSource).includes(String(match.damageSourceColorIncludes).toUpperCase())) return false;
+  }
+  if ((spec.metadata as any)?.requiresSourceUntapped === true) {
+    const self = findPermanent(state, sourceId);
+    if (!self || self.tapped) return false;
   }
   if (!matchesBatch18PreventAll(spec, input, state)) return false;
   if (!matchesBatch19PreventAll(spec, input, state)) return false;

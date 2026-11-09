@@ -6,7 +6,10 @@
 // toughness is equal to that number plus 1" (Polygoyf, Barrowgoyf; "your graveyard" variants too).
 // Also devotion: "~'s power is equal to your devotion to green" (Renata; toughness stays printed) and
 // "power and toughness are each equal to your devotion to COLOR".
-// Public entry symbols: calculateControlledCountCDA, calculateGraveyardCardTypesCDA, calculateDevotionCDA.
+// Also B71 Nighthawk Scavenger: "power is equal to N plus the number of card types among cards in your opponents' graveyards"
+// (printed toughness stays).
+// Public entry symbols: calculateControlledCountCDA, calculateGraveyardCardTypesCDA, calculateDevotionCDA,
+//   calculatePowerPlusOpponentGraveyardCardTypesCDA.
 
 import { landAwareTypeLine } from '../modules/effectiveLandTypeLine.js';
 import { countDevotionAmongPermanents } from '../../../../shared/src/devotionCount.js';
@@ -64,6 +67,29 @@ function cardTypesOf(card: any): string[] {
  * or cards of one or two card types (Lhurgoyf, Mortivore, Cognivore, Boneyard Wurm), in all graveyards, your
  * graveyard, or your opponents' graveyards, with an optional "plus N" toughness or each-equal offset.
  */
+/** B71: Nighthawk Scavenger — power = N + distinct card types in opponents' graveyards. */
+export function calculatePowerPlusOpponentGraveyardCardTypesCDA(
+  card: any,
+  oracleText: string,
+  gameState: any,
+  controllerId: unknown,
+): { power: number; toughness: number } | undefined {
+  const text = String(oracleText || '').toLowerCase().replace(/\u2019/g, "'");
+  const m = text.match(/power is equal to (\d+) plus the number of card types among cards in your opponents' graveyards/);
+  if (!m) return undefined;
+  const base = Number(m[1]);
+  const toughness = Number(card?.toughness);
+  if (!Number.isFinite(base) || !Number.isFinite(toughness)) return undefined;
+  if (!String(card?.power ?? '').includes('*')) return undefined;
+  const zones = gameState?.zones || {};
+  const cards: any[] = [];
+  for (const id of graveyardOwnerIds("your opponents' graveyards", zones, controllerId)) {
+    if (Array.isArray(zones[id]?.graveyard)) cards.push(...zones[id].graveyard);
+  }
+  const n = new Set(cards.flatMap(cardTypesOf)).size;
+  return { power: base + n, toughness };
+}
+
 export function calculateGraveyardCardTypesCDA(
   oracleText: string,
   gameState: any,

@@ -239,6 +239,15 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
                 lib.unshift({ ...card, zone: 'library' });
               }
               writePlayerLibrary(ctx, playerId, lib);
+              try {
+                queueParsedSubjectEvent(ctx, {
+                  event: 'put_into_library',
+                  subjectPermanent: { id: String(card.id || ''), controller: fromPlayerId || playerId, card },
+                  subjectControllerId: String(fromPlayerId || playerId || ''),
+                  triggerType: 'put_into_library',
+                  fromZone: String(fromZone || 'anywhere'),
+                });
+              } catch { /* best-effort */ }
             }
           } else if ((toZone === 'hand' || toZone === 'graveyard' || toZone === 'exile') && card) {
             const zones = (ctx.state as any).zones = (ctx.state as any).zones || {};
@@ -261,13 +270,19 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
                 });
               } else {
                 destList.push({ ...card, zone: toZone });
-                if (toZone === 'exile' && fromZone === 'graveyard') {
+                if (toZone === 'exile') {
+                  const exileFrom = String(fromZone || 'anywhere');
                   queueParsedSubjectEvent(ctx, {
                     event: 'exiled',
                     subjectPermanent: { id: String(card.id || ''), controller: fromPlayerId, card },
                     subjectControllerId: String(fromPlayerId || playerId || ''),
-                    triggerType: 'exiled_from_graveyard',
-                    fromZone: 'graveyard',
+                    triggerType: exileFrom === 'graveyard' ? 'exiled_from_graveyard' : 'exiled',
+                    fromZone: exileFrom,
+                    matchContext: {
+                      fromZone: exileFrom,
+                      zoneOwnerId: String(fromPlayerId || playerId || ''),
+                      exileControllerId: String((e as any).controller || (e as any).playerId || playerId || ''),
+                    },
                   });
                 }
               }

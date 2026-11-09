@@ -1,4 +1,5 @@
 import { alreadyAttackedPlayerRestrictionReason } from "./combatBatch37Restrictions.js"; // B37
+import { cantAttackAloneReason } from "./combatBatch53AttackAlone.js"; // B53
 import { controlTypeAttackRestrictionReason } from "./combatBatch36Restrictions.js"; // B36
 import { castThisTurnAttackRestrictionReason } from "./combatBatch34AttackRestrictions.js"; // B34
 import { controlCountAttackRestrictionReason } from "./combatBatch33AttackRestrictions.js"; // B33 count
@@ -128,7 +129,7 @@ export {
 export function getOwnerAttackRestrictionReason(
   creature: any,
   defendingPlayerId?: string,
-  options?: { targetIsOwnerPlaneswalker?: boolean; battlefield?: readonly any[]; gameState?: unknown },
+  options?: { targetIsOwnerPlaneswalker?: boolean; battlefield?: readonly any[]; gameState?: unknown; proposedAttackerIds?: readonly string[] },
 ): string | null {
   if (options?.battlefield) {
     const defenderReason = defenderAttackTargetRestrictionReason(creature, defendingPlayerId, options.battlefield, options.gameState);
@@ -149,6 +150,8 @@ export function getOwnerAttackRestrictionReason(
     if (r36Defender) return r36Defender;
     const b37Already = alreadyAttackedPlayerRestrictionReason(creature, defendingPlayerId, options.gameState); // B37
     if (b37Already) return b37Already;
+    const b53Alone = cantAttackAloneReason(creature, options.proposedAttackerIds, options.battlefield); // B53
+    if (b53Alone) return b53Alone;
   }
   const restriction = getIllegalDefendingPlayerRestriction({
     oracleText: String(creature?.card?.oracle_text || creature?.oracle_text || ''),

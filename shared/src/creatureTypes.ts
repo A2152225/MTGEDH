@@ -99,6 +99,8 @@ const IRREGULAR_CREATURE_TYPE_PLURALS: Record<string, string> = {
   oxen: 'ox',
   allies: 'ally',
   heroes: 'hero',
+  // B56: Thurid / Princess Twilight Sparkle subtype-list lords.
+  pegasi: 'pegasus',
 };
 
 export function normalizeCreatureTypeWord(word: string): string | null {

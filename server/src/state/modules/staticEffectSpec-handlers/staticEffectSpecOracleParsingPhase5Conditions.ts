@@ -17,12 +17,24 @@ export function parsePhase5LordCondition(raw: string, sourceName: string): Stati
   const text = String(raw || '').trim().replace(/\u2019/g, "'");
   const c = (o: Record<string, unknown>) => o as unknown as StaticEffectCondition;
   if (/^you(?:'ve)? gained life this turn$/.test(text)) return c({ kind: 'controller_gained_life_this_turn' });
+  // B60: Essence Channeler
+  if (/^you(?:'ve)? lost life this turn$/.test(text)) return c({ kind: 'controller_lost_life_this_turn' });
+  // B60: Gloom Stalker
+  if (/^you(?:'ve)? completed a dungeon$/.test(text)) return c({ kind: 'controller_completed_dungeon' });
+  // B60: Swordsworn Cavalier - another Knight entered ... this turn
+  {
+    const enteredType = text.match(/^another ([a-z]+) entered(?: the battlefield)? under your control this turn$/);
+    if (enteredType) return c({ kind: 'controller_creature_type_entered_this_turn', creatureType: singular(enteredType[1]), other: true });
+  }
   let m = text.match(/^you attacked with (\w+) or more ([a-z]+) this turn$/);
   if (m && num(m[1])) return c({ kind: 'controller_attacked_with_at_least', count: num(m[1]), creatureType: singular(m[2]) });
   m = text.match(/^(\w+) or more nonland permanents entered(?: the battlefield)? under your control this turn$/);
   if (m && num(m[1])) return c({ kind: 'controller_nonland_entered_at_least', count: num(m[1]) });
   m = text.match(/^there are (\w+) or more card types among cards in your graveyard$/);
   if (m && num(m[1])) return c({ kind: 'controller_graveyard_card_types_at_least', count: num(m[1]) });
+  // B59: Syndicate Infiltrator - mana values among cards in your graveyard.
+  m = text.match(/^there are (\w+) or more mana values among cards in your graveyard$/);
+  if (m && num(m[1])) return c({ kind: 'controller_graveyard_mana_values_at_least', count: num(m[1]) });
   m = text.match(/^the top card of your library is (white|blue|black|red|green)$/);
   if (m) return c({ kind: 'controller_library_top_is_color', color: m[1] });
   m = text.match(/^equipped creature is (tapped|untapped)$/);

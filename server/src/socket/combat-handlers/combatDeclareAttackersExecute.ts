@@ -34,6 +34,7 @@ import { getNearestOpponentDirectionAttackViolation } from "../../state/modules/
 import { playerIsLegalAttackTarget } from "../../../../rules-engine/src/playerInGameStatus.js";
 import {
   collectAttackYouMaxAttackersForDefender,
+  collectMaxAttackersAgainstPermanent,
   collectMaxAttackersEachCombat,
 } from "../../state/modules/staticEffectSpecAttackYouTax.js";
 import { collectThisTurnAttackProhibition } from "../../state/modules/attackProhibitedThisTurn.js";
@@ -89,6 +90,23 @@ export async function executeDeclareAttackers(
         const defenderName = getPlayerName(game, defendingPlayerId);
         throw Object.assign(
           new Error(`No more than ${cap.max} creatures can attack ${defenderName} this combat.`),
+          { code: 'TOO_MANY_ATTACKERS' },
+        );
+      }
+    }
+    const attackersVsPermanent = new Map<string, number>();
+    for (const attacker of resolvedAttackers) {
+      const targetPermanentId = String(attacker.targetPermanentId || '').trim();
+      if (!targetPermanentId) continue;
+      attackersVsPermanent.set(targetPermanentId, (attackersVsPermanent.get(targetPermanentId) || 0) + 1);
+    }
+    for (const [permanentId, count] of attackersVsPermanent.entries()) {
+      const cap = collectMaxAttackersAgainstPermanent(game.state, permanentId);
+      if (cap.max != null && count > cap.max) {
+        const perm = (game.state.battlefield || []).find((p: any) => String(p?.id || '') === permanentId);
+        const name = String(perm?.card?.name || 'that permanent');
+        throw Object.assign(
+          new Error(`No more than ${cap.max} creatures can attack ${name} this combat.`),
           { code: 'TOO_MANY_ATTACKERS' },
         );
       }
@@ -208,6 +226,7 @@ export async function executeDeclareAttackers(
       targetIsOwnerPlaneswalker: isAttackingOwnerPlaneswalker(creature, attacker, battlefield),
       battlefield,
       gameState: game.state,
+      proposedAttackerIds: (resolvedAttackers as Array<{ creatureId: string }>).map((entry) => String(entry.creatureId || '')),
     });
     if (ownerRestrictionReason) {
       throw Object.assign(
@@ -259,6 +278,18 @@ export async function executeDeclareAttackers(
     const targetPlayerId = attacker.targetPlayerId || attacker.defendingPlayerId;
     (creature as any).attacking = targetPlayerId || attacker.targetPermanentId;
     (creature as any).attackedThisTurn = true;
+    // B67: War Historian — "as long as it attacked a battle this turn"
+    try {
+      const targetPermId = String(attacker.targetPermanentId || '').trim();
+      if (targetPermId) {
+        const targetPerm = battlefield.find((p: any) => String(p?.id || '') === targetPermId);
+        if (targetPerm && /\bbattle\b/i.test(String(targetPerm?.card?.type_line || ''))) {
+          (creature as any).attackedBattleThisTurn = true;
+        }
+      }
+    } catch {
+      // best-effort only
+    }
 
     try {
       const stateAny = game.state as any;

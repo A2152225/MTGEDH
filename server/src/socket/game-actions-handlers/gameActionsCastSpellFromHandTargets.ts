@@ -16,6 +16,7 @@ import {
 } from "../../rules-engine/targeting";
 import { resolveCastSpellParsedTargeting } from "./gameActionsCastSpellParsedTargeting.js";
 import { permanentRejectsAuraSpellTargets } from "../../rules-engine/auraSpellTargetRestriction.js";
+import { permanentRejectsWallOnlyTargets, sourceCanTargetOnlyWalls } from "../../rules-engine/wallOnlyTargetRestriction.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug, debugError } from "../../utils/debug.js";
 import { getPlayerName } from "../util";
@@ -250,6 +251,11 @@ export function tryPromptCastSpellTargetsFromHand(
         // R22: "~ can't be the target of Aura spells" (Bartel Runeaxe).
         validTargets = validTargets.filter((t: any) => t.kind !== 'permanent'
           || !permanentRejectsAuraSpellTargets((game.state.battlefield || []).find((p: any) => p.id === t.id)));
+        // B60: Wall of Shadows - can't be targeted by spells that can target only Walls.
+        if (sourceCanTargetOnlyWalls(cardInHand)) {
+          validTargets = validTargets.filter((t: any) => t.kind !== 'permanent'
+            || !permanentRejectsWallOnlyTargets((game.state.battlefield || []).find((p: any) => p.id === t.id)));
+        }
 
         if (validTargets.length === 0) {
           socket.emit("error", {

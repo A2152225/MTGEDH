@@ -22,10 +22,6 @@ const SUBJECT = '((?:a|an|another) [^,]+?)';
 
 const LEGACY_ONLY: readonly RegExp[] = [
   /^when that (?:creature|token|permanent) (?:dies|leaves the battlefield),\s*(.+)$/,
-  /^whenever a creature (?:dies|attacks|blocks) this turn,\s*(.+)$/,
-  /^at the beginning of that combat,\s*(.+)$/,
-  /^at this turn's next end of combat,\s*(.+)$/,
-  /^whenever a player attacks one of your opponents,\s*(.+)$/,
   /^whenever one or more creatures attack one of your opponents,\s*(.+)$/,
 ];
 
@@ -45,7 +41,9 @@ export function parseRound15TriggerSentence(text: string, reparse: Reparse): Par
     return withFields(reparse('whenever ' + damageEnchanted[1] + ' deals combat damage to a player, ' + damageEnchanted[2]), { damagedPlayer: 'enchanted' });
   }
 
-  const damageOpponent = new RegExp('^whenever ' + SUBJECT + ' deals combat damage to one of your opponents,\\s*(.+)$').exec(text);
+  const damageOpponentBatch = /^(whenever|when) one or more (.+?) deals? combat damage to one of your opponents,\s*(.+)$/.exec(text);
+  if (damageOpponentBatch) return reparse(damageOpponentBatch[1] + ' one or more ' + damageOpponentBatch[2] + ' deals combat damage to an opponent, ' + damageOpponentBatch[3]);
+  const damageOpponent = new RegExp('^whenever ' + SUBJECT + ' deals? combat damage to one of your opponents,\\s*(.+)$').exec(text);
   if (damageOpponent) return reparse('whenever ' + damageOpponent[1] + ' deals combat damage to an opponent, ' + damageOpponent[2]);
 
   const enchantedControls = /^(whenever|when) (a|an|another) ([^,]+?) enchanted player controls ([a-z ]+?),\s*(.+)$/.exec(text);

@@ -20,6 +20,7 @@ const VERBS: ReadonlyArray<[RegExp, string]> = [
   [/^attack (?:a player|one or more players)$/, 'attacks a player'],
   [/^attack (?:an opponent|one of your opponents|one or more of your opponents)$/, 'attacks an opponent'],
   [/^deals? combat damage to (?:a player|one or more players)$/, 'deals combat damage to a player'],
+  [/^deals? combat damage to (?:an opponent|one of your opponents|one or more of your opponents)$/, 'deals combat damage to an opponent'],
 ];
 
 function singularNoun(noun: string): string | null {

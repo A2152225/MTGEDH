@@ -247,7 +247,18 @@ export function canTargetPermanent(
 
   if (opponentTargeting && sourceColors.length > 0) {
     const hexproofFromPattern = /\bhexproof\s+from\s+([a-z]+)\b/gi;
-    for (const match of combinedText.matchAll(hexproofFromPattern)) {
+    const continuousBits: string[] = [];
+    // B58 hexproof-from-own-colors: also scan derived continuous ability grants.
+    const derived = (state as any)?._derivedContinuousEffects;
+    const pid = String((permanent as any)?.id || '');
+    if (derived && pid) {
+      const setA = derived?.perPermanent?.get?.(pid)?.abilities;
+      const setB = derived?.permanentAbilities?.get?.(pid);
+      if (setA instanceof Set) continuousBits.push(...setA);
+      if (setB instanceof Set) continuousBits.push(...setB);
+    }
+    const scan = [combinedText, continuousBits.join('\n')].filter(Boolean).join('\n');
+    for (const match of scan.matchAll(hexproofFromPattern)) {
       const quality = String(match[1] || '').trim().toLowerCase();
       if (!quality) continue;
 

@@ -14,13 +14,34 @@ export function parseDefenderControlsUnblockable(oracle: string): string[] | und
   return words.length ? words : undefined;
 }
 
+const LORD_RE = /(?:^|[.\n]\s*)(?:each )?(?:creature|creatures) you control can't be blocked as long as defending player controls (?:an?|one or more) ([a-z][a-z -]*?)(?:\s*[.(]|$)/i;
+
+export function parseDefenderControlsUnblockableFromController(
+  battlefield: ReadonlyArray<Perm>,
+  controllerId: string | undefined,
+): string[] | undefined {
+  const ctrl = String(controllerId || '');
+  if (!ctrl) return undefined;
+  for (const src of battlefield) {
+    if (!src || String(src.controller || '') !== ctrl) continue;
+    const text = String(src.card?.oracle_text || src.oracle_text || '');
+    const m = text.toLowerCase().match(LORD_RE);
+    if (!m) continue;
+    const words = m[1].trim().replace(/s$/, '').split(/\s+/).filter(Boolean);
+    if (words.length) return words;
+  }
+  return undefined;
+}
+
 export function getDefenderControlsUnblockableReason(
   attacker: Perm | undefined,
   defendingPlayerId: string | undefined,
   battlefield: ReadonlyArray<Perm>,
 ): string | undefined {
   if (!attacker || !defendingPlayerId) return undefined;
-  const words = parseDefenderControlsUnblockable(String(attacker.card?.oracle_text || attacker.oracle_text || ''));
+  const words =
+    parseDefenderControlsUnblockable(String(attacker.card?.oracle_text || attacker.oracle_text || ''))
+    || parseDefenderControlsUnblockableFromController(battlefield, String(attacker.controller || ''));
   if (!words) return undefined;
   const hit = battlefield.some((perm) => {
     if (!perm || String(perm.controller) !== String(defendingPlayerId)) return false;

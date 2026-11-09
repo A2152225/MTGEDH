@@ -6,6 +6,7 @@
 // isCardPlayableAsLandFromHand, getPlayableLandFaceIndex, getHandCastEvaluationCard.
 
 import type { GameContext } from '../../context.js';
+import { landPlaySameNameAsNontokenViolation } from '../landPlaySameNameRestriction.js';
 import type { PlayerID } from '../../../../../shared/src/index.js';
 import { debug, debugWarn } from '../../../utils/debug.js';
 import { calculateMaxLandsPerTurn } from '../game-state-effects.js';
@@ -145,6 +146,8 @@ export function getPlayableLandCandidates(
     ) => {
       if (!card || typeof card === 'string') return;
       if (!isCardPlayableAsLandFromHand(card)) return;
+      // B61: Cornered Market ? nonbasic same-name as nontoken permanent.
+      if (landPlaySameNameAsNontokenViolation(state.battlefield, card)) return;
 
       const cardId = String(card?.id || '');
       if (skipBattlefieldDuplicates && cardId && battlefieldCardIds.has(cardId)) {

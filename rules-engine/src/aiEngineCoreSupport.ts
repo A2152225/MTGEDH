@@ -1,4 +1,5 @@
 import { AIDecisionType, type AIDecision, type AIDecisionContext, type AIPlayerConfig } from './AIEngine';
+import { aiRandom } from './aiRandom';
 
 export function makeRandomDecision(
   context: AIDecisionContext,
@@ -14,7 +15,7 @@ export function makeRandomDecision(
       return {
         type: decisionType,
         playerId,
-        action: { keep: Math.random() > 0.5 },
+        action: { keep: aiRandom() > 0.5 },
         reasoning: 'Random decision',
         confidence: 0.5,
       };

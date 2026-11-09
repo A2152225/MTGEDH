@@ -232,6 +232,9 @@ function endTemporaryEffects(ctx: GameContext) {
       if (permanent.attackedThisTurn) {
         delete permanent.attackedThisTurn;
       }
+      if ((permanent as any).attackedBattleThisTurn) {
+        delete (permanent as any).attackedBattleThisTurn;
+      }
       if (permanent.blockedThisTurn) {
         delete permanent.blockedThisTurn;
       }

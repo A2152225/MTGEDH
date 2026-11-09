@@ -422,7 +422,7 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
 /**
  * Collect protection qualities ("green", "creatures", "everything", …) from oracle-like text.
  */
-export function collectProtectionQualitiesFromText(oracleText: string, chosenColor?: string): string[] {
+export function collectProtectionQualitiesFromText(oracleText: string, chosenColor?: string, chosenPlayerId?: string): string[] {
   const protections: string[] = [];
   const text = String(oracleText || "");
   
@@ -440,6 +440,16 @@ export function collectProtectionQualitiesFromText(oracleText: string, chosenCol
     const chosen = String(chosenColor || '').trim().toLowerCase();
     if (chosen && ['white', 'blue', 'black', 'red', 'green'].includes(chosen) && !protections.includes(chosen)) {
       protections.push(chosen);
+    }
+  }
+  // B57: True-Name Nemesis — protection from the chosen player (sources that player controls).
+  if (/protection from the chosen player/i.test(text)) {
+    const pid = String(chosenPlayerId || '').trim();
+    if (pid) {
+      const key = `player:${pid}`;
+      if (!protections.includes(key)) protections.push(key);
+    } else if (!protections.includes('chosen-player')) {
+      protections.push('chosen-player');
     }
   }
   
@@ -502,6 +512,7 @@ export function parseProtections(card: any, permanent?: any): string[] {
   return collectProtectionQualitiesFromText(
     oracleTextForSelfProtection(card?.oracle_text || ""),
     String(permanent?.chosenColor || permanent?.card?.chosenColor || card?.chosenColor || ''),
+    String(permanent?.chosenPlayer || permanent?.card?.chosenPlayer || card?.chosenPlayer || ''),
   );
 }
 
@@ -547,7 +558,11 @@ export function getPermanentProtections(permanent: any, gameState?: any): string
     grantTexts.push(...getContinuousGrantedAbilitiesForPermanent(permanent, gameState));
   }
   for (const text of grantTexts) {
-    addAll(collectProtectionQualitiesFromText(text, String(permanent?.chosenColor || permanent?.card?.chosenColor || '')));
+    addAll(collectProtectionQualitiesFromText(
+      text,
+      String(permanent?.chosenColor || permanent?.card?.chosenColor || ''),
+      String(permanent?.chosenPlayer || permanent?.card?.chosenPlayer || ''),
+    ));
   }
 
   if (gameState) {
@@ -577,6 +592,12 @@ export function protectionPreventsSource(
 ): boolean {
   const protections = getPermanentProtections(protectedPermanent, gameState);
   if (protections.length === 0 || !sourcePermanent) return false;
+  const sourceController = String(sourcePermanent?.controller || sourcePermanent?.owner || '').trim();
+  for (const quality of protections) {
+    if (quality.startsWith('player:') && sourceController && quality.slice('player:'.length) === sourceController) {
+      return true;
+    }
+  }
   const colors = getEffectiveColors(sourcePermanent, gameState);
   return wouldDamageBePreventedByProtection(
     { colors, types: typeWordsFromPermanent(sourcePermanent) },

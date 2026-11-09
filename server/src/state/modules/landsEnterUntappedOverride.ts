@@ -3,7 +3,8 @@
  * Returns the name of the controlled permanent whose static ability makes the entering
  * card enter untapped, or null when none applies.
  */
-const ENTER_UNTAPPED_RE = /(?:^|[\n.]\s*)((?:basic )?lands|permanents|creatures|artifacts) you control enter untapped\b/g;
+// B72: Gond Gate — "Gates you control enter untapped."
+const ENTER_UNTAPPED_RE = /(?:^|[\n.]\s*)((?:basic )?lands|permanents|creatures|artifacts|gates?) you control enter untapped\b/g;
 
 function readString(obj: unknown, key: string): string {
   if (!obj || typeof obj !== 'object') return '';
@@ -17,6 +18,8 @@ function subjectMatches(subject: string, typeLine: string): boolean {
     case 'lands': return typeLine.includes('land');
     case 'creatures': return typeLine.includes('creature');
     case 'artifacts': return typeLine.includes('artifact');
+    case 'gate':
+    case 'gates': return /\bgate\b/.test(typeLine);
     default: return true;
   }
 }

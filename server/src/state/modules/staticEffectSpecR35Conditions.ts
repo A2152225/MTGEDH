@@ -34,6 +34,12 @@ export function parseR35SelfCondition(raw: string): StaticEffectCondition | null
     const amount = m[2] ? 2 : num(m[1]);
     if (amount !== undefined) return { kind: 'controller_spells_cast_this_turn_at_least', amount } as any;
   }
+  // B72: Lyse Hext — "you've cast two or more noncreature spells this turn"
+  m = c.match(/^you've cast (\w+) or more noncreature spells this turn$/);
+  if (m) {
+    const amount = num(m[1]);
+    if (amount !== undefined) return { kind: 'controller_noncreature_spells_cast_at_least', amount } as any;
+  }
   m = c.match(/^you control no other (creatures|artifacts|lands|enchantments|permanents)$/);
   if (m) return { kind: 'controller_controls_no_other', cardType: m[1].replace(/s$/, '') } as any;
   return null;

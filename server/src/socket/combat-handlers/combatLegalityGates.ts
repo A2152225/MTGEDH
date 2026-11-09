@@ -38,6 +38,7 @@ import { getEffectivePower, getEffectiveToughness } from "../util.js";
 import { getColorBlockRestrictionReason } from "./combatColorBlockRestriction.js";
 import { getExceptColorBlockRestrictionReason } from './combatExceptColorBlockRestriction.js';
 import { getQualifierBlockRestrictionReason } from "./combatQualifierBlockRestriction.js";
+import { getNoAbilitiesBlockRestrictionReason } from "../../../../shared/src/combatNoAbilitiesBlockRestriction.js";
 import { staticGrantBlockRestrictionReason } from "./combatR35StaticBlockRestrictions.js"; // R35
 import { getBatch25BlockRestrictionReason } from "./combatBatch25BlockRestrictions.js";
 import { canBlockAsThoughReach } from "./combatBatch26BlockRestrictions.js";
@@ -615,6 +616,14 @@ export function canBlockAttacker(
       blockerToughness: getEffectiveToughness(blocker, gameState),
     });
     if (qualifierReason) return { canBlock: false, reason: qualifierReason };
+    // B57: Jasmine Boreal — no-abilities creatures can't be blocked by creatures with abilities.
+    const noAbilitiesReason = getNoAbilitiesBlockRestrictionReason(
+      attacker,
+      blocker,
+      battlefield as any,
+      continuousBlockAbilities,
+    );
+    if (noAbilitiesReason) return { canBlock: false, reason: noAbilitiesReason };
   }
   if (attackerRestrictionTexts.some((entry) => entry.includes("can't be blocked by creatures with power 2 or less")) && blockerPower <= 2) {
     return {
@@ -624,7 +633,8 @@ export function canBlockAttacker(
   }
 
   const batch25BlockReason = getBatch25BlockRestrictionReason(attacker, blocker, battlefield, attackerRestrictionTexts,
-    (perm, keyword) => hasEffectiveAbility(perm, keyword, battlefield, blockerControllerId).hasAbility);
+    (perm, keyword) => hasEffectiveAbility(perm, keyword, battlefield, blockerControllerId).hasAbility,
+    String(attacker?.attacking || attacker?.attackingPlayerId || attacker?.defendingPlayerId || ''));
   if (batch25BlockReason) return { canBlock: false, reason: batch25BlockReason };
 
   const attackerPower = getEffectivePower(attacker, gameState);

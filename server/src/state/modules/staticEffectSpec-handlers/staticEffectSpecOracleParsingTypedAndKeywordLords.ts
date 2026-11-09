@@ -19,10 +19,14 @@ import { isCreatureTypeWord } from '../../../../../shared/src/creatureTypes.js';
 
 const CARD_TYPE_LORD_TYPES = ['artifact', 'enchantment', 'land'] as const;
 
+// B67: Depthshaker Titan — "Each artifact creature you control has melee, trample, and haste."
 const CARD_TYPE_GET_RE =
-  /(?:^|[.\n;]|—)\s*(other\s+)?(artifact|enchantment|land) creatures you control get\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/gi;
+  /(?:^|[.\n;]|—)\s*(?:each\s+)?(other\s+)?(artifact|enchantment|land) creatures? you control gets?\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/gi;
 const CARD_TYPE_HAVE_RE =
-  /(?:^|[.\n;]|—)\s*(other\s+)?(artifact|enchantment|land) creatures you control have ([^.]+)/gi;
+  /(?:^|[.\n;]|—)\s*(?:each\s+)?(other\s+)?(artifact|enchantment|land) creatures? you control (?:have|has) ([^.]+)/gi;
+// B67: Marrow-Gnawer — "All Rats have fear." (global type, not "you control")
+const ALL_TYPE_HAVE_RE =
+  /(?:^|[.\n;]|—)\s*all\s+([a-z][a-z'-]*)s?\s+(?:creatures?\s+)?have\s+([^.]+)/gi;
 const OUTLAW_GET_RE =
   /(?:^|[.\n;])\s*(other\s+)?outlaws you control get\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/gi;
 const OUTLAW_HAVE_RE =
@@ -32,7 +36,7 @@ const NONTOKEN_HAVE_RE =
 const ATTACKING_HAVE_RE =
   /(?:^|[.\n;])\s*(other\s+)?attacking creatures you control have ([^.]+)/gi;
 const COLOR_GET_RE =
-  /(?:^|[.\n;])\s*(other\s+)?(white|blue|black|red|green|colorless|multicolored) creatures(?: you control)? get\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/gi;
+  /(?:^|[.\n;])\s*(?:each\s+)?(other\s+)?(white|blue|black|red|green|colorless|multicolored) creatures?(?: you control)? gets?\s+(\+\d+\s*\/\s*\+\d+)([^.]*)/gi;
 const COLOR_HAVE_RE =
   /(?:^|[.\n;])\s*(other\s+)?(white|blue|black|red|green|colorless|multicolored) creatures(?: you control)? have ([^.]+)/gi;
 const PERMANENT_HAVE_RE =
@@ -43,6 +47,9 @@ const MODIFIED_HAVE_RE =
   /(?:^|[.\n;])\s*(other\s+)?modified creatures you control have ([^.]+)/gi;
 const EQUIPPED_HAVE_RE =
   /(?:^|[.\n;])\s*(other\s+)?equipped creatures you control have ([^.]+)/gi;
+// B54: "During your turn, creatures you control that are equipped have first strike and vigilance." (Long-Lost Lances)
+const EQUIPPED_DURING_TURN_HAVE_RE =
+  /(?:^|[.\n;])\s*during your turn,?\s*(other\s+)?creatures you control that are equipped have ([^.]+)/gi;
 const ENCHANTED_HAVE_RE =
   /(?:^|[.\n;])\s*(other\s+)?enchanted creatures you control have ([^.]+)/gi;
 const CREATURES_HAVE_RE =
@@ -152,6 +159,23 @@ export function pushTypedAndKeywordLordSpecs(
     ));
   }
 
+  for (const match of text.matchAll(ALL_TYPE_HAVE_RE)) {
+    const creatureType = parseLordCreatureType(String(match[1] || ''));
+    if (!creatureType || !isCreatureTypeWord(creatureType)) continue;
+    if ((COLOR_WORDS as readonly string[]).includes(creatureType)) continue;
+    if (creatureType === 'creature' || creatureType === 'permanent') continue;
+    const abilities = parseLordAbilitiesFromTail(match[2] || '');
+    if (abilities.length === 0) continue;
+    const id = `all-${creatureType}-ability-grant`;
+    if (specs.some((s) => String(s.id).endsWith(id))) continue;
+    specs.push(buildSpec(
+      source,
+      id,
+      { kind: 'all_creatures_of_type', creatureType },
+      { abilities },
+    ));
+  }
+
   for (const match of text.matchAll(OUTLAW_GET_RE)) {
     const tail = match[3] || '';
     if (tailHasUnsupportedConditional(tail)) continue;
@@ -208,7 +232,9 @@ export function pushTypedAndKeywordLordSpecs(
 
   for (const match of text.matchAll(COLOR_GET_RE)) {
     const tail = match[4] || '';
-    if (tailHasUnsupportedConditional(tail)) continue;
+    // B61: Knight of New Alara - +1/+1 for each of its colors (recipient color count).
+    const colorCountTail = /^\s*for each of its colors\s*$/i.test(tail.trim());
+    if (tailHasUnsupportedConditional(tail) && !colorCountTail) continue;
     const colorWord = String(match[2] || '').toLowerCase();
     const condition = colorCondition(colorWord);
     if (!condition) continue;
@@ -217,9 +243,14 @@ export function pushTypedAndKeywordLordSpecs(
     const isOther = Boolean(match[1]);
     specs.push(buildSpec(
       source,
-      `${isOther ? 'other-' : ''}${colorWord}-creatures-lord`,
+      `${isOther ? 'other-' : ''}${colorWord}-creatures-lord${colorCountTail ? '-per-color' : ''}`,
       otherScope(isOther),
-      { power: buff.power, toughness: buff.toughness, abilities: parseLordAbilitiesFromTail(tail) },
+      {
+        power: buff.power,
+        toughness: buff.toughness,
+        ...(colorCountTail ? { countBasis: 'host_color_count' as const } : {}),
+        abilities: colorCountTail ? undefined : parseLordAbilitiesFromTail(tail),
+      },
       condition,
     ));
   }
@@ -294,6 +325,22 @@ export function pushTypedAndKeywordLordSpecs(
       { abilities },
       { kind: 'target_is_equipped' },
     ));
+  }
+
+  for (const match of text.matchAll(EQUIPPED_DURING_TURN_HAVE_RE)) {
+    const abilities = parseLordAbilitiesFromTail(match[2] || '');
+    if (abilities.length === 0) continue;
+    const isOther = Boolean(match[1]);
+    specs.push(buildSpec(
+      source,
+      `${isOther ? 'other-' : ''}equipped-creatures-during-turn-ability-grant`,
+      otherScope(isOther),
+      { abilities },
+      { kind: 'during_source_controller_turn' },
+    ));
+    // Equipped filter rides as an extra condition on the same grant.
+    const last = specs[specs.length - 1] as any;
+    last.conditions = [...(last.conditions || []), { kind: 'target_is_equipped' }];
   }
 
   for (const match of text.matchAll(ENCHANTED_HAVE_RE)) {

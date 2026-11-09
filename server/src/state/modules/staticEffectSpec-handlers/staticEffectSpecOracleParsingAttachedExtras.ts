@@ -50,8 +50,16 @@ export function pushAttachedExtraSpecs(
   });
   const lines = String(oracle || '').toLowerCase().replace(/\u2019/g, "'").split(/\n+/).map((l) => l.replace(/\([^)]*\)/g, '').trim());
   lines.forEach((line, index) => {
-    // Zendikon: "Enchanted land is a 5/3 green Elemental creature with reach and haste. It's still a land."
-    const z = line.match(/^enchanted (?:land|artifact) is an? \d+\/\d+ ([a-z ,]*?)\bcreature(?: with ([a-z ,]+?))?\.\s*it's still an? (?:land|artifact)\b/);
+    // B67: In Bolas's Clutches — "Enchanted permanent is legendary."
+    if (/^enchanted (?:permanent|creature|artifact|land|planeswalker) is legendary\.?$/.test(line)) {
+      onHost(`attached-extra-legendary:${index}`, { typeAdditions: ['Legendary'] });
+      return;
+    }
+    // Zendikon / Awaken the Ancient / Living Terrain:
+    // "Enchanted land is a 5/3 green Elemental creature with reach and haste. It's still a land."
+    // "Enchanted Mountain is a 7/7 red Giant creature with haste. It's still a land."
+    // "Enchanted land is a 5/6 green Treefolk creature that's still a land."
+    const z = line.match(/^enchanted (?:land|artifact|mountain|island|swamp|forest|plains) is an? \d+\/\d+ ([a-z ,]*?)\bcreature(?: with ([a-z ,]+?))?(?:\.\s*it's| that's) still an? (?:land|artifact)\b/);
     if (z) {
       const words = z[1].replace(/,/g, ' ').split(/\s+/).filter((w) => w && w !== 'and');
       const colors = words.filter((w) => /^(?:white|blue|black|red|green)$/.test(w));

@@ -120,11 +120,13 @@ export function pushSubtypeListLordSpecs(
   source: StaticEffectSpecSource,
   oracle: string,
 ): void {
-  const clauses = String(oracle || '').toLowerCase().split(/[.\n]+/);
+  // B60: Rushblade Commander — EDH singleton team falls back to you control.
+  const clauses = String(oracle || '').toLowerCase().replace(/\byour team controls\b/g, 'you control').split(/[.\n]+/);
   for (let rawClause of clauses) {
     let clause = rawClause.trim().replace(/\([^)]*\)/g, '').trim();
-    const label = (clause.match(/^([a-z' ]+) \u2014 /) || [])[1] || '';
-    clause = clause.replace(/^[a-z' ]+ \u2014 /, '').trim();
+    // B58: ability words may include hyphens / digits (Animal May-Ham, Descend 4).
+    const label = (clause.match(/^([a-z'0-9 -]+) \u2014 /) || [])[1] || '';
+    clause = clause.replace(/^[a-z'0-9 -]+ \u2014 /, '').trim();
     const extraConditions: StaticEffectCondition[] = [];
     const lead = clause.match(/^as long as ([^,]+),\s*(.+)$/);
     const trail = clause.match(/^(.+?)\s+as long as (.+)$/);

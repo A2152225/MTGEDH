@@ -4,14 +4,23 @@
 // Public entry symbols: calculateVariablePT.
 // Re-exported from utils.ts so the "./utils.js" import path keeps working.
 
-import { calculatePowerOnlyCDA } from "./variablePowerOnlyCalculator.js";
+import {
+  calculatePowerOnlyCDA,
+  calculateSplitColorBattlefieldCreatureCDA,
+  calculateChosenTypeBattlefieldCreatureCDA,
+} from "./variablePowerOnlyCalculator.js";
 import { calculateGreatestManaValuePowerCDA } from "./variablePowerGreatestManaValue.js";
 import { calculateGreatestPowerAmongCDA } from "./variablePowerGreatestPower.js";
 import { calculateColorPermanentCountPT } from "./variableColorPermanentCount.js";
 import { getLifePaidOnEntryPT } from "../modules/asEntersPayAnyLife.js";
 import { calculateGenericCountCDA } from "./variablePTGenericCountCDA.js";
 import { landAwareTypeLine } from '../modules/effectiveLandTypeLine.js';
-import { calculateControlledCountCDA, calculateDevotionCDA, calculateGraveyardCardTypesCDA } from "./variablePTControlledCountCDA.js";
+import {
+  calculateControlledCountCDA,
+  calculateDevotionCDA,
+  calculateGraveyardCardTypesCDA,
+  calculatePowerPlusOpponentGraveyardCardTypesCDA,
+} from "./variablePTControlledCountCDA.js";
 
 /**
  * Calculate the effective P/T for creatures with variable (star slash star) power/toughness.
@@ -348,6 +357,18 @@ export function calculateVariablePT(
   
   // ===== GENERIC PATTERN MATCHING =====
 
+  // B69: Yavimaya Kavu — power = red creatures on BF, toughness = green creatures on BF.
+  const splitColor = calculateSplitColorBattlefieldCreatureCDA(card, oracleText, battlefield);
+  if (splitColor) return splitColor;
+  // B69: Caller of the Hunt — */* = creatures of the chosen type on the battlefield.
+  {
+    const host = battlefield.find((p: any) => p?.card === card || p?.card?.id === card?.id)
+      || battlefield.find((p: any) => String(p?.controller || '') === String(controllerId || '')
+        && String(p?.card?.name || '').toLowerCase() === name);
+    const chosenTypeCDA = calculateChosenTypeBattlefieldCreatureCDA(card, host || card, oracleText, battlefield);
+    if (chosenTypeCDA) return chosenTypeCDA;
+  }
+
   // "~'s power is equal to the number of X" with printed toughness (*/N).
   const powerOnly = calculatePowerOnlyCDA(card, oracleText, battlefield, zones, controllerId);
   if (powerOnly) return powerOnly;
@@ -365,7 +386,16 @@ export function calculateVariablePT(
   
   // "power and toughness are each equal to" patterns
   if (oracleText.includes('power and toughness are each equal to')) {
-    
+    // B73: Katilda — "permanents you control that are Spirits and/or enchantments"
+    if (/permanents you control that are spirits and\/or enchantments/.test(oracleText)) {
+      const n = battlefield.filter((p: any) => {
+        if (p.controller !== controllerId) return false;
+        const tl = String(p.card?.type_line || '').toLowerCase();
+        return /\bspirit\b/.test(tl) || /\benchantment\b/.test(tl);
+      }).length;
+      return { power: n, toughness: n };
+    }
+
     // "artifacts and/or creatures you control" (each permanent counted once)
     if (oracleText.includes('artifacts and/or creatures you control')) {
       const permanents = battlefield.filter((p: any) =>
@@ -524,6 +554,8 @@ export function calculateVariablePT(
   
   const controlledCount = calculateControlledCountCDA(oracleText, battlefield, controllerId, card.id, gameState);
   if (controlledCount) return controlledCount;
+  const powerPlusOppGy = calculatePowerPlusOpponentGraveyardCardTypesCDA(card, oracleText, gameState, controllerId);
+  if (powerPlusOppGy) return powerPlusOppGy;
   const graveyardTypes = calculateGraveyardCardTypesCDA(oracleText, gameState, controllerId);
   if (graveyardTypes) return graveyardTypes;
   const devotion = calculateDevotionCDA(oracleText, battlefield, controllerId, card.toughness);

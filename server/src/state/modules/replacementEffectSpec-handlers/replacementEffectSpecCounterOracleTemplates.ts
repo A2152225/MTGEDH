@@ -133,6 +133,21 @@ const ORACLE_COUNTER_REPLACEMENT_TEMPLATES: readonly OracleCounterReplacementTem
     },
   },
   {
+    // B58: Loading Zone - creature / Spacecraft / Planet you control.
+    templateId: 'loading-zone-counters-double',
+    oracleMustIncludeAll: [
+      'counters would be put on a creature, spacecraft, or planet you control',
+      'twice that many of each of those kinds',
+    ],
+    spec: {
+      event: 'counter-placement',
+      match: { targetControllerIsSourceController: true },
+      instead: { modify: 'double' },
+      effectId: 'loading-zone-counters-double',
+      reason: 'loading_zone_counters_double',
+    },
+  },
+  {
     templateId: 'opponent-put-counters-halve',
     oracleMustIncludeAll: [
       'if an opponent would put one or more counters',

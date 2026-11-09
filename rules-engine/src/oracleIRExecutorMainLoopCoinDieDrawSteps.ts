@@ -363,6 +363,12 @@ export function tryApplyMainLoopCoinDieDrawSteps(
             for (let winIndex = 0; winIndex < winCount; winIndex += 1) pending.push(playerId);
             stateAny.pendingCoinFlipWins = pending;
           }
+          const lossCount = wins.length - winCount;
+          if (lossCount > 0) {
+            const pendingLosses = Array.isArray(stateAny.pendingCoinFlipLosses) ? stateAny.pendingCoinFlipLosses : [];
+            for (let lossIndex = 0; lossIndex < lossCount; lossIndex += 1) pendingLosses.push(playerId);
+            stateAny.pendingCoinFlipLosses = pendingLosses;
+          }
           stateAny.coinFlipsThisTurn[playerId] = Array.isArray(stateAny.coinFlipsThisTurn[playerId])
             ? [...stateAny.coinFlipsThisTurn[playerId], flipRecord]
             : [flipRecord];

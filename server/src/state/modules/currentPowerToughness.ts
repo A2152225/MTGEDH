@@ -36,6 +36,9 @@ export interface CurrentPowerToughness {
  * numeric base P/T (non-creature, unresolved star P/T). Callers must have synced derived
  * continuous effects on `state` (view.ts does this once per build).
  */
+/** Guards getCurrentPowerToughness against overlay-condition -> getEffectivePower -> getCPT recursion. */
+const permanentsResolvingCurrentPowerToughness = new Set<string>();
+
 export function computeCurrentPowerToughnessWithSources(perm: any, state: any): CurrentPowerToughness | undefined {
   // Layer 7a-7d live in one evaluator so the view tooltip and combat read the same numbers.
   return evaluateLayer7PowerToughness(perm, state);
@@ -91,22 +94,64 @@ export function sumUnmirroredOracleIrPtModifiers(perm: any): { power: number; to
  */
 export function getCurrentPowerToughness(perm: any, state: any): { power: number; toughness: number } | undefined {
   if (!perm) return undefined;
-  if (state && !(state as any)._derivedContinuousEffects) {
+  // While syncDerivedContinuousEffects is recomputing (and evaluating power-dependent static
+  // conditions), do not call sync again — that reentrancy hung combat P/T reads when Baeloth's
+  // goad oracle was hydrated mid-sync. Use the in-progress / regex-fallback compute path instead
+  // (same approach as registerStaticConditionCurrentPowerResolver).
+  if (state && !(state as any)._derivedContinuousEffects && !(state as any)._syncingDerivedContinuousEffects) {
     try {
       syncDerivedContinuousEffects(state);
     } catch {
       // best-effort; bonuses fall back to regex anthems
     }
   }
-  const current = computeCurrentPowerToughnessWithSources(perm, state);
-  if (!current) return undefined;
-  const pending = sumUnmirroredOracleIrPtModifiers(perm);
-  // Pending pumps are layer 7c, so under an active 7d switch they land on the other side.
-  const switched = countActivePowerToughnessSwitches(perm) % 2 === 1;
-  return {
-    power: current.power + (switched ? pending.toughness : pending.power),
-    toughness: current.toughness + (switched ? pending.power : pending.toughness),
+  // Overlay statics (getOverlayStaticPTBonusForPermanent) evaluate conditions that call
+  // getEffectivePower -> readCurrentPowerFromHook -> getCurrentPowerToughness for the same
+  // permanent (e.g. Baeloth "power less than"). Break that cycle with the same per-id guard
+  // pattern static-condition readers use: fall back to printed/cached P/T without re-entering layer 7.
+  const resolveKey = String(perm?.id || '').trim();
+  if (resolveKey && permanentsResolvingCurrentPowerToughness.has(resolveKey)) {
+    return readReentrantFallbackPowerToughness(perm);
+  }
+  if (resolveKey) permanentsResolvingCurrentPowerToughness.add(resolveKey);
+  try {
+    const current = computeCurrentPowerToughnessWithSources(perm, state);
+    if (!current) return undefined;
+    const pending = sumUnmirroredOracleIrPtModifiers(perm);
+    // Pending pumps are layer 7c, so under an active 7d switch they land on the other side.
+    const switched = countActivePowerToughnessSwitches(perm) % 2 === 1;
+    return {
+      power: current.power + (switched ? pending.toughness : pending.power),
+      toughness: current.toughness + (switched ? pending.power : pending.toughness),
+    };
+  } finally {
+    if (resolveKey) permanentsResolvingCurrentPowerToughness.delete(resolveKey);
+  }
+}
+
+function readReentrantFallbackPowerToughness(perm: any): { power: number; toughness: number } {
+  const asNum = (v: unknown): number | undefined => {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    const n = parseInt(String(v ?? ''), 10);
+    return Number.isFinite(n) ? n : undefined;
   };
+  const power =
+    asNum(perm?.effectivePower) ??
+    asNum(perm?.basePower) ??
+    asNum(perm?.card?.power) ??
+    0;
+  const toughness =
+    asNum(perm?.effectiveToughness) ??
+    asNum(perm?.baseToughness) ??
+    asNum(perm?.card?.toughness) ??
+    0;
+  const counters = perm?.counters && typeof perm.counters === 'object' ? perm.counters : {};
+  const plus = Number(counters['+1/+1'] || 0) || 0;
+  const minus = Number(counters['-1/-1'] || 0) || 0;
+  // effectivePower already includes counters when set by the engine; only add counters for printed/base.
+  const powerIncludesCounters = asNum(perm?.effectivePower) !== undefined;
+  const delta = powerIncludesCounters ? 0 : plus - minus;
+  return { power: Math.max(0, power + delta), toughness: toughness + delta };
 }
 // Rules-engine readers with a game state but no server access (AI evaluation, combat scoring) read the
 // same calculation through this hook instead of the recorded/printed values.

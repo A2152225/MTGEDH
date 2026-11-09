@@ -19,6 +19,7 @@ import {
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { parseWordNumber } from "../../state/utils";
 import { cardHasPrintedScavenge, getGrantedScavengeCost } from "../../state/modules/graveyardScavengeGrants.js";
+import { cardHasPrintedEncore, getGrantedEncoreCost } from "../../state/modules/graveyardEncoreGrants.js";
 import { canPermanentBeTargetedByPlayer } from "../../rules-engine/targeting.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { filterLibraryCardsForSearch } from "../library-search.js";
@@ -518,7 +519,14 @@ export async function handleActivateGraveyardAbilityRequest(
       return;
     }
 
-    const recordedManaCost = String(getKeywordGraveyardActivationManaCost(card, abilityId) || '').trim();
+    // B60: Sliver Gravemother grants encore {X}=CMC to Sliver creature cards in GY.
+    const printedEncore = cardHasPrintedEncore(card);
+    const grantedEncoreCost = printedEncore ? undefined : getGrantedEncoreCost(game.state, String(pid), card);
+    if (!printedEncore && !grantedEncoreCost) {
+      socket.emit('error', { code: 'ABILITY_NOT_AVAILABLE', message: `${cardName} does not have encore.` });
+      return;
+    }
+    const recordedManaCost = String((printedEncore ? getKeywordGraveyardActivationManaCost(card, abilityId) : grantedEncoreCost) || '').trim();
     if (recordedManaCost) {
       const parsedCost = parseManaCost(recordedManaCost);
       const pool = getOrInitManaPool(game.state, pid);

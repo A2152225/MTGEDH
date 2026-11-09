@@ -311,14 +311,16 @@ export function processEquippedTriggers(
     });
     if (item) queued.push(item);
   }
+  const attachedToId = String(attachedToPermanent?.id || equipment.attachedTo || '');
   queued.push(...queueParsedSubjectEvent(ctx, {
     event: 'becomes_attached',
     subjectPermanent: equipment,
     subjectControllerId: String(equipment.controller || ''),
     triggerType: 'equipped_attached',
+    matchContext: attachedToId ? { attachedToId } : undefined,
     effectData: {
       equipmentId: String(equipment.id || ''),
-      attachedToId: String(attachedToPermanent?.id || equipment.attachedTo || ''),
+      attachedToId,
     },
   }));
   return queued;
@@ -918,7 +920,10 @@ export function processDetectedAbilityActivatedTriggers(
       activatedBy: String(event.activatedBy),
       sourcePermanentId: String(event.sourcePermanentId),
     };
-    for (const action of ['activate_ability', 'activate_nonmana', ...(event.isExhaustAbility ? ['activate_exhaust'] : [])]) {
+    const loyaltyExtra = (event as any).planeswalker || /\bplaneswalker\b/i.test(String(sourcePermanent?.card?.type_line || ''))
+      ? ['activate_loyalty'] as const
+      : [];
+    for (const action of ['activate_ability', 'activate_nonmana', ...loyaltyExtra, ...(event.isExhaustAbility ? ['activate_exhaust'] : [])]) {
       queued.push(...queueParsedSubjectEvent(ctx, {
         event: 'performs',
         subjectPermanent: sourcePermanent,

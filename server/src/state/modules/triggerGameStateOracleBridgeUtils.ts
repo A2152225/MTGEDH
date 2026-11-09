@@ -79,18 +79,32 @@ export function bridgeGameStateOracleEffectsAfterOracleIR(
     exert: 'exert',
     ring_tempts_you: 'ring_tempts',
     vote: 'vote',
+    collect_evidence: 'collect_evidence',
   };
   const pendingCoinWins = Array.isArray(state.pendingCoinFlipWins) ? state.pendingCoinFlipWins.splice(0) : [];
   for (const winnerId of pendingCoinWins) {
     const playerId = String(winnerId || '').trim();
     if (playerId) queueParsedKeywordAction(ctx, playerId, 'win_coin_flip');
   }
+  const pendingCoinLosses = Array.isArray(state.pendingCoinFlipLosses) ? state.pendingCoinFlipLosses.splice(0) : [];
+  for (const loserId of pendingCoinLosses) {
+    const playerId = String(loserId || '').trim();
+    if (playerId) queueParsedKeywordAction(ctx, playerId, 'lose_coin_flip');
+  }
+  const pendingClashWins = Array.isArray(state.pendingClashWins) ? state.pendingClashWins.splice(0) : [];
+  for (const winnerId of pendingClashWins) {
+    const playerId = String(winnerId || '').trim();
+    if (playerId) queueParsedKeywordAction(ctx, playerId, 'win_clash');
+  }
 
   const queuedActions = new Set<string>();
   for (const step of result.appliedSteps || []) {
     const kind = String((step as any)?.kind || '');
-    const action = actionByStep[kind]
+    let action = actionByStep[kind]
       || (kind === 'impulse_exile_top' && /until you exile a nonland card with mana value/i.test(String((step as any)?.raw || '')) ? 'discover' : '');
+    if (!action && kind === 'add_player_counter' && String((step as any)?.counter || '').toLowerCase() === 'energy') {
+      action = 'get_energy';
+    }
     if (!action || queuedActions.has(action)) continue;
     queuedActions.add(action);
     queueParsedKeywordAction(ctx, String(params.controller), action);

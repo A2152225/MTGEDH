@@ -157,6 +157,13 @@ export { RulesEngineEvent, type RulesEvent } from './core/events';
 // AI Engine
 export * from './AIEngine';
 
+// AI Observation (Phase 0: seat-scoped public information)
+export * from './ai/observation';
+export * from './ai/buildObservation';
+
+// Seeded AI RNG (Phase 0: self-play reproducibility)
+export { aiRandom, seedAIRandom, getAIRandomSeed } from './aiRandom';
+
 // Card Analyzer (AI card analysis and threat assessment)
 export {
   CardAnalyzer,

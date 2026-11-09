@@ -175,6 +175,10 @@ export function getSpellCastTriggers(
       sourcePermanent: permanent,
       spellOrdinal,
       castFromZone: String(spellCard?.castSourceZone || spellCard?.fromZone || ''),
+      matchContext: {
+        hasXInCost: /\{x\}/i.test(String(spellCard?.mana_cost || spellCard?.manaCost || '')),
+        spellHasXInCost: /\{x\}/i.test(String(spellCard?.mana_cost || spellCard?.manaCost || '')),
+      },
     })) {
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
@@ -186,17 +190,19 @@ export function getSpellCastTriggers(
       const subtype = (subject?.subtypeGroups || []).flat()[0];
       const spellCondition: SpellCastTrigger['spellCondition'] = subject?.historic
         ? 'historic'
-        : subject?.colors?.length
-          ? 'color'
-          : types.includes('instant') || types.includes('sorcery')
-            ? 'instant_sorcery'
-            : subject?.excludedWords?.includes('creature')
-              ? 'noncreature'
-              : types.length === 1 && types[0] === 'creature'
-                ? 'creature'
-                : subtype
-                  ? 'tribal_type'
-                  : 'any';
+        : subject?.chosenColor
+          ? 'chosen_color'
+          : subject?.colors?.length
+            ? 'color'
+            : types.includes('instant') || types.includes('sorcery')
+              ? 'instant_sorcery'
+              : subject?.excludedWords?.includes('creature')
+                ? 'noncreature'
+                : types.length === 1 && types[0] === 'creature'
+                  ? 'creature'
+                  : subtype
+                    ? 'tribal_type'
+                    : 'any';
       triggers.push({
         permanentId: String(permanent.id || ''),
         cardName: String(permanent.card?.name || 'Unknown'),

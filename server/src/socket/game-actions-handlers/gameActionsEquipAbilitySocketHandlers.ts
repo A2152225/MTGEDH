@@ -12,6 +12,7 @@ import type { Server, Socket } from "socket.io";
 import { appendEvent } from "../../db";
 import { adjustActivationManaCostForPayment } from "../../state/modules/ability-cost-adjustments.js";
 import { countArtifacts, hasMetalcraft } from "../../state/modules/game-state-effects";
+import { cheaperEquipCost, getGrantedEquipmentEquipCost } from "../../state/modules/equipmentEquipCostGrants.js";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../../state/modules/triggers/ability-activated.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
@@ -107,6 +108,16 @@ export async function handleEquipAbilityRequest(
       if (hasMetalcraft(game as any, playerId)) {
         equipCost = '{0}';
         debug(2, `[equipAbility] Metalcraft active (${countArtifacts(game as any, playerId)} artifacts) - equip cost reduced to {0}`);
+      }
+    }
+
+    // B62: Astor / "Equipment you control have equip {M}" (non-metalcraft grants)
+    if (!targetsOpponentCreatures) {
+      const grantedEquip = getGrantedEquipmentEquipCost(game.state, playerId);
+      const reduced = cheaperEquipCost(equipCost, grantedEquip);
+      if (reduced && reduced !== String(equipCost).replace(/\s+/g, '')) {
+        debug(2, `[equipAbility] Granted equip cost ${grantedEquip} reduces ${equipCost} -> ${reduced}`);
+        equipCost = reduced;
       }
     }
 

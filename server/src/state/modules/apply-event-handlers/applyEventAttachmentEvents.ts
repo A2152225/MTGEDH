@@ -88,6 +88,12 @@ export function applyAttachmentEvents(ctx: GameContext, e: GameEvent): boolean {
             if (!(targetPermanent as any).attachments.includes(enchantmentId)) {
               (targetPermanent as any).attachments.push(enchantmentId);
             }
+            try {
+              // Host watchers ("Whenever an Aura becomes attached to this creature") share the equip emitter.
+              processEquippedTriggers(ctx as any, enchantment, targetPermanent);
+            } catch (auraTriggerErr) {
+              debugWarn(1, 'applyEvent(attachEnchantmentPermanent): processEquippedTriggers failed', auraTriggerErr);
+            }
           }
           ctx.bumpSeq();
         } catch (err) {

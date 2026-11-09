@@ -44,6 +44,8 @@ export function appendSpellCastDetectionMid(detectionState: SpellCastDetectionSt
       const lowerMatchText = String(match[0] || '').toLowerCase();
       if (
         lowerMatchText.includes('spell of the chosen type') ||
+        lowerMatchText.includes('spell of the chosen color') ||
+        lowerMatchText.includes('spell of the chosen colour') ||
         lowerMatchText.includes('spell of that type') ||
         lowerMatchText.includes('spell with the chosen name') ||
         lowerMatchText.includes('spell from your library') ||
@@ -58,6 +60,9 @@ export function appendSpellCastDetectionMid(detectionState: SpellCastDetectionSt
       // Name-specific "that targets ~" clauses are heroic / dedicated detectors.
       // Untyped "whenever you cast a spell, …" must not swallow them as the effect.
       if (/^that (?:targets|shares a creature type)\b/i.test(String(effectText || '').trim())) {
+        continue;
+      }
+      if (/^of the chosen colou?r\b/i.test(String(effectText || '').trim())) {
         continue;
       }
       if (!triggers.some((trigger) => trigger.effect === effectText && trigger.spellCondition === 'any')) {
@@ -83,6 +88,8 @@ export function appendSpellCastDetectionMid(detectionState: SpellCastDetectionSt
       if (
         /\byour first\b/.test(spellType) ||
         /\bduring each\b/.test(spellType) ||
+        spellType === 'a' ||
+        spellType === 'an' ||
         lowerMatchText.includes('your first spell during each opponent') ||
         lowerMatchText.includes('your first spell each turn') ||
         /\bcreature spell with power \d+ or greater\b/.test(lowerMatchText)
@@ -94,6 +101,9 @@ export function appendSpellCastDetectionMid(detectionState: SpellCastDetectionSt
 
       if (
         lowerMatchText.includes('spell of the chosen type') ||
+        lowerMatchText.includes('spell of the chosen color') ||
+        lowerMatchText.includes('spell of the chosen colour') ||
+        lowerMatchText.includes('spell with the chosen name') ||
         lowerMatchText.includes('spell from your library') ||
         lowerMatchText.includes('spell from your graveyard') ||
         lowerMatchText.includes('spell from exile') ||

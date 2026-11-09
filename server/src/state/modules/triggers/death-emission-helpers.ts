@@ -702,6 +702,10 @@ export function appendParsedDiesTriggerLines(
       subjectPermanent: dyingCreature,
       subjectControllerId: dyingCreatureController,
       sourcePermanent: permanent,
+      matchContext: {
+        subjectIsToken: Boolean(dyingCreature?.isToken || dyingCreature?.token || dyingCreature?.card?.isToken || dyingCreature?.card?.token),
+        dealtDamageBySource: sourceDamagedDyingCreatureThisTurn(ctx, permanent, dyingCreature),
+      },
     })) {
       const effect = line.effect;
       const normalizedEffect = effect.toLowerCase().replace(/\s+/g, ' ').trim();

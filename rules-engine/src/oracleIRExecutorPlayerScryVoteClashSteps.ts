@@ -436,6 +436,12 @@ export function applyClashStep(
   }
 
   log.push(lastClashWon ? `${playerId} won the clash` : `${playerId} did not win the clash`);
+  if (lastClashWon) {
+    const stateAny = state as any;
+    const pending = Array.isArray(stateAny.pendingClashWins) ? stateAny.pendingClashWins : [];
+    pending.push(playerId);
+    stateAny.pendingClashWins = pending;
+  }
   return {
     applied: true,
     state,

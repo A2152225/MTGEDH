@@ -57,6 +57,20 @@ async function attachEquipmentToPermanentById(
     return false;
   }
 
+  // B73: Goblin Brawler — "~ can't be equipped."
+  {
+    const granted = [
+      ...(Array.isArray((targetPermanent as any).continuousAbilities) ? (targetPermanent as any).continuousAbilities : []),
+      ...(Array.isArray((targetPermanent as any).grantedAbilities) ? (targetPermanent as any).grantedAbilities : []),
+    ].map((a: unknown) => String(a || '').toLowerCase());
+    const oracle = String(targetPermanent?.card?.oracle_text || '').toLowerCase().replace(/\u2019/g, "'");
+    if (granted.some((a) => a.includes("can't be equipped") || a.includes('cannot be equipped'))
+      || /(?:^|\n)(?:this creature|~) can(?:not|'t) be equipped\b/.test(oracle)) {
+      debugWarn(2, `[Resolution] attachEquipmentToPermanent: ${targetPermanent.card?.name || targetPermanentId} can't be equipped`);
+      return false;
+    }
+  }
+
   const equipmentId = String((equipment as any).id || equipmentPermanentId);
   for (const permanent of battlefield) {
     const attachedEquipment = Array.isArray((permanent as any)?.attachedEquipment)

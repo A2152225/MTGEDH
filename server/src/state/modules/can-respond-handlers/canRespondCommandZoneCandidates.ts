@@ -15,6 +15,7 @@ import { hydrateCardOracleInPlace } from '../cardOracleHydration.js';
 import type { SharedCommanderAvailabilityCandidate, SharedCommanderCastCandidate } from './canRespondTypes.js';
 import { isSplitSecondLockActive } from './canRespondSplitSecondLandPredicates.js';
 import { hasFlashOrInstant } from './canRespondTopLibraryFlashExile.js';
+import { cardHasGrantedOffBattlefieldFlash } from '../offBattlefieldFlashGrants.js';
 import { canPaySourceGrantedAdditionalCost } from './canRespondGraveyardSpellPermission.js';
 import { normalizeParsedCostForAnyTypeManaSpending } from './canRespondHandCastEvaluation.js';
 
@@ -248,6 +249,7 @@ export function getCommandZoneCommanderCandidates(
             cmc,
           },
           grantsFlash: hasFlashOrInstant(commander)
+            || cardHasGrantedOffBattlefieldFlash(state, playerId, commander)
             || durableCommandPermission?.timingOverride?.asThoughFlash === true
             || durableCommandPermission?.timingOverride?.ignoreTiming === true,
           isBackground: typeLine.includes('background'),

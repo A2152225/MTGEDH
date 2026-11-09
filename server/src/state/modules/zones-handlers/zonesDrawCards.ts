@@ -26,7 +26,7 @@ import { applyOrQueueOpponentLibraryDrawReplacement } from "./zonesDrawReplaceme
 import { applyBatch18EmptyLibraryDrawInstead } from "../replacementBatch18DrawInstead.js";
 import { applyBatch19DrawInstead } from "../replacementBatch19DrawInstead.js";
 import { tryQueueRevealUntilKindDrawStep } from "./zonesDrawReplacementRevealUntilKind.js";
-import { isCardDrawProhibited } from "../playersCantDrawCards.js";
+import { isCardDrawProhibited, getCardDrawCapRemaining } from "../playersCantDrawCards.js";
 import { applyFirstDrawReveal } from '../firstDrawRevealStatic.js';
 
 export type DrawCardsOptions = {
@@ -72,11 +72,20 @@ export function persistDrawCardsEvent(
 export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, options?: DrawCardsOptions): KnownCardRef[] {
   const zones = ctx.state.zones = ctx.state.zones || {};
   const drawn: KnownCardRef[] = [];
-  const normalizedCount = Math.max(0, Math.floor(Number(count || 0)));
+  let normalizedCount = Math.max(0, Math.floor(Number(count || 0)));
   if (normalizedCount > 0 && isCardDrawProhibited(ctx.state, String(playerId))) {
-    debug(2, '[drawCards] draw prohibited ("can\'t draw cards")', { playerId, count: normalizedCount });
+    debug(2, '[drawCards] draw prohibited ("can\'t draw cards" / per-turn cap)', { playerId, count: normalizedCount });
     return drawn;
   }
+  // B56: Spirit / Narset / Leovold — clamp a multi-card draw to remaining allowance.
+  if (normalizedCount > 0) {
+    const remaining = getCardDrawCapRemaining(ctx.state, String(playerId));
+    if (remaining != null && remaining < normalizedCount) {
+      debug(2, '[drawCards] clamping to per-turn draw cap', { playerId, requested: normalizedCount, remaining });
+      normalizedCount = Math.max(0, remaining);
+    }
+  }
+  if (normalizedCount <= 0) return drawn;
   
   // Track draws this turn for miracle abilities (Rule 702.94)
   (ctx.state as any).cardsDrawnThisTurn = (ctx.state as any).cardsDrawnThisTurn || {};

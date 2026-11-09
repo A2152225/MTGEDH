@@ -5,6 +5,7 @@ import { registerJoinHandlers } from '../src/socket/join.js';
 import { registerDeckHandlers } from '../src/socket/deck.js';
 import { games } from '../src/socket/socket.js';
 import { getSaveOwnerFromSocket } from '../src/socket/deck-handlers/deckImportConfirmState.js';
+import { createSavedDeckTracker } from './helpers/savedDeckTestCleanup.js';
 
 type Emitted = Array<{ room?: string; event: string; payload: any }>;
 
@@ -42,6 +43,8 @@ describe('private deck save for a logged-in account after joining a game (integr
   const gameId = 'test_private_deck_account_after_join';
   const accountId = 'acct_user_private_1';
   const list = '1 Sol Ring\n1 Command Tower\n1 Arcane Signet';
+  const savedDecks = createSavedDeckTracker();
+  savedDecks.installAfterEach();
 
   beforeAll(async () => {
     await initDb();
@@ -89,6 +92,7 @@ describe('private deck save for a logged-in account after joining a game (integr
     expect(emitted.find((e) => e.event === 'deckError')).toBeUndefined();
     const saved = emitted.find((e) => e.event === 'deckSaved');
     expect(saved?.payload?.deckId).toBeTruthy();
+    savedDecks.track(saved!.payload.deckId);
     const stored = getDeck(saved!.payload.deckId);
     expect(stored?.created_by_id).toBe(accountId);
     expect(stored?.visibility).toBe('private');
@@ -118,6 +122,8 @@ describe('private deck save for a logged-in account after joining a game (integr
     await handlers['saveDeck']({ gameId, name: 'Guest Public Deck', list, cacheCards: false, visibility: 'public' });
     expect(emitted.find((e) => e.event === 'deckError')).toBeUndefined();
     const saved = emitted.find((e) => e.event === 'deckSaved');
+    expect(saved?.payload?.deckId).toBeTruthy();
+    savedDecks.track(saved!.payload.deckId);
     expect(getDeck(saved!.payload.deckId)?.visibility).toBe('public');
   });
 
@@ -125,4 +131,5 @@ describe('private deck save for a logged-in account after joining a game (integr
     const { socket } = await joinAsAccount();
     expect(getSaveOwnerFromSocket(socket)).toEqual({ userId: accountId, displayName: 'Robert', isAdmin: false });
     expect(getSaveOwnerFromSocket({ data: { playerId: 'p1' } })).toBeNull();
-  });});
+  });
+});

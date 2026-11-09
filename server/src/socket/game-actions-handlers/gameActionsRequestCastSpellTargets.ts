@@ -11,6 +11,7 @@ import type { Server, Socket } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { getValidMutateTargets } from "../../state/modules/alternate-costs.js";
 import { permanentRejectsAuraSpellTargets } from "../../rules-engine/auraSpellTargetRestriction.js";
+import { permanentRejectsWallOnlyTargets, sourceCanTargetOnlyWalls } from "../../rules-engine/wallOnlyTargetRestriction.js";
 import { calculateWebSlingingOptions } from "../../state/modules/keywordCastMechanics.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { calculateSneakOptions } from "../../state/modules/sneakCastUtils.js";
@@ -300,6 +301,7 @@ export function tryComputeRequestCastSpellTargets(
                 return false;
               }
               if (permanentRejectsAuraSpellTargets(p)) return false; // R22 Bartel Runeaxe
+              if (sourceCanTargetOnlyWalls(cardForCast || cardInHand) && permanentRejectsWallOnlyTargets(p)) return false; // B60 Wall of Shadows
               return canPermanentBeTargetedByPlayer(p, game.state, playerId as PlayerID);
             })
             .map((p: any) => ({

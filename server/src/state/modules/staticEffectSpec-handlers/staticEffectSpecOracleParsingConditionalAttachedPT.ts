@@ -29,6 +29,9 @@ export function parseAttachedStaticCondition(raw: string): StaticEffectCondition
   if (new RegExp('^' + HOST + ' is legendary$').test(c)) return { kind: 'target_is_legendary_creature' } as StaticEffectCondition;
   m = c.match(new RegExp('^' + HOST + ' is an? (artifact|creature|enchantment|land)$'));
   if (m) return { kind: 'target_has_type', cardType: m[1] };
+  // B75: Nyx Infusion — "as long as it's an enchantment"
+  m = c.match(/^it(?:'s| is) an? (artifact|creature|enchantment|land)$/);
+  if (m) return { kind: 'target_has_type', cardType: m[1] };
   // "as long as equipped creature is a Human" (True-Faith Censer): a creature subtype of the host.
   m = c.match(new RegExp('^' + HOST + ' is an? ([a-z]+)$'));
   if (m && !['planeswalker', 'battle', 'permanent'].includes(m[1])) {

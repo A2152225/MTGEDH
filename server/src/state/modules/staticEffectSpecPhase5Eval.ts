@@ -6,6 +6,7 @@
 import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
 import { resolveExtendedCountMultiplier } from './staticEffectSpecCountBases.js';
 import { opponentControlsMatching } from './staticEffectSpecOpponentControlsCondition.js';
+import { opponentControlsCreatureWithKeywordExcludingName } from './opponentKeywordMirrorEval.js';
 import { evalZoneCountCondition } from './staticEffectSpecZoneCountConditions.js';
 import { evalPhase5StateCondition } from './staticEffectSpecPhase5StateEval.js';
 import { evalExtraStaticCondition } from './staticEffectSpecExtraConditions.js';
@@ -14,6 +15,8 @@ import { controlsOwnCommander } from './staticEffectSpecCommanderCondition.js';
 import { evalEntryLifeCondition } from './staticEffectSpecEntryLifeConditions.js';
 import { evalOpponentStateCondition } from './staticEffectSpecOpponentStateConditions.js';
 import { evalResourceDesignationCondition } from './staticEffectSpec-handlers/staticEffectSpecResourceDesignationConditions.js';
+import { evalTargetControllerChoseOptionOnSource } from './staticEffectSpec-handlers/playerChoseWarPeaceAnthems.js';
+import { evalTargetIsAttackingLastChosenPlayerOnSource } from './staticEffectSpec-handlers/batch63AttackChosenPlayerGrants.js';
 
 type SpecLike = { sourcePermanentId?: string; effectSourcePermanentId?: string; sourceController?: string; grant?: { countBasis?: string; countCounterType?: string; countOnEffectSource?: boolean } };
 type CondLike = { kind?: string; color?: string; cardType?: string; option?: string; counterType?: string; amount?: number; exact?: boolean };
@@ -65,6 +68,8 @@ export function evalPhase5StaticCondition(
     }
     case 'opponent_controls_matching':
       return opponentControlsMatching(condition, String(spec.sourceController || ''), battlefield || [], state);
+    case 'opponent_controls_creature_with_keyword_excluding_name':
+      return opponentControlsCreatureWithKeywordExcludingName(condition as any, String(spec.sourceController || ''), battlefield || []);
     case 'target_entered_this_turn':
     case 'source_controller_life_at_most_half_starting':
       return evalEntryLifeCondition(condition.kind, permanent, String(spec.sourceController || ''), state);
@@ -72,6 +77,18 @@ export function evalPhase5StaticCondition(
       return controlsOwnCommander(String(spec.sourceController || ''), battlefield || [], state);
     case 'source_chose_option':
       return sourceChoseOption(findSource(spec, battlefield), String(condition.option || ''));
+    case 'target_controller_chose_option_on_source':
+      return evalTargetControllerChoseOptionOnSource(condition as any, permanent, findSource(spec, battlefield));
+    case 'target_is_attacking_last_chosen_player_on_source':
+      return evalTargetIsAttackingLastChosenPlayerOnSource(condition, permanent, findSource(spec, battlefield));
+    case 'target_has_any_subtype': {
+      const wanted = Array.isArray((condition as any).subtypes) ? (condition as any).subtypes : [];
+      const line = String((permanent.card as any)?.type_line || (permanent as any).type_line || '').toLowerCase();
+      return wanted.some((sub: string) => {
+        const word = String(sub || '').toLowerCase().trim();
+        return !!word && new RegExp('\\b' + word.replace(/[^a-z0-9-]/g, '') + 's?\\b').test(line);
+      });
+    }
     case 'source_attachment_count': {
       const hostId = String(spec.sourcePermanentId || '');
       const sub = String(condition.cardType || 'aura').toLowerCase();
@@ -81,6 +98,14 @@ export function evalPhase5StaticCondition(
     }
     case 'source_counter_at_least':
       return counterCount(findSource(spec, battlefield), String(condition.counterType || '')) >= Number(condition.amount || 0);
+    case 'source_counter_at_most':
+      return counterCount(findSource(spec, battlefield), String(condition.counterType || '')) <= Number(condition.amount || 0);
+    case 'battlefield_has_matching': {
+      const wanted = String(condition.cardType || '').trim().toLowerCase();
+      if (!wanted) return false;
+      return (battlefield || []).some((p: any) => p && !p.phasedOut
+        && new RegExp('\\b' + wanted.replace(/s$/, '') + 's?\\b').test(String(p?.card?.type_line || p?.type_line || '').toLowerCase()));
+    }
     default:
       return evalExtraStaticCondition(condition, permanent, battlefield || [], state)
         ?? evalPhase5StateCondition(condition as any, permanent, findSource(spec, battlefield), String(spec.sourceController || ''), battlefield || [], state as any)

@@ -262,6 +262,11 @@ export function getAttackTriggersForCreatures(
           attackedPlayerId: resolveAttackedPlayerId(attacker),
           // "attacks you" means the player: a string target must be a player id; no per-creature target means the defending player.
           attackedTargetIsPlayer: typeof attacker?.attacking === 'string' ? playerIds.includes(String(attacker.attacking)) : Boolean(defendingPlayer),
+          attackerEquipped: Boolean(
+            attacker?.isEquipped === true
+            || (Array.isArray(attacker?.attachedEquipment) && attacker.attachedEquipment.length > 0)
+            || battlefield.some((p: any) => String(p?.attachedTo || '') === String(attacker?.id || '') && /\bequipment\b/i.test(String(p?.card?.type_line || p?.type_line || '')))
+          ),
         },
       });
       for (const line of effects) {
@@ -270,13 +275,8 @@ export function getAttackTriggersForCreatures(
         const batched = (line as any).condition?.quantity === 'one_or_more';
         const key = `${String(permanent.id || '')}|${batched ? '*' : String(attacker?.id || '')}|${effect.toLowerCase()}`;
         if (seenParsedAttacks.has(key)) continue;
-        const already = triggers.some((trigger) => (
-          String(trigger.permanentId || '') === String(permanent.id || '')
-          // Earlier IR entries are deduped by seenParsedAttacks (per attacker); only legacy entries block.
-          && String(trigger.triggerType || '') !== 'parsed_attacks'
-          && parsedEffectDuplicates([trigger.effect, trigger.description], line)
-        ));
-        if (already) continue;
+        // IR owns matching printed lines; legacy duplicates are retired after this loop.
+        // (Do not skip IR when a legacy detector already queued the same effect.)
         seenParsedAttacks.add(key);
         triggers.push({
           permanentId: String(permanent.id || ''),
@@ -290,6 +290,27 @@ export function getAttackTriggersForCreatures(
           ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
         });
       }
+    }
+  }
+
+  // Prefer IR when a printed attacks line matched: drop legacy entries with the same effect text.
+  {
+    const irBySource = new Map<string, Array<{ effect: string }>>();
+    for (const trigger of triggers) {
+      if (String(trigger?.triggerType || '') !== 'parsed_attacks') continue;
+      const pid = String(trigger.permanentId || '');
+      const list = irBySource.get(pid) || [];
+      list.push({ effect: String(trigger.effect || trigger.description || '') });
+      irBySource.set(pid, list);
+    }
+    if (irBySource.size > 0) {
+      const kept = triggers.filter((trigger) => {
+        if (String(trigger?.triggerType || '') === 'parsed_attacks') return true;
+        const lines = irBySource.get(String(trigger.permanentId || ''));
+        if (!lines || lines.length === 0) return true;
+        return !lines.some((line) => parsedEffectDuplicates([trigger.effect, trigger.description], line));
+      });
+      triggers.splice(0, triggers.length, ...kept);
     }
   }
 

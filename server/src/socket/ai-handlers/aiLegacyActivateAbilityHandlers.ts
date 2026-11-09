@@ -28,6 +28,7 @@ import {
   chooseAIManaColorForActivation,
   getAIManaProductionOptions,
 } from "./aiManaCostHelpers.js";
+import { aiRandom } from "../../../../rules-engine/src/aiRandom.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 
@@ -105,7 +106,7 @@ export async function executeAILegacyActivateAbility(
         .map((p: any) => p.id);
       
       if (opponents.length > 0) {
-        const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
+        const randomOpponent = opponents[Math.floor(aiRandom() * opponents.length)];
         persistedChosenOpponentId = String(randomOpponent);
         const previousController = String(permanent.controller || '');
         permanent.controller = randomOpponent;
@@ -205,12 +206,12 @@ export async function executeAILegacyActivateAbility(
           
           if (opponents.length > 0) {
             // AI auto-selects a random opponent for the token
-            const randomOpponent = opponents[Math.floor(Math.random() * opponents.length)];
+            const randomOpponent = opponents[Math.floor(aiRandom() * opponents.length)];
             const targetOpponentId = randomOpponent.id;
             persistedChosenOpponentId = String(targetOpponentId);
             
             // Create 1/1 colorless Spirit token for the target opponent
-            const tokenId = `token_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const tokenId = `token_${Date.now()}_${aiRandom().toString(36).slice(2, 8)}`;
             game.state.battlefield = game.state.battlefield || [];
             const spiritToken = {
               id: tokenId,

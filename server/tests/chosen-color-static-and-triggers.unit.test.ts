@@ -143,7 +143,9 @@ describe('chosen-color cast triggers', () => {
       type_line: 'Instant',
       colors: ['R'],
     });
-    expect(hits.some((t) => t.spellCondition === 'chosen_color')).toBe(true);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.spellCondition).toBe('chosen_color');
+    expect(String(hits[0]?.effect || '')).toMatch(/gain 1 life/i);
   });
 
   it('Painter Servant makes off-color spells match chosen-color cast triggers', () => {
@@ -175,7 +177,9 @@ describe('chosen-color cast triggers', () => {
       type_line: 'Instant',
       colors: ['R'],
     });
-    expect(hits.some((t) => t.spellCondition === 'chosen_color')).toBe(true);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.spellCondition).toBe('chosen_color');
+    expect(String(hits[0]?.effect || '')).toMatch(/gain 1 life/i);
   });
 });
 

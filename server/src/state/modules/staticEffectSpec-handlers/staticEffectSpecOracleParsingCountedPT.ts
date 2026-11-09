@@ -11,7 +11,7 @@
 
 import type { BattlefieldPermanent } from '../../../../../shared/src/index.js';
 import type { StaticEffectGrant, StaticEffectSpec } from '../staticEffectSpecTypes.js';
-import { buildSpec, type StaticEffectSpecSource } from './staticEffectSpecOracleParseHelpers.js';
+import { buildSpec, parseLordAbilitiesFromTail, type StaticEffectSpecSource } from './staticEffectSpecOracleParseHelpers.js';
 import { parseR36CountGrant } from '../staticEffectSpecR36CountBases.js';
 import {
   parseStaticAttachedPTBonusFromOracle,
@@ -54,6 +54,10 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   m = p.match(/^(artifact|creature|land|enchantment|planeswalker|permanent) (?:your opponents control|an opponent controls)$/);
   if (m) return { countBasis: 'controller_permanents_of_type', countCardType: m[1] === 'permanent' ? '' : m[1], countWho: 'opponents' };
   // R34: "for each Lesson card in your graveyard" (Katara): subtype/supertype word on the type line.
+  // B70: Xande — "for each noncreature, nonland card in your graveyard"
+  if (/^noncreature,? nonland cards? in your graveyard$/.test(p)) {
+    return { countBasis: 'controller_graveyard_cards_of_type', countCardType: 'noncreature_nonland' };
+  }
   m = p.match(/^([a-z]+) cards? in your graveyard$/);
   if (m && !/^(?:other|nonland|noncreature)$/.test(m[1])) return { countBasis: 'controller_graveyard_cards_of_type', countCardType: m[1] };
   m = p.match(LAND_SUBTYPE_YOU_CONTROL_RE);
@@ -137,18 +141,27 @@ export function pushCountedAndAttachedPTSpecs(
     if (!m) return;
     const attached = m[1] !== 'this creature';
     const grant: StaticEffectGrant = { power: parseInt(m[2], 10), toughness: parseInt(m[3], 10) };
+    let forEachPhrase = m[4] || '';
     let tail = m[5] || '';
-    if (m[4]) {
-      // The lazy count phrase stops at the first "and" ("Aura and Equipment attached to it"); try the joined form first.
-      const joined = tail ? countGrant(`${m[4]} and ${tail}`) : null;
-      const basis = joined || countGrant(m[4]);
+    if (forEachPhrase && tail) {
+      // Lazy "for each" cuts at the first "and" ("Aura and Equipment attached to it and has ward").
+      const rebuilt = `${forEachPhrase} and ${tail}`;
+      const attachCut = rebuilt.match(/^(.+? attached to (?:it|this creature))(?: and (.+))?$/);
+      if (attachCut) {
+        forEachPhrase = attachCut[1];
+        tail = attachCut[2] || '';
+      }
+    }
+    if (forEachPhrase) {
+      const basis = countGrant(forEachPhrase);
       if (!basis) return;
-      if (joined) tail = '';
       Object.assign(grant, basis);
     } else if (!attached) {
       return;
     }
     if (/\bfor each\b/.test(tail)) return;
+    const abilities = tail ? parseLordAbilitiesFromTail(tail.replace(/^has\s+|^have\s+/i, '')) : [];
+    if (abilities.length) grant.abilities = abilities;
     if (attached) {
       if (!hostId || legacyAttachedReaderApplies(oracle)) return;
       specs.push({

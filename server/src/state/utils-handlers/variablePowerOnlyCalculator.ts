@@ -15,7 +15,7 @@ export function countPowerOnlyPhrase(phrase: string, battlefield: any[], zones: 
   const mine = (battlefield || []).filter((perm: any) => perm?.controller === controllerId);
   const graveyard: any[] = zones?.[controllerId]?.graveyard || [];
 
-  let m = p.match(/^(?:(white|blue|black|red|green) )?(creatures|artifacts|enchantments|lands) you control$/);
+  let   m = p.match(/^(?:(white|blue|black|red|green) )?(creatures|artifacts|enchantments|lands) you control$/);
   if (m) {
     const want = m[2].slice(0, -1);
     return mine.filter((perm: any) => {
@@ -24,6 +24,66 @@ export function countPowerOnlyPhrase(phrase: string, battlefield: any[], zones: 
       const letter = m![1] === 'blue' ? 'U' : m![1][0].toUpperCase();
       return (perm?.card?.colors || []).includes(letter);
     }).length;
+  }
+  // B75: Avalanche of Sector 7 — "artifacts your opponents control"
+  m = p.match(/^(artifact|creature|enchantment|land|planeswalker)s? your opponents control$/);
+  if (m) {
+    const want = m[1];
+    return (battlefield || []).filter((perm: any) => {
+      if (String(perm?.controller || '') === controllerId) return false;
+      return new RegExp('\\b' + want + '\\b').test(typeLineOf(perm));
+    }).length;
+  }
+  // B73: Vile Aggregate — "colorless creatures you control"
+  if (/^colorless creatures you control$/.test(p)) {
+    return mine.filter((perm: any) => {
+      if (!/\bcreature\b/.test(typeLineOf(perm))) return false;
+      const colors = Array.isArray(perm?.card?.colors) ? perm.card.colors : [];
+      return colors.length === 0;
+    }).length;
+  }
+  // B73: Katilda — "permanents you control that are Spirits and/or enchantments"
+  if (/^permanents you control that are spirits and\/or enchantments$/.test(p)) {
+    return mine.filter((perm: any) => {
+      const tl = typeLineOf(perm);
+      return /\bspirit\b/.test(tl) || /\benchantment\b/.test(tl);
+    }).length;
+  }
+  // B69: Yavimaya Kavu — "red creatures on the battlefield" (global, not you-control).
+  m = p.match(/^(white|blue|black|red|green) creatures on the battlefield$/);
+  if (m) {
+    const letter = m[1] === 'blue' ? 'U' : m[1][0].toUpperCase();
+    return (battlefield || []).filter((perm: any) => {
+      if (!/\bcreature\b/.test(typeLineOf(perm))) return false;
+      return (perm?.card?.colors || []).includes(letter);
+    }).length;
+  }
+  // B72: Dauthi Warlord — "creatures on the battlefield with shadow"
+  m = p.match(/^creatures on the battlefield with (shadow|flying|trample|haste|vigilance|reach|menace|deathtouch|lifelink|first strike|double strike|hexproof|indestructible)$/);
+  if (m) {
+    const kw = m[1];
+    return (battlefield || []).filter((perm: any) => {
+      if (!/\bcreature\b/.test(typeLineOf(perm))) return false;
+      const text = String(perm?.card?.oracle_text || '').toLowerCase();
+      const kws = Array.isArray(perm?.card?.keywords) ? perm.card.keywords.map((k: any) => String(k).toLowerCase()) : [];
+      const granted = Array.isArray(perm?.continuousAbilities) ? perm.continuousAbilities.map((k: any) => String(k).toLowerCase()) : [];
+      return kws.includes(kw) || granted.includes(kw) || new RegExp('(?:^|\\n|,\\s*)' + kw + '\\b').test(text);
+    }).length;
+  }
+  // B72: Wilderness Elemental — "nonbasic lands your opponents control"
+  if (/^nonbasic lands your opponents control$/.test(p)) {
+    return (battlefield || []).filter((perm: any) => {
+      if (String(perm?.controller || '') === controllerId) return false;
+      const tl = typeLineOf(perm);
+      return /\bland\b/.test(tl) && !/\bbasic\b/.test(tl);
+    }).length;
+  }
+  // B70: Toph — "+1/+1 counters on lands you control"
+  if (/^\+1\/\+1 counters on lands you control$/.test(p)) {
+    return mine.reduce((sum: number, perm: any) => {
+      if (!/\bland\b/.test(typeLineOf(perm))) return sum;
+      return sum + Math.max(0, Number(perm?.counters?.['+1/+1'] || 0));
+    }, 0);
   }
   if (/^instant and sorcery cards in your graveyard$|^instant and\/or sorcery cards in your graveyard$/.test(p)) {
     return graveyard.filter((c: any) => /\b(instant|sorcery)\b/.test(typeLineOf(c))).length;
@@ -48,6 +108,20 @@ export function countPowerOnlyPhrase(phrase: string, battlefield: any[], zones: 
   if (p === 'differently named lands you control') return countDifferentlyNamedLands(battlefield, controllerId);
   if (p === 'creature types among non-borg creatures you control') return countFederationCreatureTypes(battlefield, controllerId);
   if (p === 'cards in your hand') return zones?.[controllerId]?.handCount ?? zones?.[controllerId]?.hand?.length ?? 0;
+  // B63: Uchuulon ? "the number of Crabs, Oozes, and/or Horrors you control"
+  {
+    const multi = p.match(/^([a-z]+(?:s)?)(?:, ([a-z]+(?:s)?))*(?:,? and\/?or ([a-z]+(?:s)?)) you control$/);
+    if (multi) {
+      const raw = p.replace(/ you control$/, '');
+      const parts = raw.split(/,? and\/?or |, /).map((w) => w.trim().replace(/s$/, '')).filter(Boolean);
+      if (parts.length >= 2) {
+        return mine.filter((perm) => {
+          const line = typeLineOf(perm);
+          return parts.some((sub) => new RegExp('\\b' + sub + 's?\\b').test(line));
+        }).length;
+      }
+    }
+  }
   return undefined;
 }
 
@@ -93,4 +167,44 @@ export function calculatePowerOnlyCDA(
   const count = variableSideCount(oracleTextLower, 'power', battlefield, zones, controllerId);
   if (count === undefined) return undefined;
   return { power: count, toughness };
+}
+
+/**
+ * B69: Yavimaya Kavu — star/star where power and toughness each equal a different
+ * "COLOR creatures on the battlefield" count.
+ */
+export function calculateSplitColorBattlefieldCreatureCDA(
+  card: any,
+  oracleTextLower: string,
+  battlefield: any[],
+): { power: number; toughness: number } | undefined {
+  if (!String(card?.power ?? '').includes('*') || !String(card?.toughness ?? '').includes('*')) return undefined;
+  const power = variableSideCount(oracleTextLower, 'power', battlefield, {}, '');
+  const toughness = variableSideCount(oracleTextLower, 'toughness', battlefield, {}, '');
+  if (power === undefined || toughness === undefined) return undefined;
+  return { power, toughness };
+}
+
+/** B69: Caller of the Hunt — star/star equal to creatures of the chosen type on the battlefield. */
+export function calculateChosenTypeBattlefieldCreatureCDA(
+  card: any,
+  permanent: any,
+  oracleTextLower: string,
+  battlefield: any[],
+): { power: number; toughness: number } | undefined {
+  if (!String(card?.power ?? '').includes('*') || !String(card?.toughness ?? '').includes('*')) return undefined;
+  if (!/creatures of the chosen type on the battlefield/.test(oracleTextLower)) return undefined;
+  const chosen = String(
+    permanent?.chosenCreatureType
+    || permanent?.card?.chosenCreatureType
+    || card?.chosenCreatureType
+    || '',
+  ).trim().toLowerCase();
+  if (!chosen) return { power: 0, toughness: 0 };
+  const n = (battlefield || []).filter((perm: any) => {
+    const line = typeLineOf(perm);
+    if (!/\bcreature\b/.test(line)) return false;
+    return new RegExp(`\\b${chosen.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(line);
+  }).length;
+  return { power: n, toughness: n };
 }

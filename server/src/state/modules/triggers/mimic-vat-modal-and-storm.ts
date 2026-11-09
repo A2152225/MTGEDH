@@ -435,7 +435,7 @@ export interface StormTrigger {
   originalSpellDetails: any;
 }
 
-export function detectStormAbility(card: any): boolean {
+export function detectStormAbility(card: any, state?: any, playerId?: string): boolean {
   const oracleText = (card?.oracle_text || "").toLowerCase();
   const keywords = card?.keywords || [];
   
@@ -449,6 +449,24 @@ export function detectStormAbility(card: any): boolean {
   if (oracleText.includes('storm') && 
       oracleText.includes('copy it for each spell cast before it')) {
     return true;
+  }
+
+  // B68: Prismari — Instant and sorcery spells you cast have storm.
+  if (state && playerId) {
+    try {
+      const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
+      const tl = String(card?.type_line || '').toLowerCase();
+      if (/\binstant\b/.test(tl) || /\bsorcery\b/.test(tl)) {
+        if (battlefield.some((perm: any) => {
+          if (!perm || perm.phasedOut === true) return false;
+          if (String(perm.controller || '') !== String(playerId || '')) return false;
+          const text = String(perm?.card?.oracle_text || perm?.oracle_text || '').toLowerCase();
+          return /instant and sorcery spells you cast have storm/.test(text);
+        })) return true;
+      }
+    } catch {
+      // best-effort only
+    }
   }
   
   return false;

@@ -31,6 +31,10 @@ export function permanentMatchesScopeQualifier(permanent: any, qualifier: Static
   if (qualifier.anyCounter && !Object.values(permanent?.counters || {}).some((n) => Number(n) > 0)) return false;
   const typeLine = String(permanent?.typeSetOverride?.typeLine || permanent?.card?.type_line || '').toLowerCase();
   if (qualifier.legendary && !/\blegendary\b/.test(typeLine)) return false;
+  if (qualifier.basic && !/\bbasic\b/.test(typeLine)
+    && !((permanent?.continuousTypeAdditions || []) as unknown[]).some((e) => String(e || '').toLowerCase() === 'basic')) {
+    return false;
+  }
   if (qualifier.nonType && new RegExp('\\b' + qualifier.nonType.toLowerCase() + '\\b').test(typeLine)) return false;
   if (qualifier.subtype && !new RegExp('\\b' + qualifier.subtype.toLowerCase() + 's?\\b').test(typeLine)) return false;
   if (qualifier.colors?.length) {

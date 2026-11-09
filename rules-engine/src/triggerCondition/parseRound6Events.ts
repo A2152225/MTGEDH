@@ -51,7 +51,7 @@ function subjectCondition(subjectText: string, event: TriggerConditionIR['event'
     const parsed = parseSubjectPhrase(trimmed.replace(/^a source/, 'a permanent'), event);
     return parsed ? { ...parsed, event, ...extra } as TriggerConditionIR : null;
   }
-  if (/\b(?:you|player|and)\b/.test(trimmed.replace(/ you control$| an opponent controls$/, ''))) return null;
+  if (/\b(?:you|player|and)\b/.test(trimmed.replace(/ you control\b| an opponent controls\b/g, ''))) return null;
   const parsed = parseBlockedSubjectClause(trimmed, event as any);
   if (!parsed) return null;
   return { ...parsed, event, ...extra } as TriggerConditionIR;
@@ -66,7 +66,9 @@ function playerSubjectCondition(event: TriggerConditionIR['event'], extra: Parti
 const TARGET_KIND: Readonly<Record<string, 'spell' | 'ability' | 'spell_or_ability'>> = {
   'a spell or ability': 'spell_or_ability',
   'a spell': 'spell',
+  'an instant or sorcery spell': 'spell',
   'an ability': 'ability',
+  'an activated ability': 'ability',
 };
 
 export function parseRound6TriggerSentence(text: string): Round6TriggerSentence | null {
@@ -83,7 +85,38 @@ export function parseRound6TriggerSentence(text: string): Round6TriggerSentence 
     return { condition: selfCondition('attacks_in_group', { minOtherAttackers: others } as Partial<TriggerConditionIR>), effect: battalion[4].trim() };
   }
 
-  const targeted = /^(?:whenever|when)\s+(.+?)\s+becomes? the target of (a spell or ability|a spell|an ability)( an opponent controls| you control)?( for the first time each turn)?,\s*(.+)$/.exec(text);
+  const youOrPerm = /^(?:whenever|when)\s+you (?:or|and\/or) (?:a|another|at least one) permanent you control becomes? the target of (a spell or ability|a spell|an ability)( an opponent controls| you control)?( for the first time each turn)?,\s*(.+)$/.exec(text);
+  if (youOrPerm) {
+    const kind = TARGET_KIND[youOrPerm[1]];
+    const by = youOrPerm[2] === ' an opponent controls' ? 'not_you' : youOrPerm[2] === ' you control' ? 'you' : 'any';
+    const extra: Partial<TriggerConditionIR> = {
+      targetedBy: { controller: by as any, kind },
+      orControllerPlayer: true,
+      ...(youOrPerm[3] ? { onceEachTurn: true } : {}),
+    } as Partial<TriggerConditionIR>;
+    const condition = subjectCondition('a permanent you control', 'becomes_target', extra);
+    return condition ? { condition, effect: youOrPerm[4].trim() } : null;
+  }
+
+  const targetedOnly = /^(?:whenever|when)\s+(.+?)\s+becomes? the target of (an ability) that targets only (?:it|~),\s*(.+)$/.exec(text);
+  if (targetedOnly) {
+    const extra: Partial<TriggerConditionIR> = {
+      targetedBy: { controller: 'any', kind: 'ability' },
+      targets: 'self_only',
+    } as Partial<TriggerConditionIR>;
+    const condition = subjectCondition(targetedOnly[1], 'becomes_target', extra);
+    return condition ? { condition, effect: targetedOnly[3].trim() } : null;
+  }
+  const backupTarget = /^(?:whenever|when)\s+(.+?)\s+becomes? the target of a backup ability,\s*(.+)$/.exec(text);
+  if (backupTarget) {
+    const extra: Partial<TriggerConditionIR> = {
+      targetedBy: { controller: 'any', kind: 'ability' },
+      abilityWord: 'backup',
+    } as Partial<TriggerConditionIR>;
+    const condition = subjectCondition(backupTarget[1], 'becomes_target', extra);
+    return condition ? { condition, effect: backupTarget[2].trim() } : null;
+  }
+  const targeted = /^(?:whenever|when)\s+(.+?)\s+becomes? the target of (a spell or ability|a spell|an ability|an activated ability|an instant or sorcery spell)( an opponent controls| you control)?( for the first time each turn)?,\s*(.+)$/.exec(text);
   if (targeted) {
     const kind = TARGET_KIND[targeted[2]];
     const by = targeted[3] === ' an opponent controls' ? 'not_you' : targeted[3] === ' you control' ? 'you' : 'any';
@@ -97,6 +130,22 @@ export function parseRound6TriggerSentence(text: string): Round6TriggerSentence 
     return condition ? { condition, effect: targeted[5].trim() } : null;
   }
 
+  const colorCreatureOrSpellDamage = /^(?:whenever|when)\s+an? (white|blue|black|red|green) creature or spell deals (noncombat )?damage( to an opponent| to a player| to a creature| to you)?,\s*(.+)$/.exec(text);
+  if (colorCreatureOrSpellDamage) {
+    const letters: Record<string, string> = { white: 'w', blue: 'u', black: 'b', red: 'r', green: 'g' };
+    const color = letters[colorCreatureOrSpellDamage[1]];
+    const recipient = colorCreatureOrSpellDamage[3] === ' to an opponent' ? 'opponent' : colorCreatureOrSpellDamage[3] === ' to a player' ? 'player' : colorCreatureOrSpellDamage[3] === ' to a creature' ? 'creature' : colorCreatureOrSpellDamage[3] === ' to you' ? 'you' : 'any';
+    const base = subjectCondition('a ' + colorCreatureOrSpellDamage[1] + ' creature', 'deals_damage', {
+      damageRecipient: recipient,
+      orSpellSubject: true,
+      ...(colorCreatureOrSpellDamage[2] ? { damageKind: 'noncombat' as const } : {}),
+    } as any);
+    if (base) {
+      const alt = base.alternatives[0];
+      const subject = { ...alt.subject, colors: [color], anyObject: true };
+      return { condition: { ...base, alternatives: [{ ...alt, subject }] }, effect: colorCreatureOrSpellDamage[4].trim() };
+    }
+  }
   const damage = /^(?:whenever|when)\s+(.+?)\s+deals (noncombat )?damage( to an opponent| to a player| to a creature)?,\s*(.+)$/.exec(text);
   if (damage) {
     const recipient = damage[3] === ' to an opponent' ? 'opponent' : damage[3] === ' to a player' ? 'player' : damage[3] === ' to a creature' ? 'creature' : 'any';
@@ -108,13 +157,13 @@ export function parseRound6TriggerSentence(text: string): Round6TriggerSentence 
     return condition ? { condition, effect: damage[4].trim() } : null;
   }
 
-  const crime = /^whenever (you|an opponent|a player) commits? a crime,\s*(.+)$/.exec(text);
+  const crime = /^whenever (you|an opponent|a player) commits? a crime(?: during your turn)?,\s*(.+)$/.exec(text);
   if (crime) {
     const subject = parseSubjectPhrase('a permanent', 'commits_crime');
     if (!subject) return null;
     const controller = ACTOR_CONTROLLER[crime[1]];
     return {
-      condition: { ...subject, event: 'commits_crime', alternatives: subject.alternatives.map((alternative) => ({ ...alternative, controller })) },
+      condition: { ...subject, event: 'commits_crime', alternatives: subject.alternatives.map((alternative) => ({ ...alternative, controller })), ...(/\sduring your turn,/.test(text) ? { whoseTurn: 'you' as const } : {}) },
       effect: crime[2].trim(),
     };
   }

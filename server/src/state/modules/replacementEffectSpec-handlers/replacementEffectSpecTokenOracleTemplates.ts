@@ -74,6 +74,60 @@ const ORACLE_TOKEN_REPLACEMENT_TEMPLATES: readonly OracleTokenReplacementTemplat
     },
   },
   {
+    // B59: Peregrin Took - those tokens plus an additional Food token.
+    templateId: 'controller-extra-food',
+    oracleMustIncludeAll: [
+      'tokens would be created under your control',
+      'plus an additional food token',
+    ],
+    spec: {
+      event: 'token-creation',
+      match: { creatingPlayerIsSourceController: true },
+      instead: { modify: 'add_flat', value: 1 },
+      effectId: 'controller-extra-food',
+      reason: 'controller_extra_food',
+      metadata: { createAdditionalTokenNamed: 'food' },
+    },
+  },
+  {
+    // B63: Donatello ? those tokens plus a Mutagen token (any tokens you create).
+    templateId: 'controller-extra-mutagen',
+    oracleMustIncludeAll: [
+      'tokens would be created under your control',
+      'plus a mutagen token',
+    ],
+    spec: {
+      event: 'token-creation',
+      match: { creatingPlayerIsSourceController: true },
+      instead: { modify: 'add_flat', value: 1 },
+      effectId: 'controller-extra-mutagen',
+      reason: 'controller_extra_mutagen',
+      metadata: { createAdditionalTokenNamed: 'mutagen' },
+    },
+  },
+  {
+    // B66: Quina — those tokens plus a 1/1 green Frog creature token.
+    templateId: 'controller-extra-frog',
+    oracleMustIncludeAll: [
+      'tokens would be created under your control',
+      'plus a 1/1 green frog creature token',
+    ],
+    spec: {
+      event: 'token-creation',
+      match: { creatingPlayerIsSourceController: true },
+      instead: { modify: 'add_flat', value: 1 },
+      effectId: 'controller-extra-frog',
+      reason: 'controller_extra_frog',
+      metadata: {
+        createAdditionalTokenNamed: 'frog',
+        createAdditionalTokenTypeLine: 'Creature — Frog',
+        createAdditionalTokenPower: 1,
+        createAdditionalTokenToughness: 1,
+        createAdditionalTokenColors: ['G'],
+      },
+    },
+  },
+  {
     templateId: 'global-token-double',
     oracleMustIncludeAll: ['tokens would be created', 'twice that many'],
     oracleMustExcludeAny: ['under your control', 'three times'],

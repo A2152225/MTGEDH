@@ -58,7 +58,7 @@ export function getMaxHandSizeForPlayer(gameState: any, playerId: string): numbe
       }
     }
 
-    return computeStaticMaxHandSize(battlefield, playerId, 7);
+    return computeStaticMaxHandSize(battlefield, playerId, 7, gameState);
   } catch (err) {
     debugWarn(1, `[getMaxHandSizeForPlayer] failed:`, err);
     return 7;

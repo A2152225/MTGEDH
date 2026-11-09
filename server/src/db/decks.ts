@@ -5,10 +5,11 @@ import { resolveAuxDbFile } from './auxDbFile.js';
 import type { SavedDeckSummary, SavedDeckDetail, DeckFolder } from '../../../shared/src/decks';
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 
-const DATA_DIR = path.join(process.cwd(), 'server', 'data');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-
 const DB_FILE = resolveAuxDbFile();
+if (DB_FILE !== ':memory:') {
+  const dataDir = path.dirname(DB_FILE);
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+}
 const db = new Database(DB_FILE);
 
 db.pragma('journal_mode = WAL');
@@ -338,6 +339,21 @@ export function updateDeckContent(
 export function deleteDeck(id: string): boolean {
   const info = deleteStmt.run(id);
   return info.changes > 0;
+}
+
+/**
+ * Test-only wipe of every saved deck in the current aux DB.
+ * Under vitest the aux DB is `:memory:` and shared per worker, so AI eval / decision
+ * fixtures that insert ephemeral decks should call this (or delete tracked ids) in
+ * afterEach/afterAll — otherwise later tests in the same worker see leftover rows.
+ */
+export function clearAllDecksForTests(): number {
+  const rows = listStmt.all() as Array<{ id: string }>;
+  let deleted = 0;
+  for (const row of rows) {
+    if (deleteDeck(row.id)) deleted += 1;
+  }
+  return deleted;
 }
 
 /**

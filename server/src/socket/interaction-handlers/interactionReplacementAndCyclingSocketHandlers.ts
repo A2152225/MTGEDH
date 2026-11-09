@@ -24,6 +24,7 @@ import {
 } from "../util";
 import { isSplitSecondLockActive } from "./interactionActivateBattlefieldAbilityHelpers.js";
 import { getCyclingDefinitionForActivation, resolveCyclingCostX } from "./interactionCyclingActivationDefinitions.js";
+import { getGrantedCyclingCost, cardHasPrintedCycling } from "../../state/modules/handCyclingGrants.js";
 import { queueCycleTriggeredAbilities } from "../../state/modules/triggers/cycle.js";
 import { queueDiscardTriggeredAbilities } from "../../state/modules/triggers/discard.js";
 
@@ -301,7 +302,19 @@ export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: 
       return;
     }
 
-    const cyclingDefinition = getCyclingDefinitionForActivation(oracleText, normalizedAbilityId, cardId);
+    let cyclingDefinition = getCyclingDefinitionForActivation(oracleText, normalizedAbilityId, cardId);
+    // B60: Tectonic Reformation etc. grant cycling to hand cards.
+    if (!cyclingDefinition && !cardHasPrintedCycling(card)) {
+      const grantedCost = getGrantedCyclingCost(game.state, String(pid), card);
+      if (grantedCost) {
+        cyclingDefinition = {
+          kind: 'cycling',
+          keywordLabel: 'Cycling',
+          cost: grantedCost,
+          stackDescription: 'Draw a card',
+        };
+      }
+    }
     if (!cyclingDefinition) {
       socket.emit("error", {
         code: "NO_CYCLING",

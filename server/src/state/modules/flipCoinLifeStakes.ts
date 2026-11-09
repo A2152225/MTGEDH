@@ -69,6 +69,7 @@ export function resolveFlipCoinLifeStakesIteration(
   } else {
     applyLifeDelta(state, controllerId, -stake);
     applyLifeDelta(state, opponentId, stake);
+    queueParsedKeywordAction(ctx, controllerId, 'lose_coin_flip');
   }
 
   state.lastCoinFlip = {

@@ -7,6 +7,7 @@ import type { BattlefieldPermanent } from '../../../../../shared/src/index.js';
 import type { StaticEffectSpec } from '../staticEffectSpec.js';
 import { sanitizeOracleTextForStaticEffectScan } from '../../../../../rules-engine/src/staticEffectOracleSanitize.js';
 import { pushSubtypeListLordSpecs } from './staticEffectSpecOracleParsingSubtypeListLords.js';
+import { pushDontOwnAndHexproofFromSpecs } from './staticEffectSpecOracleParsingDontOwnAndHexproofFrom.js';
 import { pushGlobalTypeAdditionSpecs } from './staticEffectSpecOracleParsingGlobalTypeAdditions.js';
 import { pushChosenModeSpecs } from './staticEffectSpecOracleParsingChosenModes.js';
 import { parsePhase5LordCondition, pushConditionalSelfBecomesSpecs } from './staticEffectSpecOracleParsingPhase5Conditions.js';
@@ -27,6 +28,7 @@ export function pushPhase5SupplementalSpecs(
   };
   const oracle = sanitizeOracleTextForStaticEffectScan(oracleText).toLowerCase();
   pushSubtypeListLordSpecs(specs, source, oracle);
+  pushDontOwnAndHexproofFromSpecs(specs, source, oracle);
   pushGlobalTypeAdditionSpecs(specs, source, oracle);
   pushConditionalSelfBecomesSpecs(specs, source, oracle, (raw) => parsePhase5LordCondition(raw, source.sourceName));
   if (parse) pushChosenModeSpecs(specs, perm, oracle, parse);

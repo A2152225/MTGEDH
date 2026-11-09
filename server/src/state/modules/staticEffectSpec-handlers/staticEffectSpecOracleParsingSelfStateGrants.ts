@@ -28,7 +28,9 @@ export function pushSelfStateGrantSpecs(specs: StaticEffectSpec[], source: Stati
   lines.forEach((raw, index) => {
     const line = raw.toLowerCase().replace(/\.$/, '');
     const st = /^(this creature|~|[^,.]+?) has ([a-z ,]+?) as long as it's (enchanted|modified|equipped)$/.exec(line);
-    const dmg = st ? null : /^(this creature|~|[^,.]+?) has ([a-z ,]+?) (?:as long as|if) it hasn't dealt damage yet$/.exec(line);
+    // B72: Ruric Thar, Magecrusher — "… as long as they haven't dealt combat damage yet."
+    // Keep "hasn't" (singular) and "haven't" (plural they).
+    const dmg = st ? null : /^(this creature|~|[^,.]+?) has ([a-z ,]+?) (?:as long as|if) (?:it|they|he|she) (?:hasn'?t|haven'?t) dealt(?: combat)? damage yet$/.exec(line);
     const m = st || dmg;
     if (!m) return;
     if (m[1] !== 'this creature' && m[1] !== '~' && (!name || m[1] !== name)) return;

@@ -15,6 +15,7 @@ import { appendEvent } from "../../db";
 import { getPlayableLandCandidates, type SharedPlayableLandCandidate } from "../../state/modules/can-respond.js";
 import { buildPersistedCastPermissionFields } from "../../state/modules/castIntent.js";
 import { calculateMaxLandsPerTurn, canPlayLandsFromTop } from "../../state/modules/game-state-effects";
+import { landPlaySameNameAsNontokenViolation } from "../../state/modules/landPlaySameNameRestriction.js";
 import { getEffectiveBasicLandTypes } from "../../state/modules/mana-abilities.js";
 import {
   cardAllowsPlayerToPlayFromExile,
@@ -717,6 +718,13 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     }
 
     suppressAutomationOnNextBroadcast(game as any, LAND_PLAY_AUTOMATION_SUPPRESSION_MS);
+    {
+      const sameNameLock = landPlaySameNameAsNontokenViolation(game.state?.battlefield, cardInZone);
+      if (sameNameLock) {
+        emitPlayLandError({ code: "SAME_NAME_LAND_LOCK", message: sameNameLock });
+        return;
+      }
+    }
     finalizePlayedLand(
       io,
       game,

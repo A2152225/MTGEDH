@@ -18,6 +18,8 @@ export interface CopyEntryExceptions {
   conditionalKeywords?: Array<{ ability: string; unlessHas: string }>;
   /** Sakashima: "except it has Sakashima's other abilities". */
   keepOwnOtherAbilities?: boolean;
+  /** Chameleon: "except his/her/its name is <Name>". */
+  keepPrintedName?: string;
 }
 
 const CARD_TYPES = new Set(['artifact', 'enchantment', 'creature', 'land', 'planeswalker']);
@@ -46,6 +48,8 @@ export function parseCopyEntryExceptions(sourceOracle: string): CopyEntryExcepti
       (out.conditionalKeywords ||= []).push({ ability: p[1][0].toUpperCase() + p[1].slice(1), unlessHas: p[2].toLowerCase() });
     } else if (/^(?:it )?has .+?'s other abilities$/i.test(part)) {
       out.keepOwnOtherAbilities = true;
+    } else if ((p = part.match(/^(?:his|her|its) name is (.+)$/i))) {
+      out.keepPrintedName = String(p[1]).trim().replace(/\.+$/, '');
     } else if (/^(?:it )?(?:isn't|is not) legendary$/i.test(part)) {
       out.notLegendary = true;
     } else if ((p = part.match(/^it's (\d+)\/(\d+)$/i))) {
@@ -59,7 +63,7 @@ export function parseCopyEntryExceptions(sourceOracle: string): CopyEntryExcepti
     }
   }
   const any = out.addCardTypes.length || out.addSubtypes.length || out.notLegendary || out.basePT || out.abilities.length || out.extraCounters.length
-    || out.conditionalKeywords?.length || out.keepOwnOtherAbilities;
+    || out.conditionalKeywords?.length || out.keepOwnOtherAbilities || !!out.keepPrintedName;
   return any ? out : null;
 }
 
@@ -112,6 +116,10 @@ export function applyCopyEntryExceptions(permanent: any, sourceOracle: string): 
       if (counter === 'loyalty') permanent.loyalty = Number(permanent.loyalty || 0) + 1;
     }
     if (ex.extraCounters.length) permanent.copyEntryCountersApplied = true;
+  }
+  if (ex.keepPrintedName) {
+    if (permanent.card) permanent.card = { ...permanent.card, name: ex.keepPrintedName };
+    permanent.name = ex.keepPrintedName;
   }
   permanent.copyEntryExceptions = ex;
   return true;

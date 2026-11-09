@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { initDb, createGameIfNotExists } from '../src/db/index.js';
-import { saveDeck, getDeck, updateDeckContent } from '../src/db/decks.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { initDb, createGameIfNotExists, deleteGame } from '../src/db/index.js';
+import { saveDeck, getDeck } from '../src/db/decks.js';
 import { registerDeckHandlers } from '../src/socket/deck.js';
 import { ensureGame } from '../src/socket/util.js';
+import { games } from '../src/socket/socket.js';
+import { createSavedDeckTracker } from './helpers/savedDeckTestCleanup.js';
 
 function createMockIo(emitted: Array<{ room?: string; event: string; payload: any }>) {
   return {
@@ -36,29 +38,28 @@ function createMockSocket(
 }
 
 describe('saved decks update (integration)', () => {
-  const gameId = 'test_saved_decks_update';
-  const deckId = 'deck_update_test_1';
+  const gameId = `test_saved_decks_update_${Date.now().toString(36)}`;
+  const deckId = `deck_update_test_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const savedDecks = createSavedDeckTracker();
+  savedDecks.installAfterAll();
 
   beforeAll(async () => {
     await initDb();
     createGameIfNotExists(gameId, 'commander', 40, undefined, 'p1');
-    if (!getDeck(deckId)) {
-      saveDeck({
-        id: deckId,
-        name: 'Original Deck',
-        text: '1 Sol Ring\n1 Command Tower',
-        created_by_id: 'p1',
-        created_by_name: 'Player One',
-        card_count: 2,
-      });
-    } else {
-      updateDeckContent(deckId, {
-        name: 'Original Deck',
-        text: '1 Sol Ring\n1 Command Tower',
-        card_count: 2,
-        resolved_cards: null,
-      });
-    }
+    saveDeck({
+      id: deckId,
+      name: 'Original Deck',
+      text: '1 Sol Ring\n1 Command Tower',
+      created_by_id: 'p1',
+      created_by_name: 'Player One',
+      card_count: 2,
+    });
+    savedDecks.track(deckId);
+  });
+
+  afterAll(async () => {
+    games.delete(gameId as any);
+    try { await deleteGame(gameId); } catch { /* ignore */ }
   });
 
   it('updates a saved deck when socket is in the game room', async () => {

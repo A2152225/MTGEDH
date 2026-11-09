@@ -51,8 +51,23 @@ function oracleText(perm: any): string {
   return [card.oracle_text || '', ...faces].join('\n').toLowerCase().replace(/[\u2018\u2019]/g, "'");
 }
 
+// B53: "Enchanted creature can't become untapped" (Blossombind, Frozen in Ice).
+const CANT_BECOME_UNTAPPED_HOST = /\b(?:enchanted|equipped) creature\b[^.\n]*\bcan't become untapped\b/;
+function cantBecomeUntappedSource(list: readonly any[], permanent: any): string | null {
+  const id = String(permanent?.id || '');
+  if (!id) return null;
+  for (const src of list) {
+    if (!src || src.phasedOut) continue;
+    if (String(src.attachedTo || '') !== id) continue;
+    if (CANT_BECOME_UNTAPPED_HOST.test(oracleText(src))) return String(src?.card?.name || 'A permanent');
+  }
+  return null;
+}
+
 export function qualifiedUntapProhibitionSource(battlefield: readonly any[] | undefined, permanent: any, state?: any): string | null {
   const list = Array.isArray(battlefield) ? battlefield : [];
+  const b53CantBecome = cantBecomeUntappedSource(list, permanent); // B53
+  if (b53CantBecome) return b53CantBecome;
   const b48Matrix = untapTypeChoiceSource(list, permanent, state); // B48
   if (b48Matrix) return b48Matrix;
   const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '');

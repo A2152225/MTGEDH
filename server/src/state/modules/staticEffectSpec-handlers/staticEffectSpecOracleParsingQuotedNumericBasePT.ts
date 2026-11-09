@@ -44,6 +44,12 @@ const HISTORIC_DURING_TURN_HAVE_RE =
 const BASE_PT_RE =
   // Also Humility: "All creatures lose all abilities and have base power and toughness 1/1."
   /(?:^|[.\n;])\s*(other\s+)?(?:all\s+)?creatures(?: you control)? (?:lose all abilities and )?have base power and toughness (\d+)\s*\/\s*(\d+)(?: and are ([a-z]+)s? in addition[^.]*)?/gi;
+// B60: Archon of the Wild Rose — enchanted-by-Auras-you-control base P/T + abilities.
+const ENCHANTED_BY_AURAS_BASE_PT_RE =
+  /(?:^|[.\n;])\s*(other\s+)?creatures you control that are enchanted by auras you control have base power and toughness (\d+)\s*\/\s*(\d+)(?: and have ([^.]+))?/gi;
+// B56: Maha, Its Feathers Night — toughness-only characteristic setting on opponents' creatures.
+const BASE_TOUGHNESS_OPPONENTS_RE =
+  /(?:^|[.\n;])\s*creatures your opponents control have base toughness (\d+)/gi;
 const MANA_ABILITY_ANTHEM_RE =
   /each creature you control with a mana ability gets\s+(\+\d+\s*\/\s*\+\d+)/gi;
 
@@ -313,6 +319,35 @@ export function pushQuotedNumericAndBasePTLordSpecs(
       { kind: isOther ? 'other_creatures_you_control' : 'creatures_you_control' },
       { abilities },
       { kind: 'target_is_historic_during_source_controller_turn' },
+    ));
+  }
+
+  for (const match of text.matchAll(BASE_TOUGHNESS_OPPONENTS_RE)) {
+    const setToughness = parseInt(String(match[1] || ''), 10);
+    if (!Number.isFinite(setToughness)) continue;
+    specs.push(buildSpec(
+      source,
+      'opponents-base-toughness',
+      { kind: 'opponent_creatures' },
+      { setToughness },
+    ));
+  }
+
+
+  for (const match of text.matchAll(ENCHANTED_BY_AURAS_BASE_PT_RE)) {
+    const isOther = Boolean(match[1]);
+    const setPower = parseInt(String(match[2] || ''), 10);
+    const setToughness = parseInt(String(match[3] || ''), 10);
+    if (!Number.isFinite(setPower) || !Number.isFinite(setToughness)) continue;
+    const abilities = parseLordAbilitiesFromTail(match[4] || '');
+    const scope = { kind: isOther ? 'other_creatures_you_control' : 'creatures_you_control' } as StaticEffectSpec['scope'];
+    const cond = { kind: 'target_enchanted_by_aura_you_control' } as StaticEffectCondition;
+    specs.push(buildSpec(
+      source,
+      `${isOther ? 'other-' : ''}enchanted-by-auras-base-pt`,
+      scope,
+      { setPower, setToughness, ...(abilities.length ? { abilities } : {}) },
+      cond,
     ));
   }
 

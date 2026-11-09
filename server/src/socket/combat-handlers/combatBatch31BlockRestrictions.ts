@@ -1,10 +1,14 @@
 // server/src/socket/combat-handlers/combatBatch31BlockRestrictions.ts
 // Batch 31: "~ can't be blocked except by artifact creatures and/or COLOR creatures." (Amrou Seekers, Skirk Shaman)
+// B76: "~ can't be blocked except by artifact creatures." (Nick Valentine)
+// B76: "~ can't be blocked except by Vehicles." (Deluxe Dragster)
 // Origin parent: combatLegalityGates.ts canBlockAttacker.
 // Public entry symbols: artifactOrColorBlockOnlyReason.
 
 const COLOR_CODE: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 const RE = /can't be blocked except by artifact creatures and\/or (white|blue|black|red|green) creatures/;
+const ARTIFACT_ONLY_RE = /can't be blocked except by artifact creatures(?! and)/;
+const VEHICLES_ONLY_RE = /can't be blocked except by vehicles/;
 
 function blockerColors(blocker: any): string[] {
   const card = blocker?.card || {};
@@ -14,12 +18,32 @@ function blockerColors(blocker: any): string[] {
   return ['W', 'U', 'B', 'R', 'G'].filter((c) => cost.toUpperCase().includes('{' + c) || cost.toUpperCase().includes(c + '}'));
 }
 
+function attackerTexts(attacker: any): string {
+  const name = String(attacker?.card?.name || '').toLowerCase();
+  let text = String(attacker?.card?.oracle_text || '').replace(/\u2019/g, "'").toLowerCase();
+  if (name.length >= 3) text = text.replace(new RegExp('\\b' + name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\b', 'g'), '~');
+  const granted = Array.isArray(attacker?.grantedAbilities) ? attacker.grantedAbilities : [];
+  for (const a of granted) text += '\n' + String(a || '').toLowerCase();
+  return text;
+}
+
 export function artifactOrColorBlockOnlyReason(blocker: any, attacker: any): string | null {
-  const text = String(attacker?.card?.oracle_text || '').replace(/\u2019/g, "'").toLowerCase();
+  const text = attackerTexts(attacker);
+  const typeLine = String(blocker?.card?.type_line || blocker?.type_line || '').toLowerCase();
+  const label = attacker?.card?.name || 'This creature';
+
+  if (VEHICLES_ONLY_RE.test(text)) {
+    if (/\bvehicle\b/.test(typeLine)) return null;
+    return `${label} can't be blocked except by Vehicles.`;
+  }
+  if (ARTIFACT_ONLY_RE.test(text)) {
+    if (/\bartifact\b/.test(typeLine) && /\bcreature\b/.test(typeLine)) return null;
+    return `${label} can't be blocked except by artifact creatures.`;
+  }
+
   const m = text.match(RE);
   if (!m) return null;
-  const typeLine = String(blocker?.card?.type_line || blocker?.type_line || '').toLowerCase();
   if (typeLine.includes('artifact')) return null;
   if (blockerColors(blocker).includes(COLOR_CODE[m[1]])) return null;
-  return `${attacker?.card?.name || 'This creature'} can't be blocked except by artifact creatures and/or ${m[1]} creatures.`;
+  return `${label} can't be blocked except by artifact creatures and/or ${m[1]} creatures.`;
 }

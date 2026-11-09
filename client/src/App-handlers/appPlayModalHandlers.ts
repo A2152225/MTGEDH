@@ -564,10 +564,21 @@ export function useAppPlayModalHandlers(p: Record<string, any>) {
     if (!safeView) return;
 
     if (targetModalData?.stepId) {
-      socket.emit("cancelResolutionStep", {
-        gameId: safeView.id,
-        stepId: targetModalData.stepId,
-      });
+      // Decline permanent attack costs via cancelled response so the server can
+      // remove only those attackers and continue with the rest.
+      if ((targetModalData as any)?.attackCostPermanentPayment === true) {
+        socket.emit("submitResolutionResponse", {
+          gameId: safeView.id,
+          stepId: targetModalData.stepId,
+          selections: [],
+          cancelled: true,
+        });
+      } else {
+        socket.emit("cancelResolutionStep", {
+          gameId: safeView.id,
+          stepId: targetModalData.stepId,
+        });
+      }
     }
     setTargetModalOpen(false);
     setTargetModalData(null);

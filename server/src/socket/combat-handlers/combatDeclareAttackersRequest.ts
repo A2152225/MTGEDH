@@ -43,6 +43,7 @@ import {
   collectAttackYouMaxAttackersForDefender,
   collectAttackYouProhibitionForAttacker,
   collectAttackYouTaxForDefender,
+  collectMaxAttackersAgainstPermanent,
   collectMaxAttackersEachCombat,
 } from "../../state/modules/staticEffectSpecAttackYouTax.js";
 import { collectThisTurnAttackLifeTaxForAttacker, collectThisTurnAttackTaxForAttacker } from "../../state/modules/staticEffectSpecAttackTaxThisTurn.js";
@@ -54,6 +55,7 @@ import {
   buildAttackCostPhyrexianChoices,
   canAffordAttackCostPayment,
 } from "./attackCostPhyrexianPayment.js";
+import { enqueueAttackCostPermanentPaymentIfNeeded } from "./attackCostPermanentPaymentEnqueue.js";
 
 /**
  * Declare attackers - player selects which creatures to attack with
@@ -229,6 +231,25 @@ export async function handleDeclareAttackers(
       }
     }
 
+    const attackersVsPermanent = new Map<string, number>();
+    for (const attacker of resolvedAttackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>) {
+      const targetPermanentId = String(attacker.targetPermanentId || '').trim();
+      if (!targetPermanentId) continue;
+      attackersVsPermanent.set(targetPermanentId, (attackersVsPermanent.get(targetPermanentId) || 0) + 1);
+    }
+    for (const [permanentId, count] of attackersVsPermanent.entries()) {
+      const cap = collectMaxAttackersAgainstPermanent(game.state, permanentId);
+      if (cap.max != null && count > cap.max) {
+        const perm = battlefield.find((p: any) => String(p?.id || '') === permanentId);
+        const name = String(perm?.card?.name || 'that permanent');
+        socket.emit('error', {
+          code: 'TOO_MANY_ATTACKERS',
+          message: `No more than ${cap.max} creatures can attack ${name} this combat.`,
+        });
+        return;
+      }
+    }
+
     const globalAttackCap = collectMaxAttackersEachCombat(game.state);
     if (globalAttackCap.max != null && resolvedAttackers.length > globalAttackCap.max) {
       socket.emit('error', {
@@ -311,6 +332,7 @@ export async function handleDeclareAttackers(
         targetIsOwnerPlaneswalker: isAttackingOwnerPlaneswalker(creature, attacker, battlefield),
         battlefield,
         gameState: game.state,
+        proposedAttackerIds: (resolvedAttackers as Array<{ creatureId: string }>).map((entry) => String(entry.creatureId || '')),
       });
       if (ownerRestrictionReason) {
         socket.emit("error", {
@@ -434,6 +456,11 @@ export async function handleDeclareAttackers(
       return;
     }
 
+    // Non-mana attack costs (Floodtide Serpent / Flooded Woodlands) before mana tax.
+    if (enqueueAttackCostPermanentPaymentIfNeeded(io, game, gameId, playerId, resolvedAttackers as any)) {
+      return;
+    }
+
     if (totalAttackCostRequired > 0 || attackCostPhyrexianItems.length > 0 || totalAttackLifeRequired > 0) {
       const attackerIdsToExclude = resolvedAttackers.map((entry) => String(entry.creatureId || ''));
       const afford = canAffordAttackCostPayment(game.state, playerId, {
@@ -515,6 +542,18 @@ export async function handleDeclareAttackers(
 
       // Track that this creature attacked this turn (for Minas Tirith, etc.)
       (creature as any).attackedThisTurn = true;
+      // B67: War Historian — persist battle-attack across post-combat cleanup of `.attacking`.
+      try {
+        const targetPermId = String(attacker.targetPermanentId || '').trim();
+        if (targetPermId) {
+          const targetPerm = battlefield.find((p: any) => String(p?.id || '') === targetPermId);
+          if (targetPerm && /\bbattle\b/i.test(String(targetPerm?.card?.type_line || ''))) {
+            (creature as any).attackedBattleThisTurn = true;
+          }
+        }
+      } catch {
+        // best-effort only
+      }
 
       // Tap the attacker (unless it has vigilance)
       const hasVigilance = permanentHasKeyword(creature, battlefield, playerId, 'vigilance', game.state);

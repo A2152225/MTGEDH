@@ -19,6 +19,8 @@ import { registerTokenGroupMembers } from "../tokenGroupResolve.js";
 import { getPlayableCardIds } from "./getPlayableCardIds.js";
 import { getGrantedForetellCost } from "../../state/modules/foretellGrants.js";
 import { getGrantedScavengeCost, cardHasPrintedScavenge } from "../../state/modules/graveyardScavengeGrants.js";
+import { getGrantedEncoreCost, cardHasPrintedEncore } from "../../state/modules/graveyardEncoreGrants.js";
+import { getGrantedCyclingCost, cardHasPrintedCycling } from "../../state/modules/handCyclingGrants.js";
 import { getGraveyardAbilityHints } from "./getGraveyardAbilityHints.js";
 import { defaultPlayerZones } from "./playerStateZones.js";
 
@@ -469,13 +471,34 @@ export function normalizeViewForEmit(rawView: any, game: any) {
           if (Array.isArray(viewGy)) {
             let gyChanged = false;
             const nextGy = viewGy.map((c: any) => {
-              if (!c || typeof c === 'string' || !c.id || cardHasPrintedScavenge(c)) return c;
-              const granted = getGrantedScavengeCost(game.state, viewerId, c);
-              if (!granted) return c;
-              gyChanged = true;
-              return { ...c, grantedScavengeCost: granted };
+              if (!c || typeof c === 'string' || !c.id) return c;
+              let next = c;
+              if (!cardHasPrintedScavenge(c)) {
+                const granted = getGrantedScavengeCost(game.state, viewerId, c);
+                if (granted) { gyChanged = true; next = { ...next, grantedScavengeCost: granted }; }
+              }
+              // B60: Sliver Gravemother encore grant.
+              if (!cardHasPrintedEncore(c)) {
+                const grantedEncore = getGrantedEncoreCost(game.state, viewerId, c);
+                if (grantedEncore) { gyChanged = true; next = { ...next, grantedEncoreCost: grantedEncore }; }
+              }
+              return next;
             });
             if (gyChanged) view.zones = { ...view.zones, [viewerId]: { ...view.zones[viewerId], graveyard: nextGy } };
+          }
+
+          // B60: static cycling grants (Tectonic Reformation) -> card.grantedCyclingCost on hand copy.
+          const viewHandForCycle = view.zones?.[viewerId]?.hand;
+          if (Array.isArray(viewHandForCycle)) {
+            let handCycleChanged = false;
+            const nextHandCycle = viewHandForCycle.map((c: any) => {
+              if (!c || typeof c === 'string' || !c.id || cardHasPrintedCycling(c)) return c;
+              const granted = getGrantedCyclingCost(game.state, viewerId, c);
+              if (!granted) return c;
+              handCycleChanged = true;
+              return { ...c, grantedCyclingCost: granted };
+            });
+            if (handCycleChanged) view.zones = { ...view.zones, [viewerId]: { ...view.zones[viewerId], hand: nextHandCycle } };
           }
         }
       }

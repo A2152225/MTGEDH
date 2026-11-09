@@ -49,6 +49,11 @@ import type {
   AICastAttemptDescriptor,
   AISupportedCardSourceZone,
 } from "./aiActionCandidateTypes.js";
+import {
+  candidatesFromAIActionList,
+  recordDecision,
+  traceContextFromGame,
+} from "./aiDecisionTrace.js";
 
 async function tryAIResponseActions(io: Server, gameId: string, playerId: PlayerID, game: any): Promise<boolean> {
   return getAIHandlerDeps().tryAIResponseActions(io, gameId, playerId, game);
@@ -560,8 +565,19 @@ export async function handleAIPriority(
         kinds: primaryActionKinds,
         willNeedToDiscard,
       });
+      const priorityTraceCandidates = candidatesFromAIActionList(actionCandidates);
+      const recordPriorityChoice = (chosen: number | null, note?: string) => {
+        recordDecision({
+          ...traceContextFromGame(game, gameId, playerId),
+          kind: 'priority',
+          candidates: priorityTraceCandidates,
+          chosen,
+          note,
+        });
+      };
 
-      for (const candidate of actionCandidates) {
+      for (let candidateIndex = 0; candidateIndex < actionCandidates.length; candidateIndex++) {
+        const candidate = actionCandidates[candidateIndex];
         if (candidate.kind === 'activate_ability') {
           if (willNeedToDiscard) {
             debug(1, '[AI] Activating ability (after spell-priority ordering):', candidate.ability.action.cardName);
@@ -569,6 +585,7 @@ export async function handleAIPriority(
             debug(1, '[AI] Activating ability:', candidate.ability.action.cardName, '-', candidate.ability.reasoning);
           }
           if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
+            recordPriorityChoice(candidateIndex);
             scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
@@ -587,6 +604,7 @@ export async function handleAIPriority(
           const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
           const castProgressed = await executeAICastCommander(io, gameId, playerId, candidate.commander);
           if (castProgressed) {
+            recordPriorityChoice(candidateIndex);
             scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
@@ -595,6 +613,7 @@ export async function handleAIPriority(
             card: candidate.commander.card,
             sourceZone: 'command',
           }, beforeCast)) {
+            recordPriorityChoice(candidateIndex, 'control-flow-changed');
             return;
           }
         }
@@ -614,11 +633,13 @@ export async function handleAIPriority(
           const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
           const castProgressed = await executeAICastSpell(io, gameId, playerId, candidateSpell);
           if (castProgressed) {
+            recordPriorityChoice(candidateIndex);
             scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
 
           if (didAICastAttemptChangeControlFlow(gameId, game, playerId, candidateSpell, beforeCast)) {
+            recordPriorityChoice(candidateIndex, 'control-flow-changed');
             return;
           }
         }
@@ -636,6 +657,7 @@ export async function handleAIPriority(
 
           debug(1, '[AI] Activating ability (after spell-priority ordering):', candidate.ability.action.cardName);
           if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
+            recordPriorityChoice(null, 'fallback-ability');
             scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
@@ -657,6 +679,7 @@ export async function handleAIPriority(
       // This allows other players to get priority and potentially take actions
       // The step will advance automatically when all players pass priority
       debug(1, '[AI] Main phase, no more actions, passing priority');
+      recordPriorityChoice(null, 'pass');
       await executePassPriority(io, gameId, playerId, {
         allowActiveMainPhaseAutoAdvance: true,
       });
@@ -718,9 +741,23 @@ export async function handleAIPriority(
         };
         
         const decision = await aiEngine.makeDecision(context);
+        const attackList = Array.isArray(decision.action?.attackers) ? decision.action.attackers : [];
+        recordDecision({
+          ...traceContextFromGame(game, gameId, playerId),
+          kind: 'attack',
+          candidates: attackList.map((a: any) => ({
+            kind: 'attacker',
+            name: String(a?.creatureId || ''),
+            score: 1,
+          })),
+          chosen: attackList.length > 0 ? 0 : null,
+          note: attackList.length > 0
+            ? `attackers=${attackList.length}`
+            : 'no-attackers',
+        });
         
-        if (decision.action?.attackers?.length > 0) {
-          await executeDeclareAttackers(io, gameId, playerId, decision.action.attackers);
+        if (attackList.length > 0) {
+          await executeDeclareAttackers(io, gameId, playerId, attackList);
         } else {
           debug(1, '[AI] No attackers to declare, skipping attackers step');
           await executeDeclareAttackers(io, gameId, playerId, []);
@@ -779,9 +816,23 @@ export async function handleAIPriority(
         };
         
         const decision = await aiEngine.makeDecision(context);
+        const blockList = Array.isArray(decision.action?.blockers) ? decision.action.blockers : [];
+        recordDecision({
+          ...traceContextFromGame(game, gameId, playerId),
+          kind: 'block',
+          candidates: blockList.map((b: any) => ({
+            kind: 'block',
+            name: `${String(b?.blockerId || '')}->${String(b?.attackerId || '')}`,
+            score: 1,
+          })),
+          chosen: blockList.length > 0 ? 0 : null,
+          note: blockList.length > 0
+            ? `blocks=${blockList.length}`
+            : 'no-blocks',
+        });
         
-        if (decision.action?.blockers?.length > 0) {
-          await executeDeclareBlockers(io, gameId, playerId, decision.action.blockers);
+        if (blockList.length > 0) {
+          await executeDeclareBlockers(io, gameId, playerId, blockList);
         } else {
           // AI chooses not to block - explicitly declare empty blockers to mark as "declared"
           debug(1, '[AI] No blockers to declare, declaring empty blockers');

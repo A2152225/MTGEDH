@@ -19,7 +19,13 @@ describe('round 42 cast-trigger long tail', () => {
     const fly = cond('Whenever you cast a creature spell with flying, draw a card.');
     expect(triggerConditionMatches(fly, spell('Creature - Bird', 'Flying'), src)).toBe(true);
     expect(triggerConditionMatches(fly, spell('Instant', 'Flying'), src)).toBe(false);
-    expect(cond('Whenever you cast a spell with the chosen name, draw a card.')?.event).not.toBe('spell_cast');
+    const named = cond('Whenever you cast a spell with the chosen name, draw a card.');
+    expect(named?.event).toBe('spell_cast');
+    expect(named?.requiresChosenName).toBe(true);
+    expect(named?.legacyRuntimeOnly).not.toBe(true);
+    const namedSrc = { controllerId: 'p1', chosenCardName: 'Lightning Bolt' } as any;
+    expect(triggerConditionMatches(named, spell('Instant'), namedSrc, { spellName: 'Lightning Bolt' } as any)).toBe(true);
+    expect(triggerConditionMatches(named, spell('Instant'), namedSrc, { spellName: 'Cancel' } as any)).toBe(false);
   });
   it('outlaw expands to Assassin/Mercenary/Pirate/Rogue/Warlock', () => {
     const c = cond('Whenever you cast an outlaw spell, draw a card.');

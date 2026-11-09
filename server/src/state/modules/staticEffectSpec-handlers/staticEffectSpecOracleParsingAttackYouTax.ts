@@ -58,6 +58,11 @@ const WITH_KEYWORD_PROHIBIT_RE = new RegExp(
   `^creatures with (${KEYWORD_ALT}) ${ATTACK_YOU_TAIL}$`,
   'i',
 );
+// B55: Storm, Windrider — "Creatures with flying can't attack you or block creatures you control."
+const WITH_KEYWORD_ATTACK_OR_BLOCK_RE = new RegExp(
+  `^creatures with (${KEYWORD_ALT}) can't attack you or block creatures you control$`,
+  'i',
+);
 const POWER_AT_MOST_PROHIBIT_RE = new RegExp(
   `^creatures with power (\\d+) or less ${ATTACK_YOU_TAIL}$`,
   'i',
@@ -446,6 +451,22 @@ export function pushAttackYouTaxSpecs(
       });
       if (merged === null) continue;
       pushAttackYouProhibit(specs, source, merged);
+      continue;
+    }
+
+    const withKeywordAttackOrBlock = sentence.match(WITH_KEYWORD_ATTACK_OR_BLOCK_RE);
+    if (withKeywordAttackOrBlock) {
+      const kw = String(withKeywordAttackOrBlock[1] || '').toLowerCase();
+      const merged = mergeGatedCondition(condition, { kind: 'target_has_keyword', keyword: kw });
+      if (merged === null) continue;
+      pushAttackYouProhibit(specs, source, merged);
+      specs.push(buildSpec(
+        source,
+        'cant-block-creatures-you-control-with-keyword',
+        { kind: 'all_creatures' },
+        { cantBlockCreaturesYouControl: true },
+        merged,
+      ));
       continue;
     }
 

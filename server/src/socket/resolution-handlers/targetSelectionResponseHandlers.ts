@@ -33,6 +33,7 @@ import { handleUpkeepPaidUntapSelection } from "./upkeepPaidUntapSelectionHandle
 import { violatesFlagbearerRequirement } from "../../state/modules/flagbearerTargeting.js"; // B29
 import { handleUntapCapChoiceSelection } from "./untapCapChoiceSelectionHandler.js";
 import { handleChooseThenSacrificeRestTargetSelection } from "./chooseThenSacrificeRestTargetSelection.js";
+import { handleAttackCostPermanentPaymentTargetSelection } from "./attackCostPermanentPaymentHandlers.js";
 
 /** TARGET_SELECTION: validate selections then dispatch to the specialized branch. */
 export async function handleTargetSelectionResponse(
@@ -238,6 +239,11 @@ export async function handleTargetSelectionResponse(
   // SACRIFICE AS AN ACTIVATION COST (battlefield abilities)
   // These are enqueued as TARGET_SELECTION steps with sacrificeAbilityAsCost metadata.
   // ========================================================================
+  if (stepAny?.attackCostPermanentPayment === true) {
+    await handleAttackCostPermanentPaymentTargetSelection(io, game, gameId, step, response);
+    return;
+  }
+
   if (stepAny?.sacrificeAbilityAsCost === true) {
     await getResolutionHandlerDeps().handleSacrificeAbilityAsCostTargetSelection(io, game, gameId, step, response);
     return;

@@ -89,6 +89,10 @@ export function findOracleCastingLimitViolation(
     if (isOpponent && isCombatPhase(state) && /\byour opponents can't cast spells during combat\b/.test(oracle)) {
       return { prohibited: true, reason: `${name} prevents casting spells during combat.` };
     }
+    // B73: Basandra — "Players can't cast spells during combat."
+    if (isCombatPhase(state) && /\bplayers can(?:not|'t) cast spells during combat\b/.test(oracle)) {
+      return { prohibited: true, reason: `${name} prevents casting spells during combat.` };
+    }
 
     const caps: Array<{ who: string; n: number; noncreature: boolean }> = [];
     for (const m of oracle.matchAll(CAP_RE)) caps.push({ who: m[1], n: parseCount(m[2]), noncreature: !!m[3] });
@@ -103,6 +107,62 @@ export function findOracleCastingLimitViolation(
           prohibited: true,
           reason: `${name} limits casting to ${cap.n} ${cap.noncreature ? 'noncreature ' : ''}spell${cap.n === 1 ? '' : 's'} each turn.`,
         };
+      }
+    }
+    // B76: Llawan — "Your opponents can't cast blue creature spells."
+    {
+      const colorCreature = oracle.match(
+        /\byour opponents can(?:not|'t) cast (white|blue|black|red|green) creature spells?\b/,
+      );
+      if (colorCreature && isOpponent && spellIsCreature) {
+        const color = colorCreature[1];
+        const letter = color === 'blue' ? 'U' : color[0]!.toUpperCase();
+        const colors: string[] = Array.isArray(spell?.colors)
+          ? spell.colors.map((c: any) => String(c).toUpperCase())
+          : Array.isArray(spell?.card?.colors)
+            ? spell.card.colors.map((c: any) => String(c).toUpperCase())
+            : [];
+        const cost = String(spell?.mana_cost || spell?.card?.mana_cost || '').toUpperCase();
+        const isColor = colors.includes(letter) || cost.includes(`{${letter}`);
+        if (isColor) {
+          return { prohibited: true, reason: `${name} prevents casting ${color} creature spells.` };
+        }
+      }
+    }
+    // B76: Llawan — "Your opponents can't cast blue creature spells."
+    {
+      const colorCreature = oracle.match(
+        /\byour opponents can(?:not|'t) cast (white|blue|black|red|green) creature spells?\b/,
+      );
+      if (colorCreature && isOpponent && spellIsCreature) {
+        const color = colorCreature[1];
+        const letter = color === 'blue' ? 'U' : color[0]!.toUpperCase();
+        const colors: string[] = Array.isArray(spell?.colors)
+          ? spell.colors.map((c: any) => String(c).toUpperCase())
+          : Array.isArray(spell?.card?.colors)
+            ? spell.card.colors.map((c: any) => String(c).toUpperCase())
+            : [];
+        const cost = String(spell?.mana_cost || spell?.card?.mana_cost || '').toUpperCase();
+        const isColor = colors.includes(letter) || cost.includes(`{${letter}`);
+        if (isColor) {
+          return { prohibited: true, reason: `${name} prevents casting ${color} creature spells.` };
+        }
+      }
+    }
+    // B73/B74: Phyrexian Censor — "Each player can't cast more than one non-Phyrexian spell each turn."
+    if (/\beach player can(?:not|'t) cast more than (\w+) non-?phyrexian spells? each turn\b/.test(oracle)) {
+      const m = oracle.match(/\beach player can(?:not|'t) cast more than (\w+) non-?phyrexian spells? each turn\b/);
+      const n = parseCount(m?.[1] || 'one');
+      const isPhyrexian = /\bphyrexian\b/i.test(String(spellTypeLine || ''));
+      if (n > 0 && !isPhyrexian) {
+        const list: any[] = Array.isArray(state?.spellsCastThisTurn) ? state.spellsCastThisTurn : [];
+        const cast = list.filter((e) => {
+          if (String(e?.casterId ?? e?.playerId ?? e?.controllerId ?? '') !== pid) return false;
+          return !/\bphyrexian\b/i.test(String(e?.type_line || e?.card?.type_line || ''));
+        }).length;
+        if (cast >= n) {
+          return { prohibited: true, reason: `${name} limits casting to ${n} non-Phyrexian spell${n === 1 ? '' : 's'} each turn.` };
+        }
       }
     }
   }
