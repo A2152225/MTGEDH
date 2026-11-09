@@ -36,6 +36,7 @@ import { queueControlsNoneStateTriggers } from "../triggerStateAndLevelEmitters.
 import { queueLifeThresholdStateTriggers } from "../triggers/lifeThresholdStateTriggers.js";
 import { pollIrEventWatchers } from "../triggers/irEventWatchers.js";
 import { queueBecomesUnattachedTriggers } from "../triggerBecomesUnattached.js";
+import { queueSagaEntryChapterTriggers } from "../triggerSagaEntryChapters.js";
 import { restoreAssimilatedCardsOutsideBattlefield } from "../../../../../rules-engine/src/trekAssimilateZoneReset.js";
 
 function updateGodCreatureStatus(ctx: GameContext): void {
@@ -184,6 +185,7 @@ function runSBAUnbatched(ctx: GameContext) {
     try { if (queueLifeThresholdStateTriggers(ctx).length > 0) bumpSeq(); } catch { /* best-effort */ }
     try { if (pollIrEventWatchers(ctx) > 0) bumpSeq(); } catch { /* best-effort */ }
     try { if (queueBecomesUnattachedTriggers(ctx) > 0) bumpSeq(); } catch { /* best-effort */ }
+    try { if (queueSagaEntryChapterTriggers(ctx) > 0) bumpSeq(); } catch { /* best-effort */ }
   } catch {}
   
   // FIRST: Handle bestow/reconfigure creatures that need to unattach and restore stats
@@ -274,7 +276,7 @@ function runSBAUnbatched(ctx: GameContext) {
         player.lostReason = 'Life total reached 0 or less';
         debug(1, `[runSBA] Player ${playerId} has lost the game (life <= 0)`);
         markPlayerOutOfPriority(ctx as any, playerId);
-        removeLeavingPlayerGameObjects(state, playerId, { gameId: String((ctx as any).gameId || '') });
+        removeLeavingPlayerGameObjects(state, playerId, { gameId: String((ctx as any).gameId || ''), ctx });
         changed = true;
       }
     }
@@ -289,7 +291,7 @@ function runSBAUnbatched(ctx: GameContext) {
     }
     for (const playerId of outcome.applied) {
       debug(1, `[runSBA] Player ${playerId} has lost the game (empty library draw)`);
-      removeLeavingPlayerGameObjects(state, playerId, { gameId: String((ctx as any).gameId || '') });
+      removeLeavingPlayerGameObjects(state, playerId, { gameId: String((ctx as any).gameId || ''), ctx });
       changed = true;
     }
   }

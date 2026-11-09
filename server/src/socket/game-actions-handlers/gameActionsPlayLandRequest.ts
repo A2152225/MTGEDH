@@ -418,7 +418,7 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     return true;
   };
 
-  const selectedFaceIndex = selectedFace as number | undefined;
+  let selectedFaceIndex = selectedFace as number | undefined;
 
   try {
     const game = ensureGame(gameId);
@@ -548,9 +548,10 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
       const face1IsLand = /\bland\b/i.test(face1?.type_line || '');
 
       if (face0IsLand && !face1IsLand) {
-        (cardInZone as any).selectedMDFCFace = 0;
+        // Only one land face: play it with that face's characteristics (applied below).
+        selectedFaceIndex = 0;
       } else if (!face0IsLand && face1IsLand) {
-        (cardInZone as any).selectedMDFCFace = 1;
+        selectedFaceIndex = 1;
       } else if (face0IsLand && face1IsLand) {
         const existing = ResolutionQueueManager
           .getStepsForPlayer(gameId, playerId as any)

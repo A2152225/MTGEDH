@@ -58,7 +58,11 @@ export function resolveLandCardFaceForBattlefieldEntry(card: any): any {
   }
 
   if (layout === 'modal_dfc' && cardFaces.length >= 1) {
-    const selectedIndex = typeof card.selectedMDFCFace === 'number' ? card.selectedMDFCFace : undefined;
+    // A stale face index (e.g. the creature face it last had on the battlefield) is ignored.
+    const selectedIndex = typeof card.selectedMDFCFace === 'number'
+      && /\bland\b/i.test(String(cardFaces[card.selectedMDFCFace]?.type_line || ''))
+      ? card.selectedMDFCFace
+      : undefined;
     const landFaceIndex = selectedIndex ?? cardFaces.findIndex((face: any) =>
       /\bland\b/i.test(String(face?.type_line || '')),
     );

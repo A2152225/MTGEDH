@@ -117,7 +117,7 @@ export function getSagaLoreCounterTriggers(ctx: GameContext, activePlayerId: str
  * Parse saga chapter abilities from oracle text.
  * Format: "I — effect", "II, III — effect", "I, II — effect", etc.
  */
-function parseSagaChapters(oracleText: string): { chapter: number; effect: string }[] {
+export function parseSagaChapters(oracleText: string): { chapter: number; effect: string }[] {
   const chapters: { chapter: number; effect: string }[] = [];
   if (!oracleText) return chapters;
   

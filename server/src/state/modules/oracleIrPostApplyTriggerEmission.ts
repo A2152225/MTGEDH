@@ -30,6 +30,7 @@ import { emitNoncombatDamageEvent, queueNoncombatDealsDamageTriggers } from './t
 import { markPermanentDealtDamage } from './damageDealtFlag.js';
 import { detectCombatDamageTriggers } from './triggers/index.js';
 import { processMillTriggers } from './zones.js';
+import { queueDiesTriggersForOracleIrRemovals } from './oracleIrDiesTriggers.js';
 
 export type BattlefieldTriggerSnapshot = {
   readonly lifeByPlayer: ReadonlyMap<string, number>;
@@ -41,6 +42,7 @@ export type BattlefieldTriggerSnapshot = {
     card: any;
     isToken?: boolean;
     type_line?: string;
+    permanent?: any;
   }>;
   readonly handCardIdsByPlayer: ReadonlyMap<string, readonly string[]>;
   readonly graveyardCardIdsByPlayer: ReadonlyMap<string, ReadonlySet<string>>;
@@ -63,6 +65,7 @@ export function snapshotBattlefieldForTriggerEmission(state: any): BattlefieldTr
     card: any;
     isToken?: boolean;
     type_line?: string;
+    permanent?: any;
   }>();
   for (const perm of Array.isArray(state?.battlefield) ? state.battlefield : []) {
     const id = String(perm?.id || '').trim();
@@ -80,6 +83,7 @@ export function snapshotBattlefieldForTriggerEmission(state: any): BattlefieldTr
       card: perm?.card,
       isToken: perm?.isToken === true,
       type_line: String(perm?.card?.type_line || ''),
+      permanent: perm,
     });
   }
 
@@ -285,6 +289,19 @@ export function emitTriggersAfterOracleIRApply(
       }
     }
 
+    // Dies: permanents the IR moved battlefield -> graveyard (destroy, sacrifice, ...).
+    {
+      const graveyardIdsBefore = new Set<string>();
+      for (const ids of before.graveyardCardIdsByPlayer.values()) for (const id of ids) graveyardIdsBefore.add(id);
+      const removed: Array<{ permanent: any; graveyardIdsBefore: ReadonlySet<string> }> = [];
+      for (const [id, prev] of before.permanents) {
+        if (!prev.permanent || battlefield.some((p: any) => String(p?.id || '') === id)) continue;
+        removed.push({ permanent: prev.permanent, graveyardIdsBefore });
+      }
+      queueDiesTriggersForOracleIrRemovals(ctx, state, removed, {
+        tokenDeathKinds: kinds.has('destroy') || kinds.has('sacrifice'),
+      });
+    }
     // Mill — new graveyard cards that did not come from hand.
     if (kinds.has('mill')) {
       for (const player of Array.isArray(state?.players) ? state.players : []) {

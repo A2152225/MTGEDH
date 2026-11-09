@@ -117,7 +117,7 @@ export async function removeAIOpponentFromExistingGame(
     debugWarn(1, "[AI] Failed to clear resolution steps for removed AI:", err);
   }
   try {
-    removeLeavingPlayerGameObjects(game.state, aiPlayerId, { gameId });
+    removeLeavingPlayerGameObjects(game.state, aiPlayerId, { gameId, ctx: game });
   } catch (err) {
     debugWarn(1, "[AI] Failed to clean objects for removed AI:", err);
   }

@@ -382,7 +382,7 @@ export async function handleNextTurnRequest(
       const departureMode = String((concededPlayer as any).departureMode || "concede").toLowerCase();
       const lossReason = departureMode === "leave" ? "Left the game" : "Conceded";
 
-      const removedIds = removeLeavingPlayerGameObjects(game.state, newTurnPlayer, { gameId });
+      const removedIds = removeLeavingPlayerGameObjects(game.state, newTurnPlayer, { gameId, ctx: game });
       if (removedIds.length > 0) {
         debug(2, `[nextTurn] Removed ${removedIds.length} permanents from conceded player ${concededPlayerName}`);
       }

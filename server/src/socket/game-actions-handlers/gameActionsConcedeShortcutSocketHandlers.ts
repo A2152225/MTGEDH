@@ -67,7 +67,7 @@ export async function handleConcedeRequest(
     const immediateConcede = Boolean((game.state as any)?.houseRules?.immediateConcede);
 
     if (immediateConcede) {
-      removeLeavingPlayerGameObjects(game.state, playerId, { gameId });
+      removeLeavingPlayerGameObjects(game.state, playerId, { gameId, ctx: game });
 
       (player as any).hasLost = true;
       (player as any).eliminated = true;

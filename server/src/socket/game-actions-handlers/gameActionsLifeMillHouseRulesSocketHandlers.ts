@@ -247,7 +247,7 @@ export async function handleSetLifeRequest(
         targetPlayer.eliminated = true;
         targetPlayer.lossReason = "Life total is 0 or less";
         markPlayerOutOfPriority((game as any).ctx || game, targetPid);
-        removeLeavingPlayerGameObjects(game.state, targetPid, { gameId });
+        removeLeavingPlayerGameObjects(game.state, targetPid, { gameId, ctx: game });
       }
       
       // Emit elimination event

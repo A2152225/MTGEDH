@@ -184,7 +184,7 @@ export function maybeSacrificeSagaAfterChapterResolve(
   controller: PlayerID,
   triggerItem: any,
 ): void {
-  if (triggerItem?.sagaSacrificeAfterResolve !== true) {
+  if (triggerItem?.sagaSacrificeAfterResolve !== true && triggerItem?.effectData?.sagaSacrificeAfterResolve !== true) {
     return;
   }
 

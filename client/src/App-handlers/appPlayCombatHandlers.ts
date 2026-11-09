@@ -10,8 +10,8 @@ import { socket } from "../socket";
 import { canCreatureBlockNow, isCurrentlyCreature } from "../utils/creatureUtils";
 import { expandGroupedTokensForDisplay, tokenDisplayInstanceCount } from "../utils/expandGroupedTokens";
 import { debugError } from "../utils/debug";
-import { playerIsLegalAttackTarget } from "../../../rules-engine/src/playerInGameStatus";
 import { collectAttackYouTaxPreviewForDefender } from "../utils/combatAttackTax";
+import { buildAttackDefenders } from "../utils/attackDefenders";
 
 export function useAppPlayCombatHandlers(p: Record<string, any>) {
   const {
@@ -171,12 +171,13 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
       ? cardFaces[faceIndex]
       : undefined;
     const selectedFaceTypeLine = String((selectedFace as any)?.type_line ?? (selectedFace as any)?.typeLine ?? '');
-    if (sourceZone === 'library' && /\bland\b/i.test(selectedFaceTypeLine)) {
+    // A land face (e.g. the back of a modal DFC) is played as a land from any zone, never cast.
+    if (/\bland\b/i.test(selectedFaceTypeLine)) {
       playLandWithPromptSync({
         gameId: safeView.id,
         cardId: splitCardData.cardId,
         selectedFace: faceIndex,
-        fromZone: 'library',
+        ...(sourceZone !== 'hand' ? { fromZone: sourceZone } : {}),
       });
       return;
     }
@@ -395,7 +396,7 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
 
   const defenders = useMemo(() => {
     if (!safeView || !you) return [];
-    return (safeView.players || []).filter((p: any) => playerIsLegalAttackTarget(p, you));
+    return buildAttackDefenders(safeView.players, safeView.battlefield, String(you)) as any[];
   }, [safeView, you]);
 
   // Per-defender attack info: untapped creature count and attack tax per attacker.
@@ -464,7 +465,7 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
     if (!safeView) return [];
     const turnPlayer = safeView.turnPlayer;
     if (!turnPlayer) return [];
-    return (safeView.players || []).filter((p: any) => playerIsLegalAttackTarget(p, turnPlayer));
+    return buildAttackDefenders(safeView.players, safeView.battlefield, String(turnPlayer)) as any[];
   }, [safeView]);
 
   const combatControlEffect = useMemo(() => {
@@ -495,8 +496,12 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
         continue;
       }
 
-      // If targeting a planeswalker/battle permanent, map to its controller (defending player)
+      // A planeswalker/battle target is itself a selectable defender; otherwise fall back to its controller.
       const targetPerm = battlefield.find((p: any) => p?.id === target);
+      if (/\b(planeswalker|battle)\b/i.test(String(targetPerm?.card?.type_line || ''))) {
+        initialTargets[String(perm.id)] = target;
+        continue;
+      }
       if (targetPerm?.controller) {
         initialTargets[String(perm.id)] = String(targetPerm.controller);
       }

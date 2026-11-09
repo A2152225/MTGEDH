@@ -100,7 +100,7 @@ function loseForCrypt(ctx: GameContext, pid: string, src: B19DrawSource): GyResu
   player.lostReason = `Could not return a card from the graveyard (${src.sourceName})`;
   Reflect.set(player, 'lossReason', player.lostReason);
   markPlayerOutOfPriority(ctx, pid);
-  removeLeavingPlayerGameObjects(ctx.state, pid, { gameId: String(ctx.gameId || '') });
+  removeLeavingPlayerGameObjects(ctx.state, pid, { gameId: String(ctx.gameId || ''), ctx });
   return 'lost';
 }
 

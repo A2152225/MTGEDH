@@ -344,7 +344,7 @@ export function applyLobbySetupEvents(ctx: GameContext, e: GameEvent): boolean {
               }
             }
           } else {
-            removeLeavingPlayerGameObjects(ctx.state, playerId, { gameId: String((ctx as any).gameId || '') });
+            removeLeavingPlayerGameObjects(ctx.state, playerId, { gameId: String((ctx as any).gameId || ''), ctx });
           }
 
           const players = Array.isArray(stateAny.players) ? stateAny.players : [];

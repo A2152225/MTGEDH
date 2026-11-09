@@ -388,7 +388,7 @@ export function applyEmptyLibraryDrawConsequences(
     player.lossReason = player.lostReason;
     applied.push(playerId);
     markPlayerOutOfPriority(ctx as any, playerId);
-    removeLeavingPlayerGameObjects(state, playerId, { gameId: String((ctx as any).gameId || '') });
+    removeLeavingPlayerGameObjects(state, playerId, { gameId: String((ctx as any).gameId || ''), ctx });
   }
 
   return { applied, wins, ignored };

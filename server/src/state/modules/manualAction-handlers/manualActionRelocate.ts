@@ -6,6 +6,7 @@ import type { GameContext } from '../../context.js';
 import type { ManualActionPayload, ManualZone } from '../../../../../shared/src/manualAction.js';
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 import { uid } from '../../utils.js';
+import { applyDoubleFacedEntryFace, restoreDoubleFacedCombinedCharacteristics } from '../doubleFacedEntryFace.js';
 import {
   pickMutablePlayerLibrary,
   writePlayerLibrary,
@@ -56,7 +57,9 @@ export function placeCardInZone(
   const faceDown = options.faceDown === true;
   const controllerId = String(options.controllerId || payload.controllerId || ownerId || payload.actorId || '').trim();
 
+  if (toZone !== 'battlefield') card = restoreDoubleFacedCombinedCharacteristics(card);
   if (toZone === 'battlefield') {
+    if (!faceDown) card = applyDoubleFacedEntryFace(card);
     if (isTokenObject(card) && !card?.type_line && !card?.card) {
       // already a token card object
     }

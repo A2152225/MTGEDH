@@ -8,6 +8,7 @@ import { playerHasLeftTheGame } from '../../../../rules-engine/src/playerInGameS
 import { ResolutionQueueManager } from '../resolution/index.js';
 import { syncPreparedPermanentAfterControlChange } from './prepared.js';
 import { removeControlEffects, syncControlFromRegistry } from './continuousEffectRegistry.js';
+import { processLTBTriggers } from './triggerEmissionFamilyUtils.js';
 
 function playerStillInGame(state: any, playerId: string): boolean {
   const id = String(playerId || '').trim();
@@ -177,7 +178,7 @@ function pushCardToOwnerExile(state: any, permanent: any, fallbackOwnerId: strin
 export function removeLeavingPlayerGameObjects(
   state: any,
   playerId: string,
-  options?: { gameId?: string },
+  options?: { gameId?: string; ctx?: any },
 ): string[] {
   const id = String(playerId || '').trim();
   if (!id || !state) return [];
@@ -231,6 +232,17 @@ export function removeLeavingPlayerGameObjects(
     }
   }
 
+  // CR 603.6c / 800.4a: the leaving player's permanents leave the battlefield, so other players'
+  // leaves-the-battlefield abilities trigger. The leaving player's own abilities cease to exist and
+  // are filtered from the stack just below.
+  const ltbCtx = options?.ctx && options.ctx.state === state ? options.ctx : null;
+  if (ltbCtx && !ltbCtx.isReplaying) {
+    const leftPermanents = battlefield.filter((p: any) => p && removedIdSet.has(String(p.id || '').trim()));
+    const ltbDetectCache = new Map<string, any[]>();
+    for (const leftPermanent of leftPermanents) {
+      try { processLTBTriggers(ltbCtx, leftPermanent, { cause: 'player_left_game', ltbDetectCache }); } catch { /* best-effort */ }
+    }
+  }
   if (Array.isArray(state.stack)) {
     state.stack = state.stack.filter((item: any) => {
       const controller = String(item?.controller || item?.controllerId || '').trim();

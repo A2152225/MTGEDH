@@ -53,7 +53,7 @@ export function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
         defeatedPlayers.push(player.id);
         debug(1, `${ts()} [syncLifeAndCheckDefeat] Player ${player.id} has lost the game (life: ${player.life})`);
         markPlayerOutOfPriority(ctx as any, player.id);
-        removeLeavingPlayerGameObjects(state, player.id, { gameId: String((ctx as any).gameId || '') });
+        removeLeavingPlayerGameObjects(state, player.id, { gameId: String((ctx as any).gameId || ''), ctx });
       }
 
       const poisonTotal = Math.max(
@@ -69,7 +69,7 @@ export function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
         defeatedPlayers.push(player.id);
         debug(1, `${ts()} [syncLifeAndCheckDefeat] Player ${player.id} has lost the game (poison: ${poisonTotal})`);
         markPlayerOutOfPriority(ctx as any, player.id);
-        removeLeavingPlayerGameObjects(state, player.id, { gameId: String((ctx as any).gameId || '') });
+        removeLeavingPlayerGameObjects(state, player.id, { gameId: String((ctx as any).gameId || ''), ctx });
       }
     }
     
@@ -127,7 +127,7 @@ export function trackCommanderDamage(
       defeatedPlayer.hasLost = true;
       defeatedPlayer.lossReason = `21 or more combat damage from ${attackerCard.name || 'a commander'}`;
       markPlayerOutOfPriority(ctx as any, defendingPlayerId);
-      removeLeavingPlayerGameObjects((ctx as any).state, defendingPlayerId, { gameId: String((ctx as any).gameId || '') });
+      removeLeavingPlayerGameObjects((ctx as any).state, defendingPlayerId, { gameId: String((ctx as any).gameId || ''), ctx });
       debug(1, `${ts()} [dealCombatDamage] Player ${defendingPlayerId} marked as inactive (commander damage)`);
     }
   }
