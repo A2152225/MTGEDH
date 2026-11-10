@@ -34,7 +34,14 @@ export function calculateDevotionCDA(
   printedToughness: unknown,
 ): { power: number; toughness: number } | undefined {
   const text = String(oracleText || '').toLowerCase();
-  const m = text.match(/power (and toughness are each|is) equal to your devotion to (white|blue|black|red|green)(?: and (white|blue|black|red|green))?/);
+  let m = text.match(/power (and toughness are each|is) equal to your devotion to (white|blue|black|red|green)(?: and (white|blue|black|red|green))?/);
+  // B83: Primalcrux chroma — "number of green mana symbols in the mana costs of permanents you control"
+  if (!m) {
+    const chroma = text.match(
+      /power and toughness are each equal to the number of (white|blue|black|red|green) mana symbols in the mana costs of permanents you control/,
+    );
+    if (chroma) m = ['', 'and toughness are each', chroma[1], undefined] as RegExpMatchArray;
+  }
   if (!m) return undefined;
   const n = countDevotionAmongPermanents(battlefield, String(controllerId ?? ''), [m[2], m[3]].filter(Boolean).map((c) => DEVOTION_COLOR[c]));
   if (m[1] !== 'is') return { power: n, toughness: n };
@@ -96,6 +103,27 @@ export function calculateGraveyardCardTypesCDA(
   controllerId: unknown,
 ): { power: number; toughness: number } | undefined {
   const text = String(oracleText || '').toLowerCase().replace(/\u2019/g, "'");
+  // B83: Cosmogoyf — cards you own in exile (same split-power / toughness+N shape as Lhurgoyf).
+  {
+    const exile = text.match(
+      /power is equal to the number of cards you own in exile and its toughness is equal to that number(?: plus (\d+))?/,
+    );
+    if (exile) {
+      const zones = gameState?.zones || {};
+      const me = String(controllerId ?? '');
+      const cards: any[] = Array.isArray(zones[me]?.exile) ? zones[me].exile : [];
+      // Also count face-up exile entries owned by you that live under other zone keys.
+      for (const id of Object.keys(zones)) {
+        if (id === me) continue;
+        for (const c of (Array.isArray(zones[id]?.exile) ? zones[id].exile : [])) {
+          if (String(c?.owner || c?.card?.owner || '') === me) cards.push(c);
+        }
+      }
+      const n = cards.length;
+      const offset = Number(exile[1] || 0);
+      return { power: n, toughness: n + offset };
+    }
+  }
   const split = text.match(GY_SPLIT);
   const each = split ? null : text.match(GY_EACH);
   const m = split || each;
@@ -115,6 +143,96 @@ export function calculateGraveyardCardTypesCDA(
   }
   const offset = Number(plus || 0);
   return split ? { power: n, toughness: n + offset } : { power: n + offset, toughness: n + offset };
+}
+
+/** B84: Living Lore — P/T each equal to the exiled card's mana value. */
+export function calculateExiledCardManaValueCDA(
+  card: any,
+  oracleText: string,
+  permanent: any,
+  gameState: any,
+): { power: number; toughness: number } | undefined {
+  const text = String(oracleText || '').toLowerCase().replace(/\u2019/g, "'");
+  if (!/power and toughness are each equal to the exiled card'?s mana value/.test(text)) return undefined;
+  if (!String(card?.power ?? '').includes('*') || !String(card?.toughness ?? '').includes('*')) return undefined;
+  const pool: any[] = [...(Array.isArray(permanent?.exiledCards) ? permanent.exiledCards : [])];
+  const selfId = String(permanent?.id || '');
+  for (const zone of Object.values<any>(gameState?.zones || {})) {
+    if (!Array.isArray(zone?.exile)) continue;
+    for (const c of zone.exile) {
+      const linked = String(c?.exiledWithSourceId || c?.card?.exiledWithSourceId || c?.exiledWith || '');
+      if (selfId && linked === selfId) pool.push(c);
+    }
+  }
+  const first = pool[0];
+  if (!first) return { power: 0, toughness: 0 };
+  const mv = Number(first?.cmc ?? first?.mana_value ?? first?.card?.cmc ?? first?.card?.mana_value);
+  if (Number.isFinite(mv)) return { power: mv, toughness: mv };
+  let total = 0;
+  for (const sym of String(first?.mana_cost || first?.card?.mana_cost || '').match(/\{[^}]+\}/g) || []) {
+    const s = sym.slice(1, -1).toUpperCase();
+    if (/^\d+$/.test(s)) total += parseInt(s, 10);
+    else if (s !== 'X') total += 1;
+  }
+  return { power: total, toughness: total };
+}
+
+/** B84: Lost Order of Jarkeld — N plus creatures the chosen player controls. */
+export function calculateChosenPlayerCreaturesCDA(
+  card: any,
+  oracleText: string,
+  permanent: any,
+  battlefield: readonly any[],
+): { power: number; toughness: number } | undefined {
+  const text = String(oracleText || '').toLowerCase().replace(/\u2019/g, "'");
+  const m = text.match(
+    /power and toughness are each equal to (\d+) plus the number of creatures the chosen player controls/,
+  );
+  if (!m) return undefined;
+  if (!String(card?.power ?? '').includes('*') || !String(card?.toughness ?? '').includes('*')) return undefined;
+  const base = Number(m[1]);
+  const chosen = String(
+    permanent?.chosenPlayer || permanent?.chosenPlayerId || permanent?.card?.chosenPlayer || '',
+  );
+  if (!Number.isFinite(base)) return undefined;
+  if (!chosen) return { power: base, toughness: base };
+  const n = (battlefield || []).filter((p) =>
+    String(p?.controller || '') === chosen && /\bcreature\b/i.test(String(p?.card?.type_line || '')),
+  ).length;
+  return { power: base + n, toughness: base + n };
+}
+
+/** B84: Angry Mob — during your turn = N + opponents' Swamps; otherwise printed base. */
+export function calculateAngryMobStyleCDA(
+  card: any,
+  oracleText: string,
+  permanent: any,
+  battlefield: readonly any[],
+  gameState: any,
+): { power: number; toughness: number } | undefined {
+  const text = String(oracleText || '').toLowerCase().replace(/\u2019/g, "'");
+  const m = text.match(
+    /during your turn,? (?:~|this creature|[a-z' ,.-]+?)'?s? power and toughness are each equal to (\d+) plus the number of (plains|islands|swamps|mountains|forests) your opponents control/,
+  );
+  if (!m) return undefined;
+  if (!/\*/.test(String(card?.power ?? '') + String(card?.toughness ?? ''))) return undefined;
+  const base = Number(m[1]);
+  const raw = String(m[2] || 'swamps').toLowerCase();
+  const sub = raw === 'plains' ? 'plains' : raw.slice(0, -1);
+  const controller = String(permanent?.controller || card?.controller || '');
+  const turnPlayer = String(gameState?.turnPlayer || '');
+  const offTurn = text.match(
+    /during turns other than yours,? (?:~|this creature|[a-z' ,.-]+?)'?s? power and toughness are each (\d+)/,
+  );
+  if (turnPlayer && controller && turnPlayer !== controller) {
+    const flat = Number(offTurn?.[1] ?? base);
+    return Number.isFinite(flat) ? { power: flat, toughness: flat } : undefined;
+  }
+  const n = (battlefield || []).filter((p) =>
+    String(p?.controller || '') !== controller
+    && new RegExp('\\b' + sub + '\\b').test(String(p?.card?.type_line || '').toLowerCase()),
+  ).length;
+  return { power: base + n, toughness: base + n };
 }
 
 export function calculateControlledCountCDA(

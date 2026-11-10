@@ -112,6 +112,8 @@ export interface StaticEffectGrant {
   countColor?: string;
   /** source_counters: count counters on the Aura/Equipment (effectSourcePermanentId), e.g. Sigil of Distinction. */
   countOnEffectSource?: boolean;
+  /** B79: "for every N cards…" — floor-divide the countBasis result by this (Dark Matter Manipulator). */
+  countDivisor?: number;
   /** attachments_on_source: attachment subtypes counted on the source (aura, equipment). */
   countAttachmentKinds?: readonly string[];
   /** controller_permanents_of_type: extra filter on counted permanents ("for each legendary creature you control"). */
@@ -215,7 +217,22 @@ export type StaticEffectCountBasis =
   /** B75: Coram — greatest power among creature cards in all graveyards. */
   | 'greatest_power_among_creature_cards_in_all_graveyards'
   /** B77: Omnath — for each unspent mana you have. */
-  | 'controller_unspent_mana';
+  | 'controller_unspent_mana'
+  /** B81: Faeburrow Elder — for each color among permanents you control. */
+  | 'controller_colors_among_permanents'
+  /** B81: Gleam of Authority — for each +1/+1 counter on other creatures you control. */
+  | 'counters_on_other_creatures_you_control'
+  /** B82: Death's Approach — creature cards in the host controller's graveyard. */
+  | 'host_controller_graveyard_cards_of_type'
+  /** B82: Sword of the Squeak — creatures you control with base power or toughness N. */
+  | 'controller_creatures_with_base_power_or_toughness'
+  /** B83: Emissary Escort — greatest mana value among [other] artifacts you control. */
+  | 'greatest_mana_value_among_controller_permanents'
+  /** B83: Knowledge Is Power — cards you've drawn this turn. */
+  | 'controller_cards_drawn_this_turn'
+  /** B84: Aspect of Wolf — half Forests rounded down / up. */
+  | 'controller_lands_of_subtype_half_down'
+  | 'controller_lands_of_subtype_half_up';
 
 export type StaticEffectLayer = 4 | 5 | 6 | 7;
 export type StaticEffectSublayer = '7a' | '7b' | '7c' | '7d';
@@ -237,6 +254,8 @@ export type StaticEffectConditionKind =
   | 'source_in_graveyard_and_control_land_type'
   | 'target_is_tapped'
   | 'target_is_untapped'
+  /** B78: Mirri — as long as this creature is tapped. */
+  | 'source_is_tapped'
   | 'target_is_attacking'
   | 'target_is_ring_bearer'
   | 'source_controller_has_threshold'
@@ -418,7 +437,31 @@ export type StaticEffectConditionKind =
   /** B76: Tenacious Hunter — a creature has a given counter. */
   | 'battlefield_has_creature_with_counter'
   /** B77: Tom Bombadil — N+ lore counters among Sagas you control. */
-  | 'source_controller_saga_lore_counters_at_least';
+  | 'source_controller_saga_lore_counters_at_least'
+  /** B78: Leapfrog — cast an instant or sorcery this turn. */
+  | 'controller_instant_or_sorcery_cast_this_turn'
+  /** B78: Swimmer — any single graveyard has N+ cards. */
+  | 'any_graveyard_at_least'
+  /** B78: Arcus — recipient lacks a counter of a type. */
+  | 'target_lacks_counter'
+  /** B79: The Space Family Goblinson — rolled N+ dice this turn. */
+  | 'source_controller_dice_rolled_at_least'
+  /** B79: Kumena's Speaker — another Merfolk or an Island (creature type OR land type). */
+  | 'source_controller_controls_creature_or_land_type_any'
+  /** B80: Warden of the Beyond — an opponent owns a card in exile. */
+  | 'opponent_owns_card_in_exile'
+  /** B81: Guul Draz Specter — an opponent has ≤N cards in hand. */
+  | 'opponent_hand_at_most'
+  /** B81: Secretkeeper — more cards in hand than each opponent. */
+  | 'controller_hand_larger_than_each_opponent'
+  /** B81: Formation Breaker — you control a creature with any counter. */
+  | 'source_controller_controls_creature_with_any_counter'
+  /** B81: Curse of Death's Hold — recipient's controller is the enchanted player. */
+  | 'target_controller_is_enchanted_player'
+  /** B82: Phoenix Fleet — you control N or more permanents named X. */
+  | 'controller_controls_named_at_least'
+  /** B83: Lovestruck Beast — you control a printed N/M creature. */
+  | 'source_controller_controls_creature_with_base_pt';
 
 export interface StaticEffectCondition {
   kind: StaticEffectConditionKind;
@@ -434,10 +477,14 @@ export interface StaticEffectCondition {
   keywords?: readonly string[];
   /** Printed/effective power cap for target_power_at_most. */
   power?: number;
+  /** B83: source_controller_controls_creature_with_base_pt printed toughness. */
+  toughness?: number;
   /** Creature type for target_has_creature_type (Inkling). */
   creatureType?: string;
   /** B76: source_controller_controls_creature_type_any — any of these creature types. */
   creatureTypes?: readonly string[];
+  /** B79: source_controller_controls_creature_or_land_type_any — land subtypes (Island). */
+  landTypes?: readonly string[];
   /** Card type for target_has_type (artifact / enchantment / land). */
   cardType?: string;
   /** source_controller_controls_matching: how many, and whether the source is excluded. */

@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as realSetTimeout, clearTimeout as realClearTimeout } from 'node:timers';
 import { expect, vi } from 'vitest';
 import { createGameIfNotExists, deleteGame } from '../../src/db/index.js';
 import { ensureGame, broadcastGame } from '../../src/socket/util.js';
@@ -443,6 +444,20 @@ export async function cleanupLiveGame(prepared: PreparedLiveGame): Promise<void>
   seedAIRandom(null);
 }
 
+async function withWallClockTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof realSetTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = realSetTimeout(() => reject(new Error(`wall-clock timeout after ${ms}ms (${label})`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) realClearTimeout(timer);
+  }
+}
+
 export async function advanceLiveGame(
   game: any,
   options: {
@@ -451,6 +466,12 @@ export async function advanceLiveGame(
     maxTurns: number;
     maxStagnantTicks: number;
     maxNoTurnAdvanceMs?: number;
+    /** Real wall-clock budget for the whole advance loop (not faked). */
+    maxWallClockMs?: number;
+    /** Real wall-clock budget for a single timer tick (catches hung AI promises). */
+    maxTickWallClockMs?: number;
+    /** Minimum real elapsed ms before stagnantTicks can end the game (fake-timer safe). */
+    minStagnantWallMs?: number;
     stopWhen?: (game: any) => boolean;
     label?: string;
     /** When true, turn-limit / stall become soft outcomes instead of throws. */
@@ -461,15 +482,17 @@ export async function advanceLiveGame(
   let stagnantTicks = 0;
   let lastLoggedTurn = Number((game.state as any).turnNumber || 0);
   let lastTurnAdvanceElapsedMs = 0;
+  let lastTurnAdvanceWallMs = 0;
   const startedAt = process.hrtime.bigint();
   let endReason: 'win' | 'turn-limit' | 'stall' | 'loop-exhausted' = 'loop-exhausted';
 
+  const wallMs = () => Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+
   const maybeLogProgress = (reason: string) => {
     if (!LIVE_PRECON_PROGRESS_LOG) return;
-    const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
     const snapshot = stateSnapshot(game);
     console.log(
-      `[live-harness:${options.label || 'run'}] ${reason} | realMs=${Math.round(elapsedMs)} | turn=${snapshot.turnNumber} | seq=${snapshot.seq} | phase=${snapshot.phase} | step=${snapshot.step} | stack=${snapshot.stackSize} | active=${snapshot.activePlayers.map((player: any) => `${player.id}:${player.life}`).join(',')}`,
+      `[live-harness:${options.label || 'run'}] ${reason} | realMs=${Math.round(wallMs())} | turn=${snapshot.turnNumber} | seq=${snapshot.seq} | phase=${snapshot.phase} | step=${snapshot.step} | stack=${snapshot.stackSize} | active=${snapshot.activePlayers.map((player: any) => `${player.id}:${player.life}`).join(',')}`,
     );
   };
 
@@ -481,7 +504,26 @@ export async function advanceLiveGame(
       break;
     }
 
-    await vi.advanceTimersByTimeAsync(options.tickMs);
+    if (options.maxWallClockMs && wallMs() >= options.maxWallClockMs) {
+      maybeLogProgress('wall-clock-exceeded');
+      endReason = 'stall';
+      if (options.softStop) break;
+      throw new Error(`Game exceeded wall-clock budget ${options.maxWallClockMs}ms`);
+    }
+
+    try {
+      const tickAdvance = vi.advanceTimersByTimeAsync(options.tickMs);
+      if (options.maxTickWallClockMs && options.maxTickWallClockMs > 0) {
+        await withWallClockTimeout(tickAdvance, options.maxTickWallClockMs, `tick=${tick}`);
+      } else {
+        await tickAdvance;
+      }
+    } catch (err) {
+      maybeLogProgress(`tick-timeout:${String(err).slice(0, 80)}`);
+      endReason = 'stall';
+      if (options.softStop) break;
+      throw err;
+    }
 
     const simulatedElapsedMs = (tick + 1) * options.tickMs;
     const currentSeq = Number(game.seq || 0);
@@ -497,6 +539,7 @@ export async function advanceLiveGame(
     if (currentTurn > lastLoggedTurn) {
       lastLoggedTurn = currentTurn;
       lastTurnAdvanceElapsedMs = simulatedElapsedMs;
+      lastTurnAdvanceWallMs = wallMs();
       maybeLogProgress(`advanced-turn-${currentTurn}`);
     } else if (LIVE_PRECON_PROGRESS_LOG && tick > 0 && tick % 100 === 0) {
       maybeLogProgress(`heartbeat-${tick}`);
@@ -515,23 +558,29 @@ export async function advanceLiveGame(
       throw new Error(`Game exceeded ${options.maxTurns} turns without reaching the target: ${JSON.stringify(stateSnapshot(game))}`);
     }
 
-    if (stagnantTicks >= options.maxStagnantTicks) {
+    // With fake timers, ticks can race in <1ms of wall time. Require some real
+    // elapsed time before treating "no seq change" as a stall, or pregame/mulligan
+    // false-stalls at turn 0–1 in a few hundred ms.
+    const minStagnantWallMs = options.minStagnantWallMs ?? 5_000;
+    if (stagnantTicks >= options.maxStagnantTicks && wallMs() >= minStagnantWallMs) {
       maybeLogProgress('stalled');
       endReason = 'stall';
       if (options.softStop) break;
       throw new Error(`Game stalled without state changes: ${JSON.stringify(stateSnapshot(game))}`);
     }
 
+    // Use wall clock, not simulated ms: under fake timers simulated time races ahead
+    // while wall time stays small, which false-stalled many games at turn 1.
     if (
       options.maxNoTurnAdvanceMs
       && currentTurn > 0
-      && simulatedElapsedMs - lastTurnAdvanceElapsedMs >= options.maxNoTurnAdvanceMs
+      && wallMs() - lastTurnAdvanceWallMs >= options.maxNoTurnAdvanceMs
     ) {
       maybeLogProgress('turn-stalled');
       endReason = 'stall';
       if (options.softStop) break;
       throw new Error(
-        `Game stalled without advancing turns for ${options.maxNoTurnAdvanceMs}ms: ${JSON.stringify(stateSnapshot(game))}`,
+        `Game stalled without advancing turns for ${options.maxNoTurnAdvanceMs}ms wall-clock: ${JSON.stringify(stateSnapshot(game))}`,
       );
     }
   }

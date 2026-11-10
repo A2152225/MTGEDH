@@ -18,7 +18,7 @@ export const ABILITY_WORDS = [
   'riot', 'exalted', 'skulk', 'intimidate', 'myriad',
   'wither', 'infect', 'fear', 'horsemanship', 'prowess', 'training',
   'evolve', 'dethrone', 'unleash', 'melee', 'exploit', 'extort',
-  'flash', 'defender', 'shadow', 'flanking', 'persist', 'undying',
+  'flash', 'defender', 'shadow', 'flanking', 'banding', 'persist', 'undying',
   'battle cry', 'mentor',
 ];
 

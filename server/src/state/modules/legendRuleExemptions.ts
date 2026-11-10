@@ -5,6 +5,12 @@
 // Public entry symbol: isLegendRuleExempt.
 
 const LINE_RE = /the ["\u201c\u201d]legend rule["\u201c\u201d] doesn't apply(?: to ([^.\n]+?))?(?:\.|$)/gim;
+// B78: Brothers Yamazaki — "If there are exactly two permanents named ~ on the battlefield, the legend rule doesn't apply to them."
+const EXACT_NAMED_RE =
+  /if there are exactly (\d+|one|two|three|four|five|six|seven|eight|nine|ten) permanents? named ([^.]+?) on the battlefield, the ["\u201c\u201d]?legend rule["\u201c\u201d]? doesn't apply to them/gim;
+const COUNT_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+};
 
 function oracleText(perm: any): string {
   const card = perm?.card || {};
@@ -54,6 +60,20 @@ export function isLegendRuleExempt(perm: any, battlefield: readonly any[] | unde
     while ((m = LINE_RE.exec(text))) {
       if (!m[1]) return true; // Mirror Gallery: doesn't apply at all.
       if (groupCovers(m[1], perm, src)) return true;
+    }
+    // B78: exactly-N named permanents (Brothers Yamazaki).
+    EXACT_NAMED_RE.lastIndex = 0;
+    while ((m = EXACT_NAMED_RE.exec(text))) {
+      const raw = String(m[1] || '').toLowerCase();
+      const need = /^\d+$/.test(raw) ? Number(raw) : COUNT_WORDS[raw];
+      const wanted = String(m[2] || '').trim().toLowerCase().replace(/\u2019/g, "'");
+      if (!Number.isFinite(need) || !wanted) continue;
+      const named = list.filter((p) => p && !p.phasedOut
+        && String(p.card?.name || p.name || '').trim().toLowerCase() === wanted);
+      if (named.length === need
+        && named.some((p) => String(p.id || '') === String(perm?.id || ''))) {
+        return true;
+      }
     }
   }
   return false;

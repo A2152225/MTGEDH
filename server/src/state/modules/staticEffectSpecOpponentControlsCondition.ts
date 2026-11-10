@@ -19,7 +19,7 @@ function permanentColors(perm: any): string[] {
 }
 
 export function opponentControlsMatching(
-  condition: { color?: string; cardType?: string },
+  condition: { color?: string; cardType?: string; nontoken?: boolean },
   sourceController: string,
   battlefield: readonly BattlefieldPermanent[],
   state?: unknown,
@@ -30,6 +30,7 @@ export function opponentControlsMatching(
   const cardType = String(condition.cardType || '').trim().toLowerCase();
   return battlefield.some((perm: any) => {
     if (!perm || String(perm.controller || '') === controller) return false;
+    if (condition.nontoken && (perm.isToken === true || perm.card?.isToken === true)) return false;
     if (cardType && cardType !== 'permanent') {
       const typeLine = landAwareTypeLine(state, perm, String(perm.typeSetOverride?.typeLine || perm.card?.type_line || ''));
       if (!typeLine.includes(cardType)) return false;

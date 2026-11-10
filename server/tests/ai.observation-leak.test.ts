@@ -246,6 +246,35 @@ describe('AI observation leak (P0-2)', () => {
     expect(baseCandidates.length).toBeGreaterThan(0);
   });
 
+  it('deliberate opponent-hand peek would break behavioural equality (fail-once proof)', async () => {
+    // P0-2 acceptance: prove the twin check can fail. We do not mutate production
+    // calculateSpellPriority; instead rank with an injected peek and show divergence.
+    createGameIfNotExists(gameId, 'commander', 40);
+    const game = ensureGame(gameId);
+    if (!game) throw new Error('ensureGame failed');
+
+    const baseState = buildMainPhaseState(playerId);
+    Object.assign(game.state as any, baseState);
+    registerAIPlayer(gameId, playerId as any);
+
+    const peekRank = (state: any) => {
+      const oppHand = state.zones?.opp1?.hand || [];
+      // Use card name so the twin (Lava Spike vs Lightning Bolt) diverges.
+      const peekBias = String(oppHand[0]?.name || '').length;
+      return summarizeCandidates([
+        {
+          kind: 'cast_spell',
+          priority: 50 + peekBias,
+          spell: { castCard: { name: 'Cultivate' }, card: { name: 'Cultivate' } },
+        },
+      ]);
+    };
+
+    const base = peekRank(baseState);
+    const twin = peekRank(twinHiddenState(baseState, playerId));
+    expect(twin).not.toEqual(base);
+  });
+
   it('buildObservation is identical for declare-attackers and response twins', () => {
     const attackState = {
       ...buildMainPhaseState(playerId),

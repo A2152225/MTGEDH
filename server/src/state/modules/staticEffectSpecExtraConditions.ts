@@ -20,6 +20,9 @@ export function parseExtraSelfCondition(raw: string): StaticEffectCondition | nu
   const c = String(raw || '').toLowerCase().replace(/\u2019/g, "'").trim().replace(/[.,]+$/, '');
   let m = c.match(/^(white|blue|black|red|green) is the most common color among all permanents(?: or is tied for most common)?$/);
   if (m) return { kind: 'color_most_common_among_permanents', color: m[1] } as StaticEffectCondition;
+  // B81: Ivory Guardians — nontoken colored permanent.
+  m = c.match(/^an opponent controls an? nontoken (?:(white|blue|black|red|green) )?([a-z]+)$/);
+  if (m) return { kind: 'opponent_controls_matching', ...(m[1] ? { color: m[1] } : {}), cardType: m[2], nontoken: true } as StaticEffectCondition;
   m = c.match(/^an opponent controls an? (?:(white|blue|black|red|green) )?([a-z]+)$/);
   if (m) return { kind: 'opponent_controls_matching', ...(m[1] ? { color: m[1] } : {}), cardType: m[2] } as StaticEffectCondition;
   // B72: Glacial Crasher — "there is a Mountain on the battlefield"

@@ -38,6 +38,16 @@ function isDefendingAgainst(perm: any, pid: string, battlefield: any[]): boolean
   return !!attacked && String(attacked.controller || '') === pid;
 }
 
+function spellManaValue(spell: any): number {
+  const raw = spell?.cmc ?? spell?.mana_value ?? spell?.manaValue ?? spell?.card?.cmc ?? spell?.card?.mana_value ?? spell?.card?.manaValue;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function isCreatureSpell(spell: any): boolean {
+  return /\bcreature\b/i.test(String(spell?.type_line ?? spell?.card?.type_line ?? ''));
+}
+
 export function castRestrictionTailViolation(state: any, playerId: string, spell: any, castingZone?: string): string | null {
   const pid = String(playerId || '');
   if (!pid || !state) return null;
@@ -52,6 +62,8 @@ export function castRestrictionTailViolation(state: any, playerId: string, spell
     if (!any) return 'You can\'t cast this spell unless an opponent lost life this turn.';
   }
   const name = spellName(spell).toLowerCase();
+  const turnPlayer = String(state?.turnPlayer ?? state?.activePlayer ?? '');
+  const zone = String(castingZone || 'hand').toLowerCase();
   for (const perm of battlefield) {
     if (!perm || perm.phasedOut) continue;
     const oracle = oracleOf(perm);
@@ -71,9 +83,47 @@ export function castRestrictionTailViolation(state: any, playerId: string, spell
       && isDefendingAgainst(perm, pid, battlefield)) {
       return src + ' prevents the defending player from casting spells.';
     }
-    if (!isOpponent && String(castingZone || 'hand') === 'hand'
+    if (!isOpponent && zone === 'hand'
       && /you can't play lands or cast spells from your hand|you can't cast spells from your hand/.test(oracle)) {
       return src + ' prevents casting spells from your hand.';
+    }
+    // B82: Dosan — players can cast spells only during their own turns
+    if (/players can cast spells only during their own turns/.test(oracle) && turnPlayer && turnPlayer !== pid) {
+      return src + ' allows casting spells only during your own turn.';
+    }
+    // B82: Void Winnower — opponents can't cast even-MV spells
+    if (isOpponent && /your opponents can(?:not|'t) cast spells with even mana values/.test(oracle)) {
+      const mv = spellManaValue(spell);
+      if (Number.isFinite(mv) && mv % 2 === 0) {
+        return src + ' prevents opponents from casting spells with even mana values.';
+      }
+    }
+    // B82: Soulless Jailer — no noncreature casts from graveyard/exile
+    if (/players can(?:not|'t) cast noncreature spells from graveyards or exile/.test(oracle)
+      && (zone === 'graveyard' || zone === 'exile')
+      && !isCreatureSpell(spell)) {
+      return src + ' prevents casting noncreature spells from graveyards or exile.';
+    }
+    // B84: Sanctum Prelate — noncreature spells with MV equal to the chosen number
+    if (/noncreature spells with mana value equal to the chosen number can(?:not|'t) be cast/.test(oracle)
+      && !isCreatureSpell(spell)) {
+      const chosen = Number((perm as any)?.chosenNumber ?? (perm as any)?.card?.chosenNumber);
+      const mv = spellManaValue(spell);
+      if (Number.isFinite(chosen) && Number.isFinite(mv) && mv === chosen) {
+        return src + ' prevents casting noncreature spells with mana value equal to the chosen number.';
+      }
+    }
+    // B84: Lavinia — each opponent can't cast noncreature spells with MV > lands they control
+    if (isOpponent
+      && /each opponent can(?:not|'t) cast noncreature spells with mana value greater than the number of lands that player controls/.test(oracle)
+      && !isCreatureSpell(spell)) {
+      const lands = (Array.isArray(state?.battlefield) ? state.battlefield : []).filter((p: any) =>
+        String(p?.controller || '') === pid && /\bland\b/i.test(String(p?.card?.type_line || '')),
+      ).length;
+      const mv = spellManaValue(spell);
+      if (Number.isFinite(mv) && mv > lands) {
+        return src + ' prevents opponents from casting noncreature spells with mana value greater than lands they control.';
+      }
     }
   }
   return null;

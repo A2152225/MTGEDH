@@ -18,7 +18,7 @@ import { evalResourceDesignationCondition } from './staticEffectSpec-handlers/st
 import { evalTargetControllerChoseOptionOnSource } from './staticEffectSpec-handlers/playerChoseWarPeaceAnthems.js';
 import { evalTargetIsAttackingLastChosenPlayerOnSource } from './staticEffectSpec-handlers/batch63AttackChosenPlayerGrants.js';
 
-type SpecLike = { sourcePermanentId?: string; effectSourcePermanentId?: string; sourceController?: string; grant?: { countBasis?: string; countCounterType?: string; countOnEffectSource?: boolean } };
+type SpecLike = { sourcePermanentId?: string; effectSourcePermanentId?: string; sourceController?: string; grant?: { countBasis?: string; countCounterType?: string; countOnEffectSource?: boolean; countDivisor?: number } };
 type CondLike = { kind?: string; color?: string; cardType?: string; option?: string; counterType?: string; amount?: number; exact?: boolean };
 
 function findSource(spec: SpecLike, battlefield: readonly BattlefieldPermanent[] | undefined): any {
@@ -115,20 +115,31 @@ export function evalPhase5StaticCondition(
   }
 }
 
+function applyCountDivisor(raw: number, grant: { countDivisor?: number } | undefined): number {
+  const n = Math.max(0, Math.floor(Number(raw) || 0));
+  const div = Number(grant?.countDivisor);
+  if (Number.isFinite(div) && div > 1) return Math.floor(n / div);
+  return n;
+}
+
 export function resolvePhase5CountMultiplier(
   spec: SpecLike,
   battlefield: readonly BattlefieldPermanent[],
   state?: unknown,
 ): number {
+  const grant = spec.grant || {};
   const extended = resolveExtendedCountMultiplier(spec, battlefield, state);
-  if (extended !== undefined) return extended;
-  if (spec.grant?.countBasis === 'controller_commander_casts') {
+  if (extended !== undefined) return applyCountDivisor(extended, grant);
+  if (grant.countBasis === 'controller_commander_casts') {
     const zone = (state as any)?.commandZone?.[String(spec.sourceController || '')];
-    return Math.max(0, Math.floor(Number(zone?.tax || 0) / 2));
+    return applyCountDivisor(Math.max(0, Math.floor(Number(zone?.tax || 0) / 2)), grant);
   }
-  if (spec.grant?.countBasis !== 'source_counters') return 1;
-  const holder = spec.grant.countOnEffectSource && spec.effectSourcePermanentId
+  if (grant.countBasis !== 'source_counters') return 1;
+  const holder = grant.countOnEffectSource && spec.effectSourcePermanentId
     ? { sourcePermanentId: spec.effectSourcePermanentId }
     : spec;
-  return counterCount(findSource(holder, battlefield), String(spec.grant.countCounterType || ''));
+  return applyCountDivisor(
+    counterCount(findSource(holder, battlefield), String(grant.countCounterType || '')),
+    grant,
+  );
 }

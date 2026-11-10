@@ -26,6 +26,10 @@ export function parsePhase5LordCondition(raw: string, sourceName: string): Stati
     const enteredType = text.match(/^another ([a-z]+) entered(?: the battlefield)? under your control this turn$/);
     if (enteredType) return c({ kind: 'controller_creature_type_entered_this_turn', creatureType: singular(enteredType[1]), other: true });
   }
+  // B81: Saddled Rimestag — "you had another creature enter ... this turn"
+  if (/^you had another creature enter(?: the battlefield)? under your control this turn$/.test(text)) {
+    return c({ kind: 'controller_creature_type_entered_this_turn', creatureType: 'creature', other: true });
+  }
   let m = text.match(/^you attacked with (\w+) or more ([a-z]+) this turn$/);
   if (m && num(m[1])) return c({ kind: 'controller_attacked_with_at_least', count: num(m[1]), creatureType: singular(m[2]) });
   m = text.match(/^(\w+) or more nonland permanents entered(?: the battlefield)? under your control this turn$/);

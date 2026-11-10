@@ -22,6 +22,24 @@ export const LAYER4_ANIMATION_SPECS: Array<{ re: RegExp; build: (source: any) =>
       };
     },
   },
+  // B83: Living Lands — "All Forests are 1/1 creatures that are still lands."
+  {
+    re: /\ball (plains|islands|swamps|mountains|forests) are (\d+)\/(\d+) creatures that are still lands\b/i,
+    build: (source) => {
+      const m = String(source?.card?.oracle_text || source?.oracle_text || '')
+        .match(/\ball (plains|islands|swamps|mountains|forests) are (\d+)\/(\d+) creatures/i);
+      const raw = String(m?.[1] || 'forests').toLowerCase();
+      const sub = raw === 'plains' ? 'plains' : raw.slice(0, -1);
+      const power = Number(m?.[2] || 0);
+      const toughness = Number(m?.[3] || 0);
+      const re = new RegExp('\\b' + sub + '\\b');
+      return {
+        addTypes: ['Creature'],
+        basePT: () => ({ power, toughness }),
+        appliesTo: (perm: any) => re.test(typeLineOf(perm)),
+      };
+    },
+  },
   {
     re: /\bas long as (?:enchanted|equipped) permanent is an? ([a-z]+), it's a creature in addition to its other types\b/i,
     build: (source) => {

@@ -9,6 +9,8 @@
 const ZONE_RE = /^(players|your opponents|each opponent) can't cast spells from (graveyards or libraries|libraries or graveyards|graveyards|libraries)\b/;
 const TURN_RE = /^during your turn, (?:your opponents|each opponent) can't cast spells\b/;
 const ENTER_RE = /^(nonland permanent cards|permanent cards|creature cards) in (graveyards and libraries|libraries and graveyards|graveyards|libraries) can(?:not|'t) enter the battlefield\b/;
+/** B84: Worms of the Earth — "Lands can't enter the battlefield." */
+const LAND_ENTER_RE = /^lands can(?:not|'t) enter the battlefield\b/;
 
 function oracleLines(perm: any): string[] {
   return String(perm?.card?.oracle_text || perm?.oracle_text || '')
@@ -46,6 +48,9 @@ export function zoneEnterProhibitionReason(
   const isCreature = /\bcreature\b/.test(tl);
   for (const perm of Array.isArray(state?.battlefield) ? state.battlefield : []) {
     for (const line of oracleLines(perm)) {
+      if (LAND_ENTER_RE.test(line) && isLand) {
+        return `${sourceName(perm)} prevents lands from entering the battlefield.`;
+      }
       const m = line.match(ENTER_RE);
       if (!m) continue;
       if (!m[2].includes(zone === 'graveyard' ? 'graveyard' : 'librar')) continue;

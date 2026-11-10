@@ -109,6 +109,22 @@ export function findOracleCastingLimitViolation(
         };
       }
     }
+    // B79: Curse of Exhaustion — "Enchanted player can't cast more than one spell each turn."
+    {
+      const enchantedCap = oracle.match(
+        /\benchanted player can(?:not|'t) cast more than (\w+) spells? each turn\b/,
+      );
+      if (enchantedCap) {
+        const enchanted = String(perm?.enchantedPlayerId || perm?.attachedTo || '').trim();
+        const n = parseCount(enchantedCap[1]);
+        if (enchanted && enchanted === pid && n > 0 && spellsCastBy(state, pid, false) >= n) {
+          return {
+            prohibited: true,
+            reason: `${name} limits casting to ${n} spell${n === 1 ? '' : 's'} each turn.`,
+          };
+        }
+      }
+    }
     // B76: Llawan — "Your opponents can't cast blue creature spells."
     {
       const colorCreature = oracle.match(

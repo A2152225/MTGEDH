@@ -442,6 +442,11 @@ export function collectProtectionQualitiesFromText(oracleText: string, chosenCol
       protections.push(chosen);
     }
   }
+  // B84: Serra's Emissary — protection from the chosen card type (granted as "protection from artifact").
+  if (/protection from the chosen card type/i.test(text)) {
+    // Resolved via continuous granted ability text ("protection from <type>"); leave marker when unresolved.
+    if (!protections.includes('chosen-card-type')) protections.push('chosen-card-type');
+  }
   // B57: True-Name Nemesis — protection from the chosen player (sources that player controls).
   if (/protection from the chosen player/i.test(text)) {
     const pid = String(chosenPlayerId || '').trim();

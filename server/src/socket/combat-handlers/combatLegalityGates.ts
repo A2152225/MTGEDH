@@ -44,6 +44,7 @@ import { getBatch25BlockRestrictionReason } from "./combatBatch25BlockRestrictio
 import { canBlockAsThoughReach } from "./combatBatch26BlockRestrictions.js";
 import { conditionalUnblockableReason } from "./combatBatch28ConditionalUnblockable.js"; // B28
 import { attachedBlockOnlyFlyingReason } from "./combatBatch30AttachedBlockRestrictions.js"; // B30
+import { getBatch79TypeExceptByTypeReason } from "./combatBatch79TypeExceptByType.js"; // B79
 import { canAttackDespiteDefender as canAttackDespiteDefenderFn, cowardsCantBlockWarriorsReason } from "./combatDefenderAttackPermission.js";
 import { debug } from "../../utils/debug.js";
 import { canBlockShadowAsThough } from "../../state/modules/blockAsThoughShadow.js";
@@ -636,6 +637,9 @@ export function canBlockAttacker(
     (perm, keyword) => hasEffectiveAbility(perm, keyword, battlefield, blockerControllerId).hasAbility,
     String(attacker?.attacking || attacker?.attackingPlayerId || attacker?.defendingPlayerId || ''));
   if (batch25BlockReason) return { canBlock: false, reason: batch25BlockReason };
+
+  const batch79TypeExceptReason = getBatch79TypeExceptByTypeReason(attacker, blocker, battlefield);
+  if (batch79TypeExceptReason) return { canBlock: false, reason: batch79TypeExceptReason };
 
   const attackerPower = getEffectivePower(attacker, gameState);
   if (attackerRestrictionTexts.some((entry) => entry.includes("can't be blocked by creatures with greater power")) && blockerPower > attackerPower) {

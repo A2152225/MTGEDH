@@ -239,7 +239,9 @@ function sourceControllerControlsMatching(
       if (wantedCard === 'token') {
         if ((perm as any).isToken !== true) continue;
       } else if (!typeLine.includes(wantedCard)) continue;
-    } else if (wantedType) {
+    }
+    // B80: both cardType + creatureType AND (legendary Samurai).
+    if (wantedType) {
       if (condition.creaturesOnly && !typeLine.includes('creature')) continue;
       const hasType = new RegExp(`\\b${wantedType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(typeLine)
         || /\bchangeling\b/i.test(String((perm.card as any)?.oracle_text || ''));
@@ -801,6 +803,12 @@ export function specMatchesStaticCondition(
       return permanentEnchantedByAuraYouControl(permanent, spec, state);
     case 'source_is_untapped':
       return sourcePermanentIsUntapped(spec, state);
+    case 'source_is_tapped': {
+      const sourceId = String(spec.sourcePermanentId || '').trim();
+      if (!sourceId) return false;
+      const source = (state.battlefield || []).find((perm) => String(perm.id || '') === sourceId);
+      return Boolean(source) && source!.tapped === true;
+    }
     case 'source_is_attacking':
       return sourcePermanentIsAttacking(spec, state);
     case 'source_is_equipped': {
@@ -819,6 +827,24 @@ export function specMatchesStaticCondition(
         && String(state.turnPlayer || '') === String(spec.sourceController || '');
     case 'target_has_mana_ability':
       return permanentHasManaAbility(permanent);
+    case 'source_controller_controls_creature_with_base_pt': {
+      // B83: Lovestruck Beast — "you control a 1/1 creature" (printed P/T).
+      const controller = String(spec.sourceController || '');
+      if (!controller) return false;
+      const wantP = Number(condition.power);
+      const wantT = Number(condition.toughness);
+      const need = Math.max(1, Number(condition.count || 1));
+      if (!Number.isFinite(wantP) || !Number.isFinite(wantT)) return false;
+      let n = 0;
+      for (const p of state.battlefield || []) {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) continue;
+        const tl = String(p.card?.type_line || '').toLowerCase();
+        if (!/\bcreature\b/.test(tl)) continue;
+        if (Number(p.card?.power) === wantP && Number(p.card?.toughness) === wantT) n += 1;
+        if (n >= need) return true;
+      }
+      return false;
+    }
     default:
       return evalPhase5StaticCondition(condition as any, permanent, spec as any, state.battlefield, state) ?? false;
   }

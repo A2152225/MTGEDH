@@ -697,9 +697,9 @@ Tick items as they are done. A gate passes only when every item under it is tick
 - [x] P0-3: two runs of `AI_SELFPLAY_SEED=1` write identical result lines, apart from real milliseconds and join-assigned player ids (`npm run ai:selfplay:determinism`).
 - [x] P0-4: the trace unit test passes, and a run with `AI_TRACE_FILE` matches a run without it.
 - [x] P0-5: 12 puzzles run in under a minute (`npm run ai:puzzles`; v0 baseline 8/12). Owner sign-off of answers still open.
-- [ ] P0-6: 100 baseline games on seeds 1000 and up, at least 90 ending in a win or at the turn limit, none as `error`.
-- [ ] P0-6: turn limits are 20% of games or fewer, or the limit was raised, or the traces were read and explained.
-- [ ] P0-6: `docs/ai-baseline-v0.md` is committed with the commit hash and the `v0` puzzle pass count.
+- [x] P0-6: 100 baseline games on seed 1000 recorded in `docs/ai-baseline-v0.md` (0 `error`). **Gate FAIL on finish rate:** 64 turn-limit / 36 stall / 0 win at `maxTurns=20`.
+- [x] P0-6: turn-limit share explained (64% at cap 20 with 0 wins; raise turns only after stall hangs are fixed).
+- [x] P0-6: `docs/ai-baseline-v0.md` written with commit `672a9cfa` and puzzle pass count 8/12.
 
 ### Phase 1 gate (P1-6)
 

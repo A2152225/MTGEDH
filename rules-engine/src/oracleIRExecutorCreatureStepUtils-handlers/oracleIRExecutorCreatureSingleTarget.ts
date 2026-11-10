@@ -382,13 +382,18 @@ export function resolveSingleCreatureTargetId(
   // do not contain the contiguous substring "target creature". Prefer chosen/bound ids
   // within the legal combat-role pool (same gap as inferTriggeredAbilityTargetMetadata).
   const combatRoleTargetMatch = targetText.match(
-    /^target (attacking(?: or blocking)?|blocking)(?: [a-z0-9'-]+)* creature(?: you control)?$/i,
+    /^target (attacking(?: or blocking)?|blocking)(?: [a-z0-9'-]+)* creature(?: you control| an opponent controls)?$/i,
   );
   if (combatRoleTargetMatch) {
     const role = String(combatRoleTargetMatch[1] || '').toLowerCase();
     const youControlOnly = /\byou control\b/i.test(targetText);
+    const opponentOnly = /\ban opponent controls\b/i.test(targetText);
     const pool = creatures.filter((permanent) => {
-      if (youControlOnly && String((permanent as any)?.controller || '').trim() !== controllerId) {
+      const ctrl = String((permanent as any)?.controller || '').trim();
+      if (youControlOnly && ctrl !== controllerId) {
+        return false;
+      }
+      if (opponentOnly && (!ctrl || ctrl === controllerId)) {
         return false;
       }
       const attacking = isAttackingPermanent(permanent);

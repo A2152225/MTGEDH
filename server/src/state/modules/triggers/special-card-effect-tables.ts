@@ -93,9 +93,9 @@ const KNOWN_UTILITY_LANDS: Record<string, Omit<UtilityLandAbility, 'permanentId'
   "mystifying maze": {
     cost: "{4}, {T}",
     requiresTap: true,
-    effect: "Exile target attacking creature. At end of combat, return it tapped",
+    effect: "Exile target attacking creature an opponent controls. At the beginning of the next end step, return it to the battlefield tapped under its owner's control",
     targetType: 'creature',
-    targetController: 'any',
+    targetController: 'opponent',
   },
   "thespian's stage": {
     cost: "{2}, {T}",

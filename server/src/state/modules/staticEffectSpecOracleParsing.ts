@@ -65,6 +65,13 @@ import { pushBatch74LongTailStaticSpecs } from './staticEffectSpec-handlers/batc
 import { pushBatch75LongTailStaticSpecs } from './staticEffectSpec-handlers/batch75LongTailStatics.js';
 import { pushBatch76LongTailStaticSpecs } from './staticEffectSpec-handlers/batch76LongTailStatics.js';
 import { pushBatch77LongTailStaticSpecs } from './staticEffectSpec-handlers/batch77LongTailStatics.js';
+import { pushBatch78LongTailStaticSpecs } from './staticEffectSpec-handlers/batch78LongTailStatics.js';
+import { pushBatch79LongTailStaticSpecs } from './staticEffectSpec-handlers/batch79LongTailStatics.js';
+import { pushBatch80LongTailStaticSpecs } from './staticEffectSpec-handlers/batch80LongTailStatics.js';
+import { pushBatch81LongTailStaticSpecs } from './staticEffectSpec-handlers/batch81LongTailStatics.js';
+import { pushBatch82LongTailStaticSpecs } from './staticEffectSpec-handlers/batch82LongTailStatics.js';
+import { pushBatch83LongTailStaticSpecs } from './staticEffectSpec-handlers/batch83LongTailStatics.js';
+import { pushBatch84LongTailStaticSpecs } from './staticEffectSpec-handlers/batch84LongTailStatics.js';
 import { pushConditionalScopedGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalScopedGrants.js';
 import { splitStationThresholdLines, gateStationThresholdSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingStationThresholds.js';
 import { pushTrekSelfStaticSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingTrekStatics.js';
@@ -160,6 +167,13 @@ function parseStaticEffectSpecsFromOraclePermanentCore(
   pushBatch75LongTailStaticSpecs(specs, source, perm, oracle);
   pushBatch76LongTailStaticSpecs(specs, source, perm, oracle);
   pushBatch77LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch78LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch79LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch80LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch81LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch82LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch83LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch84LongTailStaticSpecs(specs, source, perm, oracle);
   pushConditionalScopedGrantSpecs(specs, source, oracle);
   pushTrekSelfStaticSpecs(specs, source, oracle);
   pushGlobalGrantSpecs(specs, source, oracle);

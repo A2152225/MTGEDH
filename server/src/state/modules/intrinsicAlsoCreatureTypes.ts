@@ -14,7 +14,12 @@ export function parseIntrinsicAlsoCreatureTypes(oracle: unknown, name?: unknown)
     const line = raw.trim();
     const m = LINE_RE.exec(line);
     if (!m) continue;
-    if (m[1] && cardName && m[1].trim().toLowerCase() !== cardName) continue;
+    // B83: oracle often uses the short name ("Burakos is also…") while the card name is longer.
+    if (m[1] && cardName) {
+      const subject = m[1].trim().toLowerCase();
+      const short = cardName.split(',')[0].trim();
+      if (subject !== cardName && subject !== short) continue;
+    }
     if (m[1] && !cardName) continue;
     const words = m[2].split(/\s*,\s*(?:and\s+|or\s+)?|\s+(?:and|or)\s+/).map((w) => w.trim()).filter(Boolean);
     if (words.length === 0 || !words.every((w) => isCreatureTypeWord(w))) continue;

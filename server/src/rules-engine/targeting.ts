@@ -827,10 +827,75 @@ export function parseAbilityTargeting(oracleText: string): {
   controllerOnly: boolean;
   opponentOnly: boolean;
   excludeSource: boolean;
+  /** Mystifying Maze / similar: target must currently be attacking. */
+  attackingOnly?: boolean;
   description: string;
 } | null {
   if (!oracleText) return null;
   const text = oracleText.toLowerCase();
+
+  // Attacking-creature targets (must run before plain "target creature …" patterns).
+  // Mystifying Maze: "Exile target attacking creature an opponent controls. …"
+  if (/another target attacking creature an opponent controls/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: false,
+      opponentOnly: true,
+      excludeSource: true,
+      attackingOnly: true,
+      description: 'another target attacking creature an opponent controls',
+    };
+  }
+  if (/target attacking creature an opponent controls/.test(text) && !/another/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: false,
+      opponentOnly: true,
+      excludeSource: false,
+      attackingOnly: true,
+      description: 'target attacking creature an opponent controls',
+    };
+  }
+  if (/another target attacking creature you control/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: true,
+      opponentOnly: false,
+      excludeSource: true,
+      attackingOnly: true,
+      description: 'another target attacking creature you control',
+    };
+  }
+  if (/target attacking creature you control/.test(text) && !/another/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: true,
+      opponentOnly: false,
+      excludeSource: false,
+      attackingOnly: true,
+      description: 'target attacking creature you control',
+    };
+  }
+  if (/another target attacking creature/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: false,
+      opponentOnly: false,
+      excludeSource: true,
+      attackingOnly: true,
+      description: 'another target attacking creature',
+    };
+  }
+  if (/target attacking creature/.test(text) && !/another/.test(text)) {
+    return {
+      targetType: 'creature',
+      controllerOnly: false,
+      opponentOnly: false,
+      excludeSource: false,
+      attackingOnly: true,
+      description: 'target attacking creature',
+    };
+  }
   
   // Check for "another target creature you control" pattern (Skrelv, etc.)
   if (/another target creature you control/.test(text)) {

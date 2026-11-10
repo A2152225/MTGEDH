@@ -1,15 +1,23 @@
 // server/src/state/modules/effectiveSnowSupertype.ts
 // Layer 4 supertype additions (CR 205.4): "Enchanted land is snow." (Glittering Frost), "Lands you control are
-// snow" / "All permanents are snow" style statics. Printed snow is kept.
+// snow" / "All permanents are snow" style statics. Printed snow is kept unless a removal static applies
+// (B79 Melting — "All lands are no longer snow").
 // Public entry symbols: permanentIsSnowNow.
 
 const ATTACHED_RE = /\benchanted (land|permanent|creature|artifact) is snow\b/i;
 const GLOBAL_RE = /(?:^|[.\n]\s*)(?:all |each )?(lands?|permanents?|creatures?|artifacts?)( you control| your opponents control)? (?:are|is) snow\b/i;
+const LANDS_NO_LONGER_SNOW_RE = /(?:^|[.\n]\s*)all lands are no longer snow\b/i;
 
 export function permanentIsSnowNow(state: any, perm: any, typeLine?: string): boolean {
   const line = String(typeLine ?? perm?.typeSetOverride?.typeLine ?? perm?.card?.type_line ?? '').toLowerCase();
-  if (/\bsnow\b/.test(String(perm?.card?.type_line || '').toLowerCase())) return true;
   const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  if (/\bland\b/.test(line) && battlefield.some((src: any) => {
+    if (!src?.card || src.phasedOut) return false;
+    return LANDS_NO_LONGER_SNOW_RE.test(String(src.card.oracle_text || ''));
+  })) {
+    return false;
+  }
+  if (/\bsnow\b/.test(String(perm?.card?.type_line || '').toLowerCase())) return true;
   const id = String(perm?.id || '');
   return battlefield.some((src: any) => {
     if (!src?.card || src.phasedOut) return false;

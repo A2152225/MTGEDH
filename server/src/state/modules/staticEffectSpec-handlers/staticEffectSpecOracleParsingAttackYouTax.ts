@@ -22,7 +22,11 @@ import {
 
 const UNTIL_EOT = /\b(?:this turn|this combat|until end of turn|until your next turn)\b/i;
 const UNTAPPED_PREFIX = /^as long as this (?:creature|permanent) is untapped,?\s*/i;
+// B78: Mirri — "As long as Mirri is tapped, no more than one creature can attack you..."
+const TAPPED_PREFIX = /^as long as (?:this (?:creature|permanent)|~|[a-z][a-z' ,.-]{0,40}?) is tapped,?\s*/i;
 const ATTACKING_PREFIX = /^as long as this (?:creature|permanent) is attacking,?\s*/i;
+// B80: Dáin — "As long as you have an enduring story, creatures can't attack you unless..."
+const ENDURING_STORY_PREFIX = /^as long as you have an enduring story,?\s*/i;
 const COLOR_PREFIX =
   '(nonblack|nonwhite|nonblue|nonred|nongreen|black|white|blue|red|green)';
 const ATTACK_YOU_TAIL = "can't attack you(?: or planeswalkers? you control)?";
@@ -293,9 +297,15 @@ export function pushAttackYouTaxSpecs(
     if (UNTAPPED_PREFIX.test(sentence)) {
       sentence = sentence.replace(UNTAPPED_PREFIX, '').trim();
       condition = { kind: 'source_is_untapped' };
+    } else if (TAPPED_PREFIX.test(sentence)) {
+      sentence = sentence.replace(TAPPED_PREFIX, '').trim();
+      condition = { kind: 'source_is_tapped' } as StaticEffectCondition;
     } else if (ATTACKING_PREFIX.test(sentence)) {
       sentence = sentence.replace(ATTACKING_PREFIX, '').trim();
       condition = { kind: 'source_is_attacking' };
+    } else if (ENDURING_STORY_PREFIX.test(sentence)) {
+      sentence = sentence.replace(ENDURING_STORY_PREFIX, '').trim();
+      condition = { kind: 'source_controller_has_enduring_story' } as StaticEffectCondition;
     }
 
     const exceptKeywords = isReplacementWrapper ? null : parseExceptAttackedKeywords(sentence);
@@ -530,7 +540,6 @@ export function pushAttackYouTaxSpecs(
 
     const capMatch = sentence.match(ATTACK_YOU_CAP_RE);
     if (capMatch) {
-      if (condition) continue;
       const max = parseCardCountWord(String(capMatch[1] || ''));
       if (!max || max <= 0) continue;
       specs.push(buildSpec(
@@ -538,6 +547,7 @@ export function pushAttackYouTaxSpecs(
         'attack-you-max-attackers',
         { kind: 'player_you' },
         { attackYouMaxAttackers: max },
+        condition,
       ));
       continue;
     }

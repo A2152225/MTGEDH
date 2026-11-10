@@ -25,6 +25,7 @@ import {
 import { isSplitSecondLockActive } from "./interactionActivateBattlefieldAbilityHelpers.js";
 import { getCyclingDefinitionForActivation, resolveCyclingCostX } from "./interactionCyclingActivationDefinitions.js";
 import { getGrantedCyclingCost, cardHasPrintedCycling } from "../../state/modules/handCyclingGrants.js";
+import { cyclingProhibitionReason } from "../../state/modules/cycleRestrictionFamilies.js";
 import { queueCycleTriggeredAbilities } from "../../state/modules/triggers/cycle.js";
 import { queueDiscardTriggeredAbilities } from "../../state/modules/triggers/discard.js";
 
@@ -269,6 +270,14 @@ export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: 
         message: "Can't activate abilities while a spell with split second is on the stack.",
       });
       return;
+    }
+    // B84: Stabilizer — Players can't cycle cards.
+    {
+      const cycleLock = cyclingProhibitionReason(game.state);
+      if (cycleLock) {
+        socket.emit('error', { code: 'CYCLING_PROHIBITED', message: cycleLock });
+        return;
+      }
     }
     const zones = (game.state as any)?.zones?.[pid];
     if (!zones || !zones.hand) {

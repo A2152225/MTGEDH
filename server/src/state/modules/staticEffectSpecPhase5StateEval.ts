@@ -8,7 +8,7 @@ import type { BattlefieldPermanent } from '../../../../shared/src/index.js';
 import { getLibraryTopCardFromState } from './game-state-effects-handlers/gameStateEffectsTopLibrary.js';
 import { evalCountersPutThisTurnCondition } from './countersPutThisTurnCondition.js';
 
-type Cond = { kind?: string; count?: number; creatureType?: string; color?: string; option?: string };
+type Cond = { kind?: string; count?: number; amount?: number; creatureType?: string; color?: string; option?: string; counterType?: string };
 const CARD_TYPES = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'kindred', 'land', 'planeswalker', 'sorcery', 'tribal'];
 const COLOR_SYMBOL: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 
@@ -107,6 +107,12 @@ export function evalPhase5StateCondition(
       return controlledBy(battlefield, controller).filter((perm) =>
         String((perm.card as any)?.name || '').toLowerCase() === name).length === count;
     }
+    case 'controller_controls_named_at_least': {
+      const name = String(condition.option || '').toLowerCase();
+      const need = Number(condition.count || condition.amount || 0);
+      return controlledBy(battlefield, controller).filter((perm) =>
+        String((perm.card as any)?.name || '').toLowerCase() === name).length >= need;
+    }
     case 'source_is_solved':
       return source?.solved === true || source?.isSolved === true;
     case 'target_is_face_down':
@@ -126,6 +132,102 @@ export function evalPhase5StateCondition(
         lore += Number((perm as any).counters?.lore || (perm as any).counters?.Lore || 0);
       }
       return lore >= count;
+    }
+    case 'controller_instant_or_sorcery_cast_this_turn': {
+      const list: any[] = Array.isArray(state?.spellsCastThisTurn) ? state.spellsCastThisTurn : [];
+      return list.some((e) => {
+        if (String(e?.casterId ?? e?.playerId ?? e?.controllerId ?? e?.controller ?? '') !== controller) return false;
+        const tl = String(e?.type_line || e?.card?.type_line || '').toLowerCase();
+        return /\binstant\b/.test(tl) || /\bsorcery\b/.test(tl);
+      });
+    }
+    case 'any_graveyard_at_least': {
+      const zones = state?.zones || {};
+      const need = Number(condition.count || condition.amount || 0);
+      return Object.keys(zones).some((id) => {
+        const gy = zones[id]?.graveyard;
+        return Array.isArray(gy) && gy.length >= need;
+      });
+    }
+    case 'target_lacks_counter': {
+      const wanted = String(condition.counterType || condition.option || '').trim().toLowerCase();
+      if (!wanted) return false;
+      const counters = ((permanent as any).counters || {}) as Record<string, unknown>;
+      return !Object.entries(counters).some(([k, v]) => String(k).toLowerCase() === wanted && Number(v) > 0);
+    }
+    case 'source_controller_dice_rolled_at_least': {
+      const need = Number(condition.amount || condition.count || 0);
+      if (!Number.isFinite(need) || need <= 0) return false;
+      const list = (state as any)?.dieRollsThisTurn?.[controller];
+      return Array.isArray(list) && list.length >= need;
+    }
+    case 'opponent_owns_card_in_exile': {
+      const zones = state?.zones || {};
+      return Object.keys(zones).some((zoneId) => {
+        const exile = zones[zoneId]?.exile;
+        if (!Array.isArray(exile) || exile.length === 0) return false;
+        return exile.some((card: any) => {
+          const owner = String(card?.owner || card?.card?.owner || zoneId || '').trim();
+          return !!owner && owner !== controller;
+        });
+      });
+    }
+    case 'source_controller_controls_creature_or_land_type_any': {
+      const creatureTypes = Array.isArray((condition as any).creatureTypes)
+        ? (condition as any).creatureTypes.map((t: unknown) => String(t || '').toLowerCase()).filter(Boolean)
+        : [String(condition.creatureType || '').toLowerCase()].filter(Boolean);
+      const landTypes = Array.isArray((condition as any).landTypes)
+        ? (condition as any).landTypes.map((t: unknown) => String(t || '').toLowerCase()).filter(Boolean)
+        : [String((condition as any).landType || '').toLowerCase()].filter(Boolean);
+      if (!controller || (creatureTypes.length === 0 && landTypes.length === 0)) return false;
+      const sourceId = String((source as any)?.id || '');
+      const other = (condition as any).other === true;
+      return (battlefield || []).some((p: any) => {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) return false;
+        if (other && String(p.id || '') === sourceId) return false;
+        const tl = String(p.card?.type_line || p?.type_line || '').toLowerCase();
+        if (creatureTypes.length && /\bcreature\b/.test(tl)
+          && creatureTypes.some((t: string) => new RegExp('\\b' + t.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\b').test(tl))) {
+          return true;
+        }
+        if (landTypes.length && /\bland\b/.test(tl)
+          && landTypes.some((t: string) => new RegExp('\\b' + t.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&') + '\\b').test(tl))) {
+          return true;
+        }
+        return false;
+      });
+    }
+    case 'controller_hand_larger_than_each_opponent': {
+      if (!controller) return false;
+      const myZone = state?.zones?.[controller];
+      const mine = typeof myZone?.handCount === 'number' && Number.isFinite(myZone.handCount)
+        ? Math.max(0, Math.floor(myZone.handCount))
+        : Array.isArray(myZone?.hand) ? myZone.hand.length : 0;
+      const players: any[] = Array.isArray(state?.players) ? state.players : [];
+      const opponents = players.filter((p: any) => {
+        const id = String(p?.id || '');
+        return id && id !== controller && !p?.hasLost && !p?.eliminated;
+      });
+      if (opponents.length === 0) return false;
+      return opponents.every((p: any) => {
+        const id = String(p.id || '');
+        const z = state?.zones?.[id];
+        const n = typeof z?.handCount === 'number' && Number.isFinite(z.handCount)
+          ? Math.max(0, Math.floor(z.handCount))
+          : Array.isArray(z?.hand) ? z.hand.length : 0;
+        return mine > n;
+      });
+    }
+    case 'source_controller_controls_creature_with_any_counter': {
+      if (!controller) return false;
+      return controlledBy(battlefield || [], controller).some((perm) => {
+        if (!/\bcreature\b/.test(typeLineOf(perm))) return false;
+        return Object.values((perm as any).counters || {}).some((n) => Number(n) > 0);
+      });
+    }
+    case 'target_controller_is_enchanted_player': {
+      const enchanted = String((source as any)?.enchantedPlayerId || (source as any)?.attachedTo || '').trim();
+      return !!enchanted && String(permanent?.controller || '') === enchanted;
     }
     default:
       return undefined;

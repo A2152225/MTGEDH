@@ -108,6 +108,30 @@ export function countPowerOnlyPhrase(phrase: string, battlefield: any[], zones: 
   if (p === 'differently named lands you control') return countDifferentlyNamedLands(battlefield, controllerId);
   if (p === 'creature types among non-borg creatures you control') return countFederationCreatureTypes(battlefield, controllerId);
   if (p === 'cards in your hand') return zones?.[controllerId]?.handCount ?? zones?.[controllerId]?.hand?.length ?? 0;
+  // B82: Squawkroaster — "colors among permanents you control"
+  if (p === 'colors among permanents you control') {
+    const colors = new Set<string>();
+    for (const perm of mine) {
+      for (const c of (Array.isArray(perm?.card?.colors) ? perm.card.colors : [])) {
+        const s = String(c || '').toUpperCase();
+        if ('WUBRG'.includes(s) && s) colors.add(s);
+      }
+    }
+    return colors.size;
+  }
+  // B82: Coiling Woodworm — "Forests on the battlefield"
+  m = p.match(/^(plains|islands|swamps|mountains|forests) on the battlefield$/);
+  if (m) {
+    const sub = m[1] === 'plains' ? 'plains' : m[1].slice(0, -1);
+    return (battlefield || []).filter((perm: any) => new RegExp('\\b' + sub + '\\b').test(typeLineOf(perm))).length;
+  }
+  // B82: Dragonfly Swarm — noncreature, nonland cards in your graveyard
+  if (/^noncreature,? nonland cards in your graveyard$/.test(p)) {
+    return graveyard.filter((c: any) => {
+      const tl = typeLineOf(c);
+      return !/\bcreature\b/.test(tl) && !/\bland\b/.test(tl);
+    }).length;
+  }
   // B63: Uchuulon ? "the number of Crabs, Oozes, and/or Horrors you control"
   {
     const multi = p.match(/^([a-z]+(?:s)?)(?:, ([a-z]+(?:s)?))*(?:,? and\/?or ([a-z]+(?:s)?)) you control$/);
@@ -119,6 +143,19 @@ export function countPowerOnlyPhrase(phrase: string, battlefield: any[], zones: 
           const line = typeLineOf(perm);
           return parts.some((sub) => new RegExp('\\b' + sub + 's?\\b').test(line));
         }).length;
+      }
+    }
+  }
+  // B83: Swarm of Rats — "Rats you control" (single subtype; card types already matched above).
+  {
+    const CARD_TYPES = new Set([
+      'creatures', 'artifacts', 'enchantments', 'lands', 'planeswalkers', 'permanents', 'cards',
+    ]);
+    const sub = p.match(/^([a-z]+) you control$/);
+    if (sub && !CARD_TYPES.has(sub[1])) {
+      const noun = sub[1].endsWith('s') && !sub[1].endsWith('ss') ? sub[1].slice(0, -1) : sub[1];
+      if (/^[a-z-]+$/.test(noun)) {
+        return mine.filter((perm) => new RegExp('\\b' + noun + 's?\\b').test(typeLineOf(perm))).length;
       }
     }
   }
@@ -138,11 +175,23 @@ export function devotionTo(color: string, battlefield: any[], controllerId: stri
 }
 
 function variableSideCount(oracleTextLower: string, side: 'power' | 'toughness', battlefield: any[], zones: any, controllerId: string): number | undefined {
-  const re = new RegExp('(?:^|\\n|\\. )[^.\\n]*?\\b' + side + ' is equal to (?:the number of ([^.\\n]+?)|your devotion to (white|blue|black|red|green))\\.');
+  // B82: An-Havva Constable — "toughness is equal to 1 plus the number of green creatures on the battlefield"
+  const re = new RegExp(
+    '(?:^|\\n|\\. )[^.\\n]*?\\b' + side
+    + ' is equal to (?:(\\d+|one|two|three|four|five|six|seven|eight|nine|ten) plus )?(?:the number of ([^.\\n]+?)|your devotion to (white|blue|black|red|green))\\.',
+  );
   const match = oracleTextLower.match(re);
   if (!match) return undefined;
-  if (match[2]) return devotionTo(match[2], battlefield, controllerId);
-  return countPowerOnlyPhrase(match[1], battlefield, zones, controllerId);
+  const WORDS: Record<string, number> = {
+    one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  };
+  const base = match[1]
+    ? (/^\d+$/.test(match[1]) ? Number(match[1]) : (WORDS[match[1]] ?? NaN))
+    : 0;
+  if (!Number.isFinite(base)) return undefined;
+  if (match[3]) return base + devotionTo(match[3], battlefield, controllerId);
+  const count = countPowerOnlyPhrase(match[2], battlefield, zones, controllerId);
+  return count === undefined ? undefined : base + count;
 }
 
 /** "~'s toughness is equal to ..." with printed numeric power. */

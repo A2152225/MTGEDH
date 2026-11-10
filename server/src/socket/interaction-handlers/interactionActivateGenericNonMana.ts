@@ -25,6 +25,7 @@ import {
   parseTargetRequirements,
   selectionRequiresSharedCardType,
 } from "../../rules-engine/targeting.js";
+import { isPermanentCurrentlyAttacking } from "../../state/modules/triggeredAbilityBattlefieldTargetMatch.js";
 import { filterLibraryCardsForSearch } from "../library-search.js";
 import { broadcastGame, getPlayerName } from "../util";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
@@ -644,6 +645,11 @@ export async function tryHandleActivateGenericNonMana(
           }
 
           if (parsedBattlefieldAbilityTargeting.excludeSource && String(target.id || '') === String(permanentId)) {
+            return false;
+          }
+
+          // Mystifying Maze / similar: "target attacking creature …"
+          if (parsedBattlefieldAbilityTargeting.attackingOnly && !isPermanentCurrentlyAttacking(target)) {
             return false;
           }
 

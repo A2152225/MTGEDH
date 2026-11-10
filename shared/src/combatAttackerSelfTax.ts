@@ -130,17 +130,29 @@ function parseHostAuraTaxFromText(text: string): { amount: number; perHandCard: 
 
 /** R36: printed "~ can't attack (or block) unless you pay {N}" (Qal Sisma Behemoth). */
 const PRINTED_SELF_TAX_RE = /^(.+?) can(?:not|'t) attack( or block)? unless you pay \{(\d+)\}$/;
+/** B84: Myr Prototype — pay {N} for each +1/+1 counter on it. */
+const PRINTED_COUNTER_SELF_TAX_RE =
+  /^(.+?) can(?:not|'t) attack( or block)? unless you pay \{(\d+)\} for each \+1\/\+1 counter on it$/;
 
 function printedSelfTax(permanent: unknown, mode: 'attack' | 'block'): number {
   const name = nameOf(permanent).toLowerCase();
   const short = name.split(',')[0].trim();
   const subjects = new Set(['this creature', '~', name, short, short.split(' ')[0]]);
   for (const raw of oracleOf(permanent).toLowerCase().replace(/\u2019/g, "'").split(/\n+/)) {
-    const m = raw.replace(/\([^)]*\)/g, '').trim().replace(/\.$/, '').match(PRINTED_SELF_TAX_RE);
-    if (!m || !subjects.has(m[1].trim())) continue;
-    if (mode === 'block' && !m[2]) continue;
-    const n = parseInt(m[3], 10);
-    if (n > 0) return n;
+    const line = raw.replace(/\([^)]*\)/g, '').trim().replace(/\.$/, '');
+    const m = line.match(PRINTED_SELF_TAX_RE);
+    if (m && subjects.has(m[1].trim())) {
+      if (mode === 'block' && !m[2]) continue;
+      const n = parseInt(m[3], 10);
+      if (n > 0) return n;
+    }
+    const c = line.match(PRINTED_COUNTER_SELF_TAX_RE);
+    if (c && subjects.has(c[1].trim())) {
+      if (mode === 'block' && !c[2]) continue;
+      const per = parseInt(c[3], 10);
+      const counters = Math.max(0, Math.floor(Number((permanent as any)?.counters?.['+1/+1'] || 0)));
+      if (per > 0 && counters > 0) return per * counters;
+    }
   }
   return 0;
 }

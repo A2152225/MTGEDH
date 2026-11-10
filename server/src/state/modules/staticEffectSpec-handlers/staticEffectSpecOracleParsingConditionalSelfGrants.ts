@@ -84,6 +84,11 @@ export function parseStaticSelfCondition(raw: string): StaticEffectCondition | n
     const noun = control[4].replace(/\s+(?:creatures?|permanents?)$/, (m) => m).trim();
     const typePart = noun.replace(/\s+(?:creatures?|permanents?)$/, '').trim();
     const isCreatureSuffix = /\bcreatures?$/.test(noun);
+    const BASIC_LANDS = new Set(['plains', 'island', 'swamp', 'mountain', 'forest']);
+    // B81: Dire Wolves — "you control a Plains" (do not singularize plains→plain).
+    if (BASIC_LANDS.has(typePart)) {
+      return { kind: 'source_controller_controls_matching', cardType: typePart, count, other };
+    }
     const single = singular(typePart);
     if (CARD_TYPES.includes(single) || CARD_TYPES.includes(singular(noun))) {
       return { kind: 'source_controller_controls_matching', cardType: CARD_TYPES.includes(single) ? single : singular(noun), count, other };
@@ -117,6 +122,26 @@ export function parseStaticSelfCondition(raw: string): StaticEffectCondition | n
       if (amount !== undefined) return { kind: 'target_power_at_least', power: amount } as StaticEffectCondition;
     }
   }
+  // B83: Thieves' Tools — "its power is 3 or less"
+  {
+    const powerAtMost = c.match(/^(?:its |this creature's |~'s )?power is (\w+) or less$/);
+    if (powerAtMost) {
+      const amount = countWord(powerAtMost[1]);
+      if (amount !== undefined) return { kind: 'target_power_at_most', power: amount } as StaticEffectCondition;
+    }
+  }
+  // B83: Lovestruck Beast — "you control a 1/1 creature"
+  {
+    const pt = c.match(/^you control an? (\d+)\s*\/\s*(\d+) creatures?$/);
+    if (pt) {
+      return {
+        kind: 'source_controller_controls_creature_with_base_pt',
+        power: Number(pt[1]),
+        toughness: Number(pt[2]),
+        count: 1,
+      } as StaticEffectCondition;
+    }
+  }
   // B76: Chillerpillar — "this creature is monstrous"
   if (/^(?:it|this creature|~) is monstrous$/.test(c)) {
     return { kind: 'target_is_monstrous' } as StaticEffectCondition;
@@ -127,13 +152,65 @@ export function parseStaticSelfCondition(raw: string): StaticEffectCondition | n
     return { kind: 'source_controller_controls_artifact_or_enchantment' } as StaticEffectCondition;
   }
   // B76: Hungry Ridgewolf — "you control another Wolf or Werewolf"
+  // B79: Kumena's Speaker — "you control another Merfolk or an Island"
+  // B81: Snarling Warg — "you control a Goblin or Orc"
   {
-    const orTypes = c.match(/^you control (another )?([a-z]+) or ([a-z]+)$/);
+    const BASIC_LANDS = new Set(['plains', 'island', 'swamp', 'mountain', 'forest']);
+    const orTypes = c.match(/^you control (?:(another)|an?)? ?([a-z]+) or (?:an? )?([a-z]+)$/);
     if (orTypes) {
+      const a = String(orTypes[2] || '').toLowerCase();
+      const b = String(orTypes[3] || '').toLowerCase();
+      const other = Boolean(orTypes[1]);
+      const creatureTypes = [a, b].filter((t) => !BASIC_LANDS.has(t));
+      const landTypes = [a, b].filter((t) => BASIC_LANDS.has(t));
+      if (landTypes.length > 0) {
+        return {
+          kind: 'source_controller_controls_creature_or_land_type_any',
+          creatureTypes,
+          landTypes,
+          other,
+          count: 1,
+        } as StaticEffectCondition;
+      }
       return {
         kind: 'source_controller_controls_creature_type_any',
-        creatureTypes: [orTypes[2], orTypes[3]],
-        other: Boolean(orTypes[1]),
+        creatureTypes: [a, b],
+        other,
+        count: 1,
+      } as StaticEffectCondition;
+    }
+  }
+  // B81: Secretkeeper — hand larger than each opponent
+  if (/^you have more cards in hand than each opponent$/.test(c)) {
+    return { kind: 'controller_hand_larger_than_each_opponent' } as StaticEffectCondition;
+  }
+  // B81: Formation Breaker — creature with any counter
+  if (/^you control an? creature with (?:an? |a |one or more )?counters? on it$/.test(c)) {
+    return { kind: 'source_controller_controls_creature_with_any_counter' } as StaticEffectCondition;
+  }
+  // B79: Roc Hatchling — "this creature has no shell counters on it"
+  {
+    const noCounters = c.match(/^(?:it|this creature|~) has no ([a-z0-9+/ -]+?) counters? on it$/);
+    if (noCounters) {
+      return {
+        kind: 'target_lacks_counter',
+        counterType: String(noCounters[1] || '').trim(),
+      } as StaticEffectCondition;
+    }
+  }
+  // B80: Hazoret — "unless you have max speed"
+  if (/^you have max speed$/.test(c)) {
+    return { kind: 'controller_speed_at_least', amount: 4 } as StaticEffectCondition;
+  }
+  // B80: Konda's Hatamoto — "you control a legendary Samurai"
+  {
+    const legendaryType = c.match(/^you control an? legendary ([a-z]+)$/);
+    if (legendaryType) {
+      return {
+        kind: 'source_controller_controls_matching',
+        cardType: 'legendary',
+        creatureType: legendaryType[1],
+        creaturesOnly: true,
         count: 1,
       } as StaticEffectCondition;
     }

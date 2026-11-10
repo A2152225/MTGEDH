@@ -8,8 +8,10 @@
 // lines are not self restrictions and are skipped by the self prefix.
 // Public entry symbols: getBatch25BlockRestrictionReason, isAttackingAlone.
 
-const SELF = "(?:^|[\\n.]\\s*)(?:this creature|this permanent|it|~)\\s+can(?:'t|not) be blocked ";
+const SELF = "(?:^|[\\n.]\\s*)(?:(?:this creature|this permanent|it|~)\\s+)?can(?:'t|not) be blocked ";
 const EXCEPT_KEYWORD_RE = new RegExp(SELF + 'except by creatures with (flying|reach)(?:,?\\s+(?:and\\/or|or|and)\\s+(flying|reach))?\\b', 'i');
+// B78: Prowler's Helm — "can't be blocked except by Walls."
+const EXCEPT_TYPE_RE = new RegExp(SELF + 'except by ([a-z]+)s?\\b', 'i');
 const ALONE_RE = new RegExp(SELF + "(?:as long as|while) (?:it's|it is) attacking alone\\b", 'i');
 // B77: Ayesha Tanaka — "can't be blocked as long as defending player controls N or more artifacts."
 const DEFENDER_ARTIFACTS_RE = new RegExp(
@@ -68,6 +70,16 @@ export function getBatch25BlockRestrictionReason(
       const allowed = [m[1], m[2]].filter(Boolean) as string[];
       if (!allowed.some((kw) => blockerHas(blocker, kw))) {
         return `Attacker can't be blocked except by creatures with ${allowed.join(' or ')}`;
+      }
+    }
+    const exceptType = text.match(EXCEPT_TYPE_RE);
+    if (exceptType) {
+      const typeWord = String(exceptType[1] || '').replace(/ies$/, 'y').replace(/s$/, '');
+      if (typeWord && !['creature', 'artifact', 'enchantment', 'land'].includes(typeWord)) {
+        const tl = String(blocker?.card?.type_line || blocker?.type_line || '').toLowerCase();
+        if (!new RegExp('\\b' + typeWord + '\\b').test(tl)) {
+          return `Attacker can't be blocked except by ${typeWord}s`;
+        }
       }
     }
     if (ALONE_RE.test(text) && isAttackingAlone(attacker, battlefield)) {

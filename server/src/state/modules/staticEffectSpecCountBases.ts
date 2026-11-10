@@ -92,9 +92,52 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
       return battlefield.filter((p) => hostId && String(p?.attachedTo || '') === hostId && kinds.some((k) => typeLine(p).includes(k))).length;
     }
     case 'controller_hand_size': {
+      // B81: countWho opponents sums every other player's hand (Enemy of Enlightenment).
+      if (grant.countWho === 'opponents' || grant.countWho === 'all') {
+        const zones: any = (state as any)?.zones || {};
+        const players: any[] = Array.isArray((state as any)?.players) ? (state as any).players : [];
+        const ids = grant.countWho === 'all'
+          ? Object.keys(zones)
+          : players.map((p) => String(p?.id || '')).filter((id) => id && id !== controller);
+        return ids.reduce((sum, id) => {
+          const zone = zones[id];
+          if (typeof zone?.handCount === 'number' && Number.isFinite(zone.handCount)) return sum + Math.max(0, Math.floor(zone.handCount));
+          return sum + (Array.isArray(zone?.hand) ? zone.hand.length : 0);
+        }, 0);
+      }
       const zone = controllerZone(spec, state);
       if (typeof zone?.handCount === 'number' && Number.isFinite(zone.handCount)) return Math.max(0, Math.floor(zone.handCount));
       return Array.isArray(zone?.hand) ? zone.hand.length : 0;
+    }
+    case 'controller_colors_among_permanents': {
+      const colors = new Set<string>();
+      for (const p of battlefield) {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) continue;
+        for (const c of getEffectiveColors(p, state)) {
+          const s = String(c || '').toUpperCase();
+          if ('WUBRG'.includes(s) && s) colors.add(s);
+        }
+      }
+      return colors.size;
+    }
+    case 'counters_on_other_creatures_you_control': {
+      const wanted = String(grant.countCounterType || '').toLowerCase();
+      const skip = String(spec.sourcePermanentId || '');
+      let total = 0;
+      for (const p of battlefield) {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) continue;
+        if (!/\bcreature\b/.test(typeLine(p))) continue;
+        if (skip && String(p.id || '') === skip) continue;
+        const counters = (p.counters || {}) as Record<string, unknown>;
+        if (!wanted) {
+          total += Object.values(counters).reduce<number>((sum, v) => sum + Math.max(0, Number(v) || 0), 0);
+          continue;
+        }
+        for (const [key, value] of Object.entries(counters)) {
+          if (String(key).toLowerCase().replace(/_/g, ' ') === wanted) total += Math.max(0, Number(value) || 0);
+        }
+      }
+      return total;
     }
     case 'controller_graveyard_cards_of_type': {
       // R36: countWho opponents / all reads the other players' graveyards.
@@ -107,8 +150,37 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
         const tl = String(c?.type_line || c?.card?.type_line || '').toLowerCase();
         // B70: Xande — noncreature, nonland cards.
         if (wanted === 'noncreature_nonland') return !/\bcreature\b/.test(tl) && !/\bland\b/.test(tl);
+        // B80: Rielle — instant and sorcery cards.
+        if (wanted === 'instant_or_sorcery') return /\binstant\b/.test(tl) || /\bsorcery\b/.test(tl);
+        // B82: Winter — creature and planeswalker cards.
+        if (wanted === 'creature_or_planeswalker') return /\bcreature\b/.test(tl) || /\bplaneswalker\b/.test(tl);
+        // B83: Song of Stupefaction — permanent cards (not instants/sorceries).
+        if (wanted === 'permanent') {
+          return /\b(artifact|creature|enchantment|land|planeswalker|battle|kindred|tribal)\b/.test(tl);
+        }
         return !wanted || tl.includes(wanted);
       }).length : 0;
+    }
+    case 'host_controller_graveyard_cards_of_type': {
+      const host = battlefield.find((p) => String(p?.id || '') === String(spec.sourcePermanentId || ''));
+      const hostCtrl = String(host?.controller || '');
+      const gy = hostCtrl ? (state as any)?.zones?.[hostCtrl]?.graveyard : undefined;
+      const wanted = String(grant.countCardType || '').toLowerCase();
+      return Array.isArray(gy) ? gy.filter((c: any) => {
+        const tl = String(c?.type_line || c?.card?.type_line || '').toLowerCase();
+        return !wanted || tl.includes(wanted);
+      }).length : 0;
+    }
+    case 'controller_creatures_with_base_power_or_toughness': {
+      const n = Number(grant.countCardType);
+      if (!Number.isFinite(n)) return 0;
+      return battlefield.filter((p) => {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) return false;
+        if (!/\bcreature\b/.test(typeLine(p))) return false;
+        const power = Number(p?.card?.power);
+        const toughness = Number(p?.card?.toughness);
+        return power === n || toughness === n;
+      }).length;
     }
     case 'controller_lands_of_subtype': {
       const re = new RegExp('\\b' + String(grant.countCardType || '').toLowerCase() + '\\b');
@@ -141,8 +213,13 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
     case 'creatures_with_keyword': {
       const kw = String(grant.countKeyword || '').toLowerCase();
       const skip = grant.countExcludeSource ? String(spec.sourcePermanentId || '') : '';
-      return battlefield.filter((p) => p && !p.phasedOut && /\bcreature\b/.test(typeLine(p))
-        && !(skip && String(p?.id || '') === skip) && permanentHasKeyword(p, kw, state)).length;
+      // B82: Skycat — countWho 'you' limits to the source controller.
+      return battlefield.filter((p) => {
+        if (!p || p.phasedOut || !/\bcreature\b/.test(typeLine(p))) return false;
+        if (grant.countWho === 'you' && String(p.controller || '') !== controller) return false;
+        if (skip && String(p?.id || '') === skip) return false;
+        return permanentHasKeyword(p, kw, state);
+      }).length;
     }
     case 'host_controller_hand_size': {
       const host = battlefield.find((p) => String(p?.id || '') === String(spec.sourcePermanentId || ''));
@@ -185,6 +262,43 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
         for (const v of Object.values(pool)) total += Number(v) || 0;
       }
       return Math.max(0, Math.floor(total));
+    }
+    case 'greatest_mana_value_among_controller_permanents': {
+      // B83: Emissary Escort — +X/+0 where X is greatest MV among other artifacts.
+      const wanted = String(grant.countCardType || '').toLowerCase();
+      const skip = grant.countExcludeSource ? String(spec.sourcePermanentId || '') : '';
+      let best = 0;
+      for (const p of battlefield) {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) continue;
+        if (skip && String(p.id || '') === skip) continue;
+        if (wanted && !new RegExp('\\b' + wanted + '\\b').test(typeLine(p))) continue;
+        const card = p.card || p;
+        const cmc = Number(card?.cmc ?? card?.mana_value);
+        let mv = Number.isFinite(cmc) ? cmc : 0;
+        if (!Number.isFinite(cmc)) {
+          for (const sym of String(card?.mana_cost || '').match(/\{[^}]+\}/g) || []) {
+            const s = sym.slice(1, -1).toUpperCase();
+            if (/^\d+$/.test(s)) mv += parseInt(s, 10);
+            else if (s !== 'X') mv += 1;
+          }
+        }
+        if (mv > best) best = mv;
+      }
+      return best;
+    }
+    case 'controller_cards_drawn_this_turn': {
+      // B83: Knowledge Is Power.
+      const drawn = Number((state as any)?.cardsDrawnThisTurn?.[controller] || 0);
+      return Number.isFinite(drawn) ? Math.max(0, Math.floor(drawn)) : 0;
+    }
+    case 'controller_lands_of_subtype_half_down':
+    case 'controller_lands_of_subtype_half_up': {
+      // B84: Aspect of Wolf.
+      const re = new RegExp('\\b' + String(grant.countCardType || '').toLowerCase() + '\\b');
+      const n = controlledLandTypeLines(controller, battlefield, state).filter((tl) => re.test(tl)).length;
+      return grant.countBasis === 'controller_lands_of_subtype_half_up'
+        ? Math.ceil(n / 2)
+        : Math.floor(n / 2);
     }
     default:
       return undefined;

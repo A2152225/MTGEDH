@@ -14,7 +14,11 @@ export function pushTypeExtraSpecs(specs: StaticEffectSpec[], source: StaticEffe
   const chosen = String((perm as any)?.chosenCreatureType || (perm as any)?.card?.chosenCreatureType || '').trim();
   const lines = String(oracle || '').toLowerCase().replace(/\u2019/g, "'").split(/\n+/).map((l) => l.replace(/\([^)]*\)/g, '').trim());
   lines.forEach((line, index) => {
-    const m = line.match(/^(other )?creatures you control are (the chosen type|[a-z]+?s?) in addition to their other (?:creature )?types(?:\.|$)/);
+    // Arcane Adaptation: "… in addition to their other types."
+    // B84 Conspiracy: "Creatures you control are the chosen type." (same battlefield effect).
+    const m = line.match(
+      /^(other )?creatures you control are (the chosen type|[a-z]+?s?)(?: in addition to their other (?:creature )?types)?(?:\.|$)/,
+    );
     if (!m) return;
     const type = m[2] === 'the chosen type' ? chosen : m[2].replace(/s$/, '');
     if (!type) return;

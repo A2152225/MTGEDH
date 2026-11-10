@@ -110,10 +110,13 @@ function creaturesShareCreatureType(
 function countOtherCreaturesSharingType(
   creature: BattlefieldPermanent,
   battlefield: readonly BattlefieldPermanent[],
+  controllerFilter?: string,
 ): number {
   let count = 0;
   for (const other of battlefield) {
     if (!isCreaturePermanent(other) || other.id === creature.id) continue;
+    // B82: Stoneforge Masterwork — only creatures you control.
+    if (controllerFilter && String(other.controller || '') !== controllerFilter) continue;
     if (creaturesShareCreatureType(creature, other)) count += 1;
   }
   return count;
@@ -142,7 +145,11 @@ function resolveStaticCountMultiplier(
   if (!grant.countBasis) return 1;
   switch (grant.countBasis) {
     case 'other_creatures_sharing_creature_type':
-      return countOtherCreaturesSharingType(target, battlefield);
+      return countOtherCreaturesSharingType(
+        target,
+        battlefield,
+        grant.countWho === 'you' ? String(spec.sourceController || '') : undefined,
+      );
     case 'other_creatures_matching_scope':
       return countOtherCreaturesMatchingScope(target, spec, battlefield);
     case 'host_color_count': {

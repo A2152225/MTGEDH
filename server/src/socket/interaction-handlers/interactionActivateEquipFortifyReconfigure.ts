@@ -12,6 +12,7 @@ import { energyCostError, equipLifeCostError, equipSacrificeCandidates, parseEne
 import { parseAlternativeCostOptions } from "../../state/modules/alternativeCostOptions.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { parseEquipAbilitiesFromOracle, permanentMatchesEquipQualifier } from "../../../../shared/src/equipAbilities.js";
+import { creatureMeetsEquipmentAttachPower, equipmentMinAttachPower } from "../../state/modules/equipmentAttachPowerGate.js";
 import { cheaperEquipCost, getGrantedEquipmentEquipCost } from "../../state/modules/equipmentEquipCostGrants.js";
 import { appendEvent } from "../../db";
 import { isCreatureNow } from "../../state/creatureTypeNow.js";
@@ -99,9 +100,13 @@ export async function tryHandleActivateEquipFortifyReconfigure(
     const equipTargetDescription = selectedEquip?.targetDescription || 'creature you control';
     
     // Get valid targets based on equip qualifier
+    const minAttachPower = equipmentMinAttachPower(permanent);
     const validTargets = battlefield.filter((p: any) => {
       if (p.controller !== pid) return false;
-      return permanentMatchesEquipQualifier(p, equipQualifier);
+      if (!permanentMatchesEquipQualifier(p, equipQualifier)) return false;
+      // B79: O-Naginata — attach only if power >= N.
+      if (minAttachPower != null && !creatureMeetsEquipmentAttachPower(p, minAttachPower)) return false;
+      return true;
     });
 
     debug(2, `[activateBattlefieldAbility] Equip ${cardName} targets=${validTargets.length}: ${validTargets.map((p: any) => {

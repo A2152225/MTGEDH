@@ -9,6 +9,8 @@ const WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five:
 const MAX_RE = /can't be blocked by more than (\d+|one|two|three|four|five) creatures?/;
 // B38 power-gated team cap: "Each creature you control with power 4 or greater can't be blocked by more than one creature." (Challenger Troll)
 const TEAM_RE = /(?:each creature|creatures) you control(?: with power (\d+) or greater)? can't be blocked by more than (\d+|one|two|three|four|five) creatures?/;
+// B79: Battlefront Krushok — "Each creature you control with a +1/+1 counter on it can't be blocked by more than one creature."
+const TEAM_COUNTER_RE = /(?:each creature|creatures) you control with an? ([+\-\d/a-z ]+?) counters? on it can't be blocked by more than (\d+|one|two|three|four|five) creatures?/;
 
 function currentPower(perm: any): number {
   const raw = perm?.power ?? perm?.basePower ?? perm?.card?.power;
@@ -16,6 +18,13 @@ function currentPower(perm: any): number {
   if (!Number.isFinite(base)) return 0;
   const c = perm?.counters || {};
   return base + (Number(c['+1/+1']) || 0) - (Number(c['-1/-1']) || 0);
+}
+
+function hasCounter(perm: any, counterType: string): boolean {
+  const wanted = String(counterType || '').trim().toLowerCase();
+  if (!wanted) return false;
+  const counters = (perm?.counters || {}) as Record<string, unknown>;
+  return Object.entries(counters).some(([k, v]) => String(k).toLowerCase() === wanted && Number(v) > 0);
 }
 
 function lines(perm: any): string[] {
@@ -40,9 +49,15 @@ export function getMaximumBlockers(attacker: any, battlefield: readonly any[]): 
     if (!perm || String(perm.controller || '') !== controller) continue;
     for (const line of lines(perm)) {
       const m = line.match(TEAM_RE);
-      if (!m) continue;
-      if (m[1] && currentPower(attacker) < Number(m[1])) continue;
-      max = Math.min(max, toNum(m[2]));
+      if (m) {
+        if (m[1] && currentPower(attacker) < Number(m[1])) continue;
+        max = Math.min(max, toNum(m[2]));
+        continue;
+      }
+      const cm = line.match(TEAM_COUNTER_RE);
+      if (!cm) continue;
+      if (!hasCounter(attacker, cm[1])) continue;
+      max = Math.min(max, toNum(cm[2]));
     }
   }
   return max;

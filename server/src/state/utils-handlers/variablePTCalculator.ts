@@ -16,8 +16,11 @@ import { getLifePaidOnEntryPT } from "../modules/asEntersPayAnyLife.js";
 import { calculateGenericCountCDA } from "./variablePTGenericCountCDA.js";
 import { landAwareTypeLine } from '../modules/effectiveLandTypeLine.js';
 import {
+  calculateAngryMobStyleCDA,
+  calculateChosenPlayerCreaturesCDA,
   calculateControlledCountCDA,
   calculateDevotionCDA,
+  calculateExiledCardManaValueCDA,
   calculateGraveyardCardTypesCDA,
   calculatePowerPlusOpponentGraveyardCardTypesCDA,
 } from "./variablePTControlledCountCDA.js";
@@ -560,6 +563,19 @@ export function calculateVariablePT(
   if (graveyardTypes) return graveyardTypes;
   const devotion = calculateDevotionCDA(oracleText, battlefield, controllerId, card.toughness);
   if (devotion) return devotion;
+
+  // B84 CDAs that need the battlefield permanent (chosen player / linked exile / turn gate).
+  const selfPerm = (battlefield || []).find((p: any) =>
+    p?.card === card
+    || (card?.id && (p?.card?.id === card.id || p?.id === card.id))
+    || (card?.name && String(p?.card?.name || '') === String(card.name)),
+  ) || { ...card, controller: controllerId, card };
+  const exiledMv = calculateExiledCardManaValueCDA(card, oracleText, selfPerm, gameState);
+  if (exiledMv) return exiledMv;
+  const chosenPlayerCreatures = calculateChosenPlayerCreaturesCDA(card, oracleText, selfPerm, battlefield);
+  if (chosenPlayerCreatures) return chosenPlayerCreatures;
+  const angryMob = calculateAngryMobStyleCDA(card, oracleText, selfPerm, battlefield, gameState);
+  if (angryMob) return angryMob;
 
   // Default fallback - return undefined so caller knows we couldn't calculate
   return undefined;

@@ -41,15 +41,53 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   if (p === 'opponent whose life total is less than half their starting life total') return { countBasis: 'opponents_below_half_starting_life' as any };
   if (p === 'transformed permanent you control') return { countBasis: 'controller_permanents_of_type', countCardType: '', countQualifier: { transformed: true } };
   // "for each artifact and/or enchantment you control" (Nettlecyst).
-  m = p.match(/^(artifact|creature|land|enchantment|planeswalker) (?:and ?\/or|or) (artifact|creature|land|enchantment|planeswalker) you control$/);
+  // B83: Born to Drive — "creature and/or Vehicle you control".
+  m = p.match(/^(artifact|creature|land|enchantment|planeswalker|vehicle) (?:and ?\/or|or) (artifact|creature|land|enchantment|planeswalker|vehicle) you control$/);
   if (m) return { countBasis: 'controller_permanents_of_type', countCardType: `(?:${m[1]}|${m[2]})` };
   m = p.match(/^([a-z]+) counters? (you|your opponents) have$/);
   if (m) return { countBasis: 'player_counters', countCounterType: m[1], countWho: m[2] === 'you' ? 'you' : 'opponents' };
   m = p.match(/^(other )?creature on the battlefield with ([a-z ]+)$/);
   if (m) return { countBasis: 'creatures_with_keyword', countKeyword: m[2], ...(m[1] ? { countExcludeSource: true } : {}) };
-  m = p.match(/^(aura|equipment)(?: and (aura|equipment))? attached to (?:it|this creature)$/);
+  // B82: Skycat Sovereign — "other creature you control with flying"
+  m = p.match(/^(other )?creatures? you control with ([a-z ]+)$/);
+  if (m) {
+    return {
+      countBasis: 'creatures_with_keyword',
+      countKeyword: m[2],
+      countWho: 'you',
+      ...(m[1] ? { countExcludeSource: true } : {}),
+    };
+  }
+  // B82: Winter — "creature and planeswalker card in your graveyard"
+  if (/^creature and planeswalker cards? in your graveyard$/.test(p)) {
+    return { countBasis: 'controller_graveyard_cards_of_type', countCardType: 'creature_or_planeswalker' };
+  }
+  // B82: Death's Approach / Bonehoard — creature cards in its controller's / all graveyards
+  if (/^creature cards? in its controller'?s graveyard$/.test(p)) {
+    return { countBasis: 'host_controller_graveyard_cards_of_type', countCardType: 'creature' };
+  }
+  if (/^creature cards? in all graveyards$/.test(p)) {
+    return { countBasis: 'controller_graveyard_cards_of_type', countCardType: 'creature', countWho: 'all' };
+  }
+  // B82: Sword of the Squeak — creatures you control with base power or toughness N
+  m = p.match(/^creatures? you control with base power or toughness (\d+)$/);
+  if (m) {
+    return {
+      countBasis: 'controller_creatures_with_base_power_or_toughness',
+      countCardType: m[1],
+    };
+  }
+  // B80: Winter Soldier — "Equipment attached to him/her/them".
+  m = p.match(/^(aura|equipment)(?: and (aura|equipment))? attached to (?:it|this creature|him|her|them)$/);
   if (m) return { countBasis: 'attachments_on_source', countAttachmentKinds: [m[1], m[2]].filter(Boolean) as string[] };
   if (p === 'card in your hand') return { countBasis: 'controller_hand_size' };
+  // B81: Enemy of Enlightenment — cards in opponents' hands.
+  if (/^cards? in your opponents'? hands?$/.test(p)) return { countBasis: 'controller_hand_size', countWho: 'opponents' };
+  // B81: Faeburrow Elder — colors among permanents you control.
+  if (p === 'color among permanents you control') return { countBasis: 'controller_colors_among_permanents' };
+  // B81: Gleam of Authority — +1/+1 counters on other creatures you control.
+  m = p.match(/^([+\-\d/a-z]+) counters? on other creatures you control$/);
+  if (m) return { countBasis: 'counters_on_other_creatures_you_control', countCounterType: m[1], countExcludeSource: true };
   // R34: "for each creature your opponents control" (Scourge of Geier Reach).
   m = p.match(/^(artifact|creature|land|enchantment|planeswalker|permanent) (?:your opponents control|an opponent controls)$/);
   if (m) return { countBasis: 'controller_permanents_of_type', countCardType: m[1] === 'permanent' ? '' : m[1], countWho: 'opponents' };
@@ -57,6 +95,10 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   // B70: Xande — "for each noncreature, nonland card in your graveyard"
   if (/^noncreature,? nonland cards? in your graveyard$/.test(p)) {
     return { countBasis: 'controller_graveyard_cards_of_type', countCardType: 'noncreature_nonland' };
+  }
+  // B83: Song of Stupefaction — permanent cards in your graveyard.
+  if (/^permanent cards? in your graveyard$/.test(p)) {
+    return { countBasis: 'controller_graveyard_cards_of_type', countCardType: 'permanent' };
   }
   m = p.match(/^([a-z]+) cards? in your graveyard$/);
   if (m && !/^(?:other|nonland|noncreature)$/.test(m[1])) return { countBasis: 'controller_graveyard_cards_of_type', countCardType: m[1] };
@@ -84,6 +126,20 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   if (m) return { countBasis: 'source_counters', countCounterType: m[1], countOnEffectSource: true };
   m = p.match(/^([a-z+\/0-9-]+) counter on (?:it|this creature)$/);
   if (m) return { countBasis: 'source_counters', countCounterType: m[1] };
+  // B83: Emissary Escort — greatest mana value among other artifacts you control.
+  m = p.match(/^the greatest mana value among (other )?(artifacts?|creatures?|permanents?|enchantments?) you control$/);
+  if (m) {
+    const noun = m[2].replace(/s$/, '');
+    return {
+      countBasis: 'greatest_mana_value_among_controller_permanents',
+      countCardType: noun === 'permanent' ? '' : noun,
+      ...(m[1] ? { countExcludeSource: true } : {}),
+    };
+  }
+  // B83: Knowledge Is Power — cards you've drawn this turn.
+  if (/^cards? you(?:'ve| have) drawn this turn$/.test(p)) {
+    return { countBasis: 'controller_cards_drawn_this_turn' };
+  }
   return null;
 }
 
@@ -96,13 +152,17 @@ function legacyAttachedReaderApplies(oracle: string): boolean {
   }
 }
 
-const WHERE_X_RE = /^(this creature|enchanted creature|equipped creature) gets ([+-])x\/([+-])(x|0),? where x is (.+)$/;
+const WHERE_X_RE = /^(this creature|enchanted creature|equipped creature|enchanted permanent|creatures you control) gets? ([+-])x\/([+-])(x|0),? where x is (.+)$/;
 
 function whereXBasis(phrase: string): Partial<StaticEffectGrant> | null {
   const p = phrase.trim();
   if (p === 'your life total') return { countBasis: 'controller_life_total' as any };
+  // B83: greatest-mana phrases are not "the number of …".
+  const greatest = countGrant(p);
+  if (greatest?.countBasis === 'greatest_mana_value_among_controller_permanents') return greatest;
+  if (greatest?.countBasis === 'controller_cards_drawn_this_turn') return greatest;
   const m = p.match(/^the number of (.+?)s?$/);
-  if (!m) return null;
+  if (!m) return countGrant(p);
   return countGrant(m[1]) || countGrant(m[1].replace(/^cards in your (hand|graveyard)$/, 'card in your $1'));
 }
 
@@ -111,6 +171,10 @@ function pushWhereXSpec(specs: StaticEffectSpec[], source: StaticEffectSpecSourc
   if (!basis) return;
   const grant: StaticEffectGrant = { power: m[2] === '-' ? -1 : 1, toughness: m[4] === '0' ? 0 : (m[3] === '-' ? -1 : 1), ...basis };
   if (m[1] === 'this creature') { specs.push(buildSpec(source, `self-where-x-pt:${index}`, { kind: 'self' }, grant)); return; }
+  if (m[1] === 'creatures you control') {
+    specs.push(buildSpec(source, `creatures-you-control-where-x-pt:${index}`, { kind: 'creatures_you_control' }, grant));
+    return;
+  }
   if (!hostId || legacyAttachedReaderApplies(oracle)) return;
   specs.push({ ...buildSpec(source, `attached-where-x-pt:${index}`, { kind: 'self' }, grant), sourcePermanentId: hostId, effectSourcePermanentId: source.sourcePermanentId, scope: { kind: 'self' } });
 }
@@ -150,6 +214,10 @@ export function pushCountedAndAttachedPTSpecs(
       if (attachCut) {
         forEachPhrase = attachCut[1];
         tail = attachCut[2] || '';
+      } else if (/^(artifact|creature|enchantment|land|planeswalker) and (artifact|creature|enchantment|land|planeswalker) cards? in/.test(rebuilt)) {
+        // B82: Winter — "creature and planeswalker card in your graveyard"
+        forEachPhrase = rebuilt;
+        tail = '';
       }
     }
     if (forEachPhrase) {

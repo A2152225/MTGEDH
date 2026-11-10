@@ -76,7 +76,12 @@ export function pushQualifiedScopeSpecs(
 ): void {
   const lines = String(oracle || '').toLowerCase().replace(/\u2019/g, "'").split(/\n+/);
   lines.forEach((raw, index) => {
-    const line = raw.replace(/\([^)]*\)/g, '').trim().replace(/\.$/, '');
+    // B80: strip ability words ("The Will of the Hive Mind — …") before matching.
+    const line = raw
+      .replace(/\([^)]*\)/g, '')
+      .replace(/^[a-z0-9' -]+\s*(?:\u2014|--|-)\s+/i, '')
+      .trim()
+      .replace(/\.$/, '');
     if (!line || /until end of turn|for each|as long as|^(?:when|whenever|at|if)\b|:/.test(line)) return;
     for (const rule of RULES) {
       const m = line.match(rule.re);

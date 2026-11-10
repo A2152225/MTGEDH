@@ -122,10 +122,18 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
         try {
           prepared = await prepareLiveGame({ gameId, seats, seed: gameSeed, seedAI: true });
           const advanced = await advanceLiveGame(prepared.game, {
-            maxTicks: Math.max(200, MAX_TURNS * 40),
+            // Cap ticks tightly: softStop + turn/stall guards end the game.
+            maxTicks: Math.max(200, MAX_TURNS * 25),
             tickMs: 2_000,
             maxTurns: MAX_TURNS,
-            maxStagnantTicks: 30,
+            maxStagnantTicks: 40,
+            minStagnantWallMs: 15_000,
+            // Simulated ms without a turn advance (~30 ticks at 2s) → stall.
+            // Only applies once turnNumber > 0 (see advanceLiveGame).
+            maxNoTurnAdvanceMs: 60_000,
+            // Real wall clock: generous per-tick budget (mulligan/setup ticks can be slow).
+            maxWallClockMs: Math.max(180_000, MAX_TURNS * 15_000),
+            maxTickWallClockMs: 60_000,
             softStop: true,
             label: gameId,
             stopWhen: (game) => Boolean((game.state as any).gameOver),
@@ -165,6 +173,10 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
           };
           results.push(row);
           appendResult(row);
+          // eslint-disable-next-line no-console
+          console.log(
+            `[selfplay] ${gameId} end=${endReason} turns=${turns} ms=${row.ms} (${results.length} this process)`,
+          );
         } catch (err) {
           const row = {
             gameId,
@@ -197,5 +209,14 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
       harnessErrors.length,
       `harness errors: ${harnessErrors.map((r) => r.error).join('; ')}`,
     ).toBeLessThan(results.length);
-  }, Math.max(120_000, GAMES * 90_000));
+  }, (() => {
+    // Four-bot games average ~4–6s/turn; keep vitest timeout above maxWallClockMs.
+    const { count: shardCount } = parseShard(SHARD);
+    const gamesThisShard = Math.max(1, Math.ceil(GAMES / Math.max(1, shardCount)));
+    const wallBudgetMs = Math.max(180_000, MAX_TURNS * 15_000);
+    const perGameMs = Math.max(wallBudgetMs + 120_000, MAX_TURNS * 25_000);
+    return Math.max(300_000, gamesThisShard * perGameMs + 60_000);
+  })());
 });
+
+

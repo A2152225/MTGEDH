@@ -19,7 +19,8 @@
 
 import { allocateTimestamp, readAttachmentTimestamp, readPermanentTimestamp, TIMESTAMP_BASE } from './permanentTimestamps';
 
-const CONTROL_AURA_RE = /\byou control enchanted (?:creature|permanent|artifact|land|planeswalker)\b/i;
+// B78: Steal Enchantment — "You control enchanted enchantment."
+const CONTROL_AURA_RE = /\byou control enchanted (?:creature|permanent|artifact|land|planeswalker|enchantment)\b/i;
 
 export function oracleGrantsAuraControl(oracle: string): boolean {
   return CONTROL_AURA_RE.test(String(oracle || '').replace(/\([^)]*\)/g, ' '));

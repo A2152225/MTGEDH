@@ -18,6 +18,14 @@ const singular = (w: string): string => w.replace(/ies$/, 'y').replace(/s$/, '')
 
 export function parseOpponentStateCondition(raw: string): StaticEffectCondition | null {
   const c = String(raw || '').toLowerCase().replace(/\u2019/g, "'").trim().replace(/[.,]+$/, '');
+  // B81: Guul Draz Specter — "an opponent has no cards in hand"
+  if (/^an opponent has no cards? in hand$/.test(c)) return { kind: 'opponent_hand_at_most', amount: 0 } as any;
+  {
+    const handAtMost = c.match(/^an opponent has (\w+) or fewer cards? in hand$/);
+    if (handAtMost && num(handAtMost[1]) !== undefined) {
+      return { kind: 'opponent_hand_at_most', amount: num(handAtMost[1]) } as any;
+    }
+  }
   let m = c.match(/^an opponent has (\w+) or less life$/);
   if (m && num(m[1]) !== undefined) return { kind: 'opponent_life_at_most', amount: num(m[1]) } as any;
   m = c.match(/^(?:your opponents control no|no opponent controls an?|no opponents control any) ([a-z]+?)s?$/);
@@ -65,8 +73,22 @@ function lifeOf(state: any, pid: string): number | undefined {
 }
 
 /** Returns undefined for kinds this module does not own. */
+function handSizeOf(state: any, pid: string): number {
+  const zone = state?.zones?.[pid];
+  if (typeof zone?.handCount === 'number' && Number.isFinite(zone.handCount)) return Math.max(0, Math.floor(zone.handCount));
+  if (Array.isArray(zone?.hand)) return zone.hand.length;
+  const p = (state?.players || []).find((x: any) => String(x?.id || '') === pid);
+  return Array.isArray(p?.hand) ? p.hand.length : 0;
+}
+
 export function evalOpponentStateCondition(condition: { kind?: string; cardType?: string; amount?: number }, controller: string, battlefield: readonly any[], state: any): boolean | undefined {
   switch (condition.kind) {
+    case 'opponent_hand_at_most':
+      return (state?.players || []).some((p: any) => {
+        const id = String(p?.id || '');
+        if (!id || id === controller || p?.hasLost || p?.eliminated) return false;
+        return handSizeOf(state, id) <= Number(condition.amount || 0);
+      });
     case 'opponent_life_at_most':
       return (state?.players || []).some((p: any) => {
         const id = String(p?.id || '');
