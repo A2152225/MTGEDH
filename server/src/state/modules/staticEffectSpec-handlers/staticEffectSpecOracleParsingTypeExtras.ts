@@ -19,10 +19,33 @@ export function pushTypeExtraSpecs(specs: StaticEffectSpec[], source: StaticEffe
     const m = line.match(
       /^(other )?creatures you control are (the chosen type|[a-z]+?s?)(?: in addition to their other (?:creature )?types)?(?:\.|$)/,
     );
-    if (!m) return;
-    const type = m[2] === 'the chosen type' ? chosen : m[2].replace(/s$/, '');
-    if (!type) return;
-    const scope: StaticEffectScope = { kind: m[1] ? 'other_creatures_you_control' : 'creatures_you_control' };
-    specs.push(buildSpec(source, `type-extra-lord:${index}`, scope, { typeAdditions: [cap(type)] }));
+    if (m) {
+      const type = m[2] === 'the chosen type' ? chosen : m[2].replace(/s$/, '');
+      if (!type) return;
+      const scope: StaticEffectScope = { kind: m[1] ? 'other_creatures_you_control' : 'creatures_you_control' };
+      specs.push(buildSpec(source, `type-extra-lord:${index}`, scope, { typeAdditions: [cap(type)] }));
+      return;
+    }
+    // B85: Rukarumel — "Slivers you control and nontoken creatures you control are the chosen type…"
+    const ruk = line.match(
+      /^([a-z]+)s? you control and nontoken creatures you control are (the chosen type|[a-z]+?s?)(?: in addition to their other (?:creature )?types)?(?:\.|$)/,
+    );
+    if (ruk) {
+      const type = ruk[2] === 'the chosen type' ? chosen : ruk[2].replace(/s$/, '');
+      const subtype = String(ruk[1] || '').trim();
+      if (!type || !subtype) return;
+      specs.push(buildSpec(
+        source,
+        `type-extra-subtype-you-control:${index}`,
+        { kind: 'creatures_you_control', creatureType: cap(subtype) },
+        { typeAdditions: [cap(type)] },
+      ));
+      specs.push(buildSpec(
+        source,
+        `type-extra-nontoken-you-control:${index}`,
+        { kind: 'creatures_you_control', qualifier: { token: false } },
+        { typeAdditions: [cap(type)] },
+      ));
+    }
   });
 }

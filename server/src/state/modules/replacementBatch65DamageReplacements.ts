@@ -1,7 +1,9 @@
 // server/src/state/modules/replacementBatch65DamageReplacements.ts
-// B65 damage replacements:
+// B65/B86 damage replacements:
 //   Akki Lavarunner // Tok-Tok — red source damage to a player +1
 //   Raphael, the Muscle — double damage from creatures you control with counters
+//   B86 Wolverine — double all damage ~ would deal
+//   B86 Collective Inferno — double damage from sources you control of the chosen type
 // Public: collectBatch65DamageReplacementSpecs, parseBatch65DamageSentence.
 // Leaf: must not import replacementEffectSpec.ts or replacementEffectSpec-handlers/index.ts.
 
@@ -37,6 +39,31 @@ const TEMPLATES: Array<{ re: RegExp; body: SpecBody }> = [
       reason: 'creatures_you_control_with_counters_damage_double',
     },
   },
+  {
+    // B86: Wolverine — after name→~ normalize: "double all damage ~ would deal".
+    re: /^double all damage (?:~|this creature) would deal$/,
+    body: {
+      event: 'damage',
+      match: { damageSourceIsSource: true },
+      instead: { modify: 'double' },
+      effectId: 'source-damage-double',
+      reason: 'source_damage_double',
+    },
+  },
+  {
+    // B87: Absorbing Man and Titania.
+    re: /^double all damage that creature sources you control would deal$/,
+    body: {
+      event: 'damage',
+      match: {
+        dealingPlayerIsSourceController: true,
+        damageSourceIsCreature: true,
+      },
+      instead: { modify: 'double' },
+      effectId: 'creature-sources-you-control-damage-double',
+      reason: 'creature_sources_you_control_damage_double',
+    },
+  },
 ];
 
 export function parseBatch65DamageSentence(sentence: string): SpecBody[] {
@@ -63,16 +90,26 @@ export function parseBatch65DamageSentence(sentence: string): SpecBody[] {
 
 export function collectBatch65DamageReplacementSpecs(
   oracle: string,
-  source: { sourcePermanentId: string; sourceController: string; sourceName: string },
+  source: {
+    sourcePermanentId: string;
+    sourceController: string;
+    sourceName: string;
+    chosenCreatureType?: string;
+  },
 ): ReplacementEffectSpec[] {
   const text = String(oracle || '').toLowerCase().replace(/\u2019/g, "'");
   if (!text) return [];
-  if (!/red source would deal damage|double all damage that creatures you control with counters/i.test(text)) {
+  if (!/red source would deal damage|double all damage/i.test(text)) {
     return [];
   }
   const name = String(source.sourceName || '').toLowerCase();
   let normalized = text;
-  if (name) normalized = normalized.split(name).join('~');
+  if (name) {
+    normalized = normalized.split(name).join('~');
+    // B86: Wolverine oracle uses the short name while sourceName is the full legendary name.
+    const short = name.split(',')[0].trim();
+    if (short && short !== name) normalized = normalized.split(short).join('~');
+  }
   const sentences = normalized
     .split(/(?<=\.)\s+/)
     .map((s) => s.replace(/^[a-z][a-z0-9' !?.+-]*[\u2014\u2013-]\s*/i, '').replace(/\.$/, '').trim())
@@ -87,6 +124,29 @@ export function collectBatch65DamageReplacementSpecs(
         sourceController: source.sourceController,
         sourceName: source.sourceName,
       });
+    }
+    // B86: Collective Inferno — chosen type baked from permanent at collect time.
+    const chosen = sentence.match(
+      /^double all damage that sources you control of the chosen type would deal$/,
+    );
+    if (chosen) {
+      const type = String(source.chosenCreatureType || '').trim();
+      if (type) {
+        specs.push({
+          event: 'damage',
+          match: {
+            dealingPlayerIsSourceController: true,
+            damageSourceHasCreatureType: type.toLowerCase(),
+          },
+          instead: { modify: 'double' },
+          effectId: `chosen-type-sources-damage-double:${type.toLowerCase()}`,
+          reason: 'chosen_type_sources_damage_double',
+          id: `${source.sourcePermanentId}:chosen-type-sources-damage-double`,
+          sourcePermanentId: source.sourcePermanentId,
+          sourceController: source.sourceController,
+          sourceName: source.sourceName,
+        });
+      }
     }
   }
   return specs;

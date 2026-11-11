@@ -49,13 +49,15 @@ import { AI_MANA_ABILITY_PATTERN, COLOR_IDENTITY_MAP } from "./aiConstants.js";
 import { isPointlessGainLifeActivatedAbility } from "./aiActivatedAbilityContextualIdle.js";
 import { findCastableSpells } from "./aiFindCastableSpells.js";
 import { getPaymentSources } from "./aiPaymentSources.js";
-import { aiEngine, getAIPendingSpellCastStatus } from "./aiScheduler.js";
+import { AI_REACTION_DELAY_MS } from "./aiConstants.js";
+import { aiEngine, getAIPendingSpellCastStatus, scheduleAIPriority } from "./aiScheduler.js";
 import { calculateSpellPriority } from "./aiSpellPriority.js";
 import {
   candidatesFromAIActionList,
   recordDecision,
   traceContextFromGame,
 } from "./aiDecisionTrace.js";
+import { applyBrain, takeShadow } from "./aiBrain.js";
 
 function getAIActionContext(game: any): any {
   return getAIHandlerDeps().getAIActionContext(game);
@@ -365,9 +367,14 @@ export async function enumerateAIActionCandidates(
   playerId: PlayerID,
   query: AIActionCandidateQuery,
 ): Promise<AIActionCandidate[]> {
+  const { setAIActionDebugStage } = await import('./aiScheduler.js');
+  // Prefer explicit gameId on the query when present (InMemoryGame often has no .id).
+  const stageGameId = String((query as any).gameId || gameIdFromGame(game) || 'unknown');
+  const stage = (label: string) => setAIActionDebugStage(stageGameId, playerId, `enum:${query.mode}:${label}`);
   const kinds = getAIActionCandidateKinds(query);
   const candidates: AIActionCandidate[] = [];
   const willNeedToDiscard = query.willNeedToDiscard === true;
+  stage('start');
 
   if (query.mode === 'main' && kinds.has('play_land')) {
     const landCandidate = findPlayableLand(game, playerId);
@@ -381,12 +388,14 @@ export async function enumerateAIActionCandidates(
   }
 
   if (kinds.has('activate_ability')) {
+    stage('abilities');
     const abilityCandidate = await getAIActivatedAbilityCandidate(
       game,
       playerId,
       willNeedToDiscard,
       query.mode === 'response' ? 'response' : 'main',
     );
+    stage('abilities-done');
     if (abilityCandidate) {
       const confidenceBonus = Math.round(Number(abilityCandidate.confidence || 0) * 10);
       const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
@@ -425,6 +434,7 @@ export async function enumerateAIActionCandidates(
   }
 
   if (kinds.has('cast_commander')) {
+    stage('commander');
     const commanderCandidate = findCastableCommander(game, playerId, { responseOnly: query.mode === 'response' });
     if (commanderCandidate) {
       const basePriority = query.mode === 'response' ? 430 : 650;
@@ -437,7 +447,9 @@ export async function enumerateAIActionCandidates(
   }
 
   if (kinds.has('cast_spell')) {
+    stage('spells');
     const spellCandidates = findCastableSpells(game, playerId, { responseOnly: query.mode === 'response' });
+    stage(`spells-done:${spellCandidates.length}`);
     for (const spellCandidate of spellCandidates) {
       candidates.push({
         kind: 'cast_spell',
@@ -448,7 +460,12 @@ export async function enumerateAIActionCandidates(
   }
 
   candidates.sort((left, right) => right.priority - left.priority);
-  return candidates;
+  stage(`done:${candidates.length}`);
+  return applyBrain(game, playerId, query, candidates);
+}
+
+function gameIdFromGame(game: any): string {
+  return String(game?.id || game?.gameId || game?.state?.gameId || 'unknown');
 }
 
 type AICastControlFlowSnapshot = {
@@ -521,14 +538,34 @@ export async function waitForAISharedCastToSettle(
   cardId: string,
   sourceZone: AICastRequestSourceZone,
   before: AICastControlFlowSnapshot,
-  maxWaitMs: number = 2000,
+  maxWaitMs: number = 250,
 ): Promise<boolean> {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < maxWaitMs) {
+  // Real wall clock + node:timers — vitest fakes Date/setTimeout for AI scheduling.
+  // A stuck _completingSpellCastByPlayer marker used to burn 2s×N cast attempts inside
+  // one tick (selfplay-1000-20-1 MAIN1 tick-timeout).
+  const { setTimeout: realSetTimeout } = await import('node:timers');
+  const { clearPlayerCompletingSpellCast } = await import('../game-actions-handlers/gameActionsSpellCastLock.js');
+  const startedAt = process.hrtime.bigint();
+  const budgetNs = BigInt(Math.max(1, maxWaitMs)) * 1_000_000n;
+  while (process.hrtime.bigint() - startedAt < budgetNs) {
     if (!isPlayerCompletingSpellCast(game, playerId)) {
       break;
     }
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise<void>((resolve) => {
+      realSetTimeout(() => resolve(), 25).unref?.();
+    });
+  }
+
+  // Marker never cleared (cast aborted mid-prompt): drop it so later attempts cannot
+  // serialize another real-time wait budget inside the same exclusive AI action.
+  if (isPlayerCompletingSpellCast(game, playerId)) {
+    debugWarn(1, '[AI] Clearing stuck completing-spell-cast marker after settle wait', {
+      gameId,
+      playerId,
+      cardId,
+    });
+    clearPlayerCompletingSpellCast(game, playerId, cardId);
+    clearPlayerCompletingSpellCast(game, playerId);
   }
 
   return didAICastAttemptChangeControlFlow(gameId, game, playerId, { card: { id: cardId }, sourceZone }, before);
@@ -541,6 +578,14 @@ type FailedResponseAbilityWindow = {
 
 const failedResponseAbilityWindows = new Map<string, FailedResponseAbilityWindow>();
 
+type ResponseActionsTakenWindow = {
+  fingerprint: string;
+  count: number;
+};
+
+/** Successful response actions per seat per phase/step/stack window (caps END/MAIN churn). */
+const responseActionsTakenWindows = new Map<string, ResponseActionsTakenWindow>();
+
 function getAIResponseAbilityWindowFingerprint(game: any): string {
   return [
     String(game?.state?.phase || ''),
@@ -548,6 +593,30 @@ function getAIResponseAbilityWindowFingerprint(game: any): string {
     String(game?.state?.turnPlayer || ''),
     String(Array.isArray(game?.state?.stack) ? game.state.stack.length : 0),
   ].join('|');
+}
+
+function getAIResponseActionsTaken(gameId: string, playerId: string, game: any): number {
+  const existing = responseActionsTakenWindows.get(`${gameId}:${playerId}`);
+  if (!existing || existing.fingerprint !== getAIResponseAbilityWindowFingerprint(game)) return 0;
+  return existing.count;
+}
+
+function noteAIResponseActionTaken(gameId: string, playerId: string, game: any): void {
+  const fingerprint = getAIResponseAbilityWindowFingerprint(game);
+  const windowKey = `${gameId}:${playerId}`;
+  const existing = responseActionsTakenWindows.get(windowKey);
+  if (!existing || existing.fingerprint !== fingerprint) {
+    responseActionsTakenWindows.set(windowKey, { fingerprint, count: 1 });
+    return;
+  }
+  existing.count += 1;
+}
+
+function maxAIResponseActionsForWindow(game: any): number {
+  const stackLen = Array.isArray(game?.state?.stack) ? game.state.stack.length : 0;
+  // Empty stack: at most one "response" activate/cast per seat per step, then pass.
+  // Non-empty: allow a few answers before forcing pass so the stack can resolve.
+  return stackLen === 0 ? 1 : 4;
 }
 
 function rememberFailedAIResponseAbility(
@@ -590,13 +659,29 @@ export async function tryAIResponseActions(
   playerId: PlayerID,
   game: any,
 ): Promise<boolean> {
+  const { setAIActionDebugStage } = await import('./aiScheduler.js');
+  const stage = (label: string) => setAIActionDebugStage(gameId, playerId, `response:${label}`);
+  stage('enter');
   const responseContext = getAIActionContext(game);
   if (!canRespond(responseContext, playerId)) {
+    stage('cannot-respond');
     return false;
   }
 
-  const responseCandidates = await enumerateAIActionCandidates(game, playerId, { mode: 'response' });
+  const responseActionCap = maxAIResponseActionsForWindow(game);
+  if (getAIResponseActionsTaken(gameId, String(playerId), game) >= responseActionCap) {
+    stage(`window-cap:${responseActionCap}`);
+    return false;
+  }
+
+  stage('enumerate');
+  const responseCandidates = await enumerateAIActionCandidates(game, playerId, {
+    mode: 'response',
+    gameId,
+  } as any);
+  stage(`enumerate-done:${responseCandidates.length}`);
   const responseTraceCandidates = candidatesFromAIActionList(responseCandidates);
+  const responseShadow = takeShadow(responseCandidates);
   const recordResponseChoice = (chosen: number | null, note?: string) => {
     recordDecision({
       ...traceContextFromGame(game, gameId, playerId),
@@ -604,6 +689,7 @@ export async function tryAIResponseActions(
       candidates: responseTraceCandidates,
       chosen,
       note,
+      shadow: responseShadow,
     });
   };
 
@@ -611,6 +697,7 @@ export async function tryAIResponseActions(
     const candidate = responseCandidates[candidateIndex];
     if (candidate.kind === 'activate_ability') {
       const permanentId = String(candidate.ability.action?.permanentId || '');
+      const abilityName = String(candidate.ability.action?.cardName || permanentId || 'ability');
       if (didAIResponseAbilityFailThisWindow(gameId, game, playerId, permanentId)) {
         debugWarn(1, '[AI] Skipping previously failed response-window ability this priority window', {
           gameId,
@@ -622,8 +709,15 @@ export async function tryAIResponseActions(
       }
 
       debug(1, '[AI] Taking response-window activated ability:', candidate.ability.action.cardName);
+      stage(`activate:${abilityName}`);
+      // continueAfterResolution=false so shared activation drains prompts inline; we must
+      // still wake this seat afterward or beginning/UPKEEP returns with priority held and
+      // no timer (self-play soft-deadlock after a successful response activate).
       if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action, false)) {
+        noteAIResponseActionTaken(gameId, String(playerId), game);
         recordResponseChoice(candidateIndex);
+        stage(`activate-ok:${abilityName}`);
+        scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
         return true;
       }
 
@@ -639,31 +733,44 @@ export async function tryAIResponseActions(
 
     if (candidate.kind === 'cast_spell') {
       const candidateSpell = candidate.spell;
+      const spellName = String(candidateSpell.castCard?.name || candidateSpell.card?.name || 'spell');
       debug(1, '[AI] Taking response-window spell action:', {
-        name: candidateSpell.castCard?.name || candidateSpell.card?.name,
+        name: spellName,
         sourceZone: candidateSpell.sourceZone,
         priority: candidateSpell.priority,
       });
 
+      stage(`cast:${spellName}`);
       const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
       const castProgressed = await executeAICastSpell(io, gameId, playerId, candidateSpell);
       if (castProgressed) {
+        noteAIResponseActionTaken(gameId, String(playerId), game);
         recordResponseChoice(candidateIndex);
+        stage(`cast-ok:${spellName}`);
+        scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
         return true;
       }
 
       if (didAICastAttemptChangeControlFlow(gameId, game, playerId, candidateSpell, beforeCast)) {
+        noteAIResponseActionTaken(gameId, String(playerId), game);
         recordResponseChoice(candidateIndex, 'control-flow-changed');
+        stage(`cast-flow:${spellName}`);
+        scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
         return true;
       }
     }
 
     if (candidate.kind === 'cast_commander') {
-      debug(1, '[AI] Taking response-window commander action:', candidate.commander.card.name);
+      const commanderName = String(candidate.commander.card.name || 'commander');
+      debug(1, '[AI] Taking response-window commander action:', commanderName);
+      stage(`cast-commander:${commanderName}`);
       const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
       const castProgressed = await executeAICastCommander(io, gameId, playerId, candidate.commander);
       if (castProgressed) {
+        noteAIResponseActionTaken(gameId, String(playerId), game);
         recordResponseChoice(candidateIndex);
+        stage(`cast-commander-ok:${commanderName}`);
+        scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
         return true;
       }
 
@@ -671,11 +778,15 @@ export async function tryAIResponseActions(
         card: candidate.commander.card,
         sourceZone: 'command',
       }, beforeCast)) {
+        noteAIResponseActionTaken(gameId, String(playerId), game);
         recordResponseChoice(candidateIndex, 'control-flow-changed');
+        stage(`cast-commander-flow:${commanderName}`);
+        scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
         return true;
       }
     }
   }
 
+  stage('none');
   return false;
 }

@@ -31,6 +31,22 @@ const setMod = (landType: string, extra: Partial<Mod>, id: string): Mod => ({
 });
 
 function parseConditionalLandTypeSetting(oracle: string, permanent?: any): Mod | null {
+  // B88: Zhao — "As long as ~ has a conqueror counter on him, nonbasic lands are Mountains."
+  {
+    const gated = oracle.match(
+      new RegExp(
+        '(?:^|[.\\n]\\s*)as long as (?:~|this creature|[a-z\' ,.-]+?) has an? ([a-z0-9+/-]+) counters? on (?:him|her|it|them), nonbasic lands are (?:basic )?' + TYPE + '\\s*(?:[.\\n]|$)',
+      ),
+    );
+    if (gated && WORDS[gated[2]]) {
+      const counter = String(gated[1] || '').toLowerCase();
+      const have = Number(permanent?.counters?.[counter] || permanent?.counters?.[gated[1]] || 0);
+      if (have > 0) {
+        return setMod(WORDS[gated[2]], { affects: 'nonbasic_lands' }, 'oracle_counter_gated_nonbasic_' + WORDS[gated[2]]);
+      }
+      return null;
+    }
+  }
   const conv = oracle.match(new RegExp('(?:^|[.\\n]\\s*)all ' + TYPE + ' are (?:basic )?' + TYPE + '\\s*(?:[.\\n]|$)'));
   if (conv && WORDS[conv[1]] && WORDS[conv[2]] && WORDS[conv[1]] !== WORDS[conv[2]]) {
     return setMod(WORDS[conv[2]], { fromLandType: WORDS[conv[1]] }, 'oracle_convert_' + WORDS[conv[1]] + '_' + WORDS[conv[2]]);

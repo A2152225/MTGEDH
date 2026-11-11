@@ -45,6 +45,8 @@ function isAICardStillInCastSourceZone(
   return getAISourceCards(game, playerId, sourceZone).some((entry: any) => String(entry?.id || '') === cardId);
 }
 
+const MAX_AI_CAST_ATTEMPTS_PER_CARD_PER_STEP = 2;
+
 export async function requestAISharedCast(
   io: Server,
   gameId: string,
@@ -65,6 +67,30 @@ export async function requestAISharedCast(
     if (!cardId) {
       return false;
     }
+
+    // Cap retries of the same card in one step. X-spell casts (Heliod's Intervention)
+    // can "progress" via a transient x_value_selection then abort with the card still
+    // in hand; without a cap the seat re-casts forever and MAIN1 turn-stalls.
+    const castWindowKey = [
+      String(playerId),
+      String((game.state as any)?.turnNumber || 0),
+      String((game.state as any)?.step || ''),
+      cardId,
+    ].join(':');
+    const castAttemptCounts = ((game.state as any)._aiCastAttemptCount ||= {}) as Record<string, number>;
+    const attemptsTaken = Number(castAttemptCounts[castWindowKey] || 0);
+    if (attemptsTaken >= MAX_AI_CAST_ATTEMPTS_PER_CARD_PER_STEP) {
+      rememberAIFailedSpellCast(game, String(playerId), cardId);
+      debugWarn(1, '[AI] Cast attempt cap reached for card this step; skipping', {
+        gameId,
+        playerId,
+        cardId,
+        cardName: request.cardName,
+        attemptsTaken,
+      });
+      return false;
+    }
+    castAttemptCounts[castWindowKey] = attemptsTaken + 1;
 
     const stackLengthBefore = Array.isArray(game.state?.stack) ? game.state.stack.length : 0;
     const priorityBefore = game.state?.priority;
@@ -127,9 +153,8 @@ export async function requestAISharedCast(
       aiHasPendingSteps ||
       priorityChanged;
     if (!progressed) {
-      if (rejectCode === 'NO_VALID_TARGETS') {
-        rememberAIFailedSpellCast(game, String(playerId), cardId);
-      }
+      // Any stuck cast (not only NO_VALID_TARGETS) must not be retried forever.
+      rememberAIFailedSpellCast(game, String(playerId), cardId);
       debugWarn(1, '[AI] Shared cast request produced no state change:', {
         gameId,
         playerId,

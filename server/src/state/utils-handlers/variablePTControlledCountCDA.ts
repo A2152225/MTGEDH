@@ -202,6 +202,91 @@ export function calculateChosenPlayerCreaturesCDA(
   return { power: base + n, toughness: base + n };
 }
 
+/** B85: Sutured Ghoul — power = total power of exiled cards; toughness = their total toughness. */
+export function calculateExiledCardsTotalPTCDA(
+  card: any,
+  oracleText: string,
+  permanent: any,
+  gameState: any,
+): { power: number; toughness: number } | undefined {
+  const text = String(oracleText || '').toLowerCase().replace(/\u2019/g, "'");
+  if (!/power is equal to the total power of the exiled cards and its toughness is equal to their total toughness/.test(text)) {
+    return undefined;
+  }
+  if (!/\*/.test(String(card?.power ?? '') + String(card?.toughness ?? ''))) return undefined;
+  const pool: any[] = [...(Array.isArray(permanent?.exiledCards) ? permanent.exiledCards : [])];
+  const selfId = String(permanent?.id || '');
+  for (const zone of Object.values<any>(gameState?.zones || {})) {
+    if (!Array.isArray(zone?.exile)) continue;
+    for (const c of zone.exile) {
+      const linked = String(c?.exiledWithSourceId || c?.card?.exiledWithSourceId || c?.exiledWith || '');
+      if (selfId && linked === selfId) pool.push(c);
+    }
+  }
+  let power = 0;
+  let toughness = 0;
+  for (const c of pool) {
+    const p = Number(c?.power ?? c?.card?.power);
+    const t = Number(c?.toughness ?? c?.card?.toughness);
+    if (Number.isFinite(p)) power += p;
+    if (Number.isFinite(t)) toughness += t;
+  }
+  return { power, toughness };
+}
+
+/** B86: Chameleon Spirit — P/T each equal to permanents of the chosen color your opponents control. */
+export function calculateChosenColorOpponentsPermanentsCDA(
+  card: any,
+  oracleText: string,
+  permanent: any,
+  battlefield: readonly any[],
+): { power: number; toughness: number } | undefined {
+  const text = String(oracleText || '').toLowerCase().replace(/\u2019/g, "'");
+  if (!/power and toughness are each equal to the number of permanents of the chosen color your opponents control/.test(text)) {
+    return undefined;
+  }
+  if (!/\*/.test(String(card?.power ?? '') + String(card?.toughness ?? ''))) return undefined;
+  const color = String(
+    permanent?.chosenColor
+    || permanent?.card?.chosenColor
+    || '',
+  ).trim().toUpperCase();
+  const letter = color.length === 1 ? color
+    : ({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' } as Record<string, string>)[color.toLowerCase()] || '';
+  if (!letter) return { power: 0, toughness: 0 };
+  const controller = String(permanent?.controller || card?.controller || '');
+  const n = (battlefield || []).filter((p) => {
+    if (!p || p.phasedOut) return false;
+    if (!controller || String(p.controller || '') === controller) return false;
+    const colors = Array.isArray(p?.card?.colors) ? p.card.colors.map((c: any) => String(c).toUpperCase()) : [];
+    return colors.includes(letter);
+  }).length;
+  return { power: n, toughness: n };
+}
+
+/** B85: Shapeshifter — power = last chosen number; toughness = 7 minus that number. */
+export function calculateLastChosenNumberSplitCDA(
+  card: any,
+  oracleText: string,
+  permanent: any,
+): { power: number; toughness: number } | undefined {
+  const text = String(oracleText || '').toLowerCase().replace(/\u2019/g, "'");
+  const m = text.match(
+    /power is equal to the last chosen number and its toughness is equal to (\d+) minus that number/,
+  );
+  if (!m) return undefined;
+  if (!/\*/.test(String(card?.power ?? '') + String(card?.toughness ?? ''))) return undefined;
+  const base = Number(m[1]);
+  const chosen = Number(
+    permanent?.chosenNumber
+    ?? permanent?.lastChosenNumber
+    ?? permanent?.card?.chosenNumber
+    ?? permanent?.card?.lastChosenNumber,
+  );
+  if (!Number.isFinite(base) || !Number.isFinite(chosen)) return undefined;
+  return { power: chosen, toughness: base - chosen };
+}
+
 /** B84: Angry Mob — during your turn = N + opponents' Swamps; otherwise printed base. */
 export function calculateAngryMobStyleCDA(
   card: any,

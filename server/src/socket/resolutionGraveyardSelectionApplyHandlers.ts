@@ -46,6 +46,7 @@ import {
   stampCardExiledWithSource,
 } from "../state/modules/exileWithSourceStamp.js";
 import { stampPermanentEntryTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
+import { tryHandleGraveyardSelectionOracleIrChoiceResume } from './resolutionGraveyardSelectionOracleIrChoiceResume.js';
 
 export async function handleGraveyardSelectionResponse(
   io: Server,
@@ -56,6 +57,11 @@ export async function handleGraveyardSelectionResponse(
 ): Promise<void> {
   const pid = response.playerId as any;
   const stepData = step as any;
+
+  // GY-origin move_zone IR prompts (Mirko / Emeria family) resume via choice JSON.
+  if (await tryHandleGraveyardSelectionOracleIrChoiceResume(io, game, gameId, step, response)) {
+    return;
+  }
 
   const effectId = String(stepData.effectId || step.sourceId || '').trim();
   const cardName = String(stepData.cardName || step.sourceName || 'Effect');

@@ -100,6 +100,103 @@ export function evalPhase5StaticCondition(
       return counterCount(findSource(spec, battlefield), String(condition.counterType || '')) >= Number(condition.amount || 0);
     case 'source_counter_at_most':
       return counterCount(findSource(spec, battlefield), String(condition.counterType || '')) <= Number(condition.amount || 0);
+    case 'target_has_counter_at_least': {
+      // B85: Runadi — creatures you control with three or more +1/+1 counters.
+      const amount = Number(condition.amount || 0);
+      if (!(amount > 0)) return false;
+      return counterCount(permanent, String(condition.counterType || '')) >= amount;
+    }
+    case 'source_controller_sacrificed_artifact_this_turn': {
+      // B85: Furtive Courier.
+      const controller = String(spec.sourceController || '');
+      if (!controller) return false;
+      return Number((state as any)?.artifactsSacrificedThisTurn?.[controller] || 0) > 0;
+    }
+    case 'target_is_attacking_or_blocking': {
+      // B86: Tromokratis.
+      const attacking = (permanent as any)?.attacking != null && (permanent as any)?.attacking !== false;
+      const blocking = (permanent as any)?.blocking != null && (permanent as any)?.blocking !== false
+        || (permanent as any)?.isBlocking === true
+        || Array.isArray((permanent as any)?.blockedAttackerIds) && (permanent as any).blockedAttackerIds.length > 0;
+      return attacking || blocking;
+    }
+    case 'defending_player_controls_most_creatures': {
+      // B86: Hooded Horror — while attacking, defending player has >= max creature count.
+      const attacking = (permanent as any)?.attacking;
+      if (attacking == null || attacking === false) return false;
+      const bf = battlefield || [];
+      const defendingId = (() => {
+        const t = String(attacking);
+        if (bf.some((p: any) => p && String(p.id) === t)) {
+          return String(bf.find((p: any) => p && String(p.id) === t)?.controller || '');
+        }
+        return t;
+      })();
+      if (!defendingId) return false;
+      const counts = new Map<string, number>();
+      for (const p of bf) {
+        if (!p || p.phasedOut) continue;
+        if (!/\bcreature\b/i.test(String(p?.card?.type_line || ''))) continue;
+        const c = String(p.controller || '');
+        if (!c) continue;
+        counts.set(c, (counts.get(c) || 0) + 1);
+      }
+      const defCount = counts.get(defendingId) || 0;
+      let max = 0;
+      for (const n of counts.values()) if (n > max) max = n;
+      return defCount >= max && defCount > 0;
+    }
+    case 'opponent_dealt_damage_this_turn': {
+      // B87: Bloodcrazed Goblin — proxy via lifeLostThisTurn on any other player.
+      const controller = String(spec.sourceController || '');
+      const lost = (state as any)?.lifeLostThisTurn || {};
+      return Object.keys(lost).some((id) => id !== controller && Number(lost[id] || 0) > 0);
+    }
+    case 'target_is_paired_with_soulbond': {
+      // B87: Flowering Lumberknot.
+      const partnerId = String((permanent as any)?.pairedWith || (permanent as any)?.pairedTo || '').trim();
+      if (!partnerId) return false;
+      const partner = (battlefield || []).find((p: any) => p && String(p.id) === partnerId);
+      if (!partner) return false;
+      const text = String(partner?.card?.oracle_text || partner?.oracle_text || '').toLowerCase();
+      const kws = Array.isArray(partner?.keywords) ? partner.keywords : Array.isArray(partner?.card?.keywords) ? partner.card.keywords : [];
+      return /\bsoulbond\b/.test(text) || kws.some((k: any) => String(k).toLowerCase() === 'soulbond');
+    }
+    case 'source_controller_controls_artifact_creature_or_subtype': {
+      // B87: Doctor Doom — artifact creature OR a Plan (subtype).
+      const controller = String(spec.sourceController || '');
+      const sub = String((condition as any).creatureType || '').toLowerCase();
+      if (!controller) return false;
+      return (battlefield || []).some((p: any) => {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) return false;
+        const tl = String(p?.card?.type_line || '').toLowerCase();
+        if (/\bartifact\b/.test(tl) && /\bcreature\b/.test(tl)) return true;
+        return !!sub && new RegExp('\\b' + sub + 's?\\b').test(tl);
+      });
+    }
+    case 'controller_creatures_distinct_counter_kinds_at_least': {
+      // B87: Hundred-Battle Veteran.
+      const controller = String(spec.sourceController || '');
+      const amount = Number(condition.amount || 0);
+      if (!controller || !(amount > 0)) return false;
+      const kinds = new Set<string>();
+      for (const p of battlefield || []) {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) continue;
+        if (!/\bcreature\b/i.test(String(p?.card?.type_line || ''))) continue;
+        const counters = (p.counters || {}) as Record<string, unknown>;
+        for (const [key, value] of Object.entries(counters)) {
+          if (Number(value) > 0) kinds.add(String(key).toLowerCase());
+        }
+      }
+      return kinds.size >= amount;
+    }
+    case 'source_controller_creatures_died_this_turn_at_least': {
+      // B87: Gimli.
+      const controller = String(spec.sourceController || '');
+      const amount = Number(condition.amount || 0);
+      if (!controller || !(amount > 0)) return false;
+      return Number((state as any)?.creaturesDiedThisTurnByController?.[controller] || 0) >= amount;
+    }
     case 'battlefield_has_matching': {
       const wanted = String(condition.cardType || '').trim().toLowerCase();
       if (!wanted) return false;

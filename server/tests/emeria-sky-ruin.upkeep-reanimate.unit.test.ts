@@ -129,11 +129,11 @@ describe('Emeria, the Sky Ruin upkeep reanimate', () => {
     executeAcceptedEmeriaTrigger(game);
 
     const searchStep = ResolutionQueueManager.getStepsForPlayer(gameId, p1).find(
-      (entry) => entry.type === ResolutionStepType.LIBRARY_SEARCH || entry.type === ResolutionStepType.GRAVEYARD_SELECTION,
+      (entry) => entry.type === ResolutionStepType.GRAVEYARD_SELECTION,
     ) as any;
     expect(searchStep).toBeTruthy();
+    expect(searchStep.type).toBe(ResolutionStepType.GRAVEYARD_SELECTION);
     expect(searchStep.destination).toBe('battlefield');
-    expect(searchStep.searchZone === 'graveyard' || searchStep.type === ResolutionStepType.GRAVEYARD_SELECTION).toBe(true);
     const availableIds = (searchStep.availableCards || searchStep.validTargets || [])
       .map((card: any) => String(card?.id || ''))
       .filter(Boolean);
@@ -147,7 +147,7 @@ describe('Emeria, the Sky Ruin upkeep reanimate', () => {
     executeAcceptedEmeriaTrigger(game);
 
     const searchStep = ResolutionQueueManager.getStepsForPlayer(gameId, p1).find(
-      (entry) => entry.type === ResolutionStepType.LIBRARY_SEARCH || entry.type === ResolutionStepType.GRAVEYARD_SELECTION,
+      (entry) => entry.type === ResolutionStepType.GRAVEYARD_SELECTION,
     ) as any;
     expect(searchStep).toBeTruthy();
 
@@ -168,7 +168,7 @@ describe('Emeria, the Sky Ruin upkeep reanimate', () => {
 
     const leftover = ResolutionQueueManager.getStepsForPlayer(gameId, p1).filter(
       (entry) =>
-        (entry.type === ResolutionStepType.LIBRARY_SEARCH || entry.type === ResolutionStepType.GRAVEYARD_SELECTION)
+        entry.type === ResolutionStepType.GRAVEYARD_SELECTION
         && String(entry.status || '').toLowerCase() !== 'completed'
         && String(entry.status || '').toLowerCase() !== 'cancelled',
     );

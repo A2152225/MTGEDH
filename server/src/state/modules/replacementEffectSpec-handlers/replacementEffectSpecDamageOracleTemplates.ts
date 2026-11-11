@@ -195,6 +195,11 @@ export function collectOraclePatternDamageReplacementSpecsFromState(state: unkno
       sourcePermanentId,
       sourceController,
       sourceName,
+      chosenCreatureType: String(
+        (permRecord as any)?.chosenCreatureType
+        || (permRecord as any)?.card?.chosenCreatureType
+        || '',
+      ).trim() || undefined,
     }));
 
     const preventAllBut = parsePreventAllButAnotherTypeDamageSpec(oracle);
@@ -450,6 +455,17 @@ export function overlaySpecsMatchDamage(
   if (match.damageSourceIsSource === true) {
     const damageSourceId = String(input.damageSourcePermanentId || '').trim();
     if (!damageSourceId || damageSourceId !== String(spec.sourcePermanentId || '').trim()) return false;
+  }
+  if (match.damageSourceIsCreature === true) {
+    // B65/B87: creature-source damage doubles (Raphael / Absorbing Man).
+    const damageSourceId = String(input.damageSourcePermanentId || '').trim();
+    if (!damageSourceId || !state) return false;
+    const dmgSource = findBattlefieldPermanent(state, damageSourceId);
+    if (!dmgSource) return false;
+    const tl = String((dmgSource as any)?.card?.type_line || (dmgSource as any)?.type_line || '').toLowerCase();
+    const isCreature = ((/\bcreature\b/.test(tl) && (dmgSource as any)?.notCreature !== true)
+      || (dmgSource as any)?.isCreature === true);
+    if (!isCreature) return false;
   }
   if (match.damageSourceIsInstantOrSorcerySpell === true
     && !damageSourceIsInstantOrSorcerySpell(state, String(input.damageSourcePermanentId || ''))) return false;

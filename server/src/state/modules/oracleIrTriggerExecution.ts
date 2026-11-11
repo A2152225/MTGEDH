@@ -570,6 +570,7 @@ export function tryResolveTriggerViaOracleIR(
     if (
       handled
       && !continuationBridged
+      && !queueBridged
       && (result.automationGaps || []).some((gap) => gap.reasonCode === 'player_choice_required')
     ) {
       handled = false;

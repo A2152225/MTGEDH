@@ -43,6 +43,8 @@ export function buildAiHandAndDraftStepResponse(
 ): ResolutionStepResponse | null {
   switch (step.type) {
     case ResolutionStepType.X_VALUE_SELECTION: {
+      // Recreate soft-cap lives in resolution.ts STEP_ADDED gate
+      // (shouldSoftCapAiAutoResolveStep + breakAiCappedAutoResolveStep).
       const xValue = chooseAIXValueSelection(game, step.playerId as any, step as any);
       const response: ResolutionStepResponse = {
         stepId: step.id,

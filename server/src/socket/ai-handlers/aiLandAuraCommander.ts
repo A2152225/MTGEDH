@@ -76,13 +76,21 @@ export function findPlayableLand(game: any, playerId: PlayerID): AIPlayableLandC
 }
 
 
+function aiFailedSpellCastTurnKey(game: any): string {
+  const stateAny = game?.state as any;
+  // Live games stamp turnNumber; older fixtures may still use turnCount/turn.
+  const turn = stateAny?.turnNumber ?? stateAny?.turnCount ?? stateAny?.turn ?? 0;
+  const turnPlayer = stateAny?.activePlayer || stateAny?.turnPlayer || '';
+  return `${String(turn)}:${String(turnPlayer)}`;
+}
+
 function rememberAIFailedSpellCast(game: any, playerId: string, cardId: string): void {
   const normalizedCardId = String(cardId || '').trim();
   const normalizedPlayerId = String(playerId || '').trim();
   if (!game?.state || !normalizedCardId || !normalizedPlayerId) return;
 
   const stateAny = game.state as any;
-  const turnKey = `${String(stateAny.turnCount ?? stateAny.turn ?? 0)}:${String(stateAny.activePlayer || stateAny.turnPlayer || '')}`;
+  const turnKey = aiFailedSpellCastTurnKey(game);
   if (String(stateAny._aiFailedSpellCastTurnKey || '') !== turnKey) {
     stateAny._aiFailedSpellCastByPlayer = {};
     stateAny._aiFailedSpellCastTurnKey = turnKey;
@@ -105,7 +113,7 @@ export function isAIFailedSpellCastCard(game: any, playerId: string, cardId: str
   if (!game?.state || !normalizedCardId || !normalizedPlayerId) return false;
 
   const stateAny = game.state as any;
-  const turnKey = `${String(stateAny.turnCount ?? stateAny.turn ?? 0)}:${String(stateAny.activePlayer || stateAny.turnPlayer || '')}`;
+  const turnKey = aiFailedSpellCastTurnKey(game);
   if (String(stateAny._aiFailedSpellCastTurnKey || '') !== turnKey) {
     return false;
   }

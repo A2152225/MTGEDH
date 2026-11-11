@@ -100,6 +100,24 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   if (/^permanent cards? in your graveyard$/.test(p)) {
     return { countBasis: 'controller_graveyard_cards_of_type', countCardType: 'permanent' };
   }
+  // B85: Runaway Trash-Bot — artifact and/or enchantment cards in your graveyard.
+  if (/^artifact and\/or enchantment cards? in your graveyard$/.test(p)
+    || /^enchantment and\/or artifact cards? in your graveyard$/.test(p)) {
+    return { countBasis: 'controller_graveyard_cards_of_type', countCardType: 'artifact_or_enchantment' };
+  }
+  // B85: Earthen Ally — colors among Allies you control.
+  {
+    const colorsAmong = p.match(/^colors? among ([a-z]+) you control$/);
+    if (colorsAmong) {
+      let sub = String(colorsAmong[1] || '').toLowerCase();
+      if (sub.endsWith('ies')) sub = `${sub.slice(0, -3)}y`;
+      else if (sub.endsWith('s') && !sub.endsWith('ss')) sub = sub.slice(0, -1);
+      return {
+        countBasis: 'controller_colors_among_creature_type',
+        countCardType: sub,
+      };
+    }
+  }
   m = p.match(/^([a-z]+) cards? in your graveyard$/);
   if (m && !/^(?:other|nonland|noncreature)$/.test(m[1])) return { countBasis: 'controller_graveyard_cards_of_type', countCardType: m[1] };
   m = p.match(LAND_SUBTYPE_YOU_CONTROL_RE);
@@ -140,6 +158,39 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   if (/^cards? you(?:'ve| have) drawn this turn$/.test(p)) {
     return { countBasis: 'controller_cards_drawn_this_turn' };
   }
+  // B85: Moraug — for each time it has attacked this turn.
+  if (/^time it has attacked this turn$/.test(p)) {
+    return { countBasis: 'recipient_times_attacked_this_turn' };
+  }
+  // B87: Upriser Renegade.
+  if (/^(other )?modified creatures? you control$/.test(p)) {
+    return { countBasis: 'controller_modified_creatures', ...(p.startsWith('other ') ? { countExcludeSource: true } : {}) };
+  }
+  // B87: Rampant Frogantua.
+  if (/^players? who has? lost the game$/.test(p)) {
+    return { countBasis: 'players_who_lost_the_game' };
+  }
+  // B87: Bearded Axe — Dwarf, Equipment, and/or Vehicle you control.
+  {
+    const multi = p.match(/^([a-z]+)(?:, ([a-z]+))*(?:,? and\/?or ([a-z]+)) you control$/);
+    if (multi) {
+      const parts = p.replace(/ you control$/, '').split(/,? and\/?or |, /).map((w) => w.trim().replace(/s$/, '')).filter(Boolean);
+      if (parts.length >= 2) {
+        return { countBasis: 'controller_permanents_matching_any_type', countCardType: parts.join('|') };
+      }
+    }
+  }
+  // B87: Opaline Bracers — charge counters on this Equipment (where-x / for-each).
+  m = p.match(/^([a-z+\/0-9-]+) counters? on (?:~|this (?:equipment|aura|artifact|enchantment))$/);
+  if (m) return { countBasis: 'source_counters', countCounterType: m[1], countOnEffectSource: true };
+  // B88: Copperhoof — untapped permanents your opponents control.
+  if (/^untapped permanents? (?:your opponents control|an opponent controls)$/.test(p)) {
+    return { countBasis: 'opponents_untapped_permanents' };
+  }
+  // B88: Strata Scythe — lands with the same name as the exiled card.
+  if (/^lands? on the battlefield with the same name as the exiled card$/.test(p)) {
+    return { countBasis: 'lands_matching_effect_source_exiled_name' };
+  }
   return null;
 }
 
@@ -179,7 +230,8 @@ function pushWhereXSpec(specs: StaticEffectSpec[], source: StaticEffectSpecSourc
   specs.push({ ...buildSpec(source, `attached-where-x-pt:${index}`, { kind: 'self' }, grant), sourcePermanentId: hostId, effectSourcePermanentId: source.sourcePermanentId, scope: { kind: 'self' } });
 }
 
-const LINE_RE = /^(this creature|enchanted creature|equipped creature) gets ([+-]\d+)\/([+-]\d+)(?: for each ([a-z+\/0-9 ~',-]+?))?(?: and ([^.]+))?$/;
+// B88: Rolling Hamsphere — "This Vehicle gets +1/+1 for each Hamster you control."
+const LINE_RE = /^(this creature|this vehicle|enchanted creature|equipped creature) gets ([+-]\d+)\/([+-]\d+)(?: for each ([a-z+\/0-9 ~',-]+?))?(?: and ([^.]+))?$/;
 
 export function pushCountedAndAttachedPTSpecs(
   specs: StaticEffectSpec[],
@@ -203,7 +255,7 @@ export function pushCountedAndAttachedPTSpecs(
     if (/as long as|until end of turn|where x|^(?:when|whenever|at|if)\b/.test(line)) return;
     const m = line.match(LINE_RE);
     if (!m) return;
-    const attached = m[1] !== 'this creature';
+    const attached = m[1] !== 'this creature' && m[1] !== 'this vehicle';
     const grant: StaticEffectGrant = { power: parseInt(m[2], 10), toughness: parseInt(m[3], 10) };
     let forEachPhrase = m[4] || '';
     let tail = m[5] || '';

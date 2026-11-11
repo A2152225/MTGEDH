@@ -12,7 +12,12 @@ import { energyCostError, equipLifeCostError, equipSacrificeCandidates, parseEne
 import { parseAlternativeCostOptions } from "../../state/modules/alternativeCostOptions.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { parseEquipAbilitiesFromOracle, permanentMatchesEquipQualifier } from "../../../../shared/src/equipAbilities.js";
-import { creatureMeetsEquipmentAttachPower, equipmentMinAttachPower } from "../../state/modules/equipmentAttachPowerGate.js";
+import {
+  creatureMeetsEquipmentAttachGates,
+  creatureMeetsEquipmentAttachPower,
+  equipmentMinAttachPower,
+  equipmentRequiresLegendaryHost,
+} from "../../state/modules/equipmentAttachPowerGate.js";
 import { cheaperEquipCost, getGrantedEquipmentEquipCost } from "../../state/modules/equipmentEquipCostGrants.js";
 import { appendEvent } from "../../db";
 import { isCreatureNow } from "../../state/creatureTypeNow.js";
@@ -101,11 +106,14 @@ export async function tryHandleActivateEquipFortifyReconfigure(
     
     // Get valid targets based on equip qualifier
     const minAttachPower = equipmentMinAttachPower(permanent);
+    const needsLegendary = equipmentRequiresLegendaryHost(permanent);
     const validTargets = battlefield.filter((p: any) => {
       if (p.controller !== pid) return false;
       if (!permanentMatchesEquipQualifier(p, equipQualifier)) return false;
-      // B79: O-Naginata — attach only if power >= N.
-      if (minAttachPower != null && !creatureMeetsEquipmentAttachPower(p, minAttachPower)) return false;
+      // B79/B88: O-Naginata power gate + Konda's Banner legendary gate.
+      if (minAttachPower != null || needsLegendary) {
+        if (!creatureMeetsEquipmentAttachGates(permanent, p)) return false;
+      }
       return true;
     });
 

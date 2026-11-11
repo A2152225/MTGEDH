@@ -279,6 +279,7 @@ import { buildAiCostAndExploreStepResponse } from "./resolution-handlers/aiCostA
 import { buildAiTargetSelectionStepResponse } from "./resolution-handlers/aiTargetSelectionStepResponses.js";
 import { buildAiHandAndDraftStepResponse } from "./resolution-handlers/aiHandAndDraftStepResponses.js";
 import { shouldAutoResolveResolutionStep } from "./resolution-handlers/resolutionAutoResolveGate.js";
+import { breakAiStepAddedRecreateIfCapped } from "./ai-handlers/aiStepAddedCapGate.js";
 import {
   applySelectedManaPaymentForResolutionCost,
   applyWardManaPaymentSelection,
@@ -531,6 +532,12 @@ export async function handleAIResolutionStep(
     }
     
     if (!options?.force && !shouldAutoResolveResolutionStep(game, step.playerId)) return;
+
+    // Soft-cap recreate storms that bypass priority-path loop break (Mirko
+    // library_search, Taste of Death target_selection, Heliod X, …).
+    if (!options?.force && await breakAiStepAddedRecreateIfCapped(io, game, gameId, step)) {
+      return;
+    }
 
     debug(2, `[Resolution] Auto-resolving step for ${step.playerId}: ${step.type}`);
     

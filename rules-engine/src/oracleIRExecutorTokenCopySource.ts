@@ -510,6 +510,14 @@ function resolveCopyTokenSource(
       };
     }
 
+    // "that card" / "the exiled card" always refer to a prior-clause antecedent (e.g. Anikthea
+    // GY exile → token copy). Falling back to the ability source minted a copy of the source
+    // itself when "up to one" exiled nothing, which re-ETB'd and sync-stormed for 60s+.
+    // Embalm/Eternalize-style "copy of it" still may use the activating card as sourceId.
+    if (referenceText === 'that card' || referenceText === 'the exiled card') {
+      return { kind: 'unavailable' };
+    }
+
     const sourceFallback = findSourceObjectByIdAcrossState(state, String(ctx.sourceId || '').trim());
     if (sourceFallback) return { kind: 'resolved', sourceObject: sourceFallback };
     const snapshotFallback = resolveSnapshotCopySource(ctx, runtime);

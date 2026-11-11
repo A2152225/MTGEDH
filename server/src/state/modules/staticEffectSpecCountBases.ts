@@ -24,8 +24,10 @@ function controlledLandTypeLines(controller: string, battlefield: readonly any[]
 type SpecLike = {
   sourcePermanentId?: string;
   sourceController?: string;
+  effectSourcePermanentId?: string;
   grant?: { countBasis?: string; countCardType?: string; countAttachmentKinds?: readonly string[]; countExcludeSource?: boolean;
-    countCounterType?: string; countWho?: string; countKeyword?: string; countQualifier?: any; countName?: string };
+    countCounterType?: string; countWho?: string; countKeyword?: string; countQualifier?: any; countName?: string;
+    countColor?: string };
 };
 
 function playerCounterCount(state: any, players: any[], id: string, kind: string): number {
@@ -158,6 +160,10 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
         if (wanted === 'permanent') {
           return /\b(artifact|creature|enchantment|land|planeswalker|battle|kindred|tribal)\b/.test(tl);
         }
+        // B85: Runaway Trash-Bot.
+        if (wanted === 'artifact_or_enchantment') {
+          return /\bartifact\b/.test(tl) || /\benchantment\b/.test(tl);
+        }
         return !wanted || tl.includes(wanted);
       }).length : 0;
     }
@@ -259,9 +265,61 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
       let total = 0;
       if (typeof pool === 'number') return Math.max(0, Math.floor(pool));
       if (pool && typeof pool === 'object') {
-        for (const v of Object.values(pool)) total += Number(v) || 0;
+        // B88: Omnath — optional countColor filters to that letter (green → G).
+        const COLOR: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+        const raw = String(grant.countColor || '').trim().toLowerCase();
+        const sym = COLOR[raw] || (/^[wubrg]$/i.test(raw) ? raw.toUpperCase() : '');
+        if (sym) {
+          total = Number((pool as any)[sym] ?? (pool as any)[sym.toLowerCase()] ?? 0) || 0;
+        } else {
+          for (const v of Object.values(pool)) total += Number(v) || 0;
+        }
       }
       return Math.max(0, Math.floor(total));
+    }
+    case 'controller_subtype_battlefield_and_graveyard': {
+      // B88: Cid — each Artificer you control + each Artificer card in your graveyard.
+      const wanted = String(grant.countCardType || '').toLowerCase();
+      if (!wanted) return 0;
+      const re = new RegExp('\\b' + wanted + 's?\\b');
+      let n = battlefield.filter((p) =>
+        p && !p.phasedOut && String(p.controller || '') === controller && re.test(typeLine(p)),
+      ).length;
+      const gy = controllerZone(spec, state as any)?.graveyard;
+      if (Array.isArray(gy)) {
+        for (const card of gy) {
+          const tl = String(card?.type_line || card?.card?.type_line || '').toLowerCase();
+          if (re.test(tl)) n += 1;
+        }
+      }
+      return n;
+    }
+    case 'opponents_untapped_permanents': {
+      // B88: Copperhoof Vorrac.
+      return battlefield.filter((p) =>
+        p && !p.phasedOut && String(p.controller || '') && String(p.controller || '') !== controller && !p.tapped,
+      ).length;
+    }
+    case 'lands_matching_effect_source_exiled_name': {
+      // B88: Strata Scythe — count lands whose name matches the equipment's exiled card.
+      const effectId = String(spec.effectSourcePermanentId || spec.sourcePermanentId || '');
+      const effectSrc = battlefield.find((p) => String(p?.id || '') === effectId)
+        || ((state as any)?.battlefield || []).find((p: any) => String(p?.id || '') === effectId);
+      const exiled = Array.isArray((effectSrc as any)?.exiledCards)
+        ? (effectSrc as any).exiledCards
+        : Array.isArray((effectSrc as any)?.card?.exiledCards)
+          ? (effectSrc as any).card.exiledCards
+          : [];
+      const names = new Set(
+        exiled.map((c: any) => String(c?.name || c?.card?.name || '').toLowerCase().trim()).filter(Boolean),
+      );
+      if (names.size === 0) return 0;
+      return battlefield.filter((p) => {
+        if (!p || p.phasedOut) return false;
+        if (!/\bland\b/.test(typeLine(p))) return false;
+        const name = String(p?.card?.name || p?.name || '').toLowerCase().trim();
+        return names.has(name);
+      }).length;
     }
     case 'greatest_mana_value_among_controller_permanents': {
       // B83: Emissary Escort — +X/+0 where X is greatest MV among other artifacts.
@@ -299,6 +357,55 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
       return grant.countBasis === 'controller_lands_of_subtype_half_up'
         ? Math.ceil(n / 2)
         : Math.floor(n / 2);
+    }
+    case 'controller_colors_among_creature_type': {
+      // B85: Earthen Ally — colors among Allies you control.
+      const sub = String(grant.countCardType || '').toLowerCase();
+      const colors = new Set<string>();
+      for (const p of battlefield) {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) continue;
+        const tl = typeLine(p);
+        if (sub && !new RegExp('\\b' + sub + 's?\\b').test(tl)) continue;
+        for (const c of getEffectiveColors(p, state)) {
+          const s = String(c || '').toUpperCase();
+          if ('WUBRG'.includes(s) && s) colors.add(s);
+        }
+      }
+      return colors.size;
+    }
+    case 'controller_modified_creatures': {
+      // B87: Upriser Renegade — CR 700.9 modified (counters / Equipment / Aura you control).
+      const skip = grant.countExcludeSource ? String(spec.sourcePermanentId || '') : '';
+      return battlefield.filter((p) => {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) return false;
+        if (!/\bcreature\b/.test(typeLine(p))) return false;
+        if (skip && String(p.id || '') === skip) return false;
+        const counters = (p.counters || {}) as Record<string, unknown>;
+        if (Object.values(counters).some((v) => Number(v) > 0)) return true;
+        const id = String(p.id || '');
+        return battlefield.some((a) => {
+          if (String(a?.attachedTo || '') !== id) return false;
+          const tl = typeLine(a);
+          if (/\bequipment\b/.test(tl)) return true;
+          if (/\baura\b/.test(tl) && String(a?.controller || '') === controller) return true;
+          return false;
+        });
+      }).length;
+    }
+    case 'players_who_lost_the_game': {
+      // B87: Rampant Frogantua.
+      const players: any[] = Array.isArray((state as any)?.players) ? (state as any).players : [];
+      return players.filter((p) => p && (p.hasLost === true || p.eliminated === true)).length;
+    }
+    case 'controller_permanents_matching_any_type': {
+      // B87: Bearded Axe — "for each Dwarf, Equipment, and/or Vehicle you control".
+      const wanted = String(grant.countCardType || '').toLowerCase().split('|').map((w) => w.trim()).filter(Boolean);
+      if (!wanted.length) return 0;
+      return battlefield.filter((p) => {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) return false;
+        const tl = typeLine(p);
+        return wanted.some((w) => new RegExp('\\b' + w + 's?\\b').test(tl));
+      }).length;
     }
     default:
       return undefined;

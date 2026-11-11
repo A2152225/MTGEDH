@@ -15,7 +15,8 @@ import type { StaticEffectScope, StaticEffectScopeQualifier, StaticEffectSpec } 
 import { buildSpec, parseAbilitiesFromTail, type StaticEffectSpecSource } from './staticEffectSpecOracleParseHelpers.js';
 
 const COLOR_LETTER: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
-const LINE_RE = /^(?:each |all )?(other )?((?:(?:white|blue|black|red|green|legendary|nontoken|token) )*)([a-z]+?)(?:s)? you control(?: with (?:a|an|one or more) ((?:[+-]\d+\/[+-]\d+|[a-z]+) )?counters? on (?:it|them))? (?:has|have) (.+?)\.?$/;
+// B85: Innkeeper's Talent — "with counters on them" (no "a/an/one or more").
+const LINE_RE = /^(?:each |all )?(other )?((?:(?:white|blue|black|red|green|legendary|nontoken|token) )*)([a-z]+?)(?:s)? you control(?: with (?:(?:a|an|one or more) )?((?:[+-]\d+\/[+-]\d+|[a-z]+) )?counters? on (?:it|them))? (?:has|have) (.+?)\.?$/;
 
 export function pushQualifiedGrantSpecs(specs: StaticEffectSpec[], source: StaticEffectSpecSource, _perm: BattlefieldPermanent, oracle: string): void {
   const lines = String(oracle || '').replace(/[\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').split(/\n+/)
@@ -29,7 +30,8 @@ export function pushQualifiedGrantSpecs(specs: StaticEffectSpec[], source: Stati
     const adjs = adjRaw.trim().split(/\s+/).filter(Boolean);
     const counter = counterRaw ? counterRaw.trim() : '';
     // Nothing qualifies the group: plain "creatures you control have X" belongs to the base lord handlers.
-    const hasCounterClause = / with (?:a|an|one or more) (?:\S+ )?counters? on (?:it|them)/.test(line);
+    // B85: Innkeeper's Talent — "with counters on them" (no a/an/one or more).
+    const hasCounterClause = / with (?:(?:a|an|one or more) )?(?:\S+ )?counters? on (?:it|them)/.test(line);
     const plainCreatures = noun === 'creature' && !adjs.length && !hasCounterClause && !/\bward\b/.test(tailLower);
     if (plainCreatures) return;
     const tailStart = raw.toLowerCase().lastIndexOf(tailLower.slice(0, 12));
@@ -45,7 +47,7 @@ export function pushQualifiedGrantSpecs(specs: StaticEffectSpec[], source: Stati
     if (adjs.includes('nontoken')) qualifier.token = false;
     if (adjs.includes('token')) qualifier.token = true;
     if (counter) qualifier.counter = counter;
-    else if (/ with (?:a|an|one or more) counters? on (?:it|them)/.test(line)) qualifier.anyCounter = true;
+    else if (/ with (?:(?:a|an|one or more) )?counters? on (?:it|them)/.test(line)) qualifier.anyCounter = true;
     let scope: StaticEffectScope;
     if (noun === 'creature') scope = { kind: other ? 'other_creatures_you_control' : 'creatures_you_control' };
     else if (noun === 'permanent') scope = { kind: other ? 'other_permanents_you_control' : 'permanents_you_control' };

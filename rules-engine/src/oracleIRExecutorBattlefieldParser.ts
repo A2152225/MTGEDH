@@ -14,6 +14,7 @@ export type SimpleBattlefieldSelector = {
   readonly typeLineTermsAnyOf?: readonly string[];
   readonly tappedOnly?: boolean;
   readonly nontokenOnly?: boolean;
+  readonly nonbasicOnly?: boolean;
   readonly usesChosenCreatureType?: boolean;
   readonly tokenOnly?: boolean;
   readonly attackingOnly?: boolean;
@@ -391,7 +392,14 @@ export function parseSimpleBattlefieldSelector(
     };
   }
 
-  const parts = cleaned.split(/\s*(?:,|and\/or|\band\b|\bor\b)\s*/i).filter(Boolean);
+  let nonbasicOnly = false;
+  let workingCleaned = cleaned;
+  if (/^nonbasic\s+/.test(workingCleaned)) {
+    nonbasicOnly = true;
+    workingCleaned = workingCleaned.replace(/^nonbasic\s+/, '').trim();
+  }
+
+  const parts = workingCleaned.split(/\s*(?:,|and\/or|\band\b|\bor\b)\s*/i).filter(Boolean);
   if (parts.length === 0) return null;
 
   const allowed = new Set<SimplePermanentType>([
@@ -421,6 +429,7 @@ export function parseSimpleBattlefieldSelector(
     excludeSourceId,
     ...(parsedNontokenOnly ? { nontokenOnly: true } : {}),
     ...(tappedOnly ? { tappedOnly: true } : {}),
+    ...(nonbasicOnly ? { nonbasicOnly: true } : {}),
   };
 }
 

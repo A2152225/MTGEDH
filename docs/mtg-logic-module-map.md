@@ -190,6 +190,7 @@ Coordinator merges owed extract-family rows there.
 | --- | --- |
 | `oracleIRParserPostprocessGraveyardCastPermission.ts` | GY-cast permission expansions. |
 | `oracleIRParserPostprocessDrawDiscardStepSplitters.ts` | Draw/discard compound splitters. |
+| `oracleIRParserPostprocessAddCounterGainLifeSplit.ts` | Split `put a +1/+1 counter on ~ and you gain N life` into `add_counter` + `gain_life` (Scavenging Ooze family). Wired from `repairCurrentBatchSurfaceSteps`. |
 | `oracleIRParserPostprocessLifeDestroyLibrarySearchSteps.ts` | Life / destroy / library-search step repairs. |
 | `oracleIRParserPostprocessKeywordStaticGrantSteps.ts` | Keyword static grants (annihilator/ward metadata). |
 | `oracleIRParserPostprocessGraveyardAdditionalCostPermission.ts` | GY additional-cost permission. |

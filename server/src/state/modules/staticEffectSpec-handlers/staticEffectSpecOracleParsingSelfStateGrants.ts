@@ -31,11 +31,15 @@ export function pushSelfStateGrantSpecs(specs: StaticEffectSpec[], source: Stati
     // B72: Ruric Thar, Magecrusher — "… as long as they haven't dealt combat damage yet."
     // Keep "hasn't" (singular) and "haven't" (plural they).
     const dmg = st ? null : /^(this creature|~|[^,.]+?) has ([a-z ,]+?) (?:as long as|if) (?:it|they|he|she) (?:hasn'?t|haven'?t) dealt(?: combat)? damage yet$/.exec(line);
-    const m = st || dmg;
+    // B87: Ratonhnhaké꞉ton — "As long as ~ hasn't dealt damage yet, it has hexproof and can't be blocked."
+    const dmgFront = (st || dmg) ? null : /^as long as (this creature|~|[^,.]+?) (?:hasn'?t|haven'?t) dealt(?: combat)? damage yet, (?:it|this creature|~) has (.+)$/.exec(line);
+    const m = st || dmg || dmgFront;
     if (!m) return;
-    if (m[1] !== 'this creature' && m[1] !== '~' && (!name || m[1] !== name)) return;
+    const subject = dmgFront ? m[1] : m[1];
+    const abilityTail = dmgFront ? m[2] : m[2];
+    if (subject !== 'this creature' && subject !== '~' && (!name || subject !== name)) return;
     const condKind: StaticEffectCondition['kind'] = st ? STATE[st[3]] : 'target_has_not_dealt_damage';
-    const abilities = parseAbilitiesFromTail(m[2]);
+    const abilities = parseAbilitiesFromTail(abilityTail);
     if (!abilities.length) return;
     const key = JSON.stringify(abilities);
     if (specs.some((s) => String(s.sourcePermanentId) === String(source.sourcePermanentId) && JSON.stringify(s.grant?.abilities || []) === key)) return;

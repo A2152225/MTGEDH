@@ -9,6 +9,11 @@
  * Public entry: repairCurrentBatchSurfaceSteps
  */
 import type { OracleEffectStep, OracleIRAbility, OraclePlayerSelector } from './oracleIR';
+import { splitAddCounterAndGainLifeStepsInAbilities } from './oracleIRParserPostprocessAddCounterGainLifeSplit.js';
+
+function splitAddCounterAndGainLifeAbility(ability: OracleIRAbility): OracleIRAbility {
+  return splitAddCounterAndGainLifeStepsInAbilities([ability])[0] || ability;
+}
 
 function collectText(value: unknown): string {
   if (!value) return '';
@@ -682,6 +687,7 @@ export function repairCurrentBatchSurfaceSteps(
     next = ensureKickedXCounters(next);
     next = ensureEntersWithXCounters(next);
     next = splitCompoundMillDrawLose(next);
+    next = splitAddCounterAndGainLifeAbility(next);
     next = foldLookRevealAmongThem(next);
     next = ensureSpendOnlyManaOnX(next);
     next = ensureTicketCounter(next);

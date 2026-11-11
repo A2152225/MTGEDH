@@ -156,7 +156,10 @@ export function pushSubtypeListLordSpecs(
     const buff = match[6] ? parseBuffSegment(match[6]) : null;
     const abilities = [...parseLordAbilitiesFromTail(match[7] || match[8] || ''), ...rewrite.extraAbilities];
     if (!buff && abilities.length === 0) continue;
-    if (!youControl && (!qualifier || subject !== 'creatures' || includesYou)) continue;
+    // Global creature lords need a qualifier ("white creatures") or Phase5 conditions (face-down).
+    if (!youControl) {
+      if (includesYou || subject !== 'creatures' || (!qualifier && extraConditions.length === 0)) continue;
+    }
     if ((countCounterType || rewrite.countBasis) && !buff) continue;
     const permanents = subject === 'permanents';
     if (permanents && (buff || !youControl)) continue;

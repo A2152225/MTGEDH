@@ -1,6 +1,6 @@
 # Phase 5 static/replacement census (owned_but_unhandled)
 
-Generated 2026-11-10T03:06:27.120Z by `npm run census:statics` (server/scripts/static-replacement-census.ts).
+Generated 2026-11-10T03:34:32.225Z by `npm run census:statics` (server/scripts/static-replacement-census.ts).
 
 Candidate lines: Commander-legal permanent faces, reminder text stripped, lines that end in a period and are
 not triggers, activated abilities, or keyword lists. A line is **declarative-handled** when
@@ -11,9 +11,9 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 | Metric | Lines |
 |---|---|
 | Candidate static/replacement lines | 9904 |
-| Declarative-handled | 2722 |
-| Owned by another subsystem | 6473 |
-| owned_but_unhandled (static) | 536 |
+| Declarative-handled | 2674 |
+| Owned by another subsystem | 6602 |
+| owned_but_unhandled (static) | 455 |
 | owned_but_unhandled (replacement) | 173 |
 
 ## Run history
@@ -201,6 +201,10 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 | 2026-11-10 02:06Z | 9904 | 2723 | 6435 | 573 | 173 |
 | 2026-11-10 03:00Z | 9904 | 2721 | 6455 | 555 | 173 |
 | 2026-11-10 03:06Z | 9904 | 2722 | 6473 | 536 | 173 |
+| 2026-11-10 03:13Z | 9904 | 2699 | 6512 | 520 | 173 |
+| 2026-11-10 03:19Z | 9904 | 2699 | 6531 | 501 | 173 |
+| 2026-11-10 03:25Z | 9904 | 2696 | 6558 | 477 | 173 |
+| 2026-11-10 03:34Z | 9904 | 2674 | 6602 | 455 | 173 |
 
 ## Other subsystems
 
@@ -230,6 +234,8 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - blocker capacity (combatBlockerCapacity): 30
 - escape graveyard cast (interactionGraveyardCastExecution): 24
 - paired P/T + quoted grants (PairedThresholdQuotedGrants): 24
+- hamster/subtype self pump (countedPT): 23
+- commander you own keywords (batch85LongTailStatics): 23
 - Theros god devotion type-loss (updateGodCreatureStatus): 22
 - revealed hands/library top flags (revealedInformationFlags): 21
 - generic count CDA (variablePTGenericCountCDA): 21
@@ -241,10 +247,10 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - multikicker (multikickerCastUtils): 15
 - color can't-be-blocked-by (combatColorBlockRestriction): 14
 - cumulative upkeep non-mana (cumulativeUpkeep): 14
+- maximum hand size set/increase/reduce (handSizeStaticModifiers): 14
 - control-type self keywords (batch82LongTailStatics): 14
 - borrowed activated abilities (staticEffectSpecBorrowedActivated): 13
 - Case to-solve condition (caseSolve): 13
-- maximum hand size set/increase/reduce (handSizeStaticModifiers): 13
 - skip draw step (turnStepDrawTurnAction): 13
 - planeswalker loyalty / saga / class: 12
 - escape entry counters (detectEntersWithCounters): 12
@@ -296,6 +302,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - discard-to-battlefield replacement (discardToBattlefieldReplacement): 5
 - qualified untap prohibition (untapQualifierProhibitions): 5
 - damage can't be prevented (gameStateEffectsMillDamage canDamageBePrevented): 4
+- multi-type you-control attached pump (countedPT): 4
 - cast only if cast another spell this turn (castOnlyIfCastAnotherRestriction): 4
 - clone entry copy (asEntersCopyChoice): 4
 - enters under opponent control (triggers/control-change): 4
@@ -312,6 +319,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - crew/saddle as though power were N greater (crewSaddlePowerBonus): 4
 - untap during each other player's untap step (turnPhaseUntapStepEffects): 4
 - prevent all combat damage to self (prevention / replacementBatch64): 4
+- self except by type (batch88LongTailStatics): 4
 - commanders you control keywords (batch79LongTailStatics): 4
 - is also creature types (intrinsicAlsoCreatureTypes): 4
 - static convoke grant (casting-modifiers): 3
@@ -319,6 +327,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - cowards can't block warriors (combatDefenderAttackPermission): 3
 - players can't draw cards (playersCantDrawCards): 3
 - attacker/blocker self-tax aura or printed (combatAttackerSelfTax): 3
+- other type quoted ability (batch85LongTailStatics): 3
 - noncombat damage to opponents +N / double (replacementBatch16LongTail damage templates): 3
 - can't cast during your first turns (firstTurnsCastRestriction): 3
 - flagbearer targeting requirement (flagbearerTargeting): 3
@@ -385,7 +394,6 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - graveyard-count attack gate (combatBatch30AttackRestrictions): 2
 - artifact and/or color block restriction (combatBatch31BlockRestrictions): 2
 - suspend keyword (suspendCard / turnStepUpkeep): 2
-- can't be blocked except by defender/walls (evasion): 2
 - non-subtype creatures can't attack (combatBatch33AttackRestrictions): 2
 - COLOR creatures can't attack unless controller sacrifices a land (attackCostPermanentPayment): 2
 - zone enter lock (batch31CastLocks): 2
@@ -402,6 +410,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - named attacks each combat (attackRequirement): 2
 - counter placement restriction (counterPlacementRestrictions): 2
 - additional land each player (calculateMaxLandsPerTurn): 2
+- colors among subtype self pump (countedPT): 2
 - creature cards zone enter lock (batch31CastLocks): 2
 - power-gated team blocker cap (combatBatch30BlockLimits): 2
 - counter ignore defender (batch82LongTailStatics): 2
@@ -410,6 +419,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - block shadow as though (blockAsThoughShadow): 2
 - self damage unpreventable (canDamageBePrevented): 2
 - aura-spell target restriction (auraSpellTargetRestriction): 2
+- equipped during-turn keywords (batch87LongTailStatics): 2
 - opponents must attack (attackRestrictionText): 2
 - CDA all hands count (variablePTCalculator): 2
 - team counter-kind placement ban (counterPlacementRestrictions): 2
@@ -590,6 +600,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - during turn self + enchantment creatures keywords (Yuna): 1
 - creatures attacking you P/T (batch71LongTailStatics): 1
 - chosen player reveals draws (Booby Trap): 1
+- can't be blocked except by defender/walls (evasion): 1
 - delirium as-though no defender (Geist): 1
 - can't be target of COLOR or COLOR opponent spells (Fiendslayer): 1
 - planeswalkers ignore 0 loyalty (Sanctum Lurker): 1
@@ -613,12 +624,14 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - nonland permanents chosen color set (batch73LongTailStatics): 1
 - exiled card types self pump (batch73LongTailStatics): 1
 - red source damage to player plus N (replacementBatch65): 1
+- color creatures quoted ability (batch86LongTailStatics): 1
 - power = nonbasic lands opponents control CDA (variablePowerOnlyCalculator): 1
 - opponents must attack with at least N (attackRequirement): 1
 - noncreature spells cast keyword (conditionalSelfGrants): 1
 - graveyard unearth grant creatures (graveyard-permissions): 1
 - oil/counter at-most keywords (selfCounterThreshold): 1
 - legendary where-x anthem (batch73LongTailStatics): 1
+- each type you-control quoted (batch86LongTailStatics): 1
 - P/T = spirits and/or enchantments CDA (variablePTCalculator): 1
 - players can't cast during combat (staticCastingRestrictions): 1
 - power = colorless creatures CDA (variablePowerOnlyCalculator): 1
@@ -645,11 +658,11 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - attached otherwise type PT (conditionalAttachedPT): 1
 - modified quoted self ability (batch84LongTailStatics): 1
 - self ability target lock (batch80LongTailStatics): 1
+- sliver spells cascade (cascadeCastGrants): 1
 - opponents can't cast COLOR creature spells (staticCastingRestrictions): 1
 - equipment attach power gate (equipmentAttachPowerGate): 1
 - except by artifact creatures (combatBatch31): 1
 - control enchanted enchantment (auraControl): 1
-- except by vehicles (combatBatch31): 1
 - vehicles you control anthem (batch76LongTailStatics): 1
 - unspent mana self pump (batch77LongTailStatics): 1
 - metalcraft self animate (batch76LongTailStatics): 1
@@ -667,14 +680,19 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - enchanted flying/reach block + hexproof (batch77LongTailStatics): 1
 - exact named legend exemption (legendRuleExemptions): 1
 - other named creature buff+keywords (batch76LongTailStatics): 1
+- enchanted vehicle type-set (attachedTypeSetting): 1
 - off-turn artifact animate (batch78LongTailStatics): 1
 - instant and sorcery GY keywords (batch78LongTailStatics): 1
+- multi-type you-control keywords (batch85LongTailStatics): 1
 - equipped except by subtype (batch78LongTailStatics): 1
 - tapped source attack-you cap (attackYouTax): 1
 - cast only if creature died (castRestriction): 1
+- other creatures are food artifacts (batch85LongTailStatics): 1
+- attacked-this-turn count anthem (batch85LongTailStatics): 1
 - other without counter outlast (batch78LongTailStatics): 1
 - equipped creatures anthem (batch78LongTailStatics): 1
 - dice-rolled self keyword (batch79LongTailStatics): 1
+- chosen type sources damage double (replacementBatch65): 1
 - any GY size self pump (batch78LongTailStatics): 1
 - cast instant/sorcery self keyword (batch78LongTailStatics): 1
 - enchanted player spell cap (staticCastingRestrictions): 1
@@ -697,6 +715,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - attacking creature token keywords (batch80LongTailStatics): 1
 - yasharn pay-life/sacrifice lock (Angel of Jubilation family): 1
 - enchanted permanent phasing (batch80LongTailStatics): 1
+- self damage double (replacementBatch65): 1
 - snow land self keyword (batch80LongTailStatics): 1
 - opponent owns exile self pump (batch80LongTailStatics): 1
 - base power/toughness attached count (countedPT): 1
@@ -704,7 +723,6 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - enchanted spell target lock (batch80LongTailStatics): 1
 - named count animate vehicle (batch82LongTailStatics): 1
 - flanking have flanking (batch82LongTailStatics): 1
-- colors among permanents self pump (countedPT): 1
 - even mana value cast lock (castRestrictionTail): 1
 - even mana value block lock (batch82LongTailStatics): 1
 - own-turn cast only (castRestrictionTail): 1
@@ -713,6 +731,7 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - multi-type creature anthem (batch81LongTailStatics): 1
 - another creature entered self pump (conditionalSelfGrants): 1
 - opponent empty hand self pump (conditionalSelfGrants): 1
+- chosen abilities you-control (batch86LongTailStatics): 1
 - metalcraft equip {0} (hasMetalcraft): 1
 - forests on battlefield power CDA (variablePowerOnly): 1
 - chosen player creatures CDA (variablePTControlledCountCDA): 1
@@ -738,17 +757,23 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - power or less unblockable (batch83LongTailStatics): 1
 - your-turn planeswalker creature (batch84LongTailStatics): 1
 - lavinia lands cast lock (castRestrictionTail): 1
+- creatures protection from color (batch86LongTailStatics): 1
+- defending most creatures unblockable (batch86LongTailStatics): 1
+- you and self during-turn keywords (batch87LongTailStatics): 1
+- last chosen number split CDA (variablePTControlledCountCDA): 1
 - creature-with-counter self pump (conditionalSelfGrants): 1
 - noncreature nonland GY power CDA (variablePowerOnly): 1
 - other flying you-control self pump (countedPT): 1
 - creature+planeswalker GY self pump (countedPT): 1
 - your-turn equipped self keywords (batch82LongTailStatics): 1
 - players can't cycle (cycleRestrictionFamilies): 1
+- artifact creatures and subtype artificer count (batch88LongTailStatics): 1
 - permanent-cards GY where-x attached (countedPT): 1
 - untapped noncreature artifact keywords (batch83LongTailStatics): 1
 - cards drawn this turn anthem (countedPT): 1
 - menace creatures min blockers (batch76LongTailStatics): 1
 - saga lore self keywords (batch77LongTailStatics): 1
+- exiled cards total P/T CDA (variablePTControlledCountCDA): 1
 - sacrificed permanent self pump (conditionalSelfGrants): 1
 - battlefield counter self keywords (batch76LongTailStatics): 1
 - chosen PW type hexproof (batch77LongTailStatics): 1
@@ -756,12 +781,66 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - entered-this-turn you-control keywords (batch83LongTailStatics): 1
 - untapped not-attacking anthem (batch82LongTailStatics): 1
 - basic land subtype animate (layer4TypeSetting): 1
+- attacks unless named (batch88LongTailStatics): 1
 - chroma mana-symbol P/T CDA (variablePTControlledCountCDA): 1
+- during-turn type base P/T (batch88LongTailStatics): 1
 - strange new worlds count basis (trekCountBases): 1
+- face-down creatures anthem (subtypeListLords): 1
+- enchanted color unblockable (attachedExtras): 1
+- permanents with counters ward (qualifiedGrants): 1
+- creatures and lands you-control keywords (batch85LongTailStatics): 1
 - prevent damage to you and mill (replacementBatch17DamagePrevention): 1
+- color additional threshold anthem (batch87LongTailStatics): 1
+- sacrificed-artifact unblockable (batch85LongTailStatics): 1
+- protection from other mana values (batch87LongTailStatics): 1
+- artifact/enchantment GY self pump (countedPT): 1
+- enchanted controller no creature spells (castRestrictionTail): 1
+- counter-gated nonbasic mountains (landTypeSetting): 1
+- counter-threshold you-control keywords (batch85LongTailStatics): 1
+- counter creatures during-turn keywords (batch87LongTailStatics): 1
 - lands can't enter (batch31CastLocks): 1
+- walls must block (batch87LongTailStatics): 1
 - type-or self pump (conditionalSelfGrants): 1
+- can't spend mana to cast (castRestrictionTail): 1
+- paired soulbond attack/block lock (selfCombatConditions): 1
+- named creatures attack-you lock (attackYouTax): 1
+- permanent cards GY power CDA (variablePowerOnly): 1
+- gaddock mv cast lock (castRestrictionTail): 1
+- gaddock {x} cast lock (castRestrictionTail): 1
 - cards you own in exile CDA (variablePTControlledCountCDA): 1
+- walls and/or flying block lock (batch86LongTailStatics): 1
+- hexproof unless attacking/blocking (batch86LongTailStatics): 1
+- all must block (batch86LongTailStatics): 1
+- enchanted land quoted ability (batch86LongTailStatics): 1
+- chosen color opponents permanents CDA (variablePTControlledCountCDA): 1
+- creatures every creature type (batch86LongTailStatics): 1
+- other type and forests keywords (batch86LongTailStatics): 1
+- enchanted artifact-ability hexproof (batch87LongTailStatics): 1
+- enchantment from hand cascade (cascadeCastGrants): 1
+- unspent COLOR mana self pump (batch77LongTailStatics): 1
+- control artifact-creature-or-subtype keywords (batch87LongTailStatics): 1
+- distinct counter kinds pump (batch87LongTailStatics): 1
+- creatures died indestructible (batch87LongTailStatics): 1
+- tapped animate unblockable (batch87LongTailStatics): 1
+- other type anthem ward (batch87LongTailStatics): 1
+- other modified self pump (countedPT): 1
+- players lost the game self pump (countedPT): 1
+- opponent damaged attack lock (selfCombatConditions): 1
+- creature sources you-control damage double (replacementBatch65): 1
+- threshold self cast lock (castRestrictionTail): 1
+- equipment attach legendary only (equipmentAttachGate): 1
+- hasn't dealt damage front grant (selfStateGrants): 1
+- first exile spell cascade (cascadeCastGrants): 1
+- charge counters on equipment where-x (countedPT): 1
+- exiled-name lands attached pump (countedPT): 1
+- untapped opponents permanents self pump (countedPT): 1
+- hellbent type quoted (batch88LongTailStatics): 1
+- each creature type quoted (batch88LongTailStatics): 1
+- can't get poison (batch88LongTailStatics): 1
+- must be blocked by N or more (batch88LongTailStatics): 1
+- players can't cast from graveyards (castRestrictionTail): 1
+- self keywords during your turn trailing (conditionalSelfGrants): 1
+- party creatures power CDA (variablePowerOnly): 1
 - prevent damage to you and exile from graveyard (replacementBatch17DamagePrevention): 1
 - reveal-until-kind draw replacement (zonesDrawReplacementRevealUntilKind): 1
 - alternative reconfigure cost choice (targetSelectionEquipAlternativeCost): 1
@@ -783,30 +862,30 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 | 11 | replacement | if you would lose the game, instead exile ~ and your life total becomes equal to your starting life total | 1 | Exquisite Archangel |
 | 12 | replacement | if you would draw a card while your library has no cards in it, instead return a creature card from your grave | 1 | Out of the Tombs |
 | 13 | static | each creature has "…" | 1 | Endless Whispers |
-| 14 | static | COLOR creatures have "…" | 1 | Breath of Dreams |
-| 15 | replacement | if you would draw a card, reveal the top card of your library instead | 1 | Enduring Renewal |
-| 16 | static | as long as ~ is attached to a creature, ~ can't be attacked and has "…" | 1 | The Aetherspark |
-| 17 | replacement | if a source would deal damage to a player, you may prevent x of that damage, where x is the number of clerics  | 1 | Battletide Alchemist |
-| 18 | replacement | if combat damage would be dealt to ~, prevent that damage and exile that many cards from the top of your libra | 1 | Gloom Surgeon |
-| 19 | static | each human creature you control has "…" | 1 | Titan of Eternal Fire |
-| 20 | replacement | during your turn, as long as you haven't activated an exhaust ability this turn, you may activate exhaust abil | 1 | Elvish Refueler |
-| 21 | replacement | if a rigger you control would assemble a contraption, it assembles N contraptions instead | 1 | Steamflogger Boss |
-| 22 | static | any time you could mulligan and this card is in your hand, you may exile all the cards from your hand, then dr | 1 | Serum Powder |
-| 23 | replacement | if a noncreature source you control would deal damage to a creature, battle, or opponent, it deals that much d | 1 | Invasion of Regatha // Disciples of the Inferno |
-| 24 | static | if ~ is unblocked, you may have it assign its combat damage to a creature defending player controls | 1 | Cunning Giant |
-| 25 | replacement | prevent all damage that would be dealt to a creature by another creature if they share a color | 1 | Well-Laid Plans |
-| 26 | static | nitro-N — whenever ~ attacks, you may sacrifice an artifact | 1 | Ace, Fearless Rebel |
-| 27 | replacement | if you would draw a card, look at the top N cards of your library instead | 1 | Tomorrow, Azami's Familiar |
-| 28 | replacement | the first time you would draw a card each turn except the first card you draw during each of your draw steps,  | 1 | Reed Richards, Smartest Man |
-| 29 | static | bestow—{M}, collect evidence N | 1 | Detective's Phoenix |
-| 30 | static | each creature spell you cast with mana value N or greater has blitz | 1 | Henzie "Toolbox" Torre |
-| 31 | replacement | if a creature dealt damage this turn by a source you controlled would die, exile it instead | 1 | Kumano Faces Kakkazan // Etching of Kumano |
-| 32 | static | other zombies have "…" | 1 | Zombie Master |
-| 33 | replacement | if a modular triggered ability would put N or more ±N/±N counters on a creature you control, that many plus N  | 1 | Zabaz, the Glimmerwasp |
-| 34 | static | commander creatures you own have menace and "…" (a creature with menace can't be blocked except by N or more c | 1 | Criminal Past |
-| 35 | static | enchanted creature gets ±N/±N for each name sticker on ~ with N or fewer letters | 1 | Last Voyage of the _____ |
-| 36 | static | sliver spells you cast have cascade | 1 | The First Sliver |
-| 37 | static | vibro-shock gauntlets — when ~ enters, he deals N damage to target creature and N damage to that creature's co | 1 | Shocker, Unshakable |
-| 38 | replacement | if ~ would die, return it to its owner's hand instead | 1 | Firestorm Phoenix |
-| 39 | static | creatures that attacked during their controller's last turn can't attack | 1 | Halls of Mist |
-| 40 | replacement | as long as you have N or fewer cards in hand, if you would draw N or more cards, you draw that many cards plus | 1 | Quantum Riddler |
+| 14 | replacement | if you would draw a card, reveal the top card of your library instead | 1 | Enduring Renewal |
+| 15 | static | as long as ~ is attached to a creature, ~ can't be attacked and has "…" | 1 | The Aetherspark |
+| 16 | replacement | if a source would deal damage to a player, you may prevent x of that damage, where x is the number of clerics  | 1 | Battletide Alchemist |
+| 17 | replacement | if combat damage would be dealt to ~, prevent that damage and exile that many cards from the top of your libra | 1 | Gloom Surgeon |
+| 18 | replacement | during your turn, as long as you haven't activated an exhaust ability this turn, you may activate exhaust abil | 1 | Elvish Refueler |
+| 19 | replacement | if a rigger you control would assemble a contraption, it assembles N contraptions instead | 1 | Steamflogger Boss |
+| 20 | static | any time you could mulligan and this card is in your hand, you may exile all the cards from your hand, then dr | 1 | Serum Powder |
+| 21 | replacement | if a noncreature source you control would deal damage to a creature, battle, or opponent, it deals that much d | 1 | Invasion of Regatha // Disciples of the Inferno |
+| 22 | static | if ~ is unblocked, you may have it assign its combat damage to a creature defending player controls | 1 | Cunning Giant |
+| 23 | replacement | prevent all damage that would be dealt to a creature by another creature if they share a color | 1 | Well-Laid Plans |
+| 24 | static | nitro-N — whenever ~ attacks, you may sacrifice an artifact | 1 | Ace, Fearless Rebel |
+| 25 | replacement | if you would draw a card, look at the top N cards of your library instead | 1 | Tomorrow, Azami's Familiar |
+| 26 | replacement | the first time you would draw a card each turn except the first card you draw during each of your draw steps,  | 1 | Reed Richards, Smartest Man |
+| 27 | static | bestow—{M}, collect evidence N | 1 | Detective's Phoenix |
+| 28 | static | each creature spell you cast with mana value N or greater has blitz | 1 | Henzie "Toolbox" Torre |
+| 29 | replacement | if a creature dealt damage this turn by a source you controlled would die, exile it instead | 1 | Kumano Faces Kakkazan // Etching of Kumano |
+| 30 | replacement | if a modular triggered ability would put N or more ±N/±N counters on a creature you control, that many plus N  | 1 | Zabaz, the Glimmerwasp |
+| 31 | static | enchanted creature gets ±N/±N for each name sticker on ~ with N or fewer letters | 1 | Last Voyage of the _____ |
+| 32 | static | vibro-shock gauntlets — when ~ enters, he deals N damage to target creature and N damage to that creature's co | 1 | Shocker, Unshakable |
+| 33 | replacement | if ~ would die, return it to its owner's hand instead | 1 | Firestorm Phoenix |
+| 34 | static | creatures that attacked during their controller's last turn can't attack | 1 | Halls of Mist |
+| 35 | replacement | as long as you have N or fewer cards in hand, if you would draw N or more cards, you draw that many cards plus | 1 | Quantum Riddler |
+| 36 | replacement | if N or more creature tokens would be created under your control, that many ±N/±N COLOR angel creature tokens  | 1 | Divine Visitation |
+| 37 | replacement | as long as ~ has N or more quest counters on it, if you would draw a card, you may instead search your library | 1 | Archmage Ascension |
+| 38 | static | blitz—{M}{M}{M}, pay N life | 1 | Tenacious Underdog |
+| 39 | static | permanents entering don't cause abilities of permanents your opponents control to trigger | 1 | Elesh Norn, Mother of Machines |
+| 40 | static | players can't cast spells that share a color with the spell most recently cast this turn | 1 | Mana Maze |

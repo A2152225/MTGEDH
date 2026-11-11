@@ -182,6 +182,12 @@ export function trackPermanentSacrificedThisTurn(state: any, permanent: any): vo
     stateAny.permanentsSacrificedThisTurn = stateAny.permanentsSacrificedThisTurn || {};
     stateAny.permanentsSacrificedThisTurn[controllerId] = (stateAny.permanentsSacrificedThisTurn[controllerId] || 0) + 1;
 
+    // B85: Furtive Courier — "as long as you've sacrificed an artifact this turn".
+    if (/\bartifact\b/.test(typeLine)) {
+      stateAny.artifactsSacrificedThisTurn = stateAny.artifactsSacrificedThisTurn || {};
+      stateAny.artifactsSacrificedThisTurn[controllerId] = (stateAny.artifactsSacrificedThisTurn[controllerId] || 0) + 1;
+    }
+
     const isFood = typeLine.includes('food') && (typeLine.includes('artifact') || typeLine.includes('token'));
     if (isFood && (cardName === 'food' || typeLine.includes('— food') || typeLine.includes('- food') || typeLine.includes('food'))) {
       stateAny.foodsSacrificedThisTurn = stateAny.foodsSacrificedThisTurn || {};

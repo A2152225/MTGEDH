@@ -34,20 +34,23 @@ function pushUnspentManaSelfPump(
   oracle: string,
 ): void {
   const text = String(oracle || '').toLowerCase().replace(/\u2019/g, "'");
+  // B88: also "for each unspent green mana you have" (Omnath, Locus of Mana).
   const m = text.match(
-    /(?:this creature|~|[a-z' ,.-]+?) gets ([+-]\d+\s*\/\s*[+-]\d+) for each unspent mana you have/,
+    /(?:this creature|~|[a-z' ,.-]+?) gets ([+-]\d+\s*\/\s*[+-]\d+) for each unspent(?: (white|blue|black|red|green))? mana you have/,
   );
   if (!m) return;
   const buff = parseBuffSegment(m[1] || '');
   if (!buff) return;
+  const color = String(m[2] || '').trim();
   specs.push(buildSpec(
     source,
-    'unspent-mana-self-pump',
+    color ? `unspent-mana-self-pump:${color}` : 'unspent-mana-self-pump',
     { kind: 'self' },
     {
       power: buff.power,
       toughness: buff.toughness,
       countBasis: 'controller_unspent_mana',
+      ...(color ? { countColor: color } : {}),
     } as any,
   ));
 }

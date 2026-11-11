@@ -121,5 +121,14 @@ export function pushAttachedExtraSpecs(
     }
     m = line.match(new RegExp('^as long as ' + HOST + ' is (white|blue|black|red|green), it gets ' + PT + ' and has "[^"]+"\\.?$'));
     if (m) onHost(`attached-extra-color:${index}`, { power: Number(m[2]), toughness: Number(m[3]) }, cond({ kind: 'target_has_mana_color', color: m[1] }));
+    // B88: Steel of the Godhead — color-gated pump + can't be blocked (no quoted ability).
+    m = line.match(new RegExp(`^as long as ${HOST} is (white|blue|black|red|green), it gets ${PT} and can(?:'t|not) be blocked\\.?$`));
+    if (m) {
+      onHost(
+        `attached-extra-color-unblockable:${index}`,
+        { power: Number(m[2]), toughness: Number(m[3]), abilities: ["can't be blocked"] },
+        cond({ kind: 'target_has_mana_color', color: m[1] }),
+      );
+    }
   });
 }

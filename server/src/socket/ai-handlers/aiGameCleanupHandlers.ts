@@ -15,6 +15,7 @@ import {
   clearScheduledAIActionsForGame,
   getAIActionKey,
 } from "./aiScheduler.js";
+import { isAiBlockedResolutionStep, purgeAiBlockedResolutionSteps } from "./aiResolutionStepLoopBreak.js";
 
 /**
  * Clean up AI players when game ends
@@ -41,11 +42,29 @@ export function cleanupGameAI(gameId: string): void {
  * Returns an object with a boolean flag and optional reason string.
  */
 export function checkPendingModals(game: any, gameId: string): { hasPending: boolean; reason?: string } {
+  // Soft-capped AI recreate loops (Mirko END library_search) must not block step advance.
+  purgeAiBlockedResolutionSteps(game, gameId);
+
   // Check the resolution queue (unified system for all player interactions)
   const queueSummary = ResolutionQueueManager.getPendingSummary(gameId);
   if (queueSummary.hasPending) {
-    const pendingTypes = queueSummary.pendingTypes.join(', ');
-    return { hasPending: true, reason: `players have pending resolution steps: ${pendingTypes}` };
+    try {
+      const queue = ResolutionQueueManager.getQueue(gameId);
+      const live = (queue?.steps || []).filter((s: any) =>
+        s && String(s?.status || '').toLowerCase() !== 'cancelled'
+        && String(s?.status || '').toLowerCase() !== 'completed'
+      );
+      if (live.length > 0 && live.every((s: any) => isAiBlockedResolutionStep(game, s))) {
+        purgeAiBlockedResolutionSteps(game, gameId);
+        // Fall through — blocked-only prompts are not modal blockers for AI advance.
+      } else {
+        const pendingTypes = queueSummary.pendingTypes.join(', ');
+        return { hasPending: true, reason: `players have pending resolution steps: ${pendingTypes}` };
+      }
+    } catch {
+      const pendingTypes = queueSummary.pendingTypes.join(', ');
+      return { hasPending: true, reason: `players have pending resolution steps: ${pendingTypes}` };
+    }
   }
   
   // Check for pending blocker declarations or other pending interactions

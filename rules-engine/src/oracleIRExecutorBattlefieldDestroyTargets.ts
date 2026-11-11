@@ -460,6 +460,26 @@ export function resolveDestroyTargets(
     return lands.length > 0 ? lands.slice(0, 1) : [];
   }
 
+  // Volatile Fault family: "Destroy target nonbasic land an opponent controls".
+  if (/^target nonbasic land an opponent controls$/i.test(targetText)) {
+    const boundIds = new Set(collectBoundBattlefieldIds(ctx));
+    const controllerId = String(ctx.controllerId || '').trim();
+    const matches = battlefield.filter((perm: any) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (boundIds.size > 0 && !boundIds.has(permanentId)) return false;
+      if (!permanentMatchesType(perm, 'land')) return false;
+      if (/\bbasic\b/.test(getExecutorTypeLineLower(perm))) return false;
+      const permanentController = String((perm as any)?.controller || '').trim();
+      if (controllerId && permanentController === controllerId) return false;
+      return true;
+    });
+    if (boundIds.size > 0) {
+      return matches.slice(0, 1);
+    }
+    // Targeted effect still needs a chosen target when none is bound.
+    return [];
+  }
+
   if (/^the creature with the least power(?: it can't be regenerated)?$/i.test(targetText)) {
     const creatures = battlefield.filter((perm: any) => permanentMatchesType(perm, 'creature'));
     if (creatures.length === 0) return [];
@@ -696,9 +716,14 @@ export function resolveDestroyTargets(
   const normalizedTarget = { ...(step.target as any), text: targetText };
   const selector = parseSimpleBattlefieldSelector(normalizedTarget as any);
   if (selector) {
-    const matched = battlefield.filter(perm => permanentMatchesSelector(perm, selector, ctx));
+    const matchesNonbasic = (perm: BattlefieldPermanent) =>
+      !(selector as { nonbasicOnly?: boolean }).nonbasicOnly
+      || !/\bbasic\b/.test(getExecutorTypeLineLower(perm));
+    const matched = battlefield
+      .filter(perm => permanentMatchesSelector(perm, selector, ctx))
+      .filter(matchesNonbasic);
     if (/^target\b/i.test(targetText)) {
-      const boundMatches = resolveBoundSelectorMatches(battlefield, selector, ctx);
+      const boundMatches = resolveBoundSelectorMatches(battlefield, selector, ctx).filter(matchesNonbasic);
       if (boundMatches.length > 0) return boundMatches.slice(0, 1);
       if (matched.length >= 1) return matched.slice(0, 1);
       return [];

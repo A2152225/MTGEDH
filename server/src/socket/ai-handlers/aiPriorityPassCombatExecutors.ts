@@ -26,10 +26,17 @@ import {
 } from "../combat-handlers/combatDeclareAttackersForceTapSupport.js";
 import { collectMaxBlockersEachCombat } from "../../state/modules/staticEffectSpecAttackYouTax.js";
 import { applyAIDeclareBlockersBlockTax } from "./aiPriorityPassCombatBlockTax.js";
+import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
 import { AI_REACTION_DELAY_MS } from "./aiConstants.js";
 import { scheduleAIPriority } from "./aiScheduler.js";
 import { isAIPlayer } from "./aiPlayerRegistry.js";
 import { checkPendingModals } from "./aiGameCleanupHandlers.js";
+import { unstickAiPassBlockedByCappedPrompts } from "./aiResolutionStepLoopBreak.js";
+import {
+  maybeForceUnstickAfterFailedResolve,
+  maybeForceUnstickAfterStackSighting,
+  tryResumeDeferredOracleIrStackSpellForAi,
+} from "./aiStuckStackUnstick.js";
 
 /**
  * Execute pass priority for AI
@@ -50,8 +57,16 @@ export async function executePassPriority(
   debug(1, '[AI] Passing priority:', { gameId, playerId });
   
   try {
+    // Deferred IR spells (oracleIrDeferredFinalize) sit on the stack until the
+    // choice queue empties. Cap/cancel can clear the queue without resume — unstick
+    // Sylvan Offering-style MAIN1 loops before another pass round.
+    if (tryResumeDeferredOracleIrStackSpellForAi(io, game, gameId)) {
+      return;
+    }
+
     let resolvedNow = false;
     let advanceStep = false;
+    let changed = true;
     
     // Use game's pass priority method if available
     // Mark as auto-pass so that autoPassLoop runs and checks if other players can also auto-pass
@@ -59,6 +74,7 @@ export async function executePassPriority(
       const result = (game as any).passPriority(playerId, true, options); // true = isAutoPass
       resolvedNow = result?.resolvedNow ?? false;
       advanceStep = result?.advanceStep ?? false;
+      changed = result?.changed !== false;
     } else {
       // Fallback: advance priority manually
       const state = game.state;
@@ -71,6 +87,34 @@ export async function executePassPriority(
         }
       }
     }
+
+    // Pass blocked (pending prompt / wrong priority): do not append another passPriority
+    // event or keep scheduling a pass spin. Wake the seat that still has a prompt —
+    // unless the only open prompts are AI soft-capped sources (Mirko END recreate),
+    // which must be purged / force-advanced instead of re-waking forever.
+    if (!changed) {
+      debug(1, '[AI] passPriority made no change; skipping event/schedule spin', { gameId, playerId });
+      try {
+        if (await unstickAiPassBlockedByCappedPrompts(io, game, gameId, playerId)) {
+          return;
+        }
+        if (await maybeForceUnstickAfterStackSighting(io, game, gameId, playerId)) {
+          return;
+        }
+        const summary = ResolutionQueueManager.getPendingSummary(gameId);
+        const pendingPlayer = Object.keys(summary?.pendingByPlayer || {}).find(
+          (pid) => Number(summary.pendingByPlayer[pid] || 0) > 0,
+        );
+        if (pendingPlayer && isAIPlayer(gameId, pendingPlayer as PlayerID)) {
+          scheduleAIPriority(io, gameId, pendingPlayer as PlayerID, AI_REACTION_DELAY_MS);
+        } else if (game.state?.priority && isAIPlayer(gameId, game.state.priority)) {
+          scheduleAIPriority(io, gameId, game.state.priority, AI_REACTION_DELAY_MS);
+        }
+      } catch (err) {
+        debugWarn(1, '[AI] Failed to re-wake AI after blocked pass:', err);
+      }
+      return;
+    }
     
     // Persist event
     try {
@@ -78,16 +122,32 @@ export async function executePassPriority(
     } catch (e) {
       debugWarn(1, '[AI] Failed to persist passPriority event:', e);
     }
+
+    // Same stack top across many passes (often deferred IR + flickering prompts).
+    if (await maybeForceUnstickAfterStackSighting(io, game, gameId, playerId)) {
+      return;
+    }
     
     // If all players passed priority in succession, resolve the top of the stack
     if (resolvedNow) {
       debug(1, '[AI] All players passed priority, resolving top of stack');
+      const stackBefore = Array.isArray(game.state?.stack) ? game.state.stack : [];
+      const topIdBefore = stackBefore.length > 0
+        ? String(stackBefore[stackBefore.length - 1]?.id || '').trim()
+        : '';
       const identicalRun = captureIdenticalTriggerRun(game);
       if (persistAndResolveTopOfStack(game, gameId, { playerId })) {
         runPostResolutionPermanentPromptChecks(io, game, gameId);
         // The AI just chose to pass on this instance; carry that over to the identical rest.
         await continueCapturedIdenticalTriggerRun(io, game, gameId, identicalRun, undefined, String(playerId));
         debug(2, `[AI] Stack resolved for game ${gameId}`);
+      }
+      if (maybeForceUnstickAfterFailedResolve(io, game, gameId, playerId, topIdBefore)) {
+        return;
+      }
+      // Choice queue may have emptied during resolve without finalize — try resume.
+      if (tryResumeDeferredOracleIrStackSpellForAi(io, game, gameId)) {
+        return;
       }
     }
     

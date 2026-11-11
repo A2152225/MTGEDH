@@ -32,6 +32,15 @@ export function applyPoisonCountersToPlayer(ctx: GameContext, playerId: string, 
   if (!playerId || normalized <= 0) return;
 
   const ctxAny = ctx as any;
+  // B88: Melira — "You can't get poison counters."
+  const bf = Array.isArray(ctxAny?.state?.battlefield) ? ctxAny.state.battlefield : [];
+  const locked = bf.some((perm: any) => {
+    if (!perm || perm.phasedOut || String(perm.controller || '') !== playerId) return false;
+    const text = String(perm?.card?.oracle_text || perm?.oracle_text || '').toLowerCase().replace(/\u2019/g, "'");
+    return /you can(?:not|'t) get poison counters/.test(text);
+  });
+  if (locked) return;
+
   ctxAny.poison = ctxAny.poison || {};
   ctxAny.poison[playerId] = (ctxAny.poison[playerId] || 0) + normalized;
 

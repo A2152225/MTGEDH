@@ -831,10 +831,14 @@ function addTokensToBattlefield(
       };
     }
     if (copySource.kind === 'unavailable') {
+      // Vacuous success: "create a token that's a copy of that card" with no antecedent
+      // (e.g. Anikthea "up to one" exile declined) must not fail all-or-nothing or fall
+      // through to legacy — and must not invent a copy of the ability source.
       return {
-        applied: false,
-        message: `Skipped token creation (copy source unavailable): ${clauseRaw}`,
-        reason: 'impossible_action',
+        applied: true,
+        state,
+        log: [`Skipped token creation (copy source unavailable): ${clauseRaw}`],
+        createdTokenIds: [],
       };
     }
 

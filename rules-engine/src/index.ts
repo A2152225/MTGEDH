@@ -161,6 +161,14 @@ export * from './AIEngine';
 export * from './ai/observation';
 export * from './ai/buildObservation';
 
+// AI evaluator (Phase 1: public board features + weighted seat values)
+export * from './ai/evaluatorFeatures';
+export * from './ai/evaluator';
+export * from './ai/winProbability';
+export * from './ai/cardProfileTypes';
+export * from './ai/rolePolicies';
+export * from './ai/utilityScorer';
+
 // Seeded AI RNG (Phase 0: self-play reproducibility)
 export { aiRandom, seedAIRandom, getAIRandomSeed } from './aiRandom';
 

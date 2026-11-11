@@ -17,11 +17,14 @@ import { calculateGenericCountCDA } from "./variablePTGenericCountCDA.js";
 import { landAwareTypeLine } from '../modules/effectiveLandTypeLine.js';
 import {
   calculateAngryMobStyleCDA,
+  calculateChosenColorOpponentsPermanentsCDA,
   calculateChosenPlayerCreaturesCDA,
   calculateControlledCountCDA,
   calculateDevotionCDA,
   calculateExiledCardManaValueCDA,
+  calculateExiledCardsTotalPTCDA,
   calculateGraveyardCardTypesCDA,
+  calculateLastChosenNumberSplitCDA,
   calculatePowerPlusOpponentGraveyardCardTypesCDA,
 } from "./variablePTControlledCountCDA.js";
 
@@ -576,6 +579,12 @@ export function calculateVariablePT(
   if (chosenPlayerCreatures) return chosenPlayerCreatures;
   const angryMob = calculateAngryMobStyleCDA(card, oracleText, selfPerm, battlefield, gameState);
   if (angryMob) return angryMob;
+  const exiledTotal = calculateExiledCardsTotalPTCDA(card, oracleText, selfPerm, gameState);
+  if (exiledTotal) return exiledTotal;
+  const chosenSplit = calculateLastChosenNumberSplitCDA(card, oracleText, selfPerm);
+  if (chosenSplit) return chosenSplit;
+  const chosenColorOpp = calculateChosenColorOpponentsPermanentsCDA(card, oracleText, selfPerm, battlefield);
+  if (chosenColorOpp) return chosenColorOpp;
 
   // Default fallback - return undefined so caller knows we couldn't calculate
   return undefined;

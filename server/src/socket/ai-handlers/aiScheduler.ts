@@ -38,8 +38,15 @@ type AIScheduledAction = {
 const aiScheduledActions = new Map<string, AIScheduledAction>();
 export const aiActionsInProgress = new Set<string>();
 
+/** Test/diag only: last known stage for the in-flight exclusive AI action. */
+export const aiActionDebugStage = new Map<string, string>();
+
 export function getAIActionKey(gameId: string, playerId: PlayerID): string {
   return `${gameId}:${String(playerId)}`;
+}
+
+export function setAIActionDebugStage(gameId: string, playerId: PlayerID, stage: string): void {
+  aiActionDebugStage.set(getAIActionKey(gameId, playerId), stage);
 }
 
 export function clearScheduledAIAction(gameId: string, playerId: PlayerID): void {
@@ -234,6 +241,7 @@ export async function runExclusiveAIAction(
   const generation = (aiActionGenerations.get(key) || 0) + 1;
   aiActionGenerations.set(key, generation);
   aiActionsInProgress.add(key);
+  aiActionDebugStage.set(key, `${kind}:start`);
   let aiActionError: unknown;
   let timedOut = false;
   const timeoutMs = Math.max(
@@ -247,6 +255,7 @@ export async function runExclusiveAIAction(
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutHandle = nodeSetTimeout(() => {
       timedOut = true;
+      aiActionDebugStage.set(key, `${kind}:real-timeout-${timeoutMs}`);
       reject(new Error(`AI ${kind} action timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timeoutHandle.unref?.();
@@ -254,6 +263,7 @@ export async function runExclusiveAIAction(
 
   try {
     await Promise.race([action(), timeoutPromise]);
+    aiActionDebugStage.set(key, `${kind}:done`);
   } catch (err) {
     aiActionError = err;
     if (timedOut) {
@@ -268,13 +278,26 @@ export async function runExclusiveAIAction(
       noteGameStallAiFailure(gameId, playerId, err, `runExclusiveAIAction:${kind}:timeout`);
       try {
         // Dynamic import avoids a static cycle with aiPriorityPassCombatExecutors -> aiScheduler.
+        aiActionDebugStage.set(key, `${kind}:timeout-bail-unstick`);
+        const stuckMod = await import("./aiStuckStackUnstick.js");
+        const gameForUnstick = (await import("../util.js")).ensureGame(gameId);
+        const topId = Array.isArray(gameForUnstick?.state?.stack) && gameForUnstick.state.stack.length > 0
+          ? String(gameForUnstick.state.stack[gameForUnstick.state.stack.length - 1]?.id || '').trim()
+          : '';
+        if (gameForUnstick && topId) {
+          stuckMod.forceUnstickAiStuckStackTop(io, gameForUnstick, gameId, playerId, topId);
+        }
+        aiActionDebugStage.set(key, `${kind}:timeout-bail-pass`);
         const passMod = await import("./aiPriorityPassCombatExecutors.js");
         await passMod.executePassPriority(io, gameId, playerId, { allowActiveMainPhaseAutoAdvance: true });
+        aiActionDebugStage.set(key, `${kind}:timeout-bail-pass-done`);
       } catch (passErr) {
         debugWarn(1, '[AI] Timeout bail pass failed; scheduling priority follow-up', passErr);
         scheduleAIActionInternal(io, gameId, playerId, kind, 25);
+        aiActionDebugStage.set(key, `${kind}:timeout-bail-pass-failed`);
       }
     } else {
+      aiActionDebugStage.set(key, `${kind}:error`);
       throw err;
     }
   } finally {

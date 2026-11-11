@@ -726,7 +726,16 @@ export function runTurnStepCleanup(ctx: GameContext, isReplaying: boolean): { sh
       // stay in cleanup and grant priority instead of advancing the turn.
       // Replay keeps the old auto-advance so recorded nextTurn events stay aligned.
       if (!isReplaying && !stackEmpty) {
-        debug(2, `${ts()} [nextStep] Cleanup waiting — stack not empty (Rule 514.3)`);
+        const turnPlayer = String((ctx as any).state?.turnPlayer || '').trim();
+        if (turnPlayer) {
+          (ctx as any).state.priority = turnPlayer;
+          (ctx as any).state.priorityPassedBy = new Set<string>();
+          (ctx as any).state.priorityClaimed = new Set<string>();
+        }
+        debug(2, `${ts()} [nextStep] Cleanup waiting — stack not empty; granting priority (Rule 514.3)`, {
+          turnPlayer: turnPlayer || null,
+          stackSize: Array.isArray((ctx as any).state?.stack) ? (ctx as any).state.stack.length : 0,
+        });
         ctx.bumpSeq();
         return { shouldCallNextTurn: false };
       }

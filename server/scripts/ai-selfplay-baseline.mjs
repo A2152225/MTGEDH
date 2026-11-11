@@ -28,8 +28,10 @@ const BATCH_KILL_MS = Number(process.env.AI_SELFPLAY_BATCH_KILL_MS || 240_000);
 
 fs.mkdirSync(outDir, { recursive: true });
 
+const OUT_PREFIX = String(process.env.AI_SELFPLAY_OUT_PREFIX || 'baseline');
+
 function runShard(index) {
-  const out = path.join(outDir, `baseline-${index}.jsonl`);
+  const out = path.join(outDir, `${OUT_PREFIX}-${index}.jsonl`);
   if (fs.existsSync(out)) fs.unlinkSync(out);
   return new Promise((resolve, reject) => {
     console.log(`[batch ${index}/${SHARDS}] starting → ${path.basename(out)}`);
@@ -46,6 +48,10 @@ function runShard(index) {
           AI_SELFPLAY_MAX_TURNS: String(MAX_TURNS),
           AI_SELFPLAY_SHARD: `${index}/${SHARDS}`,
           AI_SELFPLAY_OUT: out,
+          // Optional P1-2/P1-3 position log (one file per shard when AI_POSITIONS_DIR is set).
+          ...(process.env.AI_POSITIONS_DIR
+            ? { AI_POSITIONS_FILE: path.join(process.env.AI_POSITIONS_DIR, `pos-${index}.jsonl`) }
+            : {}),
         },
         shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],

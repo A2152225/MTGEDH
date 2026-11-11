@@ -90,6 +90,8 @@ export function getLibraryPlacement(step: Extract<OracleEffectStep, { kind: 'mov
   if (step.libraryPlacement === 'top' || step.libraryPlacement === 'bottom') return step.libraryPlacement;
   const toRaw = String(step.toRaw || '').trim().toLowerCase();
   const raw = String(step.raw || '').trim().toLowerCase();
+  // "just beneath the top X cards" is a depth insert, not top/bottom.
+  if (/(?:just\s+)?beneath the top\b/.test(`${toRaw} ${raw}`)) return '';
   const hasTop = /\b(?:on\s+)?top(?:\s+of)?\b/i.test(toRaw) || /\bon top\b/i.test(raw);
   const hasBottom = /\b(?:on\s+)?(?:the\s+)?bottom(?:\s+of)?\b/i.test(toRaw) || /\bon the bottom\b/i.test(raw);
   if (hasTop && hasBottom) return 'top';

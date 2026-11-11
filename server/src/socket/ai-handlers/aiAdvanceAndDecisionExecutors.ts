@@ -85,14 +85,22 @@ export async function executeAdvanceStep(
     // Broadcast
     broadcastGame(io, game, gameId);
     
-    // If AI still has priority after advancing AND it's the AI's turn, continue handling
-    // CRITICAL: Don't continue if it's CLEANUP step (no priority granted during cleanup per Rule 514.1)
+    // If AI still has priority after advancing AND it's the AI's turn, continue handling.
+    // Cleanup normally grants no priority (514.1), but Rule 514.3 grants priority when the
+    // stack is non-empty — AI must keep acting then or Syr Konrad-style cleanup triggers wedge.
     const newPriority = (game.state as any)?.priority;
     const newTurnPlayer = game.state?.turnPlayer;
     const isStillAITurn = newTurnPlayer === playerId;
     const isCleanupStep = String((game.state as any).step || '').toLowerCase().includes('cleanup');
+    const stackLen = Array.isArray((game.state as any)?.stack) ? (game.state as any).stack.length : 0;
+    const cleanupNeedsPriority = isCleanupStep && stackLen > 0;
     
-    if (newPriority === playerId && isAIPlayer(gameId, playerId) && isStillAITurn && !isCleanupStep) {
+    if (
+      newPriority === playerId
+      && isAIPlayer(gameId, playerId)
+      && isStillAITurn
+      && (!isCleanupStep || cleanupNeedsPriority)
+    ) {
       const normalizedNewStep = newStep.toLowerCase();
       const isPassiveStep = /untap|upkeep|draw/.test(normalizedNewStep);
       scheduleAIPriority(

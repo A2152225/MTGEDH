@@ -104,6 +104,10 @@ export function castRestrictionTailViolation(state: any, playerId: string, spell
       && !isCreatureSpell(spell)) {
       return src + ' prevents casting noncreature spells from graveyards or exile.';
     }
+    // B88: Ashes of the Abhorrent — no casts from graveyards
+    if (/players can(?:not|'t) cast spells from graveyards/.test(oracle) && zone === 'graveyard') {
+      return src + ' prevents casting spells from graveyards.';
+    }
     // B84: Sanctum Prelate — noncreature spells with MV equal to the chosen number
     if (/noncreature spells with mana value equal to the chosen number can(?:not|'t) be cast/.test(oracle)
       && !isCreatureSpell(spell)) {
@@ -124,6 +128,43 @@ export function castRestrictionTailViolation(state: any, playerId: string, spell
       if (Number.isFinite(mv) && mv > lands) {
         return src + ' prevents opponents from casting noncreature spells with mana value greater than lands they control.';
       }
+    }
+    // B85: Brand of Ill Omen — enchanted creature's controller can't cast creature spells
+    if (/enchanted creature'?s controller can(?:not|'t) cast creature spells/.test(oracle) && isCreatureSpell(spell)) {
+      const hostId = String((perm as any)?.attachedTo || '').trim();
+      const host = hostId ? battlefield.find((p: any) => p && String(p.id) === hostId) : undefined;
+      if (host && String(host.controller || '') === pid) {
+        return src + " prevents enchanted creature's controller from casting creature spells.";
+      }
+    }
+    // B86: Gaddock Teeg — noncreature spells with MV >= N / with {X} in mana cost
+    if (/noncreature spells with mana value (\d+) or greater can(?:not|'t) be cast/.test(oracle) && !isCreatureSpell(spell)) {
+      const m = oracle.match(/noncreature spells with mana value (\d+) or greater can(?:not|'t) be cast/);
+      const threshold = Number(m?.[1]);
+      const mv = spellManaValue(spell);
+      if (Number.isFinite(threshold) && Number.isFinite(mv) && mv >= threshold) {
+        return src + ' prevents casting noncreature spells with mana value ' + threshold + ' or greater.';
+      }
+    }
+    if (/noncreature spells with \{x\} in their mana costs can(?:not|'t) be cast/.test(oracle) && !isCreatureSpell(spell)) {
+      const cost = String(spell?.mana_cost ?? spell?.card?.mana_cost ?? '').toUpperCase();
+      if (/\{X\}/.test(cost)) {
+        return src + ' prevents casting noncreature spells with {X} in their mana costs.';
+      }
+    }
+  }
+  // B87: Proft — threshold cast lock on the spell itself
+  if (/you can(?:not|'t) cast this spell unless there are (\w+) or more cards in your graveyard/.test(own)) {
+    const m = own.match(/you can(?:not|'t) cast this spell unless there are (\w+) or more cards in your graveyard/);
+    const WORDS: Record<string, number> = {
+      one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+    };
+    const raw = String(m?.[1] || '');
+    const need = /^\d+$/.test(raw) ? Number(raw) : WORDS[raw];
+    const gy = state?.zones?.[pid]?.graveyard;
+    const n = Array.isArray(gy) ? gy.length : 0;
+    if (need !== undefined && n < need) {
+      return 'You can\'t cast this spell unless there are ' + need + ' or more cards in your graveyard.';
     }
   }
   return null;

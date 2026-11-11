@@ -21,6 +21,11 @@ import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { playerCannotReceivePriority } from "../../state/modules/priorityEligibility.js";
 import { AI_FAST_CONTINUE_MS, AI_REACTION_DELAY_MS } from "./aiConstants.js";
 import { executeAdvanceStep } from "./aiAdvanceAndDecisionExecutors.js";
+import { tryHandleAiCleanupStep } from "./aiCleanupStepHandlers.js";
+import {
+  clearAiPendingSpellCastSettleCounts,
+  takeAiPendingSpellCastSettleSlot,
+} from "./aiPendingSpellCastSettle.js";
 import {
   tryAIReadyManaRockBeforeNextTurn,
   tryAITapManaRocksOtherPlayersWillUntap,
@@ -33,6 +38,11 @@ import {
   executeDeclareBlockers,
   executePassPriority,
 } from "./aiPriorityPassCombatExecutors.js";
+import { handleAiPendingResolutionStepWithLoopBreak } from "./aiResolutionStepLoopBreak.js";
+import {
+  maybeForceUnstickAfterStackSighting,
+  tryPassOnStackedTargetedTrigger,
+} from "./aiStuckStackUnstick.js";
 import { listAttackersAgainstDefender } from "../combat-handlers/combatMustBeBlockedIfAble.js";
 import { rememberAIFailedSpellCast } from "./aiLandAuraCommander.js";
 import {
@@ -40,6 +50,7 @@ import {
   getAIPendingSpellCastStatus,
   runExclusiveAIAction,
   scheduleAIPriority,
+  setAIActionDebugStage,
 } from "./aiScheduler.js";
 import type {
   AIActionCandidate,
@@ -54,6 +65,7 @@ import {
   recordDecision,
   traceContextFromGame,
 } from "./aiDecisionTrace.js";
+import { takeShadow } from "./aiBrain.js";
 
 async function tryAIResponseActions(io: Server, gameId: string, playerId: PlayerID, game: any): Promise<boolean> {
   return getAIHandlerDeps().tryAIResponseActions(io, gameId, playerId, game);
@@ -155,6 +167,8 @@ export async function handleAIPriority(
   playerId: PlayerID
 ): Promise<void> {
   return runExclusiveAIAction(io, gameId, playerId, 'priority', async () => {
+  const stage = (label: string) => setAIActionDebugStage(gameId, playerId, `priority:${label}`);
+  stage('enter');
   if (!isAIPlayer(gameId, playerId)) {
     return;
   }
@@ -183,8 +197,17 @@ export async function handleAIPriority(
     return;
   }
   
+  // Stuck stack tops (Anikthea / Sylvan Offering deferred IR) can burn an entire
+  // exclusive-action tick without ever completing a pass — sight them on entry.
+  stage('check-stuck-stack');
+  if (await maybeForceUnstickAfterStackSighting(io, game, gameId, playerId)) {
+    stage('stuck-stack-cleared');
+    return;
+  }
+
   // If THIS AI has pending resolution steps, resolve them before priority actions.
   // Returning early here left AI stuck after reconnect/replay (STEP_ADDED does not re-fire).
+  stage('check-pending-steps');
   if (ResolutionQueueManager.playerHasPendingSteps(gameId, playerId)) {
     try {
       const queue = ResolutionQueueManager.getQueue(gameId);
@@ -194,26 +217,32 @@ export async function handleAIPriority(
         && String(s?.status || '').toLowerCase() !== 'cancelled'
       );
       if (aiStep) {
-        debug(1, '[AI] AI player has pending resolution steps, resolving before priority:', {
+        // Cap + turn-scoped source block (Mirko END library_search recreate). Extracted so
+        // this file stays under the TS soft ceiling; see aiResolutionStepLoopBreak.ts.
+        const broke = await handleAiPendingResolutionStepWithLoopBreak(
+          io,
+          game,
           gameId,
           playerId,
-          stepType: aiStep.type,
-          stepId: aiStep.id,
-        });
-        await handleAIResolutionStep(io, gameId, playerId, aiStep);
-        scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
-        return;
+          aiStep,
+          handleAIResolutionStep,
+          executePassPriority,
+        );
+        if (broke) return;
       }
     } catch (err) {
       debugWarn(1, '[AI] Failed to resolve pending resolution step before priority:', err);
       noteGameStallAiFailure(gameId, playerId, err, 'aiResolutionStep');
     }
     debug(1, '[AI] AI player has pending resolution steps but none found to resolve:', { gameId, playerId });
+    // Do not soft-deadlock: STEP_ADDED may still arrive, or another seat may clear the queue.
+    scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
     return;
   }
 
   if (isPlayerCompletingSpellCast(game, playerId)) {
     debug(1, '[AI] AI player has in-flight spell cast completion, deferring priority handling:', { gameId, playerId });
+    stage('defer-completing-cast');
     scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
     return;
   }
@@ -223,6 +252,7 @@ export async function handleAIPriority(
   const isAITurn = game.state.turnPlayer === playerId;
   const stackEmpty = !game.state.stack || game.state.stack.length === 0;
   const hasPriority = game.state.priority === playerId;
+  stage(`phase=${phase};step=${step};prio=${hasPriority ? 1 : 0}`);
   
   debug(1, '[AI] AI player checking priority:', { 
     gameId, 
@@ -235,60 +265,17 @@ export async function handleAIPriority(
     hasPriority
   });
   
-  // CRITICAL: Cleanup step does NOT receive priority (Rule 514.1)
-  // Cleanup happens automatically: discard to hand size, remove damage, end "until end of turn" effects
-  // AI only acts during cleanup on its own turn to handle automatic actions
-  if (step.includes('cleanup') || step === 'cleanup') {
-    debug(1, '[AI] Cleanup step - handling automatic cleanup actions (Rule 514.1)');
-    
-    // Only handle cleanup if it's the AI's turn
-    // (Cleanup doesn't grant priority per Rule 514.1, so we only act if we're the turn player)
-    if (isAITurn) {
-      // Check if we're already processing cleanup for this AI to prevent double-execution
-      const processingCleanup = (game.state as any)._aiProcessingCleanup?.[playerId];
-      if (processingCleanup) {
-        debug(1, '[AI] Cleanup step - already processing cleanup for this AI, skipping to prevent double-execution');
-        return;
-      }
-      
-      // Mark that we're processing cleanup for this AI
-      (game.state as any)._aiProcessingCleanup = (game.state as any)._aiProcessingCleanup || {};
-      (game.state as any)._aiProcessingCleanup[playerId] = true;
-
-      // Cleanup discard (and any other prompted interactions) are handled via Resolution Queue.
-      // If a step exists for this AI, resolve it instead of using legacy pending* state.
-      try {
-        const queue = ResolutionQueueManager.getQueue(gameId);
-        const aiStep = queue?.steps?.find((s: any) => s?.playerId === playerId);
-        if (aiStep) {
-          debug(1, `[AI] Cleanup step - resolving queued step: ${aiStep.type}`);
-          await handleAIResolutionStep(io, gameId, playerId, aiStep);
-
-          if ((game.state as any)._aiProcessingCleanup) {
-            delete (game.state as any)._aiProcessingCleanup[playerId];
-          }
-          return;
-        }
-      } catch {
-        // Best-effort only
-      }
-      
-      // No discard needed - cleanup is complete, auto-advance
-      debug(1, '[AI] Cleanup step - no discard needed, auto-advancing');
-      await executeAdvanceStep(io, gameId, playerId);
-      
-      // Clear the processing flag after advancing
-      if ((game.state as any)._aiProcessingCleanup) {
-        delete (game.state as any)._aiProcessingCleanup[playerId];
-      }
-      return;
-    } else {
-      // Not AI's turn - don't act during cleanup (per Rule 514.1, cleanup doesn't grant priority)
-      debug(1, '[AI] Cleanup step - not AI turn, skipping');
-      return;
-    }
+  if (
+    await tryHandleAiCleanupStep(io, game, gameId, playerId, {
+      isAITurn,
+      hasPriority,
+      handleAIResolutionStep,
+      executePassPriority,
+    })
+  ) {
+    return;
   }
-  
+
   // Critical check: AI should NOT act if it doesn't have priority
   // This prevents the AI from getting into an infinite loop of passing priority
   // and prevents the AI from advancing during opponent's turn
@@ -364,7 +351,11 @@ export async function handleAIPriority(
     // Clean up any pendingSpellCasts that belong to this AI player
     const pendingCastStatus = getAIPendingSpellCastStatus(gameId, game, playerId);
     if (pendingCastStatus.effectIds.length > 0) {
-      if (pendingCastStatus.trackedEffectIds.length > 0 || game.state.priority !== playerId) {
+      const settleSlot =
+        pendingCastStatus.trackedEffectIds.length > 0 || game.state.priority !== playerId
+          ? takeAiPendingSpellCastSettleSlot(game, String(playerId))
+          : 'orphan';
+      if (settleSlot === 'wait') {
         debug(1, '[AI] Waiting for pending spell cast flow to settle', {
           gameId,
           playerId,
@@ -380,18 +371,23 @@ export async function handleAIPriority(
       }
 
       const pendingSpellCasts = (game.state as any).pendingSpellCasts || {};
-      debugWarn(2, `[AI] Cleaning up ${pendingCastStatus.orphanedEffectIds.length} orphaned pending spell cast(s)`);
-      for (const effectId of pendingCastStatus.orphanedEffectIds) {
+      const toClear =
+        pendingCastStatus.orphanedEffectIds.length > 0
+          ? pendingCastStatus.orphanedEffectIds
+          : pendingCastStatus.effectIds;
+      debugWarn(2, `[AI] Cleaning up ${toClear.length} stuck pending spell cast(s)`);
+      for (const effectId of toClear) {
         const castInfo = pendingSpellCasts[effectId];
-        debugWarn(2, `[AI] Removing orphaned spell cast: ${castInfo?.cardName || 'unknown'} (effectId: ${effectId})`);
+        debugWarn(2, `[AI] Removing stuck spell cast: ${castInfo?.cardName || 'unknown'} (effectId: ${effectId})`);
         rememberAIFailedSpellCast(game, String(playerId), String(castInfo?.cardId || ''));
         delete pendingSpellCasts[effectId];
       }
+      clearAiPendingSpellCastSettleCounts(game, String(playerId));
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
       }
       broadcastGame(io, game, gameId);
-      debugWarn(1, '[AI] Orphaned pending spell cast cleaned up — passing priority to avoid cast retry loop');
+      debugWarn(1, '[AI] Stuck pending spell cast cleaned up — passing priority to avoid cast retry loop');
       await executePassPriority(io, gameId, playerId);
       return;
     }
@@ -456,7 +452,21 @@ export async function handleAIPriority(
       if (opponentMain && stackEmpty && await tryAITapManaRocksOtherPlayersWillUntap(io, gameId, playerId, game)) {
         return;
       }
-      if (!consumeAIFastPassDecision(gameId, playerId, game) && await tryAIResponseActions(io, gameId, playerId, game)) {
+      // Empty-stack beginning/ending: do not activate "responses" off-turn. That churn
+      // prevented all-pass on END (seq tens of thousands, no turn advance).
+      const quietEmptyStackPhase =
+        stackEmpty
+        && (
+          phase === 'ending'
+          || phase === 'end'
+          || phase === 'beginning'
+          || phase.includes('begin')
+        );
+      if (
+        !quietEmptyStackPhase
+        && !consumeAIFastPassDecision(gameId, playerId, game)
+        && await tryAIResponseActions(io, gameId, playerId, game)
+      ) {
         return;
       }
 
@@ -466,6 +476,10 @@ export async function handleAIPriority(
       return;
     }
     
+    if (await tryPassOnStackedTargetedTrigger(io, game, gameId, playerId, executePassPriority)) {
+      return;
+    }
+
     // If there's something on the stack, try player-style responses first.
     if (!stackEmpty) {
       if (!consumeAIFastPassDecision(gameId, playerId, game) && await tryAIResponseActions(io, gameId, playerId, game)) {
@@ -555,10 +569,20 @@ export async function handleAIPriority(
         await executePassPriority(io, gameId, playerId);
         return;
       }
+
+      // Cap own-turn main-phase ability activations per step. Unbounded activate→schedule
+      // loops froze MAIN1 with seq in the thousands (selfplay-1000-11-3).
+      const mainActivationWindowKey = `${playerId}:${Number((game.state as any).turnNumber || 0)}:${String((game.state as any).step || '')}`;
+      const mainActivationCounts = ((game.state as any)._aiMainPhaseActivationCount ||= {}) as Record<string, number>;
+      const mainActivationsTaken = Number(mainActivationCounts[mainActivationWindowKey] || 0);
+      const maxMainActivations = 6;
+      const allowMainActivations = mainActivationsTaken < maxMainActivations;
       
       const primaryActionKinds: AIActionCandidate['kind'][] = willNeedToDiscard
         ? ['cast_commander', 'cast_spell']
-        : ['activate_ability', 'cast_commander', 'cast_spell'];
+        : allowMainActivations
+          ? ['activate_ability', 'cast_commander', 'cast_spell']
+          : ['cast_commander', 'cast_spell'];
 
       const actionCandidates = await enumerateAIActionCandidates(game, playerId, {
         mode: 'main',
@@ -566,6 +590,7 @@ export async function handleAIPriority(
         willNeedToDiscard,
       });
       const priorityTraceCandidates = candidatesFromAIActionList(actionCandidates);
+      const priorityShadow = takeShadow(actionCandidates);
       const recordPriorityChoice = (chosen: number | null, note?: string) => {
         recordDecision({
           ...traceContextFromGame(game, gameId, playerId),
@@ -573,18 +598,21 @@ export async function handleAIPriority(
           candidates: priorityTraceCandidates,
           chosen,
           note,
+          shadow: priorityShadow,
         });
       };
 
       for (let candidateIndex = 0; candidateIndex < actionCandidates.length; candidateIndex++) {
         const candidate = actionCandidates[candidateIndex];
         if (candidate.kind === 'activate_ability') {
+          if (!allowMainActivations) continue;
           if (willNeedToDiscard) {
             debug(1, '[AI] Activating ability (after spell-priority ordering):', candidate.ability.action.cardName);
           } else {
             debug(1, '[AI] Activating ability:', candidate.ability.action.cardName, '-', candidate.ability.reasoning);
           }
           if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
+            mainActivationCounts[mainActivationWindowKey] = mainActivationsTaken + 1;
             recordPriorityChoice(candidateIndex);
             scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
@@ -645,7 +673,7 @@ export async function handleAIPriority(
         }
       }
 
-      if (willNeedToDiscard) {
+      if (willNeedToDiscard && allowMainActivations) {
         const fallbackAbilityCandidates = await enumerateAIActionCandidates(game, playerId, {
           mode: 'main',
           kinds: ['activate_ability'],
@@ -657,6 +685,7 @@ export async function handleAIPriority(
 
           debug(1, '[AI] Activating ability (after spell-priority ordering):', candidate.ability.action.cardName);
           if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
+            mainActivationCounts[mainActivationWindowKey] = mainActivationsTaken + 1;
             recordPriorityChoice(null, 'fallback-ability');
             scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
@@ -857,36 +886,68 @@ export async function handleAIPriority(
     if (phase === 'beginning' || phase.includes('begin')) {
       const normalizedStep = String(step || '').toLowerCase();
       const isUntapStep = normalizedStep === 'untap';
+      stage(`beginning:${normalizedStep || 'none'}`);
 
       if (isUntapStep && isAITurn && stackEmpty) {
         debug(1, '[AI] Beginning phase, step:', step, '- advancing out of untap');
+        stage('beginning:advance-untap');
         await executeAdvanceStep(io, gameId, playerId);
+        stage('beginning:advance-untap-done');
         return;
       }
 
+      // Empty-stack UPKEEP/DRAW: do not scan/activate response abilities. That path
+      // (continueAfterResolution=false + schedule) can churn activations forever without
+      // passing priority, freezing turn advance in self-play (seed 599380 / turn 17).
+      // Stacked upkeep triggers still hit tryAIResponseActions below.
+      if (stackEmpty) {
+        debug(1, '[AI] Beginning phase, step:', step, '- empty stack, passing priority');
+        stage('beginning:empty-stack-pass');
+        await executePassPriority(io, gameId, playerId);
+        stage('beginning:empty-stack-pass-done');
+        return;
+      }
+
+      stage('beginning:try-response');
       if (await tryAIResponseActions(io, gameId, playerId, game)) {
+        stage('beginning:response-took-action');
+        // tryAIResponseActions schedules on success; keep a follow-up in case a path forgot.
+        scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
         return;
       }
 
       debug(1, '[AI] Beginning phase, step:', step, '- passing priority');
+      stage('beginning:pass-priority');
       await executePassPriority(io, gameId, playerId);
+      stage('beginning:pass-priority-done');
       return;
     }
     
     // ENDING PHASE (End step) - only active player can advance
     if (phase === 'ending' || phase === 'end') {
-      if (await tryAIResponseActions(io, gameId, playerId, game)) {
-        return;
+      // Empty-stack END: skip response ability/spell churn. That loop bumped seq into
+      // the tens of thousands without turn advance (selfplay-1000-0-1 stall). Stacked
+      // end-step triggers still use tryAIResponseActions below.
+      if (!stackEmpty) {
+        stage('ending:try-response');
+        if (await tryAIResponseActions(io, gameId, playerId, game)) {
+          stage('ending:response-took-action');
+          scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
+          return;
+        }
       }
 
       // End step of the turn before this AI's turn: spare mana readies a rock
       // that was tapped on a prior turn and will not untap by itself.
       if (await tryAIReadyManaRockBeforeNextTurn(io, gameId, playerId, game)) {
+        stage('ending:ready-mana-rock');
         return;
       }
 
       debug(1, '[AI] Ending phase, step:', step, '- passing priority');
+      stage('ending:pass-priority');
       await executePassPriority(io, gameId, playerId);
+      stage('ending:pass-priority-done');
       return;
     }
     

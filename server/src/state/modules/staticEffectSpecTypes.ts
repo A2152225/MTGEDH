@@ -232,7 +232,23 @@ export type StaticEffectCountBasis =
   | 'controller_cards_drawn_this_turn'
   /** B84: Aspect of Wolf — half Forests rounded down / up. */
   | 'controller_lands_of_subtype_half_down'
-  | 'controller_lands_of_subtype_half_up';
+  | 'controller_lands_of_subtype_half_up'
+  /** B85: Earthen Ally — colors among <subtype> you control. */
+  | 'controller_colors_among_creature_type'
+  /** B85: Moraug — times the recipient has attacked this turn. */
+  | 'recipient_times_attacked_this_turn'
+  /** B87: Upriser Renegade — other modified creatures you control. */
+  | 'controller_modified_creatures'
+  /** B87: Rampant Frogantua — players who have lost the game. */
+  | 'players_who_lost_the_game'
+  /** B87: Bearded Axe — Dwarf / Equipment / Vehicle you control (any match). */
+  | 'controller_permanents_matching_any_type'
+  /** B88: Cid — Artificers you control + Artificer cards in your graveyard. */
+  | 'controller_subtype_battlefield_and_graveyard'
+  /** B88: Copperhoof — untapped permanents opponents control. */
+  | 'opponents_untapped_permanents'
+  /** B88: Strata Scythe — lands sharing the effect source's exiled card name. */
+  | 'lands_matching_effect_source_exiled_name'
 
 export type StaticEffectLayer = 4 | 5 | 6 | 7;
 export type StaticEffectSublayer = '7a' | '7b' | '7c' | '7d';
@@ -432,6 +448,24 @@ export type StaticEffectConditionKind =
   | 'source_controller_controls_creature_type_any'
   /** B76: Goblin Blast-Runner — sacrificed a permanent this turn. */
   | 'source_controller_sacrificed_permanent_this_turn'
+  /** B85: Furtive Courier — sacrificed an artifact this turn. */
+  | 'source_controller_sacrificed_artifact_this_turn'
+  /** B85: Runadi — creatures with N+ counters of a type. */
+  | 'target_has_counter_at_least'
+  /** B86: Tromokratis — hexproof unless attacking or blocking. */
+  | 'target_is_attacking_or_blocking'
+  /** B86: Hooded Horror — defending player controls the most creatures (or tied). */
+  | 'defending_player_controls_most_creatures'
+  /** B87: Bloodcrazed Goblin — an opponent has been dealt damage this turn. */
+  | 'opponent_dealt_damage_this_turn'
+  /** B87: Flowering Lumberknot — paired with a soulbond creature. */
+  | 'target_is_paired_with_soulbond'
+  /** B87: Doctor Doom — control an artifact creature or a named subtype (Plan). */
+  | 'source_controller_controls_artifact_creature_or_subtype'
+  /** B87: Hundred-Battle Veteran — N+ distinct counter kinds among your creatures. */
+  | 'controller_creatures_distinct_counter_kinds_at_least'
+  /** B87: Gimli — N+ creatures died under your control this turn. */
+  | 'source_controller_creatures_died_this_turn_at_least'
   /** B76: Homarid — exactly N counters of a type on source. */
   | 'source_counter_exactly'
   /** B76: Tenacious Hunter — a creature has a given counter. */

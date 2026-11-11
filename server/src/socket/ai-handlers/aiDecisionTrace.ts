@@ -35,7 +35,16 @@ export interface DecisionTrace {
   /** Elapsed ms for planners (Phase 2); optional. */
   ms?: number;
   /** Shadow / v1 comparison payload (Phase 1); optional. */
-  shadow?: unknown;
+  shadow?: {
+    brain: 'shadow' | 'v1';
+    winProb: Record<string, number>;
+    scores: Array<{
+      v0Index: number;
+      score: number;
+      dropped: boolean;
+      parts: Record<string, number>;
+    }>;
+  };
 }
 
 type DecisionTraceSink = (record: DecisionTrace) => void;

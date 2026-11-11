@@ -141,6 +141,7 @@ import {
 
 import { tryApplyMoveZoneEarlyGuardSteps } from './oracleIRExecutorMoveZoneEarlyGuardSteps';
 import { tryApplyMoveZoneSeventhFromTop } from './oracleIRExecutorMoveZoneSeventhFromTop';
+import { tryApplyMoveZoneBeneathTopX } from './oracleIRExecutorMoveZoneBeneathTopX';
 import { tryApplyMoveZoneStackSpellToExile } from './oracleIRExecutorMoveZoneStackSpellToExile';
 
 export function applyMoveZoneStep(
@@ -166,6 +167,9 @@ export function applyMoveZoneStep(
 
   const seventhFromTopResult = tryApplyMoveZoneSeventhFromTop(state, step, ctx);
   if (seventhFromTopResult) return seventhFromTopResult;
+
+  const beneathTopXResult = tryApplyMoveZoneBeneathTopX(state, step, ctx);
+  if (beneathTopXResult) return beneathTopXResult;
 
   const stackSpellToExileResult = tryApplyMoveZoneStackSpellToExile(state, step, ctx);
   if (stackSpellToExileResult) return stackSpellToExileResult;

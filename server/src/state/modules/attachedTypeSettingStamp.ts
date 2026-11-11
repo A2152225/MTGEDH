@@ -15,7 +15,8 @@ import { readAttachmentTimestamp, readPermanentTimestamp } from '../../../../rul
 const CARD_TYPES = new Set(['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'battle']);
 const SUPERTYPES = new Set(['legendary', 'basic', 'snow', 'world']);
 const LINE_RE =
-  /^enchanted (?:permanent|creature|land|artifact|planeswalker) is an? (colorless )?([a-z ]+?)(?: with "[^"]*")?(?: and loses all other card types(?: and abilities)?)?\.?$/;
+  // B86: Swift Reconfiguration — "… Vehicle artifact with crew 5 and it loses all other card types."
+  /^enchanted (?:permanent|creature|land|artifact|planeswalker) is an? (colorless )?([a-z ]+?)(?: with (?:crew \d+|"[^"]*"))?(?: and (?:it )?loses all other card types(?: and abilities)?)?\.?$/;
 const STAMPED = 'typeSetStampedFields';
 
 export interface AttachedTypeSetting {

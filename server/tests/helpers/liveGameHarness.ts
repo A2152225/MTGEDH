@@ -4,10 +4,11 @@
  * Origin: AI_Upgrade Phase 0-1 (P0-3), extracted from precon-live-e2e.integration.test.ts.
  * Public entry symbols: createNoopIo, deriveLivePreconSeed, resolveDeckCards,
  * instantiateDeckCards, selectCommanders, stateSnapshot, prepareLiveGame,
- * advanceLiveGame, cleanupLiveGame, LiveSeatSettings, PreparedLiveGame,
+ * advanceLiveGame, cleanupLiveGame, logPosition, LiveSeatSettings, PreparedLiveGame,
  * LoadedCard, DeckSeatSpec.
  */
 
+import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,10 +17,13 @@ import { expect, vi } from 'vitest';
 import { createGameIfNotExists, deleteGame } from '../../src/db/index.js';
 import { ensureGame, broadcastGame } from '../../src/socket/util.js';
 import { registerAIPlayer, scheduleAIGameFlow, unregisterAIPlayer } from '../../src/socket/ai.js';
+import { aiPlayers } from '../../src/socket/ai-handlers/aiScheduler.js';
 import { games, priorityTimers } from '../../src/socket/socket.js';
 import { ResolutionQueueManager } from '../../src/state/resolution/index.js';
 import { readOracleCardsSync } from '../../src/services/oracleCardsIndex.js';
 import { seedAIRandom } from '../../../rules-engine/src/aiRandom.js';
+import { buildObservation } from '../../../rules-engine/src/ai/buildObservation.js';
+import { seatFeatures } from '../../../rules-engine/src/ai/evaluatorFeatures.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -398,6 +402,10 @@ export async function prepareLiveGame(options: PrepareLiveGameOptions): Promise<
     );
 
     registerAIPlayer(gameId, actualPlayerId as any, settings.playerName, settings.difficulty ?? 0.5);
+    // Self-play / harness: skip human-feel think delay so fake-timer runs are not padded
+    // 500ms per makeDecision (activate/response scans in UPKEEP multiply that cost).
+    const aiConfig = aiPlayers.get(gameId)?.get(actualPlayerId as any);
+    if (aiConfig) aiConfig.thinkTime = 0;
     // Re-apply brain after registration (registerAIPlayer syncs strategy fields).
     const registered = (game.state.players || []).find((entry: any) => entry?.id === actualPlayerId) as any;
     if (registered && settings.brain) registered.aiBrain = settings.brain;
@@ -458,6 +466,45 @@ async function withWallClockTimeout<T>(promise: Promise<T>, ms: number, label: s
   }
 }
 
+const isPositionGone = (p: any): boolean =>
+  Boolean(p?.hasLost || p?.eliminated || p?.conceded || p?.spectator || p?.isSpectator || p?.inactive);
+
+/**
+ * Append one feature row per turn start when AI_POSITIONS_FILE is set (P1-2).
+ * Off by default; read-only on game state. AI_POSITIONS_VERIFY asserts every live
+ * seat's Observation yields identical features (public-only check).
+ */
+export function logPosition(game: any, gameId: string): void {
+  const file = process.env.AI_POSITIONS_FILE;
+  if (!file || !gameId) return;
+  const state = game.state as any;
+  const active = String(state.turnPlayer || state.activePlayer || '');
+  if (!active) return;
+  const features = seatFeatures(buildObservation(state, active));
+  if (process.env.AI_POSITIONS_VERIFY) {
+    for (const p of state.players || []) {
+      if (isPositionGone(p)) continue;
+      assert.deepStrictEqual(
+        seatFeatures(buildObservation(state, String(p.id))),
+        features,
+        `seatFeatures mismatch for observer ${p.id} vs active ${active}`,
+      );
+    }
+  }
+  const eliminated = (state.players || []).filter(isPositionGone).map((p: any) => String(p.id));
+  fs.appendFileSync(
+    file,
+    `${JSON.stringify({
+      v: 1,
+      gameId,
+      turn: Number(state.turnNumber || 0),
+      activeSeat: active,
+      features,
+      eliminated,
+    })}\n`,
+  );
+}
+
 export async function advanceLiveGame(
   game: any,
   options: {
@@ -483,6 +530,9 @@ export async function advanceLiveGame(
   let lastLoggedTurn = Number((game.state as any).turnNumber || 0);
   let lastTurnAdvanceElapsedMs = 0;
   let lastTurnAdvanceWallMs = 0;
+  // Prefer real wall clock. Callers under vitest must not fake hrtime (see ai-selfplay harness
+  // useFakeTimers toFake list). process.hrtime.bigint is used directly so maxNoTurnAdvanceMs /
+  // minStagnantWallMs / maxWallClockMs measure real elapsed time, not simulated tick time.
   const startedAt = process.hrtime.bigint();
   let endReason: 'win' | 'turn-limit' | 'stall' | 'loop-exhausted' = 'loop-exhausted';
 
@@ -497,6 +547,8 @@ export async function advanceLiveGame(
   };
 
   maybeLogProgress('start');
+  // Position log for the starting turn (P1-2); subsequent turns log on advance.
+  if (options.label) logPosition(game, options.label);
 
   for (let tick = 0; tick < options.maxTicks; tick++) {
     if ((game.state as any).gameOver) {
@@ -540,6 +592,7 @@ export async function advanceLiveGame(
       lastLoggedTurn = currentTurn;
       lastTurnAdvanceElapsedMs = simulatedElapsedMs;
       lastTurnAdvanceWallMs = wallMs();
+      if (options.label) logPosition(game, options.label);
       maybeLogProgress(`advanced-turn-${currentTurn}`);
     } else if (LIVE_PRECON_PROGRESS_LOG && tick > 0 && tick % 100 === 0) {
       maybeLogProgress(`heartbeat-${tick}`);
@@ -571,9 +624,13 @@ export async function advanceLiveGame(
 
     // Use wall clock, not simulated ms: under fake timers simulated time races ahead
     // while wall time stays small, which false-stalled many games at turn 1.
+    // Skip while the stack is busy: storm turns (hundreds of triggers) can spend >60s
+    // resolving without a turn advance while seq still climbs — not a soft stall.
+    const stackBusy = Array.isArray((game.state as any)?.stack) && (game.state as any).stack.length > 0;
     if (
       options.maxNoTurnAdvanceMs
       && currentTurn > 0
+      && !stackBusy
       && wallMs() - lastTurnAdvanceWallMs >= options.maxNoTurnAdvanceMs
     ) {
       maybeLogProgress('turn-stalled');
@@ -582,6 +639,11 @@ export async function advanceLiveGame(
       throw new Error(
         `Game stalled without advancing turns for ${options.maxNoTurnAdvanceMs}ms wall-clock: ${JSON.stringify(stateSnapshot(game))}`,
       );
+    }
+    // While the stack is draining, keep the "last turn advance" watermark fresh so a
+    // just-emptied stack does not immediately inherit the whole storm's wall time.
+    if (stackBusy) {
+      lastTurnAdvanceWallMs = wallMs();
     }
   }
 

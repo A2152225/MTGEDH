@@ -170,6 +170,15 @@ function resolveStaticCountMultiplier(
       const tokens = cost.match(/\{[^}]+\}/g) || [];
       return tokens.reduce((sum, t) => sum + (t.includes(sym) ? 1 : 0), 0);
     }
+    case 'recipient_times_attacked_this_turn': {
+      // B85: Moraug — for each time it has attacked this turn.
+      const times = Number(
+        (target as any)?.timesAttackedThisTurn
+        ?? (target as any)?.attackedThisTurnCount
+        ?? ((target as any)?.attackedThisTurn === true ? 1 : 0),
+      );
+      return Number.isFinite(times) ? Math.max(0, Math.floor(times)) : 0;
+    }
     default:
       return resolvePhase5CountMultiplier(spec, battlefield, state);
   }

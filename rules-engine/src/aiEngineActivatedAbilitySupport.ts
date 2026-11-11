@@ -473,17 +473,22 @@ export function evaluateActivatedAbilityValue(
     !lowerText.includes('search your library') &&
     !lowerText.includes('create') &&
     !lowerText.includes('damage');
-  const battlefield = readProcessedBattlefield(deps, gameState);
-  const hasRetention = battlefieldHasManaRetention(battlefield, playerId);
-
   // Standalone mana taps are not useful as an activate-ability decision: floating mana
   // empties between steps/phases, and spell payment activates mana abilities on its own.
   // Exception: a power-scaled green tap under retention (Omnath/Upwelling) banks a large
   // persistent pool, so it must outrank a one-mana dork on this path.
-  if (
+  // Cheap reject before re-processing static abilities (findBest used to pay that cost
+  // once per ability line and freeze UPKEEP under the exclusive AI lock).
+  const mayBeRetentionManaBank =
     isPureManaAbility
-    && !(hasRetention && isTapAbility && isPowerScaledGreenManaAbilityText(lowerText))
-  ) {
+    && isTapAbility
+    && isPowerScaledGreenManaAbilityText(lowerText);
+  if (isPureManaAbility && !mayBeRetentionManaBank) {
+    return 0;
+  }
+  const battlefield = readProcessedBattlefield(deps, gameState);
+  const hasRetention = battlefieldHasManaRetention(battlefield, playerId);
+  if (isPureManaAbility && !(hasRetention && mayBeRetentionManaBank)) {
     return 0;
   }
 
@@ -801,6 +806,10 @@ export function findBestActivatedAbility(
   }
 ): ActivatedAbilityChoice | null {
   const battlefield = readProcessedBattlefield(deps, gameState);
+  // Reuse one static-ability pass for the whole scan. evaluateActivatedAbilityValue used to
+  // call getProcessedBattlefield per candidate (full applyStaticAbilitiesToBattlefield), which
+  // blocked the AI exclusive lock for multi-second stretches in late-game UPKEEP self-play.
+  const getCachedBattlefield: GetProcessedBattlefield = () => battlefield;
 
   let bestAbility: ActivatedAbilityChoice | null = null;
   let bestValue = 0;
@@ -836,7 +845,7 @@ export function findBestActivatedAbility(
       const value = evaluateActivatedAbilityValue(perm, candidate.abilityText, gameState, playerId, config, {
         getPrimaryArchetypes: deps.getPrimaryArchetypes,
         hasPotentialManaSink: deps.hasPotentialManaSink,
-        getProcessedBattlefield: deps.getProcessedBattlefield,
+        getProcessedBattlefield: getCachedBattlefield,
       });
 
       if (value > bestValue) {

@@ -90,6 +90,12 @@ export function countPowerOnlyPhrase(phrase: string, battlefield: any[], zones: 
   }
   m = p.match(/^(creature|artifact|land|enchantment) cards in your graveyard$/);
   if (m) return graveyard.filter((c: any) => typeLineOf(c).includes(m![1])).length;
+  // B86: Exdeath — permanent cards in your graveyard.
+  if (/^permanent cards in your graveyard$/.test(p)) {
+    return graveyard.filter((c: any) =>
+      /\b(artifact|creature|enchantment|land|planeswalker|battle|kindred|tribal)\b/.test(typeLineOf(c)),
+    ).length;
+  }
   // Domain (Fblthp, Knows the Way): basic land types among lands you control.
   if (p === 'basic land types among lands you control') {
     const kinds = ['plains', 'island', 'swamp', 'mountain', 'forest'];
@@ -158,6 +164,24 @@ export function countPowerOnlyPhrase(phrase: string, battlefield: any[], zones: 
         return mine.filter((perm) => new RegExp('\\b' + noun + 's?\\b').test(typeLineOf(perm))).length;
       }
     }
+  }
+  // B88: Archpriest of Iona — "creatures in your party" (up to one each of Cleric/Rogue/Warrior/Wizard).
+  if (/^creatures? in your party$/.test(p)) {
+    const roles = ['cleric', 'rogue', 'warrior', 'wizard'];
+    const used = new Set<number>();
+    const cands = mine
+      .filter((perm) => /\bcreature\b/.test(typeLineOf(perm)))
+      .map((perm) => roles.filter((r) => new RegExp(`\\b${r}\\b`).test(typeLineOf(perm))));
+    let count = 0;
+    for (let ri = 0; ri < roles.length; ri++) {
+      for (let i = 0; i < cands.length; i++) {
+        if (used.has(i) || !cands[i].includes(roles[ri])) continue;
+        used.add(i);
+        count += 1;
+        break;
+      }
+    }
+    return count;
   }
   return undefined;
 }

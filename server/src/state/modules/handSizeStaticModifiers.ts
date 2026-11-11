@@ -7,7 +7,7 @@
  * Public entry symbols: computeStaticMaxHandSize.
  */
 const NUMBER_WORDS: Record<string, number> = {
-  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11,
 };
 
 function parseCount(raw: string): number | null {
@@ -25,10 +25,10 @@ function oracleOf(perm: unknown): string {
   return typeof text === 'string' ? text.toLowerCase().replace(/\u2019/g, "'") : '';
 }
 
-const SET_RE = /\byour maximum hand size is (\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)\b(?! less| more)/g;
+const SET_RE = /\byour maximum hand size is (\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven)\b(?! less| more)/g;
 // B75: Cursed Rack — "The chosen player's maximum hand size is four."
-const CHOSEN_SET_RE = /\bthe chosen player's maximum hand size is (\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten)\b/g;
-const MOD_RE = /\b(your|each opponent's|each player's) maximum hand size is (increased|reduced) by (\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/g;
+const CHOSEN_SET_RE = /\bthe chosen player's maximum hand size is (\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven)\b/g;
+const MOD_RE = /\b(your|each opponent's|each player's) maximum hand size is (increased|reduced) by (\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven)\b/g;
 // B67: Midnight Oil — "Your maximum hand size is equal to the number of hour counters on this enchantment."
 const EQUAL_COUNTERS_RE =
   /\byour maximum hand size is equal to the number of ([a-z0-9+/]+) counters? on (?:this(?: enchantment| artifact| permanent| card)?|~)\b/g;

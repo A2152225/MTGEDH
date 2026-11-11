@@ -505,6 +505,7 @@ export function runNextTurnStartOfTurn(
       const stateAny = (ctx as any).state as any;
       const players = Array.isArray(stateAny.players) ? stateAny.players : [];
       stateAny.permanentsSacrificedThisTurn = {};
+      stateAny.artifactsSacrificedThisTurn = {};
       stateAny.foodsSacrificedThisTurn = {};
       for (const p of players) {
         const pid = (p as any)?.id;

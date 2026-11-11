@@ -111,7 +111,7 @@ const OTHER_SYSTEMS: Array<[string, RegExp]> = [
   ['enters prepared (prepared)', /^(?:~|this creature|it) enters prepared\b/i],
   ['amplify N (amplifyEntry)', /^amplify \d+\b/i],
   ['can\'t cast during your first turns (firstTurnsCastRestriction)', /^you can't cast (?:this spell|~) during your first(?:, second,)? (?:or (?:second|third) )?turns? of the game\b/i],
-  ['maximum hand size set/increase/reduce (handSizeStaticModifiers)', /^(?:your|each opponent's|each player's) maximum hand size is (?:increased by |reduced by )?(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|zero)\.?$/i],
+  ['maximum hand size set/increase/reduce (handSizeStaticModifiers)', /^(?:your|each opponent's|each player's) maximum hand size is (?:increased by |reduced by )?(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|zero)\.?$/i],
   ['attack as though no defender, trailing/counter/type conditions (combatDefenderAttackPermission)', /^(?:as long as ~ has a counter on it, (?:~|it) can attack as though it didn't have defender|(?:~|it) can attack as though it didn't have defender as long as (?:you control an? [a-z]+|~ has a counter on it))\.?$/i],
   ['Fasting draw-step may-skip, OPTION_CHOICE (optionalDrawStepSkip)', /^if you would begin your draw step, you may skip that step instead\b/i],
   ['instant/sorcery damage cap (replacementBatch23DamageCap)', /^if an instant or sorcery source would deal \d+ or more damage to you, it deals \d+ damage to you instead\.?$/i],

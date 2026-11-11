@@ -25,6 +25,7 @@ import {
   resolveSearchLibraryMaxResults,
 } from './oracleIRExecutorPlayerSearchLibraryMatches';
 import { normalizeOracleText, resolvePlayers } from './oracleIRExecutorPlayerUtils';
+import { readPlayerZoneCards } from './oracleIRExecutorPlayerZoneAccess.js';
 import { parseMoveZoneTypedCardsRevealedThisWay } from './oracleIRExecutorZoneOpsThisWayParsers';
 import {
   cardMatchesMoveZoneSingleTargetCriteria,
@@ -108,14 +109,17 @@ function resolveMoveZoneSelectionPool(
     const graveyard = Array.isArray(player?.graveyard) ? player.graveyard : [];
     return graveyard.filter((card: any) => String(card?.id || '').trim() === sourceId);
   }
+  const graveyard = readPlayerZoneCards(state, playerId, player, 'graveyard');
+  const hand = readPlayerZoneCards(state, playerId, player, 'hand');
+
   if (/from your graveyard|from the graveyard/i.test(combined)) {
-    return Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+    return [...graveyard];
   }
   if (/from your hand/i.test(combined) && !/from among them/i.test(combined)) {
-    return Array.isArray(player?.hand) ? [...player.hand] : [];
+    return [...hand];
   }
   if (/\bgraveyard\b/i.test(combined) && !/to your hand|into your hand|onto the battlefield/i.test(combined)) {
-    return Array.isArray(player?.graveyard) ? [...player.graveyard] : [];
+    return [...graveyard];
   }
   if (
     /from among|among them|those cards|those creature cards|one of those cards|the rest/i.test(combined)
@@ -125,7 +129,7 @@ function resolveMoveZoneSelectionPool(
     return [...(collectRevealedThisWayCardsLedgerFirst(ctx, step) as any[])];
   }
   if (/from your hand/i.test(combined)) {
-    return Array.isArray(player?.hand) ? [...player.hand] : [];
+    return [...hand];
   }
   return [];
 }

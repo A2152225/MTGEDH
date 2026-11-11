@@ -75,6 +75,11 @@ const TYPE_PROHIBIT_RE = new RegExp(
   `^(\\w+) ${ATTACK_YOU_TAIL}$`,
   'i',
 );
+// B86: Rite of the Raging Storm — "Creatures named Lightning Rager can't attack you or planeswalkers you control."
+const NAMED_PROHIBIT_RE = new RegExp(
+  `^creatures named ([a-z0-9' ,.-]+?) ${ATTACK_YOU_TAIL}$`,
+  'i',
+);
 const YOU_CANT_BE_ATTACKED_RE = /^you can't be attacked$/i;
 const YOU_CANT_BE_ATTACKED_EXCEPT_RE =
   /^you can(?:not|'t|’t) be attacked except by creatures with (.+)$/i;
@@ -504,6 +509,19 @@ export function pushAttackYouTaxSpecs(
     const prohibitMatch = sentence.match(PROHIBIT_RE);
     if (prohibitMatch) {
       const merged = mergeColorCondition(condition, prohibitMatch[1]);
+      if (merged === null) continue;
+      pushAttackYouProhibit(specs, source, merged);
+      continue;
+    }
+
+    const namedMatch = sentence.match(NAMED_PROHIBIT_RE);
+    if (namedMatch) {
+      const name = String(namedMatch[1] || '').trim().toLowerCase();
+      if (!name) continue;
+      const merged = mergeGatedCondition(condition, {
+        kind: 'target_has_name',
+        cardName: name,
+      } as StaticEffectCondition);
       if (merged === null) continue;
       pushAttackYouProhibit(specs, source, merged);
       continue;

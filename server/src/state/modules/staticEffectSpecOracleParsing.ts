@@ -72,6 +72,10 @@ import { pushBatch81LongTailStaticSpecs } from './staticEffectSpec-handlers/batc
 import { pushBatch82LongTailStaticSpecs } from './staticEffectSpec-handlers/batch82LongTailStatics.js';
 import { pushBatch83LongTailStaticSpecs } from './staticEffectSpec-handlers/batch83LongTailStatics.js';
 import { pushBatch84LongTailStaticSpecs } from './staticEffectSpec-handlers/batch84LongTailStatics.js';
+import { pushBatch85LongTailStaticSpecs } from './staticEffectSpec-handlers/batch85LongTailStatics.js';
+import { pushBatch86LongTailStaticSpecs } from './staticEffectSpec-handlers/batch86LongTailStatics.js';
+import { pushBatch87LongTailStaticSpecs } from './staticEffectSpec-handlers/batch87LongTailStatics.js';
+import { pushBatch88LongTailStaticSpecs } from './staticEffectSpec-handlers/batch88LongTailStatics.js';
 import { pushConditionalScopedGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalScopedGrants.js';
 import { splitStationThresholdLines, gateStationThresholdSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingStationThresholds.js';
 import { pushTrekSelfStaticSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingTrekStatics.js';
@@ -174,6 +178,10 @@ function parseStaticEffectSpecsFromOraclePermanentCore(
   pushBatch82LongTailStaticSpecs(specs, source, perm, oracle);
   pushBatch83LongTailStaticSpecs(specs, source, perm, oracle);
   pushBatch84LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch85LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch86LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch87LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch88LongTailStaticSpecs(specs, source, perm, oracle);
   pushConditionalScopedGrantSpecs(specs, source, oracle);
   pushTrekSelfStaticSpecs(specs, source, oracle);
   pushGlobalGrantSpecs(specs, source, oracle);

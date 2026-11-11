@@ -5,6 +5,14 @@
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 
 export function collectBoundBattlefieldIds(ctx: OracleIRExecutionContext): string[] {
+  const topLevelChosen = Array.isArray((ctx as any).chosenObjectIds)
+    ? ((ctx as any).chosenObjectIds as unknown[])
+    : [];
+  const topLevelTargets = Array.isArray((ctx as any).targets)
+    ? ((ctx as any).targets as unknown[])
+    : Array.isArray((ctx as any).targetIds)
+      ? ((ctx as any).targetIds as unknown[])
+      : [];
   return Array.from(
     new Set(
       [
@@ -23,6 +31,8 @@ export function collectBoundBattlefieldIds(ctx: OracleIRExecutionContext): strin
         ...(Array.isArray(ctx.selectorContext?.chosenObjectIds)
           ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
           : []),
+        ...topLevelChosen.map((id) => String(id || '').trim()).filter(Boolean),
+        ...topLevelTargets.map((id) => String(id || '').trim()).filter(Boolean),
       ].filter(Boolean)
     )
   );

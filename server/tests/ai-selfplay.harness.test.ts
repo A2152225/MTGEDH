@@ -6,7 +6,8 @@
  *
  * Env:
  *   AI_SELFPLAY_GAMES, AI_SELFPLAY_SEED, AI_SELFPLAY_OUT, AI_SELFPLAY_SHARD (i/n),
- *   AI_SELFPLAY_MAX_TURNS (default 60), AI_SELFPLAY_CHALLENGER (default v0)
+ *   AI_SELFPLAY_MAX_TURNS (default 60), AI_SELFPLAY_CHALLENGER (default v0),
+ *   AI_POSITIONS_FILE (optional P1-2 feature log), AI_POSITIONS_VERIFY=1 (public-only assert)
  */
 
 import fs from 'node:fs';
@@ -32,6 +33,7 @@ import {
 const GAMES = Number(process.env.AI_SELFPLAY_GAMES || 0);
 const SEED = Number(process.env.AI_SELFPLAY_SEED || 1);
 const OUT = process.env.AI_SELFPLAY_OUT || '';
+const POSITIONS_FILE = process.env.AI_POSITIONS_FILE || '';
 const MAX_TURNS = Number(process.env.AI_SELFPLAY_MAX_TURNS || 60);
 const CHALLENGER = String(process.env.AI_SELFPLAY_CHALLENGER || 'v0');
 const SHARD = String(process.env.AI_SELFPLAY_SHARD || '0/1');
@@ -73,12 +75,36 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
   });
 
   it(`runs ${GAMES} four-bot games from the precon catalogue`, async () => {
-    vi.useFakeTimers();
+    // Fake only scheduling timers + Date. Do NOT fake hrtime/performance: advanceLiveGame
+    // stall guards (maxNoTurnAdvanceMs, minStagnantWallMs, maxWallClockMs) use real wall
+    // clock via process.hrtime.bigint(). Vitest's default toFake list includes hrtime, which
+    // made those guards fire on simulated tick time and false-stalled mid-game (~28% stalls).
+    vi.useFakeTimers({
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'setInterval',
+        'clearInterval',
+        'setImmediate',
+        'clearImmediate',
+        'Date',
+      ],
+    });
     const pool = listSelfPlayPreconPool();
     expect(pool.length).toBeGreaterThanOrEqual(4);
 
     const { index: shardIndex, count: shardCount } = parseShard(SHARD);
     const results: Array<Record<string, unknown>> = [];
+    // Baseline shards append to a fresh file, but truncate here too so a
+    // double-invoked vitest worker cannot leave two rows for one gameId.
+    if (OUT) {
+      fs.mkdirSync(path.dirname(path.resolve(OUT)), { recursive: true });
+      fs.writeFileSync(OUT, '');
+    }
+    if (POSITIONS_FILE) {
+      fs.mkdirSync(path.dirname(path.resolve(POSITIONS_FILE)), { recursive: true });
+      fs.writeFileSync(POSITIONS_FILE, '');
+    }
 
     try {
       for (let gameIndex = 0; gameIndex < GAMES; gameIndex++) {
@@ -100,7 +126,10 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
         const gameId = `selfplay-${SEED}-${podIndex}-${rotation}`;
 
         const seats: DeckSeatSpec[] = decksForSeats.map((deck, seatIdx) => {
-          const brain = seatIdx === 0 ? CHALLENGER : 'v0';
+          // AI_BRAIN (if set) applies to every seat — needed for shadow reproduction.
+          // Otherwise seat 0 is the challenger and the rest stay v0.
+          const envBrain = String(process.env.AI_BRAIN || '').trim();
+          const brain = envBrain || (seatIdx === 0 ? CHALLENGER : 'v0');
           return {
             deckId: deck.id,
             cardNames: linesFromDeck(deck),
@@ -116,7 +145,8 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
         let endReason: 'win' | 'turn-limit' | 'stall' | 'error' = 'error';
         let turns = 0;
         let winner: string | null = null;
-        const started = Date.now();
+        // Date is faked below for AI scheduling; use hrtime for reported wall duration.
+        const startedHr = process.hrtime.bigint();
         let prepared: Awaited<ReturnType<typeof prepareLiveGame>> | null = null;
 
         try {
@@ -128,7 +158,7 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
             maxTurns: MAX_TURNS,
             maxStagnantTicks: 40,
             minStagnantWallMs: 15_000,
-            // Simulated ms without a turn advance (~30 ticks at 2s) → stall.
+            // Real wall ms without a turn advance → stall (hrtime must stay unfaked).
             // Only applies once turnNumber > 0 (see advanceLiveGame).
             maxNoTurnAdvanceMs: 60_000,
             // Real wall clock: generous per-tick budget (mulligan/setup ticks can be slow).
@@ -169,7 +199,7 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
             winner,
             endReason,
             turns,
-            ms: Date.now() - started,
+            ms: Math.round(Number(process.hrtime.bigint() - startedHr) / 1e6),
           };
           results.push(row);
           appendResult(row);
@@ -187,7 +217,7 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
             winner: null,
             endReason: 'error' as const,
             turns,
-            ms: Date.now() - started,
+            ms: Math.round(Number(process.hrtime.bigint() - startedHr) / 1e6),
             error: String(err),
           };
           results.push(row);
@@ -209,6 +239,38 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
       harnessErrors.length,
       `harness errors: ${harnessErrors.map((r) => r.error).join('; ')}`,
     ).toBeLessThan(results.length);
+
+    // P1-2: when AI_POSITIONS_FILE is set, every game should have at least one
+    // feature row per distinct turn observed, with one entry per seat.
+    if (POSITIONS_FILE && fs.existsSync(POSITIONS_FILE)) {
+      const lines = fs
+        .readFileSync(POSITIONS_FILE, 'utf8')
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .map((l) => JSON.parse(l) as {
+          v: number;
+          gameId: string;
+          turn: number;
+          features: Record<string, Record<string, number>>;
+          eliminated: string[];
+        });
+      expect(lines.length).toBeGreaterThan(0);
+      const byGame = new Map<string, Set<number>>();
+      for (const row of lines) {
+        expect(row.v).toBe(1);
+        expect(Object.keys(row.features).length).toBeGreaterThanOrEqual(2);
+        if (!byGame.has(row.gameId)) byGame.set(row.gameId, new Set());
+        byGame.get(row.gameId)!.add(row.turn);
+      }
+      for (const r of results) {
+        const gameId = String(r.gameId || '');
+        if (!gameId || r.endReason === 'error') continue;
+        const turns = byGame.get(gameId);
+        expect(turns, `positions missing for ${gameId}`).toBeTruthy();
+        expect(turns!.size).toBeGreaterThan(0);
+      }
+    }
   }, (() => {
     // Four-bot games average ~4–6s/turn; keep vitest timeout above maxWallClockMs.
     const { count: shardCount } = parseShard(SHARD);

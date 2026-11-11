@@ -16,6 +16,12 @@ const COMMANDER_SPELLS_HAVE_CASCADE =
 // B69: Quandrix, the Proof
 const INSTANT_SORCERY_FROM_HAND_HAVE_CASCADE =
   /instant and sorcery spells you cast from your hand have cascade/i;
+// B85: The First Sliver
+const SLIVER_SPELLS_HAVE_CASCADE =
+  /sliver spells you cast have cascade/i;
+// B87: Wildsear, Scouring Maw
+const ENCHANTMENT_FROM_HAND_HAVE_CASCADE =
+  /enchantment spells you cast from your hand have cascade/i;
 // B69: Bloodbraid Marauder — conditional self-cascade (not counted by getNativeCascadeCount).
 const SPELL_HAS_CASCADE_IF_GY_CARD_TYPES =
   /this spell has cascade as long as there (?:is|are) (\w+) or more card types among cards in your graveyard/i;
@@ -62,6 +68,16 @@ function isInstantOrSorcery(card: any): boolean {
   return /\binstant\b/.test(tl) || /\bsorcery\b/.test(tl);
 }
 
+function isSliverSpell(card: any): boolean {
+  const tl = String(card?.type_line || card?.typeLine || card?.card?.type_line || '').toLowerCase();
+  return /\bsliver\b/.test(tl);
+}
+
+function isEnchantmentSpell(card: any): boolean {
+  const tl = String(card?.type_line || card?.typeLine || card?.card?.type_line || '').toLowerCase();
+  return /\benchantment\b/.test(tl);
+}
+
 export function getGrantedCascadeCountForCast(
   state: any,
   playerId: string,
@@ -84,6 +100,8 @@ export function getGrantedCascadeCountForCast(
     const oracle = normalizeOracle(perm);
     if (isCommander && COMMANDER_SPELLS_HAVE_CASCADE.test(oracle)) count += 1;
     if (fromHand && isInstantOrSorcery(card) && INSTANT_SORCERY_FROM_HAND_HAVE_CASCADE.test(oracle)) count += 1;
+    if (isSliverSpell(card) && SLIVER_SPELLS_HAVE_CASCADE.test(oracle)) count += 1;
+    if (fromHand && isEnchantmentSpell(card) && ENCHANTMENT_FROM_HAND_HAVE_CASCADE.test(oracle)) count += 1;
   }
   if (String(options.castSourceZone || '').toLowerCase() === 'exile' && options.isFirstSpellCastFromExileThisTurn) {
     for (const perm of battlefield) {

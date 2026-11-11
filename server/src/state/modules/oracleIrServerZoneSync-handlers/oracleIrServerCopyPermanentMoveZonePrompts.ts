@@ -129,6 +129,61 @@ function buildMoveZoneLibrarySearchPrompt(
   };
 }
 
+/** GY-origin move_zone choices are graveyard picks, not library searches (Mirko / Emeria family). */
+function buildMoveZoneGraveyardSelectionPrompt(
+  step: Extract<OracleEffectStep, { kind: 'move_zone' }>,
+  built: NonNullable<ReturnType<typeof buildMoveZoneSelectionOptions>>,
+  params: {
+    controller: PlayerID;
+    sourceName: string;
+    sourceId?: string;
+  },
+): Record<string, unknown> {
+  const raw = String((step as any).raw || 'Choose cards from graveyard');
+  const availableCards = built.availableCards.map(normalizeTopLibraryPromptCard);
+  const selectableIds = new Set(built.selectableCardIds);
+  const validTargets = availableCards
+    .filter((card) => selectableIds.size === 0 || selectableIds.has(String(card.id || '')))
+    .map((card) => ({
+      id: String(card.id || ''),
+      name: String(card.name || card.id || 'Card'),
+      typeLine: String((card as any).type_line || (card as any).typeLine || ''),
+      manaCost: String((card as any).mana_cost || (card as any).manaCost || ''),
+      imageUrl: (card as any).imageUrl || (card as any).image_uris?.small || (card as any).image_uris?.normal,
+      zoneOwnerId: String((card as any).zoneOwnerId || (card as any).owner || built.playerId || ''),
+    }))
+    .filter((card) => Boolean(card.id));
+
+  const destination = built.destination === 'battlefield'
+    ? 'battlefield'
+    : built.destination === 'exile'
+      ? 'exile'
+      : 'hand';
+
+  return {
+    type: ResolutionStepType.GRAVEYARD_SELECTION,
+    playerId: built.playerId,
+    description: `${params.sourceName}: ${raw}`,
+    mandatory: !built.optional,
+    sourceId: params.sourceId,
+    sourceName: params.sourceName,
+    effectId: String(params.sourceId || params.sourceName || 'graveyard_move_zone'),
+    cardName: params.sourceName,
+    title: `${params.sourceName} — Select from graveyard`,
+    targetPlayerId: String(built.playerId || params.controller || ''),
+    minTargets: built.minSelections,
+    maxTargets: built.maxSelections,
+    destination,
+    validTargets,
+    searchZone: 'graveyard',
+    filter: built.filter,
+    oracleIrChoiceStepJson: JSON.stringify([step]),
+    oracleIrControllerId: params.controller,
+    oracleIrSourceId: params.sourceId,
+    oracleIrSourceName: params.sourceName,
+  };
+}
+
 function collectMoveZoneChoiceSteps(
   result: OracleIRExecutionResult,
 ): Extract<OracleEffectStep, { kind: 'move_zone' }>[] {
@@ -219,7 +274,10 @@ export function queueMoveZoneChoicePromptsFromOracleIRResult(
     if (queuedKeys.has(queueKey)) continue;
     queuedKeys.add(queueKey);
 
-    const prompt = buildMoveZoneLibrarySearchPrompt(step, built, {
+    const promptBuilder = built.searchZone === 'graveyard'
+      ? buildMoveZoneGraveyardSelectionPrompt
+      : buildMoveZoneLibrarySearchPrompt;
+    const prompt = promptBuilder(step, built, {
       controller: params.controller,
       sourceName,
       sourceId,

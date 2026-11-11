@@ -60,6 +60,14 @@ export function parseStaticSelfCondition(raw: string): StaticEffectCondition | n
   }
   if (/^you have the city's blessing$/.test(c)) return { kind: 'source_controller_has_citys_blessing' };
   if (/^(?:it|this creature|~)(?:'s| is) attacking$/.test(c)) return { kind: 'target_is_attacking' };
+  // B87: Bloodcrazed Goblin.
+  if (/^an? opponent has been dealt damage this turn$/.test(c)) {
+    return { kind: 'opponent_dealt_damage_this_turn' } as StaticEffectCondition;
+  }
+  // B87: Flowering Lumberknot.
+  if (/^(?:it'?s|it is) paired with an? creature with soulbond$/.test(c)) {
+    return { kind: 'target_is_paired_with_soulbond' } as StaticEffectCondition;
+  }
   if (/^(?:it|this creature|~)(?:'s| is) untapped$/.test(c)) return { kind: 'target_is_untapped' };
   if (/^(?:it|this creature|~)(?:'s| is) tapped$/.test(c)) return { kind: 'target_is_tapped' };
   if (/^(?:it|this creature|~)(?:'s| is) equipped$/.test(c)) return { kind: 'target_is_equipped' };
@@ -274,7 +282,8 @@ export function pushConditionalSelfGrantSpecs(
     String.raw`^\s*(?:[a-z'0-9 -]+\s*(?:\u2014|--|-)\s*)?(?:as long as ([^,]+)|(during your turn)),\s*${subject}\s+(?:gets\s+(?:an additional\s+)?([+-]\d+)\/([+-]\d+)(?:\s+and\s+(?:(?:has|gains)\s+)?([^.]+))?|(?:has|gains)\s+("[^"]*"|[^.]+))`,
   );
   const trailing = new RegExp(
-    String.raw`(?:^|[.]\s*|\u2014\s*)${subject}\s+(?:gets\s+(?:an additional\s+)?([+-]\d+)\/([+-]\d+)(?:\s+and\s+(?:(?:has|gains)\s+)?(.+?))?|has\s+("[^"]*"|.+?))\s+as long as ([^.]+)`,
+    // B88: Razorkin — "~ has first strike during your turn" (trailing during-turn, not "as long as").
+    String.raw`(?:^|[.]\s*|\u2014\s*)${subject}\s+(?:gets\s+(?:an additional\s+)?([+-]\d+)\/([+-]\d+)(?:\s+and\s+(?:(?:has|gains)\s+)?(.+?))?|has\s+("[^"]*"|.+?))\s+(?:as long as ([^.]+)|during your turn)`,
   );
   let index = 0;
   for (const fullLine of lines) {
@@ -297,7 +306,8 @@ export function pushConditionalSelfGrantSpecs(
       power = Number(trail[1] || 0);
       toughness = Number(trail[2] || 0);
       abilityTail = trail[3] || trail[4] || '';
-      conditionText = trail[5];
+      // trail[5] = "as long as …"; absent ⇒ trailing "during your turn".
+      conditionText = trail[5] || "it's your turn";
     }
     const condition = parseStaticSelfCondition(conditionText);
     if (!condition) continue;
