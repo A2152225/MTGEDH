@@ -4,6 +4,8 @@
  * Prints a pass table and asserts every non-knownFailing puzzle passes.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { initDb } from '../../src/db/index.js';
 import { attackPuzzles } from './attack.puzzles.js';
@@ -58,5 +60,30 @@ describe('AI puzzle suite (P0-5)', () => {
 
     const v0Pass = outcomes.filter((o) => o.passed).length;
     expect(v0Pass).toBeGreaterThanOrEqual(0);
+
+    const outRel = process.env.AI_PUZZLE_OUT?.trim();
+    if (outRel) {
+      const outPath = path.isAbsolute(outRel)
+        ? outRel
+        : path.resolve(process.cwd(), outRel);
+      fs.mkdirSync(path.dirname(outPath), { recursive: true });
+      fs.writeFileSync(
+        outPath,
+        JSON.stringify(
+          {
+            brain: process.env.AI_BRAIN || 'v0',
+            total: outcomes.length,
+            passed: v0Pass,
+            results: outcomes.map((o) => ({
+              id: o.id,
+              status: o.passed ? 'PASS' : o.knownFailing ? 'FAIL(v0)' : 'FAIL',
+              observed: o.observed,
+            })),
+          },
+          null,
+          2,
+        ),
+      );
+    }
   }, 60_000);
 });

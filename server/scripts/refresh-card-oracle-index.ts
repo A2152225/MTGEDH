@@ -14,9 +14,10 @@ type RefreshPair = {
 
 const refreshPairs: RefreshPair[] = [
   // Scryfall bulk files: if they arrive as .jsonl.gz, gunzip next to the .gz first (same dated name without .gz).
-  { source: 'oracle-cards-20261101220203.jsonl', target: 'oracle-cards.jsonl' },
+  { source: 'oracle-cards-20261111100203.jsonl', target: 'oracle-cards.jsonl' },
+  // Optional alternate download name; a direct AtomicCards.json drop is fine and skips this.
   { source: 'AtomicCards (1).json', target: 'AtomicCards.json' },
-  { source: 'rulings-20261005210033.jsonl', target: 'rulings.jsonl' },
+  { source: 'rulings-20261111100033.jsonl', target: 'rulings.jsonl' },
   { source: 'Keywords.json', target: 'docs/rules/Keywords_20260925.json' },
 ];
 

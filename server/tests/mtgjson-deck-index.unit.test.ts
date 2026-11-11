@@ -107,4 +107,16 @@ describe('MTGJSON deck index for the precon bake', () => {
     expect(decksBySet('SLD').find((d) => d.name === 'Hatsune Miku')?.commanders).toEqual(["Trostani, Selesnya's Voice"]);
     expect(searchPrecons('Tramplesaurus').map((hit) => hit.set.code)).toEqual(['FDC']);
   });
+
+  it('catalogs the Star Trek Commander (TRC) precons', () => {
+    const year2026 = COMMANDER_PRECONS.find((year) => year.year === 2026);
+    const decks = year2026?.sets.find((set) => set.code === 'TRC')?.decks ?? [];
+    expect(decks.map((d) => [d.name, d.commanders[0], d.colorIdentity])).toEqual([
+      ['Federation Fleet', 'Jean-Luc Picard, Luminary', 'URW'],
+      ['Landing Party', 'Commander Spock', 'GWU'],
+      ['Klingon Fury', 'Worf, Defiant Commander', 'RWB'],
+      ['We Are the Borg', 'The Borg Queen', 'WUB'],
+    ]);
+    expect(searchPrecons('Borg').map((hit) => hit.set.code)).toEqual(['TRC']);
+  });
 });

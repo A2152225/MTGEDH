@@ -7,6 +7,7 @@ export const PRECON_WIZARDS_ANNOUNCEMENT_URLS: Record<string, string> = {
   SOC: 'https://magic.wizards.com/en/news/announcements/secrets-of-strixhaven-commander-decklists',
   MSC: 'https://magic.wizards.com/en/news/announcements/marvel-super-heroes-commander-decklists',
   TMC: 'https://magic.wizards.com/en/news/announcements/teenage-mutant-ninja-turtles-commander-decklist',
+  TRC: 'https://magic.wizards.com/en/news/announcements/star-trek-commander-decklists',
   ECC: 'https://magic.wizards.com/en/news/announcements/lorwyn-eclipsed-commander-decklists',
   TDC: 'https://magic.wizards.com/en/news/announcements/tarkir-dragonstorm-commander-decklists',
   DRC: 'https://magic.wizards.com/en/news/announcements/aetherdrift-commander-decklists',

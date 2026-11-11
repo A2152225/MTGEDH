@@ -102,6 +102,16 @@ export const COMMANDER_PRECONS: PreconYear[] = [
           { name: "Dance of the Elements", commanders: ["Ashling, the Limitless"], colorIdentity: "WUBRG", decklistUrl: "https://moxfield.com/decks/Z3hoVgrT0kmvPbZ7wvBQ5A" },
           { name: "Blight Curse", commanders: ["Auntie Ool, Cursewretch"], colorIdentity: "BRG", decklistUrl: "https://moxfield.com/decks/6sj-csQ9v0CBZNwD1lz7ew" }
         ]
+      },
+      {
+        name: "Star Trek Commander",
+        code: "TRC",
+        decks: [
+          { name: "Federation Fleet", commanders: ["Jean-Luc Picard, Luminary"], colorIdentity: "URW" },
+          { name: "Landing Party", commanders: ["Commander Spock"], colorIdentity: "GWU" },
+          { name: "Klingon Fury", commanders: ["Worf, Defiant Commander"], colorIdentity: "RWB" },
+          { name: "We Are the Borg", commanders: ["The Borg Queen"], colorIdentity: "WUB" }
+        ]
       }
     ]
   },
