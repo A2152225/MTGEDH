@@ -543,13 +543,13 @@ export function appendDetectedDeathWatcherTriggers(
   dyingCreatureController: string,
 ): void {
   const detectState = {
-    ...(ctx.state || {}),
-    battlefield: permanentsToScan,
+    ...ctx.state,
+    battlefield: permanentsToScan as GameContext['state']['battlefield'],
   };
   // The spread above drops the non-enumerable continuous-effects cache; compute it once
   // for this read-only scan instead of once per permanent inside detectDeathTriggers.
   primeDerivedContinuousEffectsForScan(detectState);
-  const detectCtx = { ...ctx, state: detectState };
+  const detectCtx: GameContext = { ...ctx, state: detectState };
   for (const permanent of permanentsToScan) {
     if (!permanent?.card) continue;
     const controllerId = String(permanent.controller || dyingCreatureController || '');

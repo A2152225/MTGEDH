@@ -7,6 +7,8 @@
  * Reference: Rule 701.28
  */
 
+import { entersBattlefieldConvertedWithInstantOrSorceryBackFace as resolveConvertedIorSBackFaceFromStack } from '../enterBattlefieldTransformedOrConverted';
+
 export interface ConvertAction {
   readonly type: 'convert';
   readonly permanentId: string;
@@ -27,7 +29,7 @@ export interface ConvertResult {
  * Rule 701.28a: Convert a permanent
  * 
  * To convert a permanent, turn it so that its other face is up. This follows
- * rules 701.27a–f, 712.9–10, and 712.18. Those rules apply to converting a
+ * rules 701.27a-g, 712.7, and 712.15. Those rules apply to converting a
  * permanent just as they apply to transforming a permanent.
  */
 export function convertPermanent(
@@ -51,22 +53,28 @@ export function convertPermanent(
 export const CONVERT_IS_DIFFERENT_FROM_FACE_DOWN = true;
 
 /**
- * Rule 701.28c: Can only convert double-faced objects
- * 
- * If a spell or ability instructs a player to convert a permanent that isn't
- * represented by a double-faced token or a double-faced card, nothing happens.
+ * Rule 701.28c: A permanent that converts doesn't become a new object.
+ * Effects that applied to it continue to apply.
+ */
+export const CONVERT_DOES_NOT_CREATE_NEW_OBJECT = true;
+
+/**
+ * Rule 701.28d / 701.28e / 713.1c: Only double-faced objects can convert.
+ * Instant or sorcery faces, and meld cards or melded permanents, cannot.
  */
 export function canConvert(
-  permanent: { isDoubleFaced: boolean; isInstantOrSorcery?: boolean }
+  permanent: { isDoubleFaced: boolean; isInstantOrSorcery?: boolean; isMeldCard?: boolean; isMelded?: boolean }
 ): boolean {
-  // Rule 701.28d: Can't convert into instant/sorcery face
+  // Rule 713.1c: Meld cards cannot be transformed or converted.
+  if (permanent.isMeldCard || permanent.isMelded) return false;
+  // Rule 701.28e: Can't convert into an instant or sorcery face
   if (permanent.isInstantOrSorcery) return false;
-  
+  // Rule 701.28d: Non-double-faced objects do not convert
   return permanent.isDoubleFaced;
 }
 
 /**
- * Rule 701.28e: Convert only once per ability
+ * Rule 701.28f: Convert only once per ability
  * 
  * If an activated or triggered ability of a permanent tries to convert it,
  * the permanent does so only if it hasn't converted or transformed since the
@@ -82,7 +90,7 @@ export function canConvertFromAbility(
 }
 
 /**
- * Rule 701.28f: Can't transform also means can't convert
+ * Rule 701.28g: Can't transform also means can't convert
  * 
  * If a spell or ability states that a permanent can't transform, that permanent
  * also can't convert.
@@ -95,7 +103,7 @@ export function canConvertWhenTransformPrevented(
 
 export function createConvertResult(
   action: ConvertAction,
-  permanent: { isDoubleFaced: boolean; isInstantOrSorcery?: boolean },
+  permanent: { isDoubleFaced: boolean; isInstantOrSorcery?: boolean; isMeldCard?: boolean; isMelded?: boolean },
   canTransformNow: boolean,
   abilityStackTimestamp?: number,
   lastConvertOrTransformTimestamp: number | null = null,
@@ -110,4 +118,16 @@ export function createConvertResult(
       : canConvertFromAbility(action.permanentId, abilityStackTimestamp, lastConvertOrTransformTimestamp),
     transformPreventionBlocksConvert: !canConvertWhenTransformPrevented(canTransformNow),
   };
+}
+
+
+/**
+ * Rule 701.28h: If a double-faced spell would enter the battlefield converted
+ * and its back face is an instant or sorcery, it is put into its owner's
+ * graveyard instead. This is an exception to 712.10.
+ */
+export function entersBattlefieldConvertedWithInstantOrSorceryBackFace(
+  backFaceIsInstantOrSorcery: boolean,
+): 'graveyard' | 'battlefield' {
+  return resolveConvertedIorSBackFaceFromStack(backFaceIsInstantOrSorcery);
 }

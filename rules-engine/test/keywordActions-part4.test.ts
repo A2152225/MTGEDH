@@ -14,6 +14,8 @@ import {
   isTransformedPermanent,
   checkTransformIntoTrigger,
   TRANSFORM_IS_DIFFERENT_FROM_FACE_DOWN,
+  TRANSFORM_DOES_NOT_CREATE_NEW_OBJECT,
+  asTransformsAbilityAppliesWhileChangingFaces,
   
   // Rule 701.28: Convert
   convertPermanent,
@@ -21,6 +23,8 @@ import {
   canConvertFromAbility,
   canConvertWhenTransformPrevented,
   CONVERT_IS_DIFFERENT_FROM_FACE_DOWN,
+  CONVERT_DOES_NOT_CREATE_NEW_OBJECT,
+  entersBattlefieldConvertedWithInstantOrSorceryBackFace,
   
   // Rule 701.29: Fateseal
   fateseal,
@@ -71,23 +75,31 @@ describe('Rule 701: Keyword Actions - Part 4', () => {
       expect(TRANSFORM_IS_DIFFERENT_FROM_FACE_DOWN).toBe(true);
     });
     
-    it('should only transform double-faced permanents (Rule 701.27c)', () => {
+    it('should not become a new object when it transforms (Rule 701.27c)', () => {
+      expect(TRANSFORM_DOES_NOT_CREATE_NEW_OBJECT).toBe(true);
+    });
+    
+    it('should only transform double-faced permanents (Rule 701.27d)', () => {
       expect(canTransform({ isDoubleFaced: true })).toBe(true);
       expect(canTransform({ isDoubleFaced: false })).toBe(false);
     });
     
-    it('should not transform into instant/sorcery face (Rule 701.27d)', () => {
+    it('should not transform into instant/sorcery face (Rule 701.27e)', () => {
       expect(canTransform({ isDoubleFaced: true, isInstantOrSorcery: true })).toBe(false);
       expect(canTransform({ isDoubleFaced: true, isInstantOrSorcery: false })).toBe(true);
     });
     
-    it('should only transform once per ability (Rule 701.27f)', () => {
+    it('should only transform once per ability (Rule 701.27g)', () => {
       expect(canTransformFromAbility('perm1', 100, null)).toBe(true);
       expect(canTransformFromAbility('perm1', 100, 50)).toBe(true);
       expect(canTransformFromAbility('perm1', 100, 150)).toBe(false);
     });
     
-    it('should identify transformed permanents (Rule 701.27g)', () => {
+    it('should apply as-this-transforms abilities while changing faces (Rule 701.27i)', () => {
+      expect(asTransformsAbilityAppliesWhileChangingFaces()).toBe(true);
+    });
+    
+    it('should identify transformed permanents (Rule 701.27h)', () => {
       expect(isTransformedPermanent({
         isDoubleFaced: true,
         currentFace: 'back',
@@ -105,7 +117,7 @@ describe('Rule 701: Keyword Actions - Part 4', () => {
       })).toBe(false);
     });
     
-    it('should check transform into triggers (Rule 701.27e)', () => {
+    it('should check transform into triggers (Rule 701.27f)', () => {
       expect(checkTransformIntoTrigger('perm1', 'back', true)).toBe(true);
       expect(checkTransformIntoTrigger('perm1', 'back', false)).toBe(false);
     });
@@ -125,24 +137,33 @@ describe('Rule 701: Keyword Actions - Part 4', () => {
       expect(CONVERT_IS_DIFFERENT_FROM_FACE_DOWN).toBe(true);
     });
     
-    it('should only convert double-faced permanents (Rule 701.28c)', () => {
+    it('should not become a new object when it converts (Rule 701.28c)', () => {
+      expect(CONVERT_DOES_NOT_CREATE_NEW_OBJECT).toBe(true);
+    });
+    
+    it('should only convert double-faced permanents (Rule 701.28d)', () => {
       expect(canConvert({ isDoubleFaced: true })).toBe(true);
       expect(canConvert({ isDoubleFaced: false })).toBe(false);
     });
     
-    it('should not convert into instant/sorcery face (Rule 701.28d)', () => {
+    it('should not convert into instant/sorcery face (Rule 701.28e)', () => {
       expect(canConvert({ isDoubleFaced: true, isInstantOrSorcery: true })).toBe(false);
     });
     
-    it('should only convert once per ability (Rule 701.28e)', () => {
+    it('should only convert once per ability (Rule 701.28f)', () => {
       expect(canConvertFromAbility('perm1', 100, null)).toBe(true);
       expect(canConvertFromAbility('perm1', 100, 50)).toBe(true);
       expect(canConvertFromAbility('perm1', 100, 150)).toBe(false);
     });
     
-    it('should not convert when transform is prevented (Rule 701.28f)', () => {
+    it('should not convert when transform is prevented (Rule 701.28g)', () => {
       expect(canConvertWhenTransformPrevented(true)).toBe(true);
       expect(canConvertWhenTransformPrevented(false)).toBe(false);
+    });
+    
+    it('should put an enter-converted instant/sorcery back into the graveyard (Rule 701.28h)', () => {
+      expect(entersBattlefieldConvertedWithInstantOrSorceryBackFace(true)).toBe('graveyard');
+      expect(entersBattlefieldConvertedWithInstantOrSorceryBackFace(false)).toBe('battlefield');
     });
   });
   

@@ -7,7 +7,7 @@ import { getETBTriggersForPermanent } from './triggered-abilities.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
 import { orderTriggersByAPNAP } from './triggers/ordering.js';
 import { stampPermanentControlEntryForEcho } from './upkeep-triggers.js';
-import { ensureInitialDayNightDesignationFromBattlefield, applyDayNightTransforms } from './day-night.js';
+import { ensureInitialDayNightDesignationFromBattlefield, enterPermanentTransformed } from './day-night.js';
 import { cardEntersPrepared, setPermanentPrepared } from './prepared.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { createGrantedRiotChoiceResult, processKeywordTriggers, type KeywordTriggerContext } from './keyword-handlers.js';
@@ -239,8 +239,8 @@ export function triggerETBEffectsForPermanent(
       const oracle = String(card?.oracle_text || '').toLowerCase();
       const layout = card?.layout;
       if ((layout === 'transform' || layout === 'double_faced_token') && Array.isArray(card?.card_faces) && oracle.includes('daybound')) {
-        // Apply transforms for the current designation (this will flip eligible daybound permanents).
-        applyDayNightTransforms(state as any);
+        // Enter already transformed (702.145b / 712.11a); do not fire transform triggers.
+        enterPermanentTransformed(permanent, 'other');
       }
     }
   } catch {}

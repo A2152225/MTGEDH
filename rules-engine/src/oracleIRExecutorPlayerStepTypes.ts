@@ -20,6 +20,7 @@ export type StepApplyResult = {
   readonly lastDiscardedCardCount?: number;
   readonly lastGreatestDiscardedCardCount?: number;
   readonly lastDiscardedCards?: readonly any[];
+  readonly lastMilledCards?: readonly any[];
   readonly lastMovedCards?: readonly any[];
   readonly lastRevealedCardCount?: number;
   readonly lastGrantedGraveyardCards?: readonly any[];

@@ -50,6 +50,9 @@ export interface KnownCardRef {
   chosenMana?: string;
   cmc?: number; // converted mana cost
   putIntoGraveyardTurn?: number;
+  isToken?: boolean;
+  owner?: string;
+  keywords?: readonly string[];
 }
 
 /* Hidden card representation for face-down and private zones */
@@ -68,6 +71,9 @@ export interface HiddenCardRef {
   toughness?: string | number;
   loyalty?: string | number; // for planeswalkers - starting loyalty value
   putIntoGraveyardTurn?: number;
+  isToken?: boolean;
+  owner?: string;
+  keywords?: readonly string[];
 }
 
 /* Generic CardRef used across the app */

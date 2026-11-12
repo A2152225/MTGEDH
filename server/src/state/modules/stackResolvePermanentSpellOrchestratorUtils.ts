@@ -7,7 +7,7 @@ import type { PermanentSpellStackResolveOptions } from './stackResolveSharedType
 export function resolvePermanentSpellStackItem(
   ctx: GameContext,
   options: PermanentSpellStackResolveOptions,
-): 'mutate' | 'permanent' | false {
+): 'mutate' | 'permanent' | 'graveyard' | false {
   if (!options.effectiveCard || !isPermanentTypeLine(options.effectiveTypeLine)) {
     return false;
   }
@@ -17,6 +17,10 @@ export function resolvePermanentSpellStackItem(
   if (entryOutcome.mutateResolved === true) {
     bumpSeq();
     return 'mutate';
+  }
+  if (entryOutcome.mutateResolved === false && entryOutcome.sentToGraveyard === true) {
+    bumpSeq();
+    return 'graveyard';
   }
 
   applyPermanentSpellPostEntrySteps(ctx, {

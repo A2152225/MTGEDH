@@ -26,7 +26,7 @@ function trimId(value: unknown): string {
 
 function shouldHoldChaosResolutionTriggers(
   ctx: GameContext,
-  result: OracleIRExecutionResult,
+  result: Pick<OracleIRExecutionResult, 'automationGaps'> | OracleIRExecutionResult,
 ): boolean {
   const gaps = result.automationGaps || [];
   if (gaps.some((gap) => String(gap.metadata?.warpWorldChoice || '').trim())) return true;
@@ -159,7 +159,7 @@ function accumulateAndMaybeFlushChaosResolutionZoneTriggers(
 export function maybeFlushChaosResolutionZoneTriggersIfIdle(ctx: GameContext): void {
   const state = (ctx as any)?.state;
   if (!state?.oracleIrHeldChaosZoneTriggers) return;
-  if (shouldHoldChaosResolutionTriggers(ctx, { automationGaps: [] } as OracleIRExecutionResult)) return;
+  if (shouldHoldChaosResolutionTriggers(ctx, { automationGaps: [] })) return;
   flushChaosResolutionZoneTriggers(ctx);
 }
 

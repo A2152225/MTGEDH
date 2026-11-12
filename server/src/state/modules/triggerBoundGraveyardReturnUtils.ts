@@ -66,6 +66,7 @@ export function applyBoundGraveyardReturnFromTriggerMetadata(
             : undefined,
           battlefieldFaceDown: (params.triggerItem as any).battlefieldFaceDown === true,
           battlefieldTurnFaceUp: (params.triggerItem as any).battlefieldTurnFaceUp === true,
+          battlefieldTransformed: (params.triggerItem as any).battlefieldTransformed === true,
           battlefieldSuspected: (params.triggerItem as any).battlefieldSuspected === true,
         }],
       });
@@ -163,15 +164,27 @@ export function applyBoundGraveyardReturnFromTriggerMetadata(
     if ((params.triggerItem as any).battlefieldTurnFaceUp === true) {
       turnReturnedPermanentFaceUp(permanent, params.ctx);
     }
+    let rejectedEnterTransformed = false;
     if ((params.triggerItem as any).battlefieldTransformed === true && !entersFaceDown) {
-      enterPermanentTransformed(permanent);
+      const enterFace = enterPermanentTransformed(permanent, 'other');
+      if (enterFace.outcome === 'stay_in_zone' || enterFace.outcome === 'graveyard') {
+        rejectedEnterTransformed = true;
+      }
     }
     applyBattlefieldReturnCharacteristicMetadata(permanent, params.triggerItem);
+    if (rejectedEnterTransformed) {
+      const ownerZones = (params.state.zones[sourceOwnerId] || { graveyard: [], graveyardCount: 0 }) as any;
+      params.state.zones[sourceOwnerId] = ownerZones;
+      ownerZones.graveyard = Array.isArray(ownerZones.graveyard) ? ownerZones.graveyard : [];
+      ownerZones.graveyard.push({ ...boundCard, zone: 'graveyard' });
+      ownerZones.graveyardCount = ownerZones.graveyard.length;
+    } else {
     markPermanentEnteredFromZone(permanent, 'graveyard');
     battlefield.push(permanent as any);
     stampPermanentEntryTimestamp(params.state, battlefield[battlefield.length - 1]);
     createdPermanentIds.push(permanentId);
     createdBattlefieldEntries.push({ permanent, controllerId: battlefieldControllerId });
+    }
   }
 
   try {

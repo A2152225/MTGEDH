@@ -10,6 +10,7 @@ import type { OracleEffectStep, OracleIRAbility, OracleIRResult } from './oracle
 import { applyParseOracleTextToIRLatePasses } from './oracleIRParserParseOracleTextToIRLatePasses';
 import {
   mergeAdditionalCombatContinuationAbilities,
+  mergeExileUntilFollowupAbilities,
   mergeSplitChooseModeParsedAbilities,
 } from './oracleIRParserAbilityMerges';
 import { parseAbilityToIRAbility as parseAbilityToIRAbilityFromModule } from './oracleIRParserAbilityToIR';
@@ -301,6 +302,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = expandUnlessSacrificeAbilities(abilities);
   abilities = expandOtherwiseConditionalUnknownAbilities(abilities);
   abilities = mergeRevealTopShareTypeMayCastAbilities(abilities);
+  abilities = mergeExileUntilFollowupAbilities(abilities);
   abilities = expandExilePermissionUnknownAbilities(abilities);
   abilities = expandTokenCreationReplacementUnknownAbilities(abilities);
   abilities = expandGraveyardPermissionUnknownAbilities(abilities);

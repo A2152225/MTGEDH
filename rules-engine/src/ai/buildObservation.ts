@@ -212,6 +212,21 @@ function zoneCards(state: any, playerId: PlayerID, zone: 'hand' | 'graveyard' | 
   return Array.isArray(arr) ? arr : [];
 }
 
+/**
+ * Public hand size for any seat. When `zones[id].hand` is an array (server /
+ * full-state AI path), trust `hand.length` so a stale `handCount` cannot
+ * disagree with `self.hand.length` across observers. Use `handCount` only when
+ * the hand array is absent (fogged client payload).
+ */
+function publicHandSize(state: any, playerId: PlayerID): number {
+  const z = state?.zones?.[playerId];
+  if (Array.isArray(z?.hand)) return z.hand.length;
+  if (typeof z?.handCount === 'number' && Number.isFinite(z.handCount)) {
+    return Math.max(0, Math.floor(z.handCount));
+  }
+  return 0;
+}
+
 function librarySizeFor(
   state: any,
   playerId: PlayerID,
@@ -358,14 +373,10 @@ export function buildObservation(
         .filter((p) => String((p as any)?.controller) === String(id))
         .map((p) => toPermanentView(p, battlefieldAll)),
     );
-    const hand = zoneCards(state, id, 'hand');
-    const handSize = typeof state?.zones?.[id]?.handCount === 'number'
-      ? Math.max(0, state.zones[id].handCount)
-      : hand.length;
     opponents.push({
       id,
       life: readLife(state, id, player),
-      handSize,
+      handSize: publicHandSize(state, id),
       librarySize: librarySizeFor(state, id, options),
       graveyard: sortById(zoneCards(state, id, 'graveyard').map((c) => toCardView(c))),
       exile: sortById(zoneCards(state, id, 'exile').map((c) => toCardView(c, {

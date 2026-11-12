@@ -347,7 +347,8 @@ export function putOpponentOwnedMatchingFromExileOntoBattlefield(
   cardType: SimpleCardType,
   entersTapped?: boolean,
   entersFaceDown?: boolean,
-  withCounters?: Record<string, number>
+  withCounters?: Record<string, number>,
+  entersTransformed?: boolean
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
   let workingState = state;
   const combinedLog: string[] = [];
@@ -371,7 +372,8 @@ export function putOpponentOwnedMatchingFromExileOntoBattlefield(
         controllerId,
         entersTapped,
         entersFaceDown,
-        withCounters
+        withCounters,
+        entersTransformed
       );
       if (result.kind !== 'applied') continue;
       workingState = result.state;

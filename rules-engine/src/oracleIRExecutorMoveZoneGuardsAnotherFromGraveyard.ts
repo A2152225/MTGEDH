@@ -134,9 +134,7 @@ export function tryApplyMoveZoneGuardsFromAnotherFromGraveyard(args: MoveZoneGua
         effectiveCriteria.cardType,
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         battlefieldEntryOverrides
       );
@@ -190,9 +188,7 @@ export function tryApplyMoveZoneGuardsFromAnotherFromGraveyard(args: MoveZoneGua
         parsedAnyNumberCardsFromYourHand.cardType,
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         battlefieldEntryOverrides
       );
@@ -251,9 +247,7 @@ export function tryApplyMoveZoneGuardsFromAnotherFromGraveyard(args: MoveZoneGua
         controllerId,
         dynamicMaxCount,
         effectiveCriteria,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         preferredIds
       );
@@ -615,9 +609,7 @@ export function tryApplyMoveZoneGuardsFromAnotherFromGraveyard(args: MoveZoneGua
               controllerId,
               ctx,
               cardType: 'any',
-              entersTapped: step.entersTapped,
-              entersFaceDown: step.entersFaceDown,
-              withCounters: effectiveWithCounters,
+              entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
               battlefieldEntryOverrides,
             })
           : location.zone === 'exile'
@@ -628,9 +620,7 @@ export function tryApplyMoveZoneGuardsFromAnotherFromGraveyard(args: MoveZoneGua
                 'any',
                 step.to,
                 step.to === 'battlefield' ? controllerId : undefined,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               )
@@ -642,9 +632,7 @@ export function tryApplyMoveZoneGuardsFromAnotherFromGraveyard(args: MoveZoneGua
                   'any',
                   step.to === 'battlefield' ? 'battlefield' : 'graveyard',
                   step.to === 'battlefield' ? controllerId : undefined,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters,
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                   undefined,
                   battlefieldEntryOverrides
                 )

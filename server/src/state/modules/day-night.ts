@@ -2,6 +2,11 @@ import { debugWarn } from "../../utils/debug.js";
 import type { GameContext } from "../context.js";
 import { processTransformTriggers } from "./triggerEmissionFamilyUtils.js";
 import { uid } from "../utils.js";
+import { asTransformsAbilityAppliesWhileChangingFaces } from '../../../../rules-engine/src/keywordActions/transform.js';
+import {
+  resolveAndApplyEnterFace,
+  type EnterTransformedOrConvertedDecision,
+} from './enterBattlefieldFaceApplication.js';
 
 export type DayNight = 'day' | 'night';
 
@@ -19,6 +24,7 @@ function createEmblemFromTransformIntoFace(
   newFace: any,
 ): void {
   if (!ctx?.state || !newFace) return;
+  if (!asTransformsAbilityAppliesWhileChangingFaces()) return;
   const oracle = String(newFace.oracle_text || '');
   const match = oracle.match(
     /as this creature transforms into .+?,\s*you get an emblem with\s*["\u201C]([^"\u201D]+)["\u201D]/i,
@@ -80,27 +86,16 @@ export function transformPermanentToFace(
 }
 
 /**
- * A double-faced permanent that enters "transformed" enters with its back face up (rule 712.14);
- * it did not transform, so no transform triggers fire.
+ * A double-faced permanent that enters "transformed" or "converted" enters with its back face up
+ * (rules 712.11a / 701.27j / 701.28h). It did not transform, so no transform triggers fire.
+ * Returns the shared decision so callers can send the card to the graveyard or leave it in zone.
  */
-export function enterPermanentTransformed(permanent: any): void {
-  const faces: any[] = Array.isArray(permanent?.card?.card_faces) ? permanent.card.card_faces : [];
-  if (faces.length < 2) return;
-  permanent.card = { ...permanent.card };
-  transformPermanentToFace(permanent, 1);
-  permanent.card.faceIndex = 1;
-  permanent.card.transformed = true;
-  const typeLine = String(permanent.card.type_line || '').toLowerCase();
-  if (typeLine.includes('creature')) {
-    permanent.basePower = parseInt(String(permanent.card.power ?? '0'), 10) || 0;
-    permanent.baseToughness = parseInt(String(permanent.card.toughness ?? '0'), 10) || 0;
-  } else {
-    delete permanent.basePower;
-    delete permanent.baseToughness;
-    permanent.summoningSickness = false;
-  }
+export function enterPermanentTransformed(
+  permanent: any,
+  sourceZone: 'stack' | 'other' = 'other',
+): EnterTransformedOrConvertedDecision {
+  return resolveAndApplyEnterFace(permanent, { sourceZone, intent: 'transformed' });
 }
-
 export function applyDayNightTransforms(state: any): void {
   if (!state?.battlefield) return;
   const dn: unknown = state.dayNight;

@@ -125,7 +125,7 @@ export function tryDispatchResolvedStackItem(
   if (permanentOutcome === 'mutate') {
     return true;
   }
-  if (permanentOutcome === 'permanent') {
+  if (permanentOutcome === 'permanent' || permanentOutcome === 'graveyard') {
     finalizeResolveTopOfStackAfterEffects(ctx);
     return true;
   }

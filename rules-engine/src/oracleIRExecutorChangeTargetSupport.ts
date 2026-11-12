@@ -121,10 +121,10 @@ function collectRetargetCandidates(
         return {
           ...target,
           id,
-          type: String(target?.type || (currentLooksLikePlayer ? 'player' : 'permanent')).trim() || undefined,
+          type: String(target?.type || (currentLooksLikePlayer ? 'player' : 'permanent')).trim() || (currentLooksLikePlayer ? 'player' : 'permanent'),
         };
       })
-      .filter((target): target is { id: string; type?: string } => Boolean(target?.id));
+      .filter((target): target is { id: string; type: string } => Boolean(target?.id));
   }
   if (candidates.length === 0) {
     const playerCandidates = players

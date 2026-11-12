@@ -14,7 +14,7 @@ import { parseEnergyCostAmount, parseSupportedManaCostString } from './oracleIRE
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import { resolveUnlessPaysManaCostString } from './oracleIRExecutorUnlessPaysManaAmount';
 import { payManaCost } from './spellCasting';
-import { createEmptyManaPool } from './types/mana';
+import { createEmptyManaPool, type ManaCost } from './types/mana';
 
 function readUnlessPaysManaChoice(
   ctx: OracleIRExecutionContext,
@@ -34,15 +34,7 @@ function readUnlessPaysManaChoice(
   return undefined;
 }
 
-function isZeroManaCost(manaCost: {
-  generic: number;
-  white: number;
-  blue: number;
-  black: number;
-  red: number;
-  green: number;
-  colorless: number;
-}): boolean {
+function isZeroManaCost(manaCost: ManaCost): boolean {
   return manaCost.generic === 0
     && manaCost.white === 0
     && manaCost.blue === 0

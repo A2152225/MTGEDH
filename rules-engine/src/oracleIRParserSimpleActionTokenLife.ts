@@ -334,11 +334,20 @@ export function tryParseSimpleActionTokenLifeClauses(args: SimpleActionClausePar
     if (castAsThoughFlash) {
       const spellText = String(castAsThoughFlash[1] || '').trim();
       const thisTurn = /\bthis\s+turn\b/i.test(clause);
+      if (thisTurn) {
+        return withMeta({
+          kind: 'grant_temporary_ability',
+          target: parseObjectSelector(spellText ? `you casting ${spellText} spells` : 'you'),
+          effectText: [spellText ? `may cast as though they had flash` : 'may cast spells as though they had flash'],
+          duration: 'this_turn',
+          raw: rawClause,
+        });
+      }
       return withMeta({
-        kind: thisTurn ? 'grant_temporary_ability' : 'grant_static_ability',
+        kind: 'grant_static_ability',
         target: parseObjectSelector(spellText ? `you casting ${spellText} spells` : 'you'),
         effectText: [spellText ? `may cast as though they had flash` : 'may cast spells as though they had flash'],
-        duration: thisTurn ? 'this_turn' : 'static',
+        duration: 'static',
         raw: rawClause,
       });
     }

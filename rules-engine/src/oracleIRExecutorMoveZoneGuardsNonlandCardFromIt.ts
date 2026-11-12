@@ -138,9 +138,7 @@ export function tryApplyMoveZoneGuardsFromNonlandCardFromIt(args: MoveZoneGuardA
         'any',
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         battlefieldEntryOverrides
       );
@@ -161,9 +159,7 @@ export function tryApplyMoveZoneGuardsFromNonlandCardFromIt(args: MoveZoneGuardA
       'any',
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -428,9 +424,7 @@ export function tryApplyMoveZoneGuardsFromNonlandCardFromIt(args: MoveZoneGuardA
       graveyardCriteria,
       destination as any,
       step.to === 'battlefield' ? controllerId : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       undefined,
       battlefieldEntryOverrides
@@ -657,9 +651,7 @@ export function tryApplyMoveZoneGuardsFromNonlandCardFromIt(args: MoveZoneGuardA
       { cardType: parsedCardFromAGraveyard.cardType },
       'battlefield',
       battlefieldControllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       undefined,
       battlefieldEntryOverrides

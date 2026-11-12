@@ -142,7 +142,7 @@ function inferDeathTriggerStackMetadata(effectText: string, dyingPermanent: any,
   if (lower.includes('face down')) {
     metadata.battlefieldFaceDown = true;
   }
-  if (/\bto the battlefield\b[^.]*\btransformed\b/.test(lower)) {
+  if (/\bto the battlefield\b[^.]*\b(?:transformed|converted)\b/.test(lower)) {
     metadata.battlefieldTransformed = true;
   }
   if (lower.includes('turn it face up')) {

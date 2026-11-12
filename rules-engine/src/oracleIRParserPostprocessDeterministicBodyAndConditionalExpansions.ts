@@ -413,11 +413,11 @@ export function wrapIfYouDoConditionOnParsedAbilities(
         const innerSteps = (step.steps || []).map((inner) => {
           if ((inner as { whereX?: OracleClauseCondition }).whereX) return inner;
           innerChanged = true;
-          return { ...inner, whereX: inheritedWhereX };
+          return { ...inner, whereX: inheritedWhereX } as OracleEffectStep;
         });
         if (!innerChanged) return step;
         changed = true;
-        return { ...step, steps: innerSteps };
+        return { ...step, steps: innerSteps } as OracleEffectStep;
       }
       const raw = normalizeOracleText(String(step.raw || '')).trim();
       if (!/^if you do,/i.test(raw)) return step;
@@ -470,7 +470,7 @@ export function wrapIfYouDoConditionOnParsedAbilities(
         innerSteps = innerSteps.map((inner) => (
           (inner as { whereX?: OracleClauseCondition }).whereX
             ? inner
-            : { ...inner, whereX: inheritedWhereX }
+            : { ...inner, whereX: inheritedWhereX } as OracleEffectStep
         ));
       }
       return {
@@ -481,7 +481,7 @@ export function wrapIfYouDoConditionOnParsedAbilities(
         raw,
       } as OracleEffectStep;
     });
-    return changed ? { ...ability, steps: nextSteps } : ability;
+    return changed ? { ...ability, steps: nextSteps } as OracleIRAbility : ability;
   });
 }
 

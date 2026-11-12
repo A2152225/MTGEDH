@@ -27,7 +27,14 @@ import {
 } from './oracleIRExecutorPlayerUtils';
 import { inferSplitLibrarySearchPlan } from './oracleIRSplitLibrarySearch';
 import { usedOracleIrServerBridge } from './oracleIRStepLedgerRuntime';
-import { createBattlefieldPermanentsFromCards } from './oracleIRExecutorZoneOps';
+import {
+  addBattlefieldPermanentsToState,
+  appendCreatedBattlefieldPermanents,
+  createBattlefieldPermanentsFromCards,
+  emptyCreatedBattlefieldPermanents,
+  stampCardUsingZoneIndex,
+  stampCardsUsingZoneIndex,
+} from './oracleIRExecutorZoneOps';
 
 function filterChosenLibraryMatchIds(
   matches: readonly any[],
@@ -203,13 +210,13 @@ export function applySearchLibraryStep(
       recordShuffledLibrary(playerId, shuffledLibrary);
 
       const entersTapped = Boolean(splitPlan.entersTapped || step.entersTapped);
-      const enteredBattlefield: any[] = [];
+      const enteredBattlefield = emptyCreatedBattlefieldPermanents();
       for (const card of battlefieldCards) {
         const resolved = resolveBattlefieldEntryFromOracleIrContext(
           nextState,
           card,
           playerId,
-          { entersTapped },
+          { entersTapped, entersTransformed: Boolean(splitPlan.entersTransformed || step.entersTransformed) },
           { ctx, stepKind: step.kind, cause: 'oracle_ir:search_library_split' },
         );
         if ('halted' in resolved) {
@@ -221,24 +228,20 @@ export function applySearchLibraryStep(
           }, ledgerRecordedViaBridge);
         }
 
-        enteredBattlefield.push(
-          ...createBattlefieldPermanentsFromCards(
-            [{ ...card, ownerId: playerId, owner: playerId }],
+        appendCreatedBattlefieldPermanents(
+          enteredBattlefield,
+          createBattlefieldPermanentsFromCards(
+            [stampCardUsingZoneIndex({ ...card, ownerId: playerId, owner: playerId }, library, 'library')],
             playerId,
             playerId,
-            resolved.entersTapped,
-            resolved.entersFaceDown,
-            resolved.withCounters,
+            resolved.entersTapped, resolved.entersFaceDown, resolved.withCounters, resolved.entersTransformed,
             'library',
           ),
         );
       }
 
       if (enteredBattlefield.length > 0) {
-        nextState = {
-          ...nextState,
-          battlefield: [...(nextState.battlefield || []), ...enteredBattlefield],
-        } as GameState;
+        nextState = addBattlefieldPermanentsToState(nextState, enteredBattlefield);
         allMovedCards.push(...battlefieldCards);
         ledgerRecordedViaBridge = true;
       }
@@ -268,13 +271,13 @@ export function applySearchLibraryStep(
       writePlayerZoneCards(nextState, playerId, player, 'library', shuffledLibrary);
       recordShuffledLibrary(playerId, shuffledLibrary);
 
-      const enteredBattlefield: any[] = [];
+      const enteredBattlefield = emptyCreatedBattlefieldPermanents();
       for (const card of selected) {
         const resolved = resolveBattlefieldEntryFromOracleIrContext(
           nextState,
           card,
           playerId,
-          { entersTapped: Boolean(step.entersTapped) },
+          { entersTapped: Boolean(step.entersTapped), entersTransformed: Boolean(step.entersTransformed) },
           { ctx, stepKind: step.kind, cause: 'oracle_ir:search_library' },
         );
         if ('halted' in resolved) {
@@ -286,23 +289,19 @@ export function applySearchLibraryStep(
           }, ledgerRecordedViaBridge);
         }
 
-        enteredBattlefield.push(
-          ...createBattlefieldPermanentsFromCards(
-            [{ ...card, ownerId: playerId, owner: playerId }],
+        appendCreatedBattlefieldPermanents(
+          enteredBattlefield,
+          createBattlefieldPermanentsFromCards(
+            [stampCardUsingZoneIndex({ ...card, ownerId: playerId, owner: playerId }, library, 'library')],
             playerId,
             playerId,
-            resolved.entersTapped,
-            resolved.entersFaceDown,
-            resolved.withCounters,
+            resolved.entersTapped, resolved.entersFaceDown, resolved.withCounters, resolved.entersTransformed,
             'library',
           ),
         );
       }
 
-      nextState = {
-        ...nextState,
-        battlefield: [...(nextState.battlefield || []), ...enteredBattlefield],
-      } as GameState;
+      nextState = addBattlefieldPermanentsToState(nextState, enteredBattlefield);
       allMovedCards.push(...selected);
       ledgerRecordedViaBridge = true;
 
@@ -401,20 +400,21 @@ export function applySearchLibraryStep(
     const remainingLibrary = library.filter(card => !selectedIds.has(String(card?.id || card?.cardId || '').trim()));
     const shuffledLibrary = step.shuffle === false ? remainingLibrary : shuffleArray(remainingLibrary);
     recordShuffledLibrary(playerId, shuffledLibrary);
-    const movedCards = selected.map((card: any) => ({
-      ...card,
-      zone: step.destination,
-    }));
+    const movedCards = stampCardsUsingZoneIndex(
+      selected.map((card: any) => ({
+        ...card,
+        zone: step.destination,
+      })),
+      library,
+      'library',
+    );
     const enteredBattlefield =
       step.destination === 'battlefield'
         ? createBattlefieldPermanentsFromCards(
             movedCards,
             playerId,
             playerId,
-            Boolean(step.entersTapped),
-            false,
-            undefined,
-            'library'
+            Boolean(step.entersTapped), false, undefined, Boolean(step.entersTransformed), 'library'
           )
         : [];
 
@@ -447,10 +447,10 @@ export function applySearchLibraryStep(
 
         return { ...entry, library: shuffledLibrary, hand: [...hand, ...movedCards] };
       }),
-      ...(enteredBattlefield.length > 0
-        ? { battlefield: [...(nextState.battlefield || []), ...enteredBattlefield] }
-        : {}),
     } as GameState;
+    if (step.destination === 'battlefield') {
+      nextState = addBattlefieldPermanentsToState(nextState, enteredBattlefield);
+    }
 
     if (step.revealFound && selected.length > 0) {
       log.push(`${playerId} revealed ${selected.map(card => String(card?.name || 'card')).join(', ')}`);

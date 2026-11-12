@@ -12,6 +12,7 @@
 
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
+import { isCreatureNow } from '../creatureTypeNow.js';
 import { executeUntapTrigger, queueBecomesUntappedTriggers } from './triggers/tap-untap.js';
 
 function resolveReferencedPlayerId(triggerItem: any): string {
@@ -61,8 +62,8 @@ export function tryApplyUntapAllYouControlTrigger(
     const battlefield = ((ctx.state as any)?.battlefield || []) as any[];
     for (const permanent of battlefield) {
       if (!permanent || !permanent.tapped) continue;
-      const typeLine = String(permanent.card?.type_line || '').toLowerCase();
-      if (!typeLine.includes('creature')) continue;
+      // Use isCreatureNow so stationed Spacecrafts (8+ charge) untap under Intruder Alarm.
+      if (!isCreatureNow(permanent)) continue;
       permanent.tapped = false;
       queueBecomesUntappedTriggers(ctx, permanent);
     }

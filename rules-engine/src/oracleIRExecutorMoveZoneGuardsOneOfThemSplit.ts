@@ -202,9 +202,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
             {
               controllerId: contextualBattlefieldControllerId || contextualBoundCardZone.playerId,
               cardType: 'any',
-              entersTapped: step.entersTapped,
-              entersFaceDown: step.entersFaceDown,
-              withCounters: effectiveWithCounters,
+              entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
               battlefieldEntryOverrides,
               ctx,
               stepKind: 'move_zone',
@@ -218,9 +216,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
             { cardType: 'any' },
             destination as any,
             contextualBattlefieldControllerId,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters,
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
             attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
             undefined,
             battlefieldEntryOverrides
@@ -233,9 +229,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
               'any',
               destination as any,
               contextualBattlefieldControllerId,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
               battlefieldEntryOverrides
             )
@@ -246,9 +240,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
               'any',
               destination as any,
               contextualBattlefieldControllerId,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
               battlefieldEntryOverrides
             );
@@ -300,9 +292,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
             { cardType: 'any' },
             destination as any,
             battlefieldControllerId,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters,
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
             attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
             undefined,
             battlefieldEntryOverrides
@@ -315,9 +305,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
               'any',
               destination as any,
               battlefieldControllerId,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
               battlefieldEntryOverrides
             )
@@ -328,9 +316,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
               'any',
               destination as any,
               battlefieldControllerId,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
               battlefieldEntryOverrides
             );
@@ -394,18 +380,14 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
                 nextState,
                 targetPlayerId,
                 parsedTargetPlayerGy.cardType,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
               )
             : putAllMatchingFromGraveyardOntoBattlefieldWithController(
                 nextState,
                 targetPlayerId,
                 controllerId,
                 parsedTargetPlayerGy.cardType,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
               )
           : exileAllMatchingFromGraveyard(nextState, targetPlayerId, parsedTargetPlayerGy.cardType, {
               ...(parsedTargetPlayerGy.excludeBasicLands ? { excludeBasicLands: true } : {}),
@@ -475,9 +457,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
       { cardType: 'any' },
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       undefined,
       undefined,
       battlefieldEntryOverrides
@@ -531,6 +511,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
             true,
             step.entersFaceDown,
             effectiveWithCounters,
+            Boolean(step.entersTransformed),
             undefined,
             battlefieldEntryOverrides
           )
@@ -544,6 +525,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
             true,
             step.entersFaceDown,
             effectiveWithCounters,
+            Boolean(step.entersTransformed),
             undefined,
             undefined,
             battlefieldEntryOverrides
@@ -594,7 +576,8 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
         controllerId,
         targetObjectId,
         parsedSameNamedFromYourGraveyard,
-        step.entersTapped
+        step.entersTapped,
+        step.entersTransformed
       );
       if (result.kind === 'impossible') {
         return {
@@ -662,9 +645,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
           parsedRandomSingleFromYourGraveyard.criteria,
           step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
           step.to === 'battlefield' ? controllerId : undefined,
-          step.entersTapped,
-          step.entersFaceDown,
-          effectiveWithCounters,
+          step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
           attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
           ctx.sourceName,
           battlefieldEntryOverrides,
@@ -712,9 +693,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
       parsedRandomSingleFromYourGraveyard,
       step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
       step.to === 'battlefield' ? controllerId : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       ctx.sourceName,
       battlefieldEntryOverrides,
@@ -848,9 +827,7 @@ export function tryApplyMoveZoneGuardsFromOneOfThemSplit(args: MoveZoneGuardArgs
           ? undefined
           : controllerId
         : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       ctx.sourceName,
       battlefieldEntryOverrides,

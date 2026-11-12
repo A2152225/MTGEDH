@@ -15,6 +15,7 @@ import { flattenZoneCardForBattlefield } from './oracleIRExecutorZoneCardIdentit
 import { hasExecutorClass } from './oracleIRExecutorPermanentUtils';
 import { getCardTypeLineLower } from './oracleIRExecutorZoneOpsThisWayParsers';
 import { assimilatedTypeLine } from './trekCountBases';
+import { applyBackFaceCharacteristicsToCard, resolveEnterFaceForCard } from './enterBattlefieldTransformedOrConverted';
 
 export type BattlefieldAttachmentTarget = BattlefieldPermanent;
 
@@ -26,6 +27,99 @@ export type BattlefieldEntryCardOverrides = {
   readonly assimilate?: boolean;
 };
 
+export type RejectedBattlefieldEntry = {
+  readonly card: any;
+  readonly ownerId: string;
+  readonly sourceZone: string;
+  readonly outcome: 'stay_in_zone' | 'graveyard';
+  readonly sourceIndex?: number;
+};
+
+export type CreatedBattlefieldPermanents = BattlefieldPermanent[] & {
+  readonly rejected: readonly RejectedBattlefieldEntry[];
+};
+
+export function emptyCreatedBattlefieldPermanents(): CreatedBattlefieldPermanents {
+  return Object.assign([] as BattlefieldPermanent[], { rejected: [] as RejectedBattlefieldEntry[] });
+}
+
+export function appendCreatedBattlefieldPermanents(
+  target: CreatedBattlefieldPermanents,
+  created: CreatedBattlefieldPermanents,
+): CreatedBattlefieldPermanents {
+  target.push(...created);
+  return Object.assign(target, {
+    rejected: [...(target.rejected || []), ...(created.rejected || [])],
+  });
+}
+
+export function stampCardZoneRemoval(card: any, sourceZone: string, sourceIndex?: number): any {
+  if (!card || typeof card !== 'object') return card;
+  const index = Number(sourceIndex);
+  return {
+    ...card,
+    sourceZone,
+    enteredFromZone: sourceZone,
+    ...(Number.isFinite(index) && index >= 0 ? { sourceIndex: index } : {}),
+  };
+}
+
+export function findCardIndexInZoneArray(list: readonly any[] | undefined, cardOrId: unknown): number {
+  const wanted = typeof cardOrId === 'string' || typeof cardOrId === 'number'
+    ? String(cardOrId).trim()
+    : String((cardOrId as any)?.id || (cardOrId as any)?.cardId || '').trim();
+  if (!wanted || !Array.isArray(list)) return -1;
+  return list.findIndex((entry) => String(entry?.id || entry?.cardId || '').trim() === wanted);
+}
+
+export function stampCardUsingZoneIndex(card: any, list: readonly any[] | undefined, sourceZone: string): any {
+  return stampCardZoneRemoval(card, sourceZone, findCardIndexInZoneArray(list, card));
+}
+
+export function stampCardsUsingZoneIndex(
+  cards: readonly any[],
+  list: readonly any[] | undefined,
+  sourceZone: string,
+): any[] {
+  return (Array.isArray(cards) ? cards : []).map((card) => stampCardUsingZoneIndex(card, list, sourceZone));
+}
+
+export function takeAndStampCardFromZoneArray(
+  list: any[] | undefined,
+  cardOrId: unknown,
+  sourceZone: string,
+): any | undefined {
+  if (!Array.isArray(list)) return undefined;
+  const index = findCardIndexInZoneArray(list, cardOrId);
+  if (index < 0) return undefined;
+  const [removed] = list.splice(index, 1);
+  return stampCardZoneRemoval(removed, sourceZone, index);
+}
+
+function readStampedSourceIndex(card: any): number | undefined {
+  const index = Number(card?.sourceIndex);
+  return Number.isFinite(index) && index >= 0 ? index : undefined;
+}
+
+export function mapBattlefieldEntrySourceZone(sourcePrefix: string): string {
+  const prefix = String(sourcePrefix || '').trim().toLowerCase();
+  if (prefix === 'gy' || prefix === 'graveyard') return 'graveyard';
+  if (prefix === 'ex' || prefix === 'exile') return 'exile';
+  if (prefix === 'hand') return 'hand';
+  if (prefix === 'library') return 'library';
+  if (prefix === 'command' || prefix === 'command_zone' || prefix === 'commandzone') return 'command';
+  if (prefix === 'stack') return 'stack';
+  if (prefix === 'attraction' || prefix === 'contraption') return prefix;
+  return prefix || 'unknown';
+}
+
+export function restoreZoneForRejectedBattlefieldEntry(entry: RejectedBattlefieldEntry): string {
+  if (entry.outcome === 'graveyard' && (entry.sourceZone === 'stack' || entry.sourceZone === 'unknown' || !entry.sourceZone)) {
+    return 'graveyard';
+  }
+  return entry.sourceZone && entry.sourceZone !== 'unknown' ? entry.sourceZone : 'graveyard';
+}
+
 export function resolveBattlefieldEntryBeforeCommit(
   state: GameState,
   card: unknown,
@@ -34,6 +128,7 @@ export function resolveBattlefieldEntryBeforeCommit(
     readonly entersTapped?: boolean;
     readonly entersFaceDown?: boolean;
     readonly withCounters?: Record<string, number>;
+    readonly entersTransformed?: boolean;
   },
   oracleIrEntry?: OracleIrBattlefieldEntryContext,
 ):
@@ -42,6 +137,7 @@ export function resolveBattlefieldEntryBeforeCommit(
       readonly entersTapped: boolean;
       readonly entersFaceDown: boolean;
       readonly withCounters: Record<string, number>;
+      readonly entersTransformed: boolean;
     }
   | { readonly kind: 'halted' } {
   const resolved = resolveBattlefieldEntryFromOracleIrContext(state, card, controllerId, explicit, oracleIrEntry);
@@ -51,6 +147,7 @@ export function resolveBattlefieldEntryBeforeCommit(
     entersTapped: resolved.entersTapped,
     entersFaceDown: resolved.entersFaceDown,
     withCounters: resolved.withCounters,
+    entersTransformed: Boolean(resolved.entersTransformed || explicit.entersTransformed),
   };
 }
 
@@ -61,19 +158,21 @@ export function createBattlefieldPermanentsFromCards(
   entersTapped: boolean | undefined,
   entersFaceDown: boolean | undefined,
   withCounters: Record<string, number> | undefined,
+  entersTransformed: boolean | undefined,
   sourcePrefix: string,
   attachmentTarget?: BattlefieldAttachmentTarget,
   entryOverrides?: BattlefieldEntryCardOverrides,
   faceDownWardCost?: string,
   enchantedPlayerId?: string
-): BattlefieldPermanent[] {
-  return moved.map((card: any, idx: number) => {
+): CreatedBattlefieldPermanents {
+  const permanents: BattlefieldPermanent[] = [];
+  const rejected: RejectedBattlefieldEntry[] = [];
+  moved.forEach((card: any, idx: number) => {
     const cardIdHint = String(card?.id || '').trim();
     const base = cardIdHint ? cardIdHint : `${sourcePrefix}-${idx}`;
-    const sourceZone =
-      sourcePrefix === 'gy' ? 'graveyard' : sourcePrefix === 'ex' ? 'exile' : sourcePrefix === 'hand' ? 'hand' : sourcePrefix;
+    const sourceZone = mapBattlefieldEntrySourceZone(sourcePrefix);
     const counters = mergeRetainedCountersForBattlefieldEntry(card, sourceZone, withCounters);
-    const faceUpCard = applyBattlefieldEntryCardOverrides(
+    let faceUpCard = applyBattlefieldEntryCardOverrides(
       flattenZoneCardForBattlefield({
         ...(card || {}),
         zone: 'battlefield',
@@ -83,6 +182,25 @@ export function createBattlefieldPermanentsFromCards(
     );
     if ('counters' in faceUpCard) delete faceUpCard.counters;
     if ('damageSourceIds' in faceUpCard) delete faceUpCard.damageSourceIds;
+    const wantsTransformed = Boolean(entersTransformed || card?.entersTransformed || card?.entersBattlefieldTransformed || card?.entersConverted || card?.entersBattlefieldConverted);
+    const enterFace = resolveEnterFaceForCard(faceUpCard, {
+      sourceZone: sourceZone === 'stack' ? 'stack' : 'other',
+      extra: card,
+      intent: wantsTransformed ? (card?.entersConverted === true || card?.entersBattlefieldConverted === true ? 'converted' : 'transformed') : undefined,
+    });
+    if (enterFace.outcome === 'stay_in_zone' || enterFace.outcome === 'graveyard') {
+      rejected.push({
+        card,
+        ownerId: String(card?.owner || card?.ownerId || sourcePlayerId || '').trim() || String(sourcePlayerId),
+        sourceZone,
+        outcome: enterFace.outcome,
+        sourceIndex: readStampedSourceIndex(card),
+      });
+      return;
+    }
+    if (enterFace.outcome === 'enter_back_face') {
+      faceUpCard = applyBackFaceCharacteristicsToCard(faceUpCard);
+    }
 
     const basePermanent = {
       id: `perm-${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -128,7 +246,7 @@ export function createBattlefieldPermanentsFromCards(
           : { oracle_text: '' }),
       } as any;
 
-      return {
+      const facedownPermanent = {
         ...basePermanent,
         isFaceDown: true,
         basePower: 2,
@@ -139,17 +257,23 @@ export function createBattlefieldPermanentsFromCards(
         card: hiddenCard,
         faceUpCard,
       } as any;
+      if (enterFace.outcome === 'enter_back_face') facedownPermanent.transformed = true;
+      permanents.push(facedownPermanent);
+      return;
     }
 
     const printedPower = parsePrintedPowerToughness(faceUpCard?.power);
     const printedToughness = parsePrintedPowerToughness(faceUpCard?.toughness);
-    return {
+    const faceUpPermanent = {
       ...basePermanent,
       ...(printedPower !== undefined ? { basePower: printedPower, power: printedPower } : {}),
       ...(printedToughness !== undefined ? { baseToughness: printedToughness, toughness: printedToughness } : {}),
       card: faceUpCard,
     } as any;
+    if (enterFace.outcome === 'enter_back_face') faceUpPermanent.transformed = true;
+    permanents.push(faceUpPermanent);
   });
+  return Object.assign(permanents, { rejected });
 }
 
 export function getBattlefieldAttachmentTarget(state: GameState, permanentId: string): BattlefieldAttachmentTarget | undefined {
@@ -266,8 +390,84 @@ export function resolveMoverAttachment(
   return { kind: 'impossible' };
 }
 
+export function restoreRejectedBattlefieldEntries(
+  state: GameState,
+  rejected: readonly RejectedBattlefieldEntry[] | undefined,
+): GameState {
+  if (!rejected || rejected.length === 0) return state;
+  let next: any = state;
+  for (const entry of rejected) {
+    const zoneName = restoreZoneForRejectedBattlefieldEntry(entry);
+    const cardId = String(entry.card?.id || '').trim();
+    const ownerId = String(entry.ownerId || entry.card?.owner || entry.card?.ownerId || '').trim();
+    const card = { ...(entry.card || {}), zone: zoneName };
+    next = restoreCardToOwnerZone(next, ownerId, zoneName, card, cardId, entry.sourceIndex);
+  }
+  return next as GameState;
+}
+
+function zoneArrayHasCard(list: unknown, cardId: string): boolean {
+  if (!cardId || !Array.isArray(list)) return false;
+  return list.some((entry: any) => String(entry?.id || '').trim() === cardId);
+}
+
+function withCardInZoneArray(list: unknown, card: any, cardId: string, preferUnshift: boolean, sourceIndex?: number): any[] {
+  const arr = Array.isArray(list) ? [...list] : [];
+  if (cardId && zoneArrayHasCard(arr, cardId)) return arr;
+  if (Number.isFinite(sourceIndex) && (sourceIndex as number) >= 0) {
+    const idx = Math.min(Math.max(0, sourceIndex as number), arr.length);
+    arr.splice(idx, 0, card);
+    return arr;
+  }
+  if (preferUnshift) arr.unshift(card);
+  else arr.push(card);
+  return arr;
+}
+
+function restoreCardToOwnerZone(state: any, ownerId: string, zoneName: string, card: any, cardId: string, sourceIndex?: number): any {
+  if (!ownerId || !zoneName || zoneName === 'unknown') return state;
+  let next = state;
+  if (Array.isArray(next.players)) {
+    const players = next.players.map((player: any) => {
+      if (String(player?.id || '').trim() !== ownerId) return player;
+      return withPlayerZoneCard(player, zoneName, card, cardId, sourceIndex);
+    });
+    next = { ...next, players };
+  }
+  if (next.zones && typeof next.zones === 'object') {
+    const zones = { ...next.zones };
+    const ownerZones = { ...(zones[ownerId] || {}) };
+    zones[ownerId] = withPlayerZoneCard(ownerZones, zoneName, card, cardId, sourceIndex);
+    next = { ...next, zones };
+  }
+  if (zoneName === 'library' && next.libraries && typeof next.libraries.get === 'function' && typeof next.libraries.set === 'function') {
+    const current = next.libraries.get(ownerId);
+    if (!zoneArrayHasCard(current, cardId)) {
+      next.libraries.set(ownerId, withCardInZoneArray(current, card, cardId, true, sourceIndex));
+    }
+  }
+  return next;
+}
+
+function withPlayerZoneCard(owner: any, zoneName: string, card: any, cardId: string, sourceIndex?: number): any {
+  const preferUnshift = zoneName === 'library';
+  if (zoneName === 'command' || zoneName === 'command_zone') {
+    const command = withCardInZoneArray(owner.command ?? owner.commandZone, card, cardId, false, sourceIndex);
+    return { ...owner, command: command, commandZone: command, commandCount: command.length };
+  }
+  const list = withCardInZoneArray(owner[zoneName], card, cardId, preferUnshift, sourceIndex);
+  const countKey = zoneName + 'Count';
+  const nextOwner = { ...owner };
+  nextOwner[zoneName] = list;
+  nextOwner[countKey] = list.length;
+  return nextOwner;
+}
+
 export function addBattlefieldPermanentsToState(state: GameState, newPermanents: readonly BattlefieldPermanent[]): GameState {
-  if (newPermanents.length === 0) return state;
+  const rejected = Array.isArray((newPermanents as CreatedBattlefieldPermanents | undefined)?.rejected)
+    ? (newPermanents as CreatedBattlefieldPermanents).rejected
+    : [];
+  if (newPermanents.length === 0) return restoreRejectedBattlefieldEntries(state, rejected);
 
   const attachmentAdds = new Map<string, string[]>();
   for (const permanent of newPermanents) {
@@ -291,5 +491,8 @@ export function addBattlefieldPermanentsToState(state: GameState, newPermanents:
     return { ...(permanent as any), attachments } as BattlefieldPermanent;
   });
 
-  return { ...state, battlefield: mergedBattlefield as any } as any;
+  return restoreRejectedBattlefieldEntries(
+    { ...state, battlefield: mergedBattlefield as any } as any,
+    rejected,
+  );
 }

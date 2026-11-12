@@ -125,6 +125,7 @@ export async function finishGraveyardSelectionAfterApply(
         ? { ...(stepData.battlefieldCounters as Record<string, number>) }
         : undefined,
       battlefieldFaceDown: stepData.battlefieldFaceDown === true ? true : undefined,
+      battlefieldTransformed: stepData.battlefieldTransformed === true ? true : undefined,
       battlefieldSuspected: stepData.battlefieldSuspected === true ? true : undefined,
       movedCards,
       purpose: purpose || undefined,

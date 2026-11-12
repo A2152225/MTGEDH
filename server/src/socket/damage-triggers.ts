@@ -232,7 +232,9 @@ export function emitPendingDamageTriggers(
           sourceName: String(sourceName || ''),
           controller: controllerId,
           damageAmount: dmg,
+          triggerType: 'dealt_damage',
           targetType: 'chosen_player',
+          effect: String((trigger as { effect?: string }).effect || ''),
         }, chosenId);
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,

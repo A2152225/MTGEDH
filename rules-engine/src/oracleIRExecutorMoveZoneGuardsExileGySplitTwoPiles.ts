@@ -218,9 +218,7 @@ export function tryApplyMoveZoneGuardsFromExileGySplitTwoPiles(args: MoveZoneGua
         { cardType: parsedCountTargetFromSingleGraveyard.cardType },
         'battlefield',
         bfController,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -309,9 +307,7 @@ export function tryApplyMoveZoneGuardsFromExileGySplitTwoPiles(args: MoveZoneGua
       controllerId,
       parsedCompoundExileItAndReturnGy,
       sourceGyCardId ? [sourceGyCardId] : [],
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
     );
     return buildAppliedResult({
       state: returnResult.state,
@@ -395,9 +391,7 @@ export function tryApplyMoveZoneGuardsFromExileGySplitTwoPiles(args: MoveZoneGua
         { cardType },
         'battlefield',
         bfController,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         ctx.sourceName,
         battlefieldEntryOverrides
@@ -465,9 +459,7 @@ export function tryApplyMoveZoneGuardsFromExileGySplitTwoPiles(args: MoveZoneGua
       parsedPutIntoGraveyardThisWay,
       'battlefield',
       battlefieldControllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       ctx.sourceName,
       battlefieldEntryOverrides
@@ -494,9 +486,7 @@ export function tryApplyMoveZoneGuardsFromExileGySplitTwoPiles(args: MoveZoneGua
       step.battlefieldController?.kind === 'you' ? controllerId : controllerId,
       parsedPutIntoGraveyardThisWay,
       [],
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
     );
     return buildAppliedResult({
       state: returnResult.state,
@@ -705,9 +695,7 @@ export function tryApplyMoveZoneGuardsFromExileGySplitTwoPiles(args: MoveZoneGua
       controllerId,
       parsedSingleCardFromEachPlayersGy,
       getChosenObjectIds(ctx),
-      step.entersTapped,
-      step.entersFaceDown,
-      step.withCounters,
+      step.entersTapped, step.entersFaceDown, step.withCounters, step.entersTransformed,
     );
     return buildAppliedResult({
       state: result.state,

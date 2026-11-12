@@ -69,6 +69,8 @@ export const CREATURE_TYPES = [
   'Aenar', 'Andorian', 'Android', 'Bajoran', 'Betazoid', 'Bolian', 'Borg', 'Brikar', 'Caitian', 'Cardassian', 'Denobulan', 'Edosian', 'El-Aurian', 'Excalbian',
   'Ferengi', 'Gorn', 'Hirogen', 'Illyrian', "Jem'Hadar", 'Kelpien', 'Klingon', 'Kwejian', 'Lanthanite', 'Medusan', 'Melkotian', "Na'kuhl", 'Ocampa', 'Officer', 'Orion',
   'Romulan', 'Talaxian', 'Talosian', 'Tamarian', 'Tellarite', 'Tholian', 'Tosk', 'Tribble', 'Trill', "Vau-N'Akat", 'Vorta', 'Vulcan', 'Xindi',
+  // Round 38: CR 205.3m (2026-11-06) creature type Q, distinct from Qu.
+  'Q',
 ] as const;
 
 export type CreatureType = typeof CREATURE_TYPES[number];

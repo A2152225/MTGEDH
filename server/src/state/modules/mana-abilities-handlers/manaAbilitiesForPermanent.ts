@@ -701,6 +701,26 @@ export function getManaAbilitiesForPermanent(
       amount: amount,
     });
   }
+
+  // Charge-counter choose-a-color mana (Astral Cornucopia, Queen's Diamond).
+  // Skipped by the fixed-mana scanner because oracle contains "for each".
+  if (
+    oracleText.includes('for each charge counter')
+    && (
+      oracleText.includes('any color')
+      || (oracleText.includes('choose a color') && oracleText.includes('of that color'))
+      || /mana of that color for each charge/i.test(oracleText)
+    )
+  ) {
+    const chargeCounters = Number(permanent?.counters?.charge || 0);
+    abilities.push({
+      id: 'native_dynamic',
+      cost: '{T}',
+      produces: ['W', 'U', 'B', 'R', 'G'],
+      producesAllAtOnce: false,
+      amount: Math.max(0, chargeCounters),
+    });
+  }
   
   const topLandManaMatch = oracleText.match(
     /\{t\}:\s*add\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+mana\s+of\s+any(?:\s+one)?\s+color/i,

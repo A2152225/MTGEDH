@@ -30,6 +30,7 @@ import {
 } from "../oracleIrTransitionPipeline.js";
 import { ensureDeferredOracleIrStackItem } from "../oracleIrDeferredStackFinalize.js";
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
+import { stampCardZoneRemoval } from '../../../../../rules-engine/src/oracleIRExecutorZoneOpsBattlefieldEntry.js';
 
 export function applyLibrarySearchEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -50,7 +51,7 @@ export function applyLibrarySearchEvents(ctx: GameContext, e: GameEvent): boolea
             for (const cardId of cardIds) {
               const idx = lib.findIndex((c: any) => c.id === cardId);
               if (idx !== -1) {
-                const [card] = lib.splice(idx, 1);
+                const card = stampCardZoneRemoval(lib.splice(idx, 1)[0], 'library', idx);
                 if (destination === "hand") {
                   (z.hand as any[]).push({ ...card, zone: "hand" });
                 } else if (destination === "battlefield") {

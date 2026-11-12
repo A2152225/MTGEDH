@@ -579,7 +579,8 @@ export function resolveOtherCreaturesCopyCouldTargetCount(
   // other battlefield creatures when no other legal retarget remains.
   if (eligibleIds.size === 0) {
     for (const creatureId of controllerCreatures) {
-      if (!currentTargetIds.has(creatureId)) eligibleIds.add(creatureId);
+      const id = String(creatureId);
+      if (id && !currentTargetIds.has(id)) eligibleIds.add(id);
     }
     if (!requiresControlledCreatures) {
       for (const permanent of battlefield) {

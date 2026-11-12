@@ -191,7 +191,9 @@ export function applyMillStep(
   }, ledgerRecordedViaBridge);
   // Restore lastMilledCards after ledger omit so mill-from-among can still
   // see the cards milled this resolution after a server-bridge mill.
-  return lastMilledCards.length > 0
-    ? { ...flagged, lastMilledCards }
-    : flagged;
+  return {
+    ...flagged,
+    applied: true as const,
+    ...(lastMilledCards.length > 0 ? { lastMilledCards } : {}),
+  };
 }

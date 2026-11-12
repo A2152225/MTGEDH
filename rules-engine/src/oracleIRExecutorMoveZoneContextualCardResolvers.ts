@@ -39,6 +39,7 @@ import {
   createBattlefieldPermanentsFromCards,
   resolveBattlefieldEntryBeforeCommit,
   resolveMoverAttachment,
+  stampCardZoneRemoval,
 } from './oracleIRExecutorZoneOpsBattlefieldEntry';
 import type { BoundCardZoneLocation, MoveZoneRuntime } from './oracleIRExecutorMoveZoneStepTypes';
 import {
@@ -208,6 +209,7 @@ export function moveContextualCardToDestination(
     entersTapped?: boolean;
     entersFaceDown?: boolean;
     withCounters?: any;
+  entersTransformed?: boolean;
     battlefieldEntryOverrides?: any;
     ctx?: OracleIRExecutionContext;
     stepKind?: string;
@@ -244,7 +246,8 @@ export function moveContextualCardToDestination(
     const library = readPlayerZoneCards(state, location.playerId, player, 'library');
     const index = findBestZoneCardIndex(library, cardId);
     if (index < 0) return { kind: 'impossible' };
-    const [card] = library.splice(index, 1);
+    const [removed] = library.splice(index, 1);
+    const card = stampCardZoneRemoval(removed, 'library', index);
     writePlayerZoneCards(state, location.playerId, player, 'library', library);
     if (destination === 'library_bottom') {
       writePlayerZoneCards(state, location.playerId, player, 'library', [...library, card]);
@@ -310,9 +313,7 @@ export function moveContextualCardToDestination(
         [card],
         location.playerId,
         controllerId,
-        entryResolution.entersTapped,
-        entryResolution.entersFaceDown,
-        entryResolution.withCounters,
+        entryResolution.entersTapped, entryResolution.entersFaceDown, entryResolution.withCounters, entryResolution.entersTransformed,
         'library',
         attachment.attachmentTarget,
         options.battlefieldEntryOverrides,
@@ -350,6 +351,7 @@ export function moveContextualCardToDestination(
       options.entersTapped,
       options.entersFaceDown,
       options.withCounters,
+      options.entersTransformed,
       options.attachedToBattlefieldPermanentId,
       undefined,
       options.battlefieldEntryOverrides,
@@ -369,6 +371,7 @@ export function moveContextualCardToDestination(
       options.entersTapped,
       options.entersFaceDown,
       options.withCounters,
+      options.entersTransformed,
       options.attachedToBattlefieldPermanentId,
       options.battlefieldEntryOverrides,
       oracleIrEntry
@@ -385,6 +388,7 @@ export function moveContextualCardToDestination(
     options.entersTapped,
     options.entersFaceDown,
     options.withCounters,
+    options.entersTransformed,
     options.attachedToBattlefieldPermanentId,
     options.battlefieldEntryOverrides,
     oracleIrEntry
@@ -445,7 +449,8 @@ export function resolveContextualBoundCardZone(
   if (whatText === 'it') {
     const revealedLedger = collectRevealedThisWayCardsLedgerFirst(ctx, step);
     const revealedCtx = Array.isArray((ctx as any)?.lastRevealedCards) ? (ctx as any).lastRevealedCards : [];
-    const revealedCard = [...revealedLedger, ...revealedCtx].at(-1);
+    const revealedCombined = [...revealedLedger, ...revealedCtx];
+    const revealedCard = revealedCombined[revealedCombined.length - 1];
     if (revealedCard) {
       const revealedId = String((revealedCard as any)?.id || '').trim();
       if (revealedId) {

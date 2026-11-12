@@ -212,6 +212,24 @@ const ESSENTIAL_ABILITIES: readonly GlossaryEntry[] = [
     icon: 'flashback',
     rulesReference: 'Rule 702.33',
   },
+  {
+    term: 'Beam me up',
+    category: 'ability',
+    priority: 4,
+    shortText: "Cast this instant or sorcery from your graveyard by paying its beam me up cost and returning a creature you control to its owner's hand, then exile it",
+    fullText: "You may cast this card from your graveyard if the resulting spell is an instant or sorcery by paying its beam me up cost and returning a creature you control to its owner's hand rather than paying its mana cost. If that cost was paid, exile the card whenever it would leave the stack. A creature that can't be beamed up can't be used to pay the bounce cost.",
+    icon: 'beam-me-up',
+    rulesReference: 'Rule 702.196',
+  },
+  {
+    term: 'Assimilate',
+    category: 'ability',
+    priority: 4,
+    shortText: "Gain control of a permanent or put a card onto the battlefield under you with a +1/+1 counter; it becomes a Borg artifact creature",
+    fullText: "To assimilate a permanent, gain control of it and put a +1/+1 counter on it. It becomes a Borg artifact creature. To assimilate a permanent card in another zone, put it onto the battlefield under your control with a +1/+1 counter on it. It's a Borg artifact creature. 'Assimilated with' refers only to permanents assimilated by the linked ability of that source.",
+    icon: 'assimilate',
+    rulesReference: 'Rule 701.72',
+  },
 ];
 
 /**

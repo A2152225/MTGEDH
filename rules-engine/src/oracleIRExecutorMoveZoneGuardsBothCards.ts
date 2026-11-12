@@ -80,9 +80,7 @@ export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): Mo
               'any',
               'battlefield',
               controllerId,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
               battlefieldEntryOverrides
             )
@@ -94,9 +92,7 @@ export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): Mo
                 'any',
                 'battlefield',
                 controllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
                 battlefieldEntryOverrides
               )
@@ -107,9 +103,7 @@ export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): Mo
                 { cardType: 'any' },
                 'battlefield',
                 controllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
                 undefined,
                 battlefieldEntryOverrides
@@ -179,9 +173,7 @@ export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): Mo
       'creature',
       'battlefield',
       controllerId,
-      step.entersTapped,
-      false,
-      effectiveWithCounters,
+      step.entersTapped, false, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -296,9 +288,7 @@ export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): Mo
       'creature',
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -366,9 +356,7 @@ export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): Mo
       'creature',
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -407,9 +395,7 @@ export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): Mo
         cardType,
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         battlefieldEntryOverrides
       );
@@ -494,9 +480,7 @@ export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): Mo
         { cardType: 'creature' },
         'battlefield',
         bfController,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         ctx.sourceName,
         battlefieldEntryOverrides
@@ -620,6 +604,7 @@ export function tryApplyMoveZoneGuardsFromBothCards(args: MoveZoneGuardArgs): Mo
         entersTapped,
         step.entersFaceDown,
         effectiveWithCounters,
+        Boolean(step.entersTransformed),
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         ctx.sourceName,
         battlefieldEntryOverrides,

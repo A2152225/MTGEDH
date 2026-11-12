@@ -1,35 +1,35 @@
 # AI evaluator fit (P1-3)
 
-Generated 2026-11-11T13:30:38.663Z.
+Generated 2026-11-12T16:30:42.685Z.
 
 ## Data
 
 | Metric | Value |
 | --- | --- |
 | Result rows | 100 |
-| Position rows | 4357 |
-| Wins used | 10 |
-| Labeled positions | 396 |
-| Train positions | 307 |
-| Hold-out positions | 89 |
-| Pods (train/hold-out) | 7 / 2 |
+| Position rows | 6252 |
+| Wins used | 64 |
+| Labeled positions | 3704 |
+| Train positions | 3041 |
+| Hold-out positions | 663 |
+| Pods (train/hold-out) | 20 / 5 |
 | L2 | 0.01 |
-| Seed | 1 |
+| Seed | 2 |
 
 ### End reasons
 
-- turn-limit: 80
-- win: 10
-- stall: 3
-- error: 7
+- win: 64
+- stall: 21
+- turn-limit: 14
+- error: 1
 
 ## Hold-out log-loss
 
 | Model | Log-loss |
 | --- | --- |
-| Fitted | 1.1461 |
-| Life-only | 1.2001 |
-| Uniform | 1.2717 |
+| Fitted | 1.1671 |
+| Life-only | 1.2311 |
+| Uniform | 1.2339 |
 
 Beats both baselines: **yes**
 
@@ -37,16 +37,16 @@ Beats both baselines: **yes**
 
 | Bucket | n | mean predicted | observed | gap | flag |
 | --- | --- | --- | --- | --- | --- |
-| 0.0–0.1 | 33 | 0.060 | 0.000 | 0.060 |  |
-| 0.1–0.2 | 67 | 0.163 | 0.224 | 0.060 |  |
-| 0.2–0.3 | 139 | 0.249 | 0.288 | 0.039 |  |
-| 0.3–0.4 | 30 | 0.335 | 0.333 | 0.001 |  |
-| 0.4–0.5 | 23 | 0.445 | 0.304 | 0.140 |  |
-| 0.5–0.6 | 14 | 0.544 | 0.286 | 0.258 |  |
-| 0.6–0.7 | 7 | 0.625 | 0.429 | 0.196 |  |
-| 0.7–0.8 | 0 | 0.000 | 0.000 | 0.000 |  |
-| 0.8–0.9 | 3 | 0.861 | 1.000 | 0.139 |  |
-| 0.9–1.0 | 7 | 0.950 | 1.000 | 0.050 |  |
+| 0.0–0.1 | 59 | 0.064 | 0.051 | 0.013 |  |
+| 0.1–0.2 | 384 | 0.159 | 0.154 | 0.006 |  |
+| 0.2–0.3 | 1228 | 0.249 | 0.261 | 0.013 |  |
+| 0.3–0.4 | 408 | 0.344 | 0.311 | 0.033 |  |
+| 0.4–0.5 | 100 | 0.441 | 0.500 | 0.059 |  |
+| 0.5–0.6 | 73 | 0.548 | 0.425 | 0.124 |  |
+| 0.6–0.7 | 48 | 0.646 | 0.750 | 0.104 |  |
+| 0.7–0.8 | 22 | 0.756 | 0.818 | 0.062 |  |
+| 0.8–0.9 | 11 | 0.843 | 0.727 | 0.116 |  |
+| 0.9–1.0 | 12 | 0.959 | 0.833 | 0.126 |  |
 
 Calibrated: **yes**
 
@@ -54,15 +54,15 @@ Calibrated: **yes**
 
 | Feature | Weight | Expected sign | OK |
 | --- | --- | --- | --- |
-| life | 1.4290 | positive | yes |
-| commanderDamageTaken | -0.7204 | negative | yes |
-| boardValue | 1.5627 | positive | yes |
-| otherPermanents | 1.0577 | any | — |
-| manaSources | 0.7935 | positive | yes |
-| handSize | -0.4584 | any | — |
-| commanderInPlay | 0.2572 | any | — |
-| loyalty | 0.2126 | any | — |
-| attackPower | 0.2585 | any | — |
+| life | 0.8732 | positive | yes |
+| commanderDamageTaken | -0.4519 | negative | yes |
+| boardValue | 0.4505 | positive | yes |
+| otherPermanents | 0.0203 | any | — |
+| manaSources | 0.2817 | positive | yes |
+| handSize | -0.0610 | any | — |
+| commanderInPlay | 0.4847 | any | — |
+| loyalty | -0.4397 | any | — |
+| attackPower | -0.2311 | any | — |
 
 Sign check (life/board/mana +, cmd dmg −): **yes**
 
@@ -70,4 +70,4 @@ Sign check (life/board/mana +, cmd dmg −): **yes**
 
 **PASS** — wrote FITTED_WEIGHTS.
 
-Known limit: labels come from v0 self-play at maxTurns=45, so most games are turn-limit and the win sample is small.
+Source: v0 self-play maxTurns=90, seed 4000 (`out/fit-max90-*.jsonl`, `out/fit-pos-max90-merged.jsonl`). Win sample 64/100; hold-out split seed 2.

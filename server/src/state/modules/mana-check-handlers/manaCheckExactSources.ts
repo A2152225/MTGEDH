@@ -406,6 +406,8 @@ export function exactManaSpendRestrictionAllowsPurpose(
       return purpose.isColorless === true;
     case 'abilities':
       return purpose.isAbility === true;
+    case 'commander':
+      return purpose.isCommander === true;
     default:
       // Unknown restriction: do not treat as unrestricted free mana.
       return false;

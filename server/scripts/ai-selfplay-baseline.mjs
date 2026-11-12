@@ -23,8 +23,17 @@ const MAX_TURNS = Number(process.env.AI_SELFPLAY_MAX_TURNS || 20);
 const SHARDS = Number(process.env.AI_SELFPLAY_SHARDS || 100);
 const HEAP_MB = String(process.env.AI_SELFPLAY_HEAP_MB || 8192);
 const START_SHARD = Number(process.env.AI_SELFPLAY_START_SHARD || 0);
-// Hard kill when a batch wedges the event loop (wall-clock Promise.race cannot fire).
-const BATCH_KILL_MS = Number(process.env.AI_SELFPLAY_BATCH_KILL_MS || 240_000);
+// Exclusive end index (default: all shards). Use with START_SHARD to replay one
+// batch while keeping AI_SELFPLAY_SHARD=i/SHARDS game mapping (e.g. 103/320).
+const END_SHARD = Math.min(
+  SHARDS,
+  Number(process.env.AI_SELFPLAY_END_SHARD || SHARDS),
+);
+// Hard kill only after the harness soft wall budget (max(180s, maxTurns*15s)) plus
+// overhead. Gate max45 used BATCH_KILL=300s while maxWallClockMs=675s, so slow-but-live
+// games were synthetic hard-kills (~5%/run) before softStop could end them.
+const DEFAULT_BATCH_KILL_MS = Math.max(240_000, MAX_TURNS * 15_000 + 180_000);
+const BATCH_KILL_MS = Number(process.env.AI_SELFPLAY_BATCH_KILL_MS || DEFAULT_BATCH_KILL_MS);
 
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -49,9 +58,16 @@ function runShard(index) {
           AI_SELFPLAY_SHARD: `${index}/${SHARDS}`,
           AI_SELFPLAY_OUT: out,
           // Optional P1-2/P1-3 position log (one file per shard when AI_POSITIONS_DIR is set).
+          // Clear VERIFY unless both positions logging and an explicit verify flag are set —
+          // leftover AI_POSITIONS_VERIFY in the parent shell turned 2 gate games into
+          // seatFeatures assertion errors.
+          AI_POSITIONS_VERIFY:
+            process.env.AI_POSITIONS_DIR && process.env.AI_POSITIONS_VERIFY
+              ? process.env.AI_POSITIONS_VERIFY
+              : '',
           ...(process.env.AI_POSITIONS_DIR
             ? { AI_POSITIONS_FILE: path.join(process.env.AI_POSITIONS_DIR, `pos-${index}.jsonl`) }
-            : {}),
+            : { AI_POSITIONS_FILE: '' }),
         },
         shell: true,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -91,6 +107,10 @@ function runShard(index) {
       console.log(`[batch ${index}/${SHARDS}] done code=${code} games=${lines}`);
       if (code !== 0 && lines === 0) {
         // Keep the overall baseline moving; record a synthetic error row.
+        const progress = [...stdout.split(/\r?\n/), ...stderr.split(/\r?\n/)]
+          .map((l) => l.trim())
+          .filter((l) => l.includes('[live-harness:') || l.includes('hard-kill'))
+          .slice(-3);
         const row = {
           gameId: `selfplay-${SEED}-batch${index}`,
           seed: (SEED + index * 9973) >>> 0,
@@ -101,10 +121,14 @@ function runShard(index) {
           endReason: 'error',
           turns: 0,
           ms: 0,
-          error: killed ? `batch hard-killed after ${BATCH_KILL_MS}ms` : `batch exited ${code}`,
+          error: killed
+            ? `batch hard-killed after ${BATCH_KILL_MS}ms`
+            : `batch exited ${code}`,
+          lastProgress: progress,
         };
         fs.appendFileSync(out, `${JSON.stringify(row)}\n`);
         console.warn(`[batch ${index}] wrote synthetic error row`);
+        if (progress.length) console.warn(`[batch ${index}] lastProgress:\n${progress.join('\n')}`);
       }
       resolve({ index, out, lines: Math.max(lines, code !== 0 && lines === 0 ? 1 : lines), code });
     });
@@ -112,11 +136,11 @@ function runShard(index) {
 }
 
 console.log(
-  `Baseline: ${GAMES} games, seed ${SEED}, maxTurns ${MAX_TURNS}, batches ${SHARDS} (from ${START_SHARD}), heap=${HEAP_MB}MB`,
+  `Baseline: ${GAMES} games, seed ${SEED}, maxTurns ${MAX_TURNS}, batches ${SHARDS} [${START_SHARD},${END_SHARD}), heap=${HEAP_MB}MB, batchKillMs=${BATCH_KILL_MS}`,
 );
 const started = Date.now();
 const results = [];
-for (let i = START_SHARD; i < SHARDS; i++) {
+for (let i = START_SHARD; i < END_SHARD; i++) {
   results.push(await runShard(i));
 }
 const failed = results.filter((r) => r.code && r.code !== 0).length;

@@ -180,6 +180,11 @@ export function parseManaSpendRestrictionFromOracle(
     return { restriction: 'multicolored' };
   }
 
+  // Queen's Diamond: "Spend this mana only to cast your commander."
+  if (/spend this mana only to cast your commander/.test(text)) {
+    return { restriction: 'commander' };
+  }
+
   return null;
 }
 

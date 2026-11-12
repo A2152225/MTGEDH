@@ -46,6 +46,7 @@ import {
   stampCardExiledWithSource,
 } from "../state/modules/exileWithSourceStamp.js";
 import { stampPermanentEntryTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
+import { enterPermanentTransformed } from "../state/modules/day-night.js";
 import { tryHandleGraveyardSelectionOracleIrChoiceResume } from './resolutionGraveyardSelectionOracleIrChoiceResume.js';
 
 export async function handleGraveyardSelectionResponse(
@@ -677,6 +678,7 @@ export async function handleGraveyardSelectionResponse(
             ? { ...(stepData.battlefieldCounters as Record<string, number>) }
             : undefined,
           battlefieldFaceDown: stepData.battlefieldFaceDown === true,
+          battlefieldTransformed: stepData.battlefieldTransformed === true,
           battlefieldSuspected: stepData.battlefieldSuspected === true,
         };
       })
@@ -793,6 +795,18 @@ export async function handleGraveyardSelectionResponse(
         permanent.suspected = true;
         permanent.isSuspected = true;
         permanent.card = { ...(permanent.card || {}), suspected: true, isSuspected: true };
+      }
+      if (stepData.battlefieldTransformed === true && !entersFaceDown) {
+        const enterFace = enterPermanentTransformed(permanent, 'other');
+        if (enterFace.outcome === 'stay_in_zone' || enterFace.outcome === 'graveyard') {
+          (cardSourceZones.graveyard as any[]).push({ ...(card as any), zone: 'graveyard' });
+          if (movedCardIds[movedCardIds.length - 1] === String(cardId)) {
+            movedCardIds.pop();
+            movedCards.pop();
+            movedCardSnapshots.pop();
+          }
+          continue;
+        }
       }
       markPermanentEnteredFromZone(permanent, 'graveyard');
       battlefield.push(permanent);

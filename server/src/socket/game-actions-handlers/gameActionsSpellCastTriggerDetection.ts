@@ -36,6 +36,11 @@ import {
   payManaCostWithAvailableSources,
 } from "../util";
 import { extractCreatureTypes, type SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
+import {
+  filterOracleTextToActiveStationAbilities,
+  hasStationThresholdMarkers,
+  readChargeCounterCount,
+} from "../../utils/stationParser.js";
 import { parseCastSpellPower } from "./gameActionsSpellCopyHeroicTriggers.js";
 
 export function normalizeSpellCastSourceZone(value: unknown): SpellCastSourceZone | undefined {
@@ -216,9 +221,13 @@ export function getSpellCastTriggersForCard(
     // mana value N or greater, kicked, ...) fire from the parsed IR. Lines legacy fired, or
     // rejected under a real enum, stay legacy-owned; a rejected catch-all tribal_type
     // ("multicolored", "kicked", "or copy an instant") is a misparse the IR replaces.
+    const printedOracle = String(permanent.card.oracle_text || '');
+    const oracleForLines = hasStationThresholdMarkers(printedOracle)
+      ? filterOracleTextToActiveStationAbilities(printedOracle, readChargeCounterCount(permanent))
+      : printedOracle;
     for (const line of collectMatchingParsedEventLines({
       ctx: game,
-      oracleText: String(permanent.card.oracle_text || ''),
+      oracleText: oracleForLines,
       event: 'spell_cast',
       subjectPermanent: spellCard?.card ? spellCard : { ...spellCard, card: spellCard },
       subjectControllerId: casterId,

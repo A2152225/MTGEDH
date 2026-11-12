@@ -112,6 +112,8 @@ export type OracleEffectStepC =
       readonly token: string;
       /** Whether the token enters the battlefield tapped (deterministic). */
       readonly entersTapped?: boolean;
+      /** Whether created tokens enter the battlefield transformed/converted. */
+      readonly entersTransformed?: boolean;
       /** Whether created tokens enter attacking a deterministic opponent selection. */
       readonly attacking?: 'defending_player' | 'each_opponent' | 'each_other_opponent';
       /** Whether created tokens enter blocking a referenced creature (e.g. Brimaz block trigger). */
@@ -377,6 +379,7 @@ export type OracleEffectStepC =
       readonly chooserOrder: 'turn_order';
       readonly destination: OracleZone;
       readonly entersTapped?: boolean;
+      readonly entersTransformed?: boolean;
       /** Who controls the permanent after drafting (defaults to the current chooser). */
       readonly battlefieldController?: OraclePlayerSelector;
       readonly thisWayAntecedentStepIndex?: number;
@@ -426,6 +429,8 @@ export type OracleEffectStepC =
       readonly battlefieldAttachedTo?: OracleObjectSelector;
       /** If the move puts cards onto the battlefield tapped (deterministic). */
       readonly entersTapped?: boolean;
+      /** If the move puts cards onto the battlefield transformed or converted (712.11a). */
+      readonly entersTransformed?: boolean;
       /** If the move puts cards onto the battlefield face down (deterministic). */
       readonly entersFaceDown?: boolean;
       /** Optional ward cost for specific face-down entries such as cloak. */

@@ -7,6 +7,7 @@ import type { ManualActionPayload, ManualZone } from '../../../../../shared/src/
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
 import { uid } from '../../utils.js';
 import { applyDoubleFacedEntryFace, restoreDoubleFacedCombinedCharacteristics } from '../doubleFacedEntryFace.js';
+import { resolveAndApplyEnterFace } from '../enterBattlefieldFaceApplication.js';
 import {
   pickMutablePlayerLibrary,
   writePlayerLibrary,
@@ -81,6 +82,13 @@ export function placeCardInZone(
     if (faceDown) {
       permanent.faceDown = true;
       permanent.card.faceDown = true;
+    } else {
+      resolveAndApplyEnterFace(permanent, {
+        sourceZone: 'other',
+        extra: payload,
+        dayNight: (ctx.state as any).dayNight,
+        representingCard: card,
+      });
     }
     ctx.state.battlefield = Array.isArray(ctx.state.battlefield) ? ctx.state.battlefield : [];
     (ctx.state.battlefield as any[]).push(permanent);

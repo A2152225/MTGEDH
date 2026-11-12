@@ -275,6 +275,7 @@ function tryApplyForEachAttackingCopyTokenStep(
       { ...runtime, lastMovedCards: [attacker], lastMovedBattlefieldPermanentIds: attackerId ? [attackerId] : [] },
       step.entersTapped,
       step.withCounters,
+      Boolean(step.entersTransformed),
       defendingPlayerId || undefined,
       step.grantsHaste === 'until_end_of_turn' ? ['haste'] : step.grantsAbilitiesUntilEndOfTurn,
       Array.from(new Set([...(step.grantsHaste === 'permanent' ? ['haste'] : []), ...((step as any).grantsAbilitiesPermanent || [])]))
@@ -337,6 +338,7 @@ function tryApplyForEachDestroyedThisWayCreateCopyToken(
       runtime,
       step.entersTapped,
       step.withCounters,
+      Boolean(step.entersTransformed),
       step.attacking === 'defending_player'
         ? String(
             ctx.selectorContext?.targetOpponentId ||
@@ -459,6 +461,7 @@ function tryApplyForEachDestroyedThisWayPerControllerCreateToken(
       runtime,
       step.entersTapped,
       step.withCounters,
+      Boolean(step.entersTransformed),
       step.attacking === 'defending_player' ? defendingPlayerId : undefined,
       undefined,
       undefined,
@@ -578,6 +581,7 @@ export function applyCreateTokenStep(
           runtime,
           step.entersTapped,
           step.withCounters,
+          Boolean(step.entersTransformed),
           attackTarget,
           step.grantsHaste === 'until_end_of_turn' ? ['haste'] : step.grantsAbilitiesUntilEndOfTurn,
           Array.from(

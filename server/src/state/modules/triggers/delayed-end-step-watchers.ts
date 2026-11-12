@@ -61,7 +61,7 @@ export function collectDelayedEndStepRegistryTriggers(
       permanentId: String(delayed.sourceId || ''),
       cardName: String(delayed.sourceName || 'Delayed trigger'),
       controllerId: String(delayed.controllerId || ''),
-      triggerType: 'end_step_effect',
+      triggerType: 'end_step_effect' as const,
       description: effect,
       effect,
       mandatory: !effect.toLowerCase().includes('you may'),

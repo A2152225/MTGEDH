@@ -783,6 +783,7 @@ export function applyAttachStep(
               undefined,
               undefined,
               undefined,
+              Boolean((step as any).entersTransformed),
               targetId
             )
           : moveTargetedCardFromGraveyard(
@@ -795,6 +796,7 @@ export function applyAttachStep(
               undefined,
               undefined,
               undefined,
+              Boolean((step as any).entersTransformed),
               targetId
             );
       if (result.kind !== 'applied') continue;

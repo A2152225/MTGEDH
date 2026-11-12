@@ -152,6 +152,11 @@ export type PermanentBattlefieldEntryOutcome =
   | { mutateResolved: true }
   | {
       mutateResolved: false;
+      sentToGraveyard: true;
+    }
+  | {
+      mutateResolved: false;
+      sentToGraveyard?: false;
       newPermanent: any;
       newPermId: string;
       isCreature: boolean;

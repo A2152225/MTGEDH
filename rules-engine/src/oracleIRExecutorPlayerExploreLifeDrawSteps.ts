@@ -49,6 +49,7 @@ import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import {
   addBattlefieldPermanentsToState,
   createBattlefieldPermanentsFromCards,
+  stampCardZoneRemoval,
 } from './oracleIRExecutorZoneOps';
 
 function readPower(value: any): number {
@@ -357,7 +358,7 @@ export function applyManifestDreadStep(
     }
 
     const looked = library.slice(0, 2);
-    const manifestedCard = looked[0];
+    const manifestedCard = stampCardZoneRemoval(looked[0], 'library', 0);
     const rest = looked.slice(1);
     const keptLibrary = library.slice(looked.length);
     const graveyard = Array.isArray(player.graveyard) ? [...player.graveyard] : [];
@@ -365,10 +366,7 @@ export function applyManifestDreadStep(
       [manifestedCard],
       playerId,
       playerId,
-      false,
-      true,
-      undefined,
-      'library'
+      false, true, undefined, false, 'library'
     );
     const updatedPlayers = nextState.players.map((p: any) =>
       String(p?.id || '').trim() === String(playerId || '').trim()

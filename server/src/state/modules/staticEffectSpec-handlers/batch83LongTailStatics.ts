@@ -61,7 +61,7 @@ function pushEnteredThisTurnYouControlKeywords(
     'entered-this-turn-you-control-keywords',
     { kind: 'creatures_you_control' },
     { abilities },
-    { kind: 'target_entered_this_turn' } as StaticEffectCondition,
+    { kind: 'target_entered_this_turn' },
   ));
 }
 

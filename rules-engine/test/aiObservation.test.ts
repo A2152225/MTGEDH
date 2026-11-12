@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildObservation } from '../src/ai/buildObservation';
+import { seatFeatures } from '../src/ai/evaluatorFeatures';
 import type { Observation } from '../src/ai/observation';
 
 function fourPlayerFixtureState() {
@@ -264,5 +265,30 @@ describe('buildObservation (P0-1)', () => {
       expect(opp.hand).toBeUndefined();
       expect(opp.library).toBeUndefined();
     }
+  });
+
+  it('keeps public handSize stable across observers when handCount is stale', () => {
+    const state = fourPlayerFixtureState();
+    // Stale counters (gate-v0 seatFeatures mismatch): cards present, count wrong/zero.
+    (state.zones as any).p1.handCount = 0;
+    (state.zones as any).p2.handCount = 99;
+    (state.zones as any).p3.handCount = 0;
+
+    const fromP1 = seatFeatures(buildObservation(state, 'p1'));
+    const fromP2 = seatFeatures(buildObservation(state, 'p2'));
+    const fromP3 = seatFeatures(buildObservation(state, 'p3'));
+    expect(fromP1).toEqual(fromP2);
+    expect(fromP1).toEqual(fromP3);
+    expect(fromP1.p1.handSize).toBeCloseTo(2 / 7, 5);
+    expect(fromP1.p2.handSize).toBeCloseTo(2 / 7, 5);
+    expect(fromP1.p3.handSize).toBeCloseTo(1 / 7, 5);
+  });
+
+  it('uses handCount only when the hand array is absent (fogged view)', () => {
+    const state = fourPlayerFixtureState();
+    delete (state.zones as any).p2.hand;
+    (state.zones as any).p2.handCount = 5;
+    const obs = buildObservation(state, 'p1');
+    expect(obs.opponents.find((o) => o.id === 'p2')!.handSize).toBe(5);
   });
 });

@@ -309,6 +309,9 @@ export async function handleDungeonRoomThroneChoice(
     game,
     io,
     gameId,
+    'library',
+    String(playerId),
+    libraryIndex,
   );
 
   const permanent = battlefield.find((entry: any) => String(entry?.id || '') === createdPermanentId) as any;

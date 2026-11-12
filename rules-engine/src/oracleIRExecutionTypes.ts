@@ -176,6 +176,10 @@ export interface OracleIRSelectorContext {
   readonly wasCast?: boolean;
   readonly wouldLoseTheGame?: boolean;
   readonly youDoChoice?: 'accept' | 'decline' | boolean;
+  /** Numeric amount referenced by text like "that much" when copied onto selector context. */
+  readonly referenceAmount?: number;
+  /** Explicit X value when copied onto selector context. */
+  readonly xValue?: number;
 }
 
 export interface OracleIRExecutionEventHint {

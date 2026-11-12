@@ -305,6 +305,7 @@ export * from './mayhem';
 export * from './webSlinging';
 export * from './firebending';
 export * from './sneak';
+export * from './beamMeUp';
 
 /**
  * Union type of all keyword ability types
@@ -509,7 +510,8 @@ export type KeywordAbility =
   | import('./mayhem').MayhemAbility
   | import('./webSlinging').WebSlingingAbility
   | import('./firebending').FirebendingAbility
-  | import('./sneak').SneakAbility;
+  | import('./sneak').SneakAbility
+  | import('./beamMeUp').BeamMeUpAbility;
 
 /**
  * Helper function to check if an ability is a specific type

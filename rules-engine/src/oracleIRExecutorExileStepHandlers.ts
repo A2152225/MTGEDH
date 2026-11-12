@@ -488,11 +488,15 @@ export function applyImpulseExileTopStep(
 }
 
 function shareTypeUntilHitCardStillInExile(
-  step: { readonly amount?: { readonly raw?: string } },
+  step: { readonly amount?: unknown },
   keptExiled: readonly any[],
   ctx?: OracleIRExecutionContext,
 ): any | null {
-  const amountRaw = normalizeOracleText(String(step?.amount?.raw || ''));
+  const amountRaw = normalizeOracleText(String(
+    step?.amount && typeof step.amount === 'object' && step.amount !== null && 'raw' in step.amount
+      ? (step.amount as { raw?: string }).raw
+      : '',
+  ));
   if (!/shares a card type with it/.test(amountRaw)) return null;
   const last = keptExiled.length > 0 ? keptExiled[keptExiled.length - 1] : null;
   if (!last) return null;

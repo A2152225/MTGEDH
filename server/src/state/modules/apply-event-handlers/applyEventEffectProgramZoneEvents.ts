@@ -19,6 +19,7 @@ import { parsePT } from "../../utils";
 import { debugWarn } from "../../../utils/debug.js";
 import { pickMutablePlayerLibrary, writePlayerLibrary } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
+import { stampCardZoneRemoval } from '../../../../../rules-engine/src/oracleIRExecutorZoneOpsBattlefieldEntry.js';
 import { queueParsedSubjectEvent } from '../triggerEmissionFamilyUtils.js';
 
 export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): boolean {
@@ -139,7 +140,7 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
               ? lib.findIndex((entry: any) => entry && String(entry.id || '') === cardId)
               : -1;
             if (libIndex !== -1) {
-              [card] = lib.splice(libIndex, 1);
+              card = stampCardZoneRemoval(lib.splice(libIndex, 1)[0], 'library', libIndex);
               writePlayerLibrary(ctx, fromPlayerId, lib);
             }
           } else if (fromZone === 'hand' || fromZone === 'graveyard' || fromZone === 'exile') {
@@ -150,7 +151,7 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
               ? sourceList.findIndex((entry: any) => entry && String(entry.id || '') === cardId)
               : -1;
             if (sourceIndex !== -1) {
-              [card] = sourceList.splice(sourceIndex, 1);
+              card = stampCardZoneRemoval(sourceList.splice(sourceIndex, 1)[0], fromZone, sourceIndex);
               z[`${fromZone}Count`] = sourceList.length;
             }
           }

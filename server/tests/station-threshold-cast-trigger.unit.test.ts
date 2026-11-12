@@ -8,6 +8,7 @@ import {
 } from '../src/utils/stationParser.js';
 import { detectSpellCastTriggers } from '../src/state/modules/triggers/spell-cast-detection.js';
 import { getSpellCastTriggers } from '../src/state/modules/triggers/spell-cast-get-triggers.js';
+import { getSpellCastTriggersForCard } from '../src/socket/game-actions-handlers/gameActionsSpellCastTriggerDetection.js';
 
 const TYPE_03_ORACLE =
   "Artifact spells you cast cost {1} less to cast.\n" +
@@ -31,7 +32,7 @@ describe('Station threshold cast triggers (Type-03 Borg Vessel)', () => {
       counters: {},
       card: {
         name: 'Type-03 Borg Vessel',
-        type_line: 'Artifact — Spacecraft',
+        type_line: 'Artifact \u2014 Spacecraft',
         oracle_text: TYPE_03_ORACLE,
       },
     };
@@ -46,7 +47,7 @@ describe('Station threshold cast triggers (Type-03 Borg Vessel)', () => {
       counters: { charge: 7 },
       card: {
         name: 'Type-03 Borg Vessel',
-        type_line: 'Artifact — Spacecraft',
+        type_line: 'Artifact \u2014 Spacecraft',
         oracle_text: TYPE_03_ORACLE,
       },
     };
@@ -61,7 +62,7 @@ describe('Station threshold cast triggers (Type-03 Borg Vessel)', () => {
       counters: {},
       card: {
         name: 'Type-03 Borg Vessel',
-        type_line: 'Artifact — Spacecraft',
+        type_line: 'Artifact \u2014 Spacecraft',
         oracle_text: TYPE_03_ORACLE,
       },
     };
@@ -70,8 +71,51 @@ describe('Station threshold cast triggers (Type-03 Borg Vessel)', () => {
         battlefield: [permanent],
         spellsCastThisTurn: [],
       },
-    } as any;
+    };
     const spell = { name: 'Battle of Wolf 359', type_line: 'Sorcery', colors: [] };
     expect(getSpellCastTriggers(ctx, 'p1', spell)).toEqual([]);
+  });
+
+  it('getSpellCastTriggersForCard IR path skips the token trigger below 7 charge', () => {
+    const permanent = {
+      id: 'vessel_1',
+      controller: 'p1',
+      counters: {},
+      card: {
+        name: 'Type-03 Borg Vessel',
+        type_line: 'Artifact \u2014 Spacecraft',
+        oracle_text: TYPE_03_ORACLE,
+      },
+    };
+    const game = {
+      state: {
+        battlefield: [permanent],
+        spellsCastThisTurn: [],
+      },
+    };
+    const spell = { name: 'Battle of Wolf 359', type_line: 'Sorcery', colors: [] };
+    expect(getSpellCastTriggersForCard(game, 'p1', spell)).toEqual([]);
+  });
+
+  it('getSpellCastTriggersForCard IR path fires the token trigger at 7+ charge', () => {
+    const permanent = {
+      id: 'vessel_1',
+      controller: 'p1',
+      counters: { charge: 7 },
+      card: {
+        name: 'Type-03 Borg Vessel',
+        type_line: 'Artifact \u2014 Spacecraft',
+        oracle_text: TYPE_03_ORACLE,
+      },
+    };
+    const game = {
+      state: {
+        battlefield: [permanent],
+        spellsCastThisTurn: [],
+      },
+    };
+    const spell = { name: 'Battle of Wolf 359', type_line: 'Sorcery', colors: [] };
+    const triggers = getSpellCastTriggersForCard(game, 'p1', spell);
+    expect(triggers.some((t) => /borg artifact creature token/i.test(String(t.effect || t.description || '')))).toBe(true);
   });
 });

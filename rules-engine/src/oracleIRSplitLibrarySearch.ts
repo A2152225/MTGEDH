@@ -3,6 +3,7 @@ export type SplitLibrarySearchPlan = {
   readonly toBattlefield: number;
   readonly toHand: number | 'rest';
   readonly entersTapped: boolean;
+  readonly entersTransformed?: boolean;
 };
 
 /** Generic split-destination tutor pattern (Cultivate / Kodama's Reach / Boreas Charger). */

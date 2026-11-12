@@ -8,6 +8,7 @@
 import type { GameState } from '../../../shared/src';
 import type { EngineResult, ActionContext, BaseAction } from '../core/types';
 import { RulesEngineEvent } from '../core/events';
+import { createBattlefieldPermanentsFromCards, stampCardZoneRemoval } from '../oracleIRExecutorZoneOpsBattlefieldEntry';
 
 export interface SearchCriteria {
   readonly cardType?: string;
@@ -24,6 +25,7 @@ export interface SearchLibraryAction extends BaseAction {
   readonly criteria?: SearchCriteria;
   readonly destination?: 'hand' | 'battlefield' | 'graveyard' | 'exile' | 'top' | 'bottom';
   readonly tapped?: boolean;
+  readonly entersTransformed?: boolean;
   readonly shuffle?: boolean;
   readonly selectedCardIds?: string[];
   readonly failToFind?: boolean;
@@ -186,23 +188,37 @@ export function executeSearchLibrary(
     
     switch (destination) {
       case 'battlefield': {
-        const permanent = {
-          id: `perm_${Date.now()}_${cardId}`,
-          controller: action.playerId,
-          owner: action.playerId,
-          tapped: action.tapped || false,
-          counters: {},
-          card: { ...card, zone: 'battlefield' },
-        };
-        battlefield.push(permanent as any);
-        logs.push(`Put ${card.name} onto the battlefield${action.tapped ? ' tapped' : ''}`);
-        
-        context.emit({
-          type: RulesEngineEvent.CARD_PUT_ONTO_BATTLEFIELD,
-          timestamp: Date.now(),
-          gameId,
-          data: { cardId, cardName: card.name, playerId: action.playerId, tapped: action.tapped },
-        });
+        const stamped = stampCardZoneRemoval(card, 'library', cardIndex);
+        const created = createBattlefieldPermanentsFromCards(
+          [stamped],
+          action.playerId,
+          action.playerId,
+          Boolean(action.tapped),
+          false,
+          undefined,
+          Boolean(action.entersTransformed),
+          'library',
+        );
+        if (created.length > 0) {
+          battlefield.push(...created);
+          logs.push(`Put ${card.name} onto the battlefield${action.tapped ? ' tapped' : ''}`);
+          context.emit({
+            type: RulesEngineEvent.CARD_PUT_ONTO_BATTLEFIELD,
+            timestamp: Date.now(),
+            gameId,
+            data: { cardId, cardName: card.name, playerId: action.playerId, tapped: action.tapped },
+          });
+        } else {
+          for (const entry of created.rejected || []) {
+            const restoreCard = entry.card || stamped;
+            const idx = Number(entry.sourceIndex);
+            if (Number.isFinite(idx) && idx >= 0) {
+              library.splice(Math.min(idx, library.length), 0, restoreCard);
+            } else {
+              library.unshift(restoreCard);
+            }
+          }
+        }
         break;
       }
       

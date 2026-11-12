@@ -26,6 +26,7 @@ import { expandOtherwiseConditionalUnknownAbilities, expandSimpleConditionalUnkn
 import { mergeConditionalLookChooseFromTopAbilities, mergeLookChooseFromTopAbilities, mergeTopLibraryBottomRandomTailAbilities } from './oracleIRParserPostprocessLookChooseFromTop';
 import { expandChaosZoneTemplateAbilities } from './oracleIRParserChaosZoneTemplates';
 import { mergeRevealTopShareTypeMayCastAbilities } from './oracleIRParserRevealTopShareTypeMayCast';
+import { mergeExileUntilFollowupAbilities } from './oracleIRParserAbilityMerges';
 import { bindThisWayAntecedentOnAbilities } from './oracleIRThisWayBinding';
 import { wrapTriggeredInterveningIfAbility } from './oracleIRParserAbilityMerges';
 import { pruneBatch382MisparseExecutableSteps, upgradeSpryAndMightyCompoundSteps } from './oracleIRParserPostprocessMoveZoneFollowupUpgrades';
@@ -41,6 +42,7 @@ import { rewritePhase4ChoiceFamilyAbilities } from './oracleIRParserPhase4Choice
 import { rewriteEachPlayerChooseThenSacrificeRestSteps } from './oracleIRParserEachPlayerChooseSacrificeRest';
 import { rewriteDiscardHandAndDrawAbilities } from './oracleIRParserDiscardHandAndDrawLatePass';
 import { expandWinIfCastSameNameThisGameAbilities } from './oracleIRParserWinIfCastSameNameThisGame';
+import { stampEnterTransformedOnOracleAbilities } from './oracleIREnterTransformedPattern';
 import { expandWinIfControlDifferentNamesAbilities } from './oracleIRParserWinIfControlDifferentNames';
 
 export function applyParseOracleTextToIRLatePasses(params: {
@@ -385,6 +387,8 @@ export function applyParseOracleTextToIRLatePasses(params: {
   abilities = expandWinIfControlDifferentNamesAbilities(abilities);
   abilities = expandWinIfCastSameNameThisGameAbilities(abilities);
   abilities = mergeRevealTopShareTypeMayCastAbilities(abilities);
+  abilities = mergeExileUntilFollowupAbilities(abilities);
   abilities = applyRound33AbilityPasses(abilities);
+  abilities = stampEnterTransformedOnOracleAbilities(abilities);
   return abilities;
 }

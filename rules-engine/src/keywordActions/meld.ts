@@ -5,7 +5,9 @@
  * To meld the two cards in a meld pair, put them onto the battlefield with their
  * back faces up and combined.
  * 
- * Reference: Rule 701.42, also see Rule 712 "Double-Faced Cards"
+ * Reference: Rule 701.42, also see Rule 713 "Meld Cards" (MagicCompRules 20261106).
+ * 713.1: Meld cards are not considered double-faced cards.
+ * 713.1c: Meld cards cannot be transformed or converted.
  */
 
 export interface MeldAction {
@@ -132,3 +134,20 @@ export const MELD_PAIR_EXAMPLE = {
   gisela: 'Gisela, the Broken Blade',
   brisela: 'Brisela, Voice of Nightmares',
 } as const;
+
+/** Rule 713.1: Meld cards are not considered double-faced cards. */
+export const MELD_CARDS_ARE_NOT_DOUBLE_FACED = true;
+
+/** Rule 713.1c: Instructions to transform or convert a meld card are ignored. */
+export const MELD_CARDS_CANNOT_TRANSFORM_OR_CONVERT = true;
+
+/** Official meld pairs from Rule 713.2 (20261106), including 713.2g. */
+export const OFFICIAL_MELD_PAIRS: readonly MeldPair[] = [
+  { cardA: 'Midnight Scavengers', cardB: 'Graf Rats', meldedName: 'Chittering Host' },
+  { cardA: 'Hanweir Garrison', cardB: 'Hanweir Battlements', meldedName: 'Hanweir, the Writhing Township' },
+  { cardA: 'Bruna, the Fading Light', cardB: 'Gisela, the Broken Blade', meldedName: 'Brisela, Voice of Nightmares' },
+  { cardA: 'Phyrexian Dragon Engine', cardB: 'Mishra, Claimed by Gix', meldedName: 'Mishra, Lost to Phyrexia' },
+  { cardA: 'The Mightstone and Weakstone', cardB: 'Urza, Lord Protector', meldedName: 'Urza, Planeswalker' },
+  { cardA: 'Argoth, Sanctum of Nature', cardB: 'Titania, Voice of Gaea', meldedName: 'Titania, Gaea Incarnate' },
+  { cardA: "Fang, Fearless l'Cie", cardB: "Vanille, Cheerful l'Cie", meldedName: 'Ragnarok, Divine Deliverance' },
+];

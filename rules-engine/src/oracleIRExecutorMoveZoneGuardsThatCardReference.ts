@@ -89,9 +89,7 @@ export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardA
             { cardType: 'any' },
             destination,
             destination === 'battlefield' ? controllerId : undefined,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters,
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
             undefined,
             undefined,
             battlefieldEntryOverrides
@@ -106,9 +104,7 @@ export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardA
                 'any',
                 'battlefield',
                 controllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               )
@@ -119,9 +115,7 @@ export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardA
               'any',
               destination,
               destination === 'battlefield' ? controllerId : undefined,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               undefined,
               battlefieldEntryOverrides
             );
@@ -221,9 +215,7 @@ export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardA
             criteria.cardType,
             destination,
             destination === 'battlefield' ? controllerId : undefined,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters,
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
             undefined,
             battlefieldEntryOverrides
           )
@@ -234,9 +226,7 @@ export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardA
             criteria,
             destination,
             destination === 'battlefield' ? controllerId : undefined,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters,
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
             undefined,
             undefined,
             battlefieldEntryOverrides
@@ -283,9 +273,7 @@ export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardA
       parsedMvLessThanReferenceFromHand.cardType,
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       undefined,
       battlefieldEntryOverrides
     );
@@ -359,9 +347,7 @@ export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardA
         { cardType: 'any' },
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -437,9 +423,7 @@ export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardA
         { cardType: 'aura' },
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         attachTargetId
       );
       if (result.kind !== 'applied') continue;
@@ -583,9 +567,7 @@ export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardA
       { cardType: 'any' },
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       undefined,
       battlefieldEntryOverrides
@@ -628,9 +610,7 @@ export function tryApplyMoveZoneGuardsFromThatCardReference(args: MoveZoneGuardA
         effectiveCriteria,
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides

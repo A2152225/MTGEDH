@@ -14,6 +14,7 @@ import {
   detectManaModifiers,
   getCreatureCountManaAmount,
   getDevotionManaAmount,
+  getManaAbilitiesForPermanent,
   getExtraManaProduction,
   getManaMultiplier,
 } from "../../state/modules/mana-abilities";
@@ -35,6 +36,7 @@ import {
   shouldSkipScalingManaForColorlessTap,
   recordCreatureSpellHasteManaProduced,
   recordManaProducedByPermanentSource,
+  addRestrictedManaToPool,
 } from "../util";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
 import {
@@ -48,6 +50,7 @@ import type {
 import {
   getAnyColorBonusManaAmount,
   getChosenTypeManaSelectionFields,
+  getManaSpendRestrictionSelectionFields,
   queueAnyColorBonusManaSelection,
   resolveManaAbilityActivationShape,
 } from "./interactionManaAbilityActivationShape.js";
@@ -241,6 +244,9 @@ export async function tryHandleActivateGenericMana(
     })
       ? null
       : getCreatureCountManaAmount(game.state, permanent, pid);
+    const activatedManaAbilities = getManaAbilitiesForPermanent(game.state, permanent, pid);
+    const restrictionAbility = activatedManaAbilities.find((entry) => entry.id === abilityId) || activatedManaAbilities[0];
+    const spendRestrictionFields = getManaSpendRestrictionSelectionFields(permanent, restrictionAbility);
     
     // Get mana multiplier
     const manaMultiplier = getManaMultiplier(game.state, permanent, pid);
@@ -339,6 +345,7 @@ export async function tryHandleActivateGenericMana(
           allowedColors: combinationFields.allowedColors,
           singleColor: combinationFields.selectionKind === 'any_color',
           dynamicAmountSource: (creatureCountMana as any).dynamicAmountSource,
+          ...spendRestrictionFields,
           manaMultiplier: effectiveMultiplier,
           // Activation-cost evidence (for deterministic replay) and deferred costs
           lifeToPayForCost: pendingLifePaymentForCost || undefined,
@@ -379,7 +386,20 @@ export async function tryHandleActivateGenericMana(
         return true; // Exit early - wait for color choice
       } else {
         const poolKey = colorToPoolKey[creatureCountMana.color] || 'green';
-        (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+        if (spendRestrictionFields.manaRestriction) {
+          addRestrictedManaToPool(
+            game.state,
+            pid,
+            poolKey as any,
+            totalAmount,
+            spendRestrictionFields.manaRestriction as any,
+            spendRestrictionFields.manaRestrictedTo,
+            permanentId,
+            cardName,
+          );
+        } else {
+          (game.state.manaPool[pid] as any)[poolKey] += totalAmount;
+        }
         recordAddedMana(poolKey, totalAmount);
         if (manaGrantsCreatureSpellHasteUntilEndOfTurn) {
           recordCreatureSpellHasteManaProduced(game.state, String(pid), String(poolKey) as any, totalAmount);

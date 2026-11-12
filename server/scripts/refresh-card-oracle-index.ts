@@ -18,7 +18,7 @@ const refreshPairs: RefreshPair[] = [
   // Optional alternate download name; a direct AtomicCards.json drop is fine and skips this.
   { source: 'AtomicCards (1).json', target: 'AtomicCards.json' },
   { source: 'rulings-20261111100033.jsonl', target: 'rulings.jsonl' },
-  { source: 'Keywords.json', target: 'docs/rules/Keywords_20260925.json' },
+  { source: 'Keywords.json', target: 'docs/rules/Keywords_20261106.json' },
 ];
 
 function copyIfNewer(sourceName: string, targetName: string): void {
@@ -50,14 +50,14 @@ for (const pair of refreshPairs) {
   copyIfNewer(pair.source, pair.target);
 }
 
-const rulesSource = path.join(repoRoot, 'MagicCompRules 20260925.txt');
+const rulesSource = path.join(repoRoot, 'MagicCompRules 20261106.txt');
 const rulesTargetDir = path.join(repoRoot, 'docs', 'rules');
-const rulesTarget = path.join(rulesTargetDir, 'MagicCompRules_20260925.txt');
+const rulesTarget = path.join(rulesTargetDir, 'MagicCompRules_20261106.txt');
 if (fs.existsSync(rulesSource)) {
   if (!fs.existsSync(rulesTargetDir)) {
     fs.mkdirSync(rulesTargetDir, { recursive: true });
   }
-  copyIfNewer('MagicCompRules 20260925.txt', path.relative(repoRoot, rulesTarget));
+  copyIfNewer('MagicCompRules 20261106.txt', path.relative(repoRoot, rulesTarget));
 }
 
 console.log('Rebuilding local card lookup database...');

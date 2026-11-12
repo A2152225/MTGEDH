@@ -100,7 +100,14 @@ export {
 } from './oracleIRExecutorZoneOpsSingleTargetParsers';
 export {
   addBattlefieldPermanentsToState,
+  appendCreatedBattlefieldPermanents,
   createBattlefieldPermanentsFromCards,
+  emptyCreatedBattlefieldPermanents,
+  findCardIndexInZoneArray,
+  stampCardUsingZoneIndex,
+  stampCardZoneRemoval,
+  stampCardsUsingZoneIndex,
+  takeAndStampCardFromZoneArray,
 } from './oracleIRExecutorZoneOpsBattlefieldEntry';
 export {
   exileExactCountFromHand,

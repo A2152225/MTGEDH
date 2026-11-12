@@ -214,8 +214,12 @@ export function applyGraveyardTargetConfirmEvents(ctx: GameContext, e: GameEvent
                     permanent.isSuspected = true;
                     permanent.card = { ...(permanent.card || {}), suspected: true, isSuspected: true };
                   }
+                  let rejectedEnterTransformed = false;
                   if (battlefieldTransformed && permanent.isFaceDown !== true) {
-                    enterPermanentTransformed(permanent);
+                    const enterFace = enterPermanentTransformed(permanent, 'other');
+                    if (enterFace.outcome === 'stay_in_zone' || enterFace.outcome === 'graveyard') {
+                      rejectedEnterTransformed = true;
+                    }
                   }
                   if (battlefieldTurnFaceUp && permanent.isFaceDown === true && permanent.faceUpCard) {
                     const actualCard = { ...(permanent.faceUpCard as any), zone: 'battlefield' };
@@ -242,9 +246,13 @@ export function applyGraveyardTargetConfirmEvents(ctx: GameContext, e: GameEvent
                     battlefieldLoseAllOtherTypes,
                     battlefieldGrantedTypes,
                   });
+                  if (rejectedEnterTransformed) {
+                    graveyard.push({ ...card, zone: 'graveyard' });
+                  } else {
                   markReplayPermanentEnteredFromZone(permanent, 'graveyard');
                   ctx.state.battlefield.push(permanent as any);
                   stampPermanentEntryTimestamp(ctx.state, ctx.state.battlefield[ctx.state.battlefield.length - 1]);
+                  }
                 }
                 break;
               case 'library_top':

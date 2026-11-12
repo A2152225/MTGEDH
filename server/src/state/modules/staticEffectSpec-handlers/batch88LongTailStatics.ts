@@ -109,7 +109,7 @@ function pushHellbentTypeQuoted(
     `hellbent-type-quoted:${creatureType.toLowerCase()}`,
     { kind: 'creatures_you_control', creatureType },
     { abilities: [quoted] },
-    { kind: 'zone_count', zone: 'hand', who: 'you', cmp: 'max', count: 0 } as StaticEffectCondition,
+    { kind: 'zone_count', zone: 'hand', who: 'you', cmp: 'max', count: 0 },
   ));
 }
 

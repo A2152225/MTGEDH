@@ -77,6 +77,7 @@ export function queueRepeatedZoneDraftChoicePromptFromOracleIRResult(
       ? (gap.metadata!.chooserOrder as readonly unknown[]).map((id) => String(id || '').trim()).filter(Boolean)
       : [String(params.controller)];
     const entersTapped = gap.metadata?.entersTapped === true;
+    const entersTransformed = gap.metadata?.entersTransformed === true;
     const destination = String(gap.metadata?.destination || 'battlefield');
     const firstChooserIndex = findNextRepeatedZoneDraftChooserIndex(state, remainingCardIds, chooserOrder, 0);
     if (firstChooserIndex === null) continue;
@@ -100,6 +101,7 @@ export function queueRepeatedZoneDraftChoicePromptFromOracleIRResult(
       chooserOrder,
       chooserIndex: firstChooserIndex,
       entersTapped,
+      entersTransformed,
       destination,
       oracleIrChoiceStepJson: JSON.stringify([step]),
       oracleIrControllerId: params.controller,

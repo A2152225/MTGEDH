@@ -29,6 +29,7 @@ import { syncAuraControlChanges } from './staticEffectSpecAuraControl.js';
 import { collectActivatedAbilitiesExiledWithSource } from './staticEffectSpecCopyExiledActivated.js';
 import { collectBorrowedActivatedAbilities } from './staticEffectSpecBorrowedActivated.js';
 import { stampAttachedTypeSettingOverrides, typeSetOverrideIsCreature, typeSetOverrideSubtypes } from './attachedTypeSettingStamp.js';
+import { isStationPermanentCreatureNow } from '../../../../rules-engine/src/stationPermanentUtils.js';
 import {
   recordDeclarativeTypeAdditions,
   seedContinuousTypeAdditionsForStaticPass,
@@ -65,7 +66,11 @@ function isCreaturePermanent(permanent: BattlefieldPermanent): boolean {
   if (typeSet !== undefined) return typeSet;
   if ((permanent as any).isCreatureFromAttachment === true) return true;
   const typeLine = String((permanent.card as any)?.type_line || '').toLowerCase();
-  return typeLine.includes('creature') || typeLine.includes('kindred') || typeLine.includes('tribal') || ((permanent as any).layer4AddedTypes || []).includes('Creature');
+  if (typeLine.includes('creature') || typeLine.includes('kindred') || typeLine.includes('tribal') || ((permanent as any).layer4AddedTypes || []).includes('Creature')) {
+    return true;
+  }
+  // Station spacecraft / planets become creatures at their charge threshold even when type_line stays Spacecraft.
+  return isStationPermanentCreatureNow(permanent, String((permanent.card as any)?.oracle_text || (permanent as any).oracle_text || ''));
 }
 
 function isPlaneswalkerPermanent(permanent: BattlefieldPermanent): boolean {
@@ -167,8 +172,8 @@ function resolveStaticCountMultiplier(
       const sym = COLOR[raw] || (/^[wubrg]$/i.test(raw) ? raw.toUpperCase() : '');
       if (!sym) return 0;
       const cost = String((target as any)?.card?.mana_cost || (target as any)?.mana_cost || '').toUpperCase();
-      const tokens = cost.match(/\{[^}]+\}/g) || [];
-      return tokens.reduce((sum, t) => sum + (t.includes(sym) ? 1 : 0), 0);
+      const tokens: string[] = cost.match(/\{[^}]+\}/g) ?? [];
+      return tokens.reduce((sum, token) => sum + (token.includes(sym) ? 1 : 0), 0);
     }
     case 'recipient_times_attacked_this_turn': {
       // B85: Moraug — for each time it has attacked this turn.

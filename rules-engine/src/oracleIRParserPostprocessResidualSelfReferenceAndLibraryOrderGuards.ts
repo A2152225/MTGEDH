@@ -640,6 +640,19 @@ export function parseResidualSelfReferenceAndLibraryOrderGuardsTwo(
     ...sequence,
   } as unknown as OracleEffectStep];
 
+  const theyPutRest = raw.match(/^(?:they|that player|that opponent|its controller|the defending player)\s+puts?\s+the\s+rest\s+on\s+the\s+bottom(?:\s+of\s+(?:your|their|his or her)\s+library)?\s+in\s+(?:a\s+)?(?:random|any)\s+order$/i);
+  if (theyPutRest) {
+    const random = /\brandom\b/i.test(raw);
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector('the rest'),
+      to: 'library',
+      toRaw: random ? 'bottom of their library in a random order' : 'bottom of their library in any order',
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
+  }
+
   const topBottomRest = raw.match(/^(?:(?:then\s+)?puts?\s+the\s+(?:rest|revealed\s+cards)\s+on\s+the\s+bottom(?:\s+of\s+(?:your|their)\s+library)?\s+in\s+(?:a\s+)?(?:random|any)\s+order|put\s+up\s+to\s+one\s+of\s+them\s+on\s+top\s+of\s+your\s+library\s+and\s+the\s+rest\s+on\s+the\s+bottom\s+of\s+your\s+library\s+in\s+a\s+random\s+order)$/i);
   if (topBottomRest) {
     return staticMetadata('library order', raw);

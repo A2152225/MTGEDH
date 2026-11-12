@@ -103,7 +103,7 @@ export interface StaticEffectGrant {
   /** controller_permanents_of_type: "for each OTHER creature you control" excludes the counted-around permanent. */
   countExcludeSource?: boolean;
   /** player_counters: whose counters are counted. */
-  countWho?: 'you' | 'opponents';
+  countWho?: 'you' | 'opponents' | 'all';
   /** creatures_with_keyword: the keyword (lower-case). */
   countKeyword?: string;
   /** creatures_named: lower-case card name. */
@@ -495,7 +495,11 @@ export type StaticEffectConditionKind =
   /** B82: Phoenix Fleet — you control N or more permanents named X. */
   | 'controller_controls_named_at_least'
   /** B83: Lovestruck Beast — you control a printed N/M creature. */
-  | 'source_controller_controls_creature_with_base_pt';
+  | 'source_controller_controls_creature_with_base_pt'
+  /** B83: creatures you control that entered this turn. */
+  | 'target_entered_this_turn'
+  /** B88: hellbent / zone-count gates (e.g. no cards in hand). */
+  | 'zone_count';
 
 export interface StaticEffectCondition {
   kind: StaticEffectConditionKind;
@@ -539,6 +543,12 @@ export interface StaticEffectCondition {
   subtypes?: readonly string[];
   /** B72: target_has_name — exact card name (lower-cased compare). */
   cardName?: string;
+  /** zone_count: zone name (hand, graveyard, library, ...). */
+  zone?: string;
+  /** zone_count: whose zone is counted. */
+  who?: 'you' | 'opponents' | 'all';
+  /** zone_count: comparison (max / min / eq / at_most / at_least). */
+  cmp?: string;
 }
 
 export interface StaticEffectSpec {

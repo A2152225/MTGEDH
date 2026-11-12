@@ -152,6 +152,8 @@ export type OracleEffectStepA =
       readonly destination: 'hand' | 'battlefield' | 'graveyard' | 'exile' | 'top' | 'bottom';
       readonly revealFound?: boolean;
       readonly entersTapped?: boolean;
+      /** If the searched cards enter the battlefield transformed/converted. */
+      readonly entersTransformed?: boolean;
       readonly shuffle?: boolean;
       readonly maxResults?: number | 'any_number';
       readonly whereX?: OracleClauseCondition;

@@ -138,14 +138,21 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
 
   if (parsedThatCardToBattlefield) {
     const preferredIds = getChosenObjectIds(ctx);
-    const contextual = Array.isArray(runtime?.lastMovedCards) ? [...runtime.lastMovedCards] : [];
-    const contextualIds = contextual
-      .map((card: any) => String(card?.id || '').trim())
+    const ledgerCards = [
+      ...(Array.isArray((runtime as any)?.lastExiledCards) ? (runtime as any).lastExiledCards : []),
+      ...(Array.isArray((ctx as any)?.lastExiledCards) ? (ctx as any).lastExiledCards : []),
+      ...(Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []),
+    ];
+    const ledgerIds = ledgerCards
+      .map((card: any) => String(card?.id || card?.cardId || '').trim())
       .filter(Boolean);
+    const exiledIds = ledgerIds.filter((id) => findBoundCardZoneLocation(nextState, id)?.zone === 'exile');
+    // Singular "that card" after exile-until is the last card still in exile (the until hit).
+    const preferredCardId = preferredIds.find((id) => exiledIds.includes(id) || (ledgerIds.includes(id) && Boolean(findBoundCardZoneLocation(nextState, id))));
     const cardId =
-      preferredIds.find(id => contextualIds.includes(id) || Boolean(findBoundCardZoneLocation(nextState, id))) ||
-      contextualIds[0] ||
-      preferredIds[0] ||
+      preferredCardId ||
+      exiledIds[exiledIds.length - 1] ||
+      ledgerIds[0] ||
       String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
     const location = cardId ? findBoundCardZoneLocation(nextState, cardId) : null;
     if (!location) {
@@ -170,9 +177,7 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
             { cardType: 'any' },
             'battlefield',
             bfController,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters,
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
             attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
             ctx.sourceName,
             battlefieldEntryOverrides
@@ -185,9 +190,7 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
               'any',
               'battlefield',
               bfController,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
               battlefieldEntryOverrides
             )
@@ -195,9 +198,7 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
             ? moveContextualCardToDestination(nextState, location, cardId, 'battlefield', {
                 controllerId: bfController,
                 cardType: 'any',
-                entersTapped: step.entersTapped,
-                entersFaceDown: step.entersFaceDown,
-                withCounters: effectiveWithCounters,
+                entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
                 battlefieldEntryOverrides,
                 ctx,
                 stepKind: step.kind,
@@ -209,9 +210,7 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
                 'any',
                 'battlefield',
                 bfController,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
                 battlefieldEntryOverrides
               );
@@ -293,9 +292,7 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
             { cardType: 'any' },
             'battlefield',
             bfController,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters,
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
             undefined,
             undefined,
             battlefieldEntryOverrides
@@ -308,9 +305,7 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
               'any',
               'battlefield',
               bfController,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               undefined,
               battlefieldEntryOverrides
             )
@@ -322,9 +317,7 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
                 'any',
                 'battlefield',
                 bfController,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               )
@@ -332,9 +325,7 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
                 controllerId: bfController,
                 ctx,
                 cardType: 'any',
-                entersTapped: step.entersTapped,
-                entersFaceDown: step.entersFaceDown,
-                withCounters: effectiveWithCounters,
+                entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
                 battlefieldEntryOverrides,
               });
     if (result.kind !== 'applied') {
@@ -668,9 +659,7 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
         { cardType: parsedOneTwoOrThreeTargetCreatureCardsFromGraveyards.cardType },
         'battlefield',
         bfController,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -743,9 +732,7 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
         { cardType: parsedUpToFromGraveyards.cardType },
         'battlefield',
         bfController,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides

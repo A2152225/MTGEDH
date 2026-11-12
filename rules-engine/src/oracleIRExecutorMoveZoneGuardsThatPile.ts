@@ -134,9 +134,7 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
       effectiveCriteria,
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       ctx.sourceName,
       battlefieldEntryOverrides
@@ -374,9 +372,7 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
         { cardType: 'creature' },
         'battlefield',
         bfController,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -418,9 +414,7 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
             { cardType: 'any' },
             'battlefield',
             bfController,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters,
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
             attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
             undefined,
             battlefieldEntryOverrides
@@ -430,9 +424,7 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
               controllerId: bfController,
               ctx,
               cardType: 'any',
-              entersTapped: step.entersTapped,
-              entersFaceDown: step.entersFaceDown,
-              withCounters: effectiveWithCounters,
+              entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
               battlefieldEntryOverrides,
             })
         : location.zone === 'hand'
@@ -443,9 +435,7 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
               'any',
               'battlefield',
               bfController,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
               battlefieldEntryOverrides
             )
@@ -457,9 +447,7 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
                 'any',
                 'battlefield',
                 bfController,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
                 battlefieldEntryOverrides
               )
@@ -493,6 +481,7 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
               true,
               step.entersFaceDown,
               effectiveWithCounters,
+              Boolean(step.entersTransformed),
               undefined,
               undefined,
               battlefieldEntryOverrides
@@ -508,6 +497,7 @@ export function tryApplyMoveZoneGuardsFromThatPile(args: MoveZoneGuardArgs): Mov
                 true,
                 step.entersFaceDown,
                 effectiveWithCounters,
+                Boolean(step.entersTransformed),
                 undefined,
                 battlefieldEntryOverrides
               )

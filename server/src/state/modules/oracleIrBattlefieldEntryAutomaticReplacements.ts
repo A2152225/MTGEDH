@@ -14,6 +14,7 @@
 import { checkPermanentEntersTapped } from './triggerPermanentEntersTapped.js';
 import { evaluateBattlefieldEntryReplacementEvent } from './replacement-effects.js';
 import { debug } from '../../utils/debug.js';
+import { resolveAndApplyEnterFace } from './enterBattlefieldFaceApplication.js';
 
 function readEntryCounters(permanent: any): Record<string, number> {
   const raw = permanent?.counters && typeof permanent.counters === 'object'
@@ -72,6 +73,13 @@ export function applyAsEntersAutomaticReplacementsForPermanent(
   if (entryReplacement.applied) {
     permanent.battlefieldEntryReplacement = entryReplacement;
   }
+
+  const enteredFrom = String(permanent.enteredFromZone || card.enteredFromZone || '').toLowerCase();
+  resolveAndApplyEnterFace(permanent, {
+    sourceZone: enteredFrom === 'stack' ? 'stack' : 'other',
+    dayNight: state.dayNight,
+    extra: card,
+  });
 }
 
 /**

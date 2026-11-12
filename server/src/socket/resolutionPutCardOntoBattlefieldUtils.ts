@@ -13,6 +13,8 @@ import { queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { queueTributeChoiceOnEntry } from "../state/modules/triggerTributeChoiceUtils.js";
 import { queueSelfETBTriggersForPermanent } from "../state/modules/triggerEtbEntryEffects.js";
 import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
+import { resolveAndApplyEnterFace } from "../state/modules/enterBattlefieldFaceApplication.js";
+import { restoreRejectedBattlefieldEntries } from '../../../rules-engine/src/oracleIRExecutorZoneOpsBattlefieldEntry.js';
 import { applyGraveyardTypeEntryCounterGrants } from "../state/modules/graveyardTypeEntryCounterBonus.js";
 import { applyBattlefieldTypeEntryCounterGrants } from "../state/modules/battlefieldTypeEntryCounterBonus.js";
 
@@ -37,7 +39,10 @@ export async function putCardOntoBattlefield(
   checkPermanentEntersTapped: any,
   game: any,
   io?: Server,
-  gameId?: string
+  gameId?: string,
+  sourceZone?: string,
+  ownerId?: string,
+  sourceIndex?: number
 ): Promise<string> {
   const tl = (card.type_line || '').toLowerCase();
   const isCreature = tl.includes('creature');
@@ -83,6 +88,30 @@ export async function putCardOntoBattlefield(
     card: { ...card, zone: "battlefield" },
   } as any;
   
+  const enterFace = resolveAndApplyEnterFace(newPermanent, {
+    sourceZone: 'other',
+    extra: card,
+    dayNight: (state as any).dayNight,
+    representingCard: card,
+  });
+  if (enterFace.outcome === 'stay_in_zone' || enterFace.outcome === 'graveyard') {
+    const restoredZone = String(sourceZone || card?.zone || card?.enteredFromZone || 'library');
+    const restoredOwner = String(ownerId || card?.owner || card?.ownerId || controller);
+    const stampedIndex = Number.isFinite(Number(sourceIndex)) ? Number(sourceIndex) : Number(card?.sourceIndex);
+    const restored = restoreRejectedBattlefieldEntries(state, [{
+      card,
+      ownerId: restoredOwner,
+      sourceZone: restoredZone,
+      outcome: enterFace.outcome,
+      ...(Number.isFinite(stampedIndex) && stampedIndex >= 0 ? { sourceIndex: stampedIndex } : {}),
+    }]);
+    if (restored && restored !== state) {
+      if ((restored as any).zones) (state as any).zones = (restored as any).zones;
+      if ((restored as any).players) (state as any).players = (restored as any).players;
+    }
+    debug(2, `[putCardOntoBattlefield] ${card?.name || card?.id} could not enter transformed; restored to ${restoredZone}`);
+    return '';
+  }
   battlefield.push(newPermanent);
   stampPermanentEntryTimestamp(state, newPermanent);
   applyBattlefieldTypeEntryCounterGrants(state, newPermanent, String(controller));

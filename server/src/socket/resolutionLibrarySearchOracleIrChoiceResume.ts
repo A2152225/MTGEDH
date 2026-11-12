@@ -163,6 +163,9 @@ export async function tryHandleLibrarySearchOracleIrChoiceResume(
           game,
           io,
           gameId,
+          'hand',
+          searchOwnerId,
+          handIdx >= 0 ? handIdx : undefined,
         );
         destination = 'battlefield';
         debug(2, `[Resolution] ${sourceName}: IR behold paid + type match; moved ${String(cardFromHand?.name || '')} to battlefield`);

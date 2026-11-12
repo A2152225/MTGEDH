@@ -79,12 +79,12 @@ export function registerAuthHttpRoutes(app: Express): void {
   app.post('/api/auth/register', (req, res) => {
     try {
       const parsed = validateRegisterBody(req.body || {}, { allowPrivileged: isLoopbackSocket(req) });
-      if (!parsed.ok) {
+      if (parsed.ok === false) {
         res.status(400).json({ error: parsed.error });
         return;
       }
       const result = registerUser(parsed.username, parsed.password, parsed.displayName, parsed.email, parsed.isAdmin);
-      if (!result.ok) {
+      if (result.ok === false) {
         const status = result.reason === 'invalid' ? 400 : 409;
         const error = result.reason === 'email_taken'
           ? 'That email is already in use.'

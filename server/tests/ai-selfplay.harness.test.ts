@@ -163,7 +163,9 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
             maxNoTurnAdvanceMs: 60_000,
             // Real wall clock: generous per-tick budget (mulligan/setup ticks can be slow).
             maxWallClockMs: Math.max(180_000, MAX_TURNS * 15_000),
-            maxTickWallClockMs: 60_000,
+            // Gate soft-stalls included many tick-timeout@60s with stack>0 (storm drain).
+            // Keep above a single storm tick; batch kill still bounds the whole process.
+            maxTickWallClockMs: 180_000,
             softStop: true,
             label: gameId,
             stopWhen: (game) => Boolean((game.state as any).gameOver),

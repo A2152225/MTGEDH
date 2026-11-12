@@ -107,9 +107,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberFromYourHandFaceDown(args: Mo
         { cardType: 'any' },
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -346,9 +344,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberFromYourHandFaceDown(args: Mo
         parsedAnyNumberFromYourHand.cardType,
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         battlefieldEntryOverrides
       );
@@ -386,9 +382,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberFromYourHandFaceDown(args: Mo
         { cardType: 'creature' },
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -420,9 +414,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberFromYourHandFaceDown(args: Mo
       parsedCraftExiledCard.cardType,
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
     );
     if (result.kind === 'impossible') {
       return buildAppliedResult({ state: nextState, log: [`Crafted exile card unavailable: ${step.raw}`] });
@@ -473,9 +465,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberFromYourHandFaceDown(args: Mo
         targetPlayerId,
         'battlefield',
         controllerId,
-        step.entersTapped,
-        true,
-        effectiveWithCounters,
+        step.entersTapped, true, effectiveWithCounters, step.entersTransformed,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         battlefieldEntryOverrides
       );
@@ -529,9 +519,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberFromYourHandFaceDown(args: Mo
         [entry.card],
         entry.ownerId,
         battlefieldControllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         'command'
       )
     );

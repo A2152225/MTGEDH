@@ -82,6 +82,7 @@ export function applyTriggerQueueEvents(ctx: GameContext, e: GameEvent): boolean
         const battlefieldCounters = (e as any).battlefieldCounters;
         const battlefieldFaceDown = (e as any).battlefieldFaceDown;
         const battlefieldTurnFaceUp = (e as any).battlefieldTurnFaceUp;
+        const battlefieldTransformed = (e as any).battlefieldTransformed;
         const battlefieldSuspected = (e as any).battlefieldSuspected;
         const battlefieldSetTypeLine = (e as any).battlefieldSetTypeLine;
         const battlefieldSetOracleText = (e as any).battlefieldSetOracleText;
@@ -180,6 +181,7 @@ export function applyTriggerQueueEvents(ctx: GameContext, e: GameEvent): boolean
             ...(battlefieldCounters && typeof battlefieldCounters === 'object' ? { battlefieldCounters } : null),
             ...(battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
             ...(battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
+            ...(battlefieldTransformed === true ? { battlefieldTransformed: true } : null),
             ...(battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
             ...(battlefieldSetTypeLine ? { battlefieldSetTypeLine } : null),
             ...(typeof battlefieldSetOracleText === 'string' ? { battlefieldSetOracleText } : null),
@@ -306,6 +308,7 @@ export function applyTriggerQueueEvents(ctx: GameContext, e: GameEvent): boolean
                 : undefined,
               ...(rawEntry?.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
               ...(rawEntry?.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
+              ...(rawEntry?.battlefieldTransformed === true ? { battlefieldTransformed: true } : null),
               ...(rawEntry?.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
             });
           }

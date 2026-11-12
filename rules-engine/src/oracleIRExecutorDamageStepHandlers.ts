@@ -690,14 +690,12 @@ export function applyDealDamageStep(
   }
   const fight = tryApplyFightDealDamageStep(state, step, ctx);
   if (fight) {
-    if (fight.applied) {
-      stampLastDamagedIds(ctx, fight.lastDamagedBattlefieldPermanentIds);
-      return {
-        ...fight,
-        excessDamageDealtThisWay: Math.max(0, Number(fight.excessDamageDealtThisWay) || 0),
-      };
-    }
-    return fight;
+    if (fight.applied === false) return fight;
+    stampLastDamagedIds(ctx, fight.lastDamagedBattlefieldPermanentIds);
+    return {
+      ...fight,
+      excessDamageDealtThisWay: Math.max(0, Number(fight.excessDamageDealtThisWay) || 0),
+    };
   }
 
   const fightEarly = trySpecialDealDamageStep(state, step, ctx, 0);

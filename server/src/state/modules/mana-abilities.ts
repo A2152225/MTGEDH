@@ -281,6 +281,23 @@ export function getCreatureCountManaAmount(
     };
   }
 
+  // Astral Cornucopia / Queen's Diamond:
+  // "{T}: Choose a color. Add one mana of that color for each charge counter on ~."
+  if (
+    oracleText.includes('for each charge counter')
+    && (
+      oracleText.includes('any color')
+      || (oracleText.includes('choose a color') && oracleText.includes('of that color'))
+      || /mana of that color for each charge/i.test(oracleText)
+    )
+  ) {
+    const chargeCounters = Number(permanent?.counters?.charge || 0);
+    return {
+      color: 'any_one_color',
+      amount: Math.max(0, chargeCounters),
+    };
+  }
+
   // Priest of Titania: "Add {G} for each Elf on the battlefield"
   if (cardName.includes("priest of titania")) {
     const battlefield = gameState?.battlefield || [];

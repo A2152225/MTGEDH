@@ -242,9 +242,7 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
       { cardType: 'any' },
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       undefined,
       undefined,
       battlefieldEntryOverrides
@@ -326,9 +324,7 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
             effectiveCriteria,
             'battlefield',
             controllerId,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters,
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
             undefined,
             undefined,
             battlefieldEntryOverrides,
@@ -339,9 +335,7 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
             controllerId,
             ctx,
             cardType: effectiveCriteria.cardType,
-            entersTapped: step.entersTapped,
-            entersFaceDown: step.entersFaceDown,
-            withCounters: effectiveWithCounters,
+            entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
             battlefieldEntryOverrides,
           });
     if (result.kind === 'halted') {
@@ -400,6 +394,7 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
             entersTapped,
             step.entersFaceDown,
             effectiveWithCounters,
+            Boolean(step.entersTransformed),
             undefined,
             battlefieldEntryOverrides
           )
@@ -413,6 +408,7 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
             entersTapped,
             step.entersFaceDown,
             effectiveWithCounters,
+            Boolean(step.entersTransformed),
             undefined,
             undefined,
             battlefieldEntryOverrides
@@ -450,9 +446,7 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
               { cardType: 'any' },
               'battlefield',
               battlefieldControllerId,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
               undefined,
               battlefieldEntryOverrides
@@ -465,9 +459,7 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
                 'any',
                 'battlefield',
                 battlefieldControllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
                 battlefieldEntryOverrides
               )
@@ -478,9 +470,7 @@ export function tryApplyMoveZoneGuardsFromDiceBracketIt(args: MoveZoneGuardArgs)
                 'any',
                 'battlefield',
                 battlefieldControllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
                 battlefieldEntryOverrides
               );

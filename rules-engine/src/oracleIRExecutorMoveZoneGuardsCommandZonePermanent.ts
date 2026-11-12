@@ -16,6 +16,7 @@ import {
   selectGraveyardCardsWithTotalManaValueLte,
   createBattlefieldPermanentsFromCards,
   addBattlefieldPermanentsToState,
+  stampCardZoneRemoval,
 } from './oracleIRExecutorZoneOps';
 import { findBoundCardZoneLocation, getChosenObjectIds } from './oracleIRExecutorMoveZoneReferenceResolvers';
 import {
@@ -71,9 +72,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
       [card],
       controllerId,
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       'command'
     );
     const updatedPlayers = nextState.players.map(p =>
@@ -141,9 +140,9 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
       location.zone === 'hand' && step.to === 'hand'
         ? { kind: 'applied' as const, state: nextState, log: [] as string[] }
         : location.zone === 'hand'
-        ? moveTargetedCardFromHand(nextState, location.playerId, cardId, 'any', 'battlefield', controllerId, step.entersTapped, step.entersFaceDown, effectiveWithCounters, undefined, battlefieldEntryOverrides)
+        ? moveTargetedCardFromHand(nextState, location.playerId, cardId, 'any', 'battlefield', controllerId, step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed, undefined, battlefieldEntryOverrides)
         : location.zone === 'graveyard'
-          ? moveTargetedCardFromGraveyard(nextState, location.playerId, cardId, { cardType: 'any' }, step.to === 'battlefield' ? 'battlefield' : 'hand', step.to === 'battlefield' ? controllerId : undefined, step.entersTapped, step.entersFaceDown, effectiveWithCounters, undefined, undefined, battlefieldEntryOverrides)
+          ? moveTargetedCardFromGraveyard(nextState, location.playerId, cardId, { cardType: 'any' }, step.to === 'battlefield' ? 'battlefield' : 'hand', step.to === 'battlefield' ? controllerId : undefined, step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed, undefined, undefined, battlefieldEntryOverrides)
           : location.zone === 'library'
             ? (() => {
                 const player = nextState.players.find(p => p.id === location.playerId) as any;
@@ -152,24 +151,28 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
                 if (index < 0) return { kind: 'impossible' as const };
                 const [card] = library.splice(index, 1);
                 if (step.to === 'battlefield') {
-                  const hand = Array.isArray(player?.hand) ? [...player.hand, card] : [card];
+                  const stamped = stampCardZoneRemoval(card, 'library', index);
                   const updatedPlayers = nextState.players.map(p =>
-                    p.id === location.playerId ? ({ ...(p as any), library, hand } as any) : p
+                    p.id === location.playerId ? ({ ...(p as any), library } as any) : p
                   );
-                  const handResult = moveTargetedCardFromHand(
-                    { ...nextState, players: updatedPlayers as any } as GameState,
+                  const created = createBattlefieldPermanentsFromCards(
+                    [stamped],
                     location.playerId,
-                    cardId,
-                    'any',
-                    'battlefield',
                     controllerId,
-                    step.entersTapped,
-                    step.entersFaceDown,
-                    effectiveWithCounters,
+                    step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
+                    'library',
                     undefined,
                     battlefieldEntryOverrides
                   );
-                  return handResult;
+                  return {
+                    kind: 'applied' as const,
+                    state: addBattlefieldPermanentsToState(
+                      { ...nextState, players: updatedPlayers as any } as GameState,
+                      created
+                    ),
+                    log: [`${location.playerId} puts ${cardId} from library onto the battlefield`],
+                    movedPermanentIds: created.map((perm: any) => String(perm?.id || '').trim()).filter(Boolean),
+                  };
                 }
                 const hand = Array.isArray(player?.hand) ? [...player.hand, card] : [card];
                 const updatedPlayers = nextState.players.map(p =>
@@ -181,7 +184,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
                   log: [`${location.playerId} puts ${cardId} from library into hand`],
                 };
               })()
-            : moveTargetedCardFromExile(nextState, location.playerId, cardId, 'any', step.to === 'battlefield' ? 'battlefield' : 'hand', step.to === 'battlefield' ? controllerId : undefined, step.entersTapped, step.entersFaceDown, effectiveWithCounters, undefined, battlefieldEntryOverrides);
+            : moveTargetedCardFromExile(nextState, location.playerId, cardId, 'any', step.to === 'battlefield' ? 'battlefield' : 'hand', step.to === 'battlefield' ? controllerId : undefined, step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed, undefined, battlefieldEntryOverrides);
     return result.kind === 'impossible'
       ? buildAppliedResult({ state: nextState, log: [`Shared-type card unavailable: ${step.raw}`] })
       : finalizeAppliedResult(result);
@@ -233,9 +236,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
               { cardType: 'any' },
               'battlefield',
               ownerId,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               undefined,
               undefined,
               battlefieldEntryOverrides
@@ -248,9 +249,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
                 'any',
                 'battlefield',
                 ownerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               )
@@ -261,9 +260,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
                 'any',
                 'battlefield',
                 ownerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               );
@@ -300,9 +297,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
         { cardType: 'any' },
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -339,9 +334,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
               { cardType: 'permanent' },
               'battlefield',
               controllerId,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               undefined,
               undefined,
               battlefieldEntryOverrides
@@ -354,9 +347,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
                 'permanent',
                 'battlefield',
                 controllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               )
@@ -367,9 +358,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
                 'permanent',
                 'battlefield',
                 controllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               );
@@ -588,9 +577,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanent(args: MoveZoneGua
         { cardType: 'creature' },
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides

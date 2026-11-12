@@ -152,9 +152,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
               controllerId: battlefieldControllerId,
               ctx,
               cardType: effectiveCriteria.cardType,
-              entersTapped: step.entersTapped,
-              entersFaceDown: step.entersFaceDown,
-              withCounters: effectiveWithCounters,
+              entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
               battlefieldEntryOverrides,
               attachedToBattlefieldPermanentId: attachedToId,
             })
@@ -166,9 +164,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                 effectiveCriteria,
                 step.to === 'battlefield' ? 'battlefield' : 'hand',
                 step.to === 'battlefield' ? battlefieldControllerId : undefined,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 attachedToId,
                 undefined,
                 battlefieldEntryOverrides
@@ -183,9 +179,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                   effectiveCriteria.cardType,
                   step.to === 'battlefield' ? 'battlefield' : 'graveyard',
                   step.to === 'battlefield' ? battlefieldControllerId : undefined,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters,
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                   attachedToId,
                   battlefieldEntryOverrides
                 )
@@ -196,9 +190,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                   effectiveCriteria.cardType,
                   step.to,
                   step.to === 'battlefield' ? battlefieldControllerId : undefined,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters,
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                   attachedToId,
                   battlefieldEntryOverrides
                 );
@@ -339,6 +331,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                 entersTapped,
                 entersFaceDown: step.entersFaceDown,
                 withCounters: effectiveWithCounters,
+                entersTransformed: Boolean(step.entersTransformed),
                 battlefieldEntryOverrides,
               })
             : location.zone === 'graveyard'
@@ -352,6 +345,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                   entersTapped,
                   step.entersFaceDown,
                   effectiveWithCounters,
+                  Boolean(step.entersTransformed),
                   undefined,
                   undefined,
                   battlefieldEntryOverrides
@@ -367,6 +361,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                     entersTapped,
                     step.entersFaceDown,
                     effectiveWithCounters,
+                    Boolean(step.entersTransformed),
                     undefined,
                     battlefieldEntryOverrides
                   )
@@ -380,6 +375,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                     entersTapped,
                     step.entersFaceDown,
                     effectiveWithCounters,
+                    Boolean(step.entersTransformed),
                     undefined,
                     battlefieldEntryOverrides
                   );
@@ -464,6 +460,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                 entersTapped,
                 entersFaceDown: step.entersFaceDown,
                 withCounters: effectiveWithCounters,
+                entersTransformed: Boolean(step.entersTransformed),
                 battlefieldEntryOverrides,
               })
             : location.zone === 'hand'
@@ -477,6 +474,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                   entersTapped,
                   step.entersFaceDown,
                   effectiveWithCounters,
+                  Boolean(step.entersTransformed),
                   undefined,
                   battlefieldEntryOverrides
                 )
@@ -491,6 +489,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                     entersTapped,
                     step.entersFaceDown,
                     effectiveWithCounters,
+                    Boolean(step.entersTransformed),
                     undefined,
                     undefined,
                     battlefieldEntryOverrides
@@ -505,6 +504,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                     entersTapped,
                     step.entersFaceDown,
                     effectiveWithCounters,
+                    Boolean(step.entersTransformed),
                     undefined,
                     battlefieldEntryOverrides
                   );
@@ -575,9 +575,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                 controllerId,
                 ctx,
                 cardType: effectiveCriteria.cardType,
-                entersTapped: step.entersTapped,
-                entersFaceDown: step.entersFaceDown,
-                withCounters: effectiveWithCounters,
+                entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
                 battlefieldEntryOverrides,
               })
             : location.zone === 'graveyard'
@@ -588,9 +586,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                   effectiveCriteria,
                   'battlefield',
                   controllerId,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters,
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                   undefined,
                   undefined,
                   battlefieldEntryOverrides
@@ -603,9 +599,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                     effectiveCriteria.cardType,
                     'battlefield',
                     controllerId,
-                    step.entersTapped,
-                    step.entersFaceDown,
-                    effectiveWithCounters,
+                    step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                     undefined,
                     battlefieldEntryOverrides
                   )
@@ -616,9 +610,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                     effectiveCriteria.cardType,
                     'battlefield',
                     controllerId,
-                    step.entersTapped,
-                    step.entersFaceDown,
-                    effectiveWithCounters,
+                    step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                     undefined,
                     battlefieldEntryOverrides
                   );
@@ -653,9 +645,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
             ? moveContextualCardToDestination(workingState, location, cardId, destination === 'hand' ? 'hand' : 'library_bottom', {
                 controllerId,
                 cardType: effectiveCriteria.cardType,
-                entersTapped: step.entersTapped,
-                entersFaceDown: step.entersFaceDown,
-                withCounters: effectiveWithCounters,
+                entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
                 battlefieldEntryOverrides,
               })
             : location.zone === 'graveyard'
@@ -666,9 +656,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                 { cardType: effectiveCriteria.cardType },
                 destination as any,
                 step.to === 'battlefield' ? controllerId : undefined,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 undefined,
                 battlefieldEntryOverrides
@@ -681,9 +669,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                   effectiveCriteria.cardType,
                   destination as any,
                   step.to === 'battlefield' ? controllerId : undefined,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters,
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                   undefined,
                   battlefieldEntryOverrides
                 )
@@ -694,9 +680,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
                   effectiveCriteria.cardType,
                   destination as any,
                   step.to === 'battlefield' ? controllerId : undefined,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters,
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                   undefined,
                   battlefieldEntryOverrides
                 );
@@ -734,9 +718,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
         ? moveContextualCardToDestination(nextState, location, cardId, destination === 'hand' ? 'hand' : 'library_bottom', {
             controllerId,
             cardType: parsedTypedCardFromAmongThem.cardType,
-            entersTapped: step.entersTapped,
-            entersFaceDown: step.entersFaceDown,
-            withCounters: effectiveWithCounters,
+            entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
             battlefieldEntryOverrides,
           })
         : location.zone === 'graveyard'
@@ -747,9 +729,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
             effectiveCriteria,
             destination as any,
             step.to === 'battlefield' ? controllerId : undefined,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters,
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
             undefined,
             undefined,
             battlefieldEntryOverrides
@@ -762,9 +742,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
               parsedTypedCardFromAmongThem.cardType,
               destination as any,
               step.to === 'battlefield' ? controllerId : undefined,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               undefined,
               battlefieldEntryOverrides
             )
@@ -775,9 +753,7 @@ export function tryApplyMoveZoneGuardsFromTypedCardsRevealedThisWay(args: MoveZo
               parsedTypedCardFromAmongThem.cardType,
               destination as any,
               step.to === 'battlefield' ? controllerId : undefined,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               undefined,
               battlefieldEntryOverrides
             );

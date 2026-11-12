@@ -848,6 +848,8 @@ export interface RepeatedZoneDraftStep extends BaseResolutionStep {
   readonly chooserIndex: number;
   /** Whether drafted permanents enter the battlefield tapped. */
   readonly entersTapped: boolean;
+  /** Whether drafted permanents are instructed to enter transformed. */
+  readonly entersTransformed?: boolean;
   /** Destination zone for drafted cards (currently always 'battlefield'). */
   readonly destination: string;
 }

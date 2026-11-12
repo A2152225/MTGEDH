@@ -428,6 +428,7 @@ export function putOneMatchingCardFromEachOpponentsGraveyardOntoBattlefield(
   entersTapped?: boolean,
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
+  entersTransformed?: boolean,
 ): { readonly state: GameState; readonly log: readonly string[] } {
   let nextState = state;
   const log: string[] = [];
@@ -472,7 +473,8 @@ export function putAllMatchingCriteriaFromGraveyardOntoBattlefield(
   excludeCardIds: readonly string[] = [],
   entersTapped?: boolean,
   entersFaceDown?: boolean,
-  withCounters?: Record<string, number>
+  withCounters?: Record<string, number>,
+  entersTransformed?: boolean
 ): { readonly state: GameState; readonly log: readonly string[]; readonly movedPermanentIds?: readonly string[] } {
   const player = state.players.find(p => p.id === playerId) as any;
   if (!player) return { state, log: [], movedPermanentIds: [] };
@@ -501,10 +503,7 @@ export function putAllMatchingCriteriaFromGraveyardOntoBattlefield(
     moved,
     playerId,
     controllerId,
-    entersTapped,
-    entersFaceDown,
-    withCounters,
-    'gy'
+    entersTapped, entersFaceDown, withCounters, entersTransformed, 'gy'
   );
   const updatedPlayers = state.players.map(p =>
     p.id === playerId ? ({ ...(p as any), graveyard: kept } as any) : p

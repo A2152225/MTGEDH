@@ -75,7 +75,8 @@ export function putAllMatchingFromExileOntoBattlefield(
   cardType: SimpleCardType,
   entersTapped?: boolean,
   entersFaceDown?: boolean,
-  withCounters?: Record<string, number>
+  withCounters?: Record<string, number>,
+  entersTransformed?: boolean
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
   return putAllMatchingFromExileOntoBattlefieldWithController(
     state,
@@ -95,7 +96,8 @@ export function putAllMatchingFromExileOntoBattlefieldWithController(
   cardType: SimpleCardType,
   entersTapped?: boolean,
   entersFaceDown?: boolean,
-  withCounters?: Record<string, number>
+  withCounters?: Record<string, number>,
+  entersTransformed?: boolean
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
   const player = state.players.find(p => p.id === sourcePlayerId) as any;
   if (!player) return { state, log: [], movedPermanentIds: [] };
@@ -117,10 +119,7 @@ export function putAllMatchingFromExileOntoBattlefieldWithController(
     movedClean,
     sourcePlayerId,
     controllerId,
-    entersTapped,
-    entersFaceDown,
-    withCounters,
-    'ex'
+    entersTapped, entersFaceDown, withCounters, entersTransformed, 'ex'
   );
 
   const updatedPlayers = nextState.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), exile: kept } as any) : p));
@@ -226,7 +225,8 @@ export function returnTargetAndSameNamedCardsFromYourGraveyardToBattlefield(
   playerId: PlayerID,
   targetCardId: string,
   criteria: MoveZoneSingleTargetCriteria,
-  entersTapped?: boolean
+  entersTapped?: boolean,
+  entersTransformed?: boolean
 ): { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[]; readonly movedCards: readonly any[] } | { readonly kind: 'impossible' } {
   const collected = collectTargetAndSameNamedCardsFromGraveyard(state, playerId, targetCardId, criteria);
   if (collected.kind !== 'selected') return { kind: 'impossible' };
@@ -246,7 +246,7 @@ export function returnTargetAndSameNamedCardsFromYourGraveyardToBattlefield(
       entersTapped,
       undefined,
       undefined,
-      undefined
+      entersTransformed
     );
     if (result.kind !== 'applied') continue;
     workingState = result.state;
@@ -352,7 +352,8 @@ export function putAllMatchingFromGraveyardOntoBattlefield(
   cardType: SimpleCardType,
   entersTapped?: boolean,
   entersFaceDown?: boolean,
-  withCounters?: Record<string, number>
+  withCounters?: Record<string, number>,
+  entersTransformed?: boolean
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
   return putAllMatchingFromGraveyardOntoBattlefieldWithController(
     state,
@@ -372,7 +373,8 @@ export function putAllMatchingFromGraveyardOntoBattlefieldWithController(
   cardType: SimpleCardType,
   entersTapped?: boolean,
   entersFaceDown?: boolean,
-  withCounters?: Record<string, number>
+  withCounters?: Record<string, number>,
+  entersTransformed?: boolean
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
   const player = state.players.find(p => p.id === sourcePlayerId) as any;
   if (!player) return { state, log: [], movedPermanentIds: [] };
@@ -392,10 +394,7 @@ export function putAllMatchingFromGraveyardOntoBattlefieldWithController(
     moved,
     sourcePlayerId,
     controllerId,
-    entersTapped,
-    entersFaceDown,
-    withCounters,
-    'gy'
+    entersTapped, entersFaceDown, withCounters, entersTransformed, 'gy'
   );
   const updatedPlayers = state.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), graveyard: kept } as any) : p));
   return {
@@ -519,7 +518,8 @@ export function putAllMatchingFromHandOntoBattlefield(
   cardType: SimpleCardType,
   entersTapped?: boolean,
   entersFaceDown?: boolean,
-  withCounters?: Record<string, number>
+  withCounters?: Record<string, number>,
+  entersTransformed?: boolean
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
   return putAllMatchingFromHandOntoBattlefieldWithController(
     state,
@@ -539,7 +539,8 @@ export function putAllMatchingFromHandOntoBattlefieldWithController(
   cardType: SimpleCardType,
   entersTapped?: boolean,
   entersFaceDown?: boolean,
-  withCounters?: Record<string, number>
+  withCounters?: Record<string, number>,
+  entersTransformed?: boolean
 ): { state: GameState; log: string[]; movedPermanentIds?: readonly string[] } {
   const player = state.players.find(p => p.id === sourcePlayerId) as any;
   if (!player) return { state, log: [], movedPermanentIds: [] };
@@ -559,10 +560,7 @@ export function putAllMatchingFromHandOntoBattlefieldWithController(
     moved,
     sourcePlayerId,
     controllerId,
-    entersTapped,
-    entersFaceDown,
-    withCounters,
-    'hand'
+    entersTapped, entersFaceDown, withCounters, entersTransformed, 'hand'
   );
   const updatedPlayers = state.players.map(p => (p.id === sourcePlayerId ? ({ ...(p as any), hand: kept } as any) : p));
   return {

@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { uid, parsePT } from '../utils.js';
 import { drawCards as drawCardsFromZone, movePermanentToHand } from './zones.js';
 import { recordCardLeftGraveyardThisTurn } from './turn-tracking.js';
+import { enterPermanentTransformed } from './day-night.js';
 import {
   markPermanentEnteredFromZone,
   turnReturnedPermanentFaceUp,
@@ -131,6 +132,17 @@ export function applyDelayedCleanupTriggersFromMetadata(
         }
         if (rawEntry?.battlefieldTurnFaceUp === true) {
           turnReturnedPermanentFaceUp(permanent, params.ctx);
+        }
+        if (rawEntry?.battlefieldTransformed === true && !entersFaceDown) {
+          const enterFace = enterPermanentTransformed(permanent, 'other');
+          if (enterFace.outcome === 'stay_in_zone' || enterFace.outcome === 'graveyard') {
+            const ownerZones = (zones[zoneOwnerId] || { graveyard: [], graveyardCount: 0 }) as any;
+            zones[zoneOwnerId] = ownerZones;
+            ownerZones.graveyard = Array.isArray(ownerZones.graveyard) ? ownerZones.graveyard : [];
+            ownerZones.graveyard.push({ ...card, zone: 'graveyard' });
+            ownerZones.graveyardCount = ownerZones.graveyard.length;
+            continue;
+          }
         }
         markPermanentEnteredFromZone(permanent, 'graveyard');
         battlefield.push(permanent);

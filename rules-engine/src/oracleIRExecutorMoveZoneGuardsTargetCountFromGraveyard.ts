@@ -89,9 +89,7 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
               step.battlefieldController?.kind === 'owner_of_moved_cards' ? targetPlayerId : controllerId,
               parsedTargetCountFromGraveyard.count,
               parsedTargetCountFromGraveyard.cardType,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
             )
           : exileExactMatchingFromGraveyard(
@@ -176,18 +174,14 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
                 nextState,
                 targetPlayerId,
                 parsedTargetPlayerExile.cardType,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
               )
             : putAllMatchingFromExileOntoBattlefieldWithController(
                 nextState,
                 targetPlayerId,
                 controllerId,
                 parsedTargetPlayerExile.cardType,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
               );
     return finalizeAppliedResult(result);
   }
@@ -243,17 +237,13 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
               targetPlayerId,
               controllerId,
               parsedTargetPlayerHand.cardType,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
             )
           : putAllMatchingFromHandOntoBattlefield(
               nextState,
               targetPlayerId,
               parsedTargetPlayerHand.cardType,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
             )
         : moveAllMatchingFromHand(nextState, targetPlayerId, parsedTargetPlayerHand.cardType, step.to);
     return finalizeAppliedResult(result);
@@ -304,9 +294,7 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
               controllerId,
               requiredCount,
               parsedCountFromGraveyard.cardType,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined
             )
           : exileExactMatchingFromGraveyard(
@@ -381,18 +369,14 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
                   nextState,
                   player.id,
                   parsedEachOpponentsExile.cardType,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
                 )
               : putAllMatchingFromExileOntoBattlefieldWithController(
                   nextState,
                   player.id,
                   controllerId,
                   parsedEachOpponentsExile.cardType,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
                 );
       nextState = result.state;
       log.push(...result.log);
@@ -428,18 +412,14 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
                   nextState,
                   player.id,
                   parsedEachOpponentsGy.cardType,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
                 )
               : putAllMatchingFromGraveyardOntoBattlefieldWithController(
                   nextState,
                   player.id,
                   controllerId,
                   parsedEachOpponentsGy.cardType,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
                 )
             : exileAllMatchingFromGraveyard(nextState, player.id, parsedEachOpponentsGy.cardType);
       nextState = result.state;
@@ -475,17 +455,13 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
                 player.id,
                 controllerId,
                 parsedEachOpponentsHand.cardType,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
               )
             : putAllMatchingFromHandOntoBattlefield(
                 nextState,
                 player.id,
                 parsedEachOpponentsHand.cardType,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
               )
           : moveAllMatchingFromHand(nextState, player.id, parsedEachOpponentsHand.cardType, step.to);
       nextState = result.state;

@@ -69,6 +69,11 @@ export interface BattlefieldPermanent {
   basePower?: number;
   baseToughness?: number;
   attachedTo?: string;
+  /** Aura/curse attachment target when it is a player rather than a permanent. */
+  enchanting?: string;
+  enchantedPlayerId?: string;
+  /** Keyword list sometimes stamped on the permanent (Soulbond pairing checks). */
+  keywords?: readonly string[];
   /** Game-wide entry timestamp (CR 613.7); also the timestamp of this permanent's static abilities. */
   timestamp?: number;
   /** Timestamp of when this Aura/Equipment became attached to `attachedTimestampFor` (CR 613.7e). */

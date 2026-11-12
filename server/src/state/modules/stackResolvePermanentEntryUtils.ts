@@ -37,6 +37,10 @@ import { propagateCastMetadataToEnteringPermanent } from './stackResolvePermanen
 import { hydratePermanentCardOracleInPlace, hydrateCardOracleInPlace } from './cardOracleHydration.js';
 import { inferLeaveBattlefieldExileReplacement, applyLeaveBattlefieldExileReplacementStamp } from './leaveBattlefieldReplacementStamp.js';
 import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+import {
+  putCardIntoOwnerGraveyardFromFailedEntry,
+  resolveAndApplyEnterFace,
+} from './enterBattlefieldFaceApplication.js';
 import { lookupLocalCardByNameSync } from '../../services/localCardLookup.js';
 import { queueMutateTriggeredAbilities as queueMutateTriggeredAbilitiesImpl } from './stackResolvePermanentEntryUtils-handlers/queueMutateTriggeredAbilities.js';
 import type {
@@ -607,6 +611,29 @@ export function resolvePermanentSpellBattlefieldEntry(
     debug(2, `[resolveTopOfStack] ${effectiveCard.name || 'Mutating creature'} has no legal mutate target on resolution; resolving as a normal creature`);
   }
   
+  const enterFaceDecision = resolveAndApplyEnterFace(newPermanent, {
+    sourceZone: 'stack',
+    extra: item,
+    dayNight: (state as any).dayNight,
+    representingCard: (item as any)?.representingCard || (item as any)?.card || card,
+    stackFaceAlreadyBack: Boolean(
+      (effectiveCard as any)?.transformed
+      || (item as any)?.transformed
+      || String((item as any)?.castWithAbility || '').toLowerCase() === 'disturb'
+    ),
+    intent: ((item as any)?.entersBattlefieldTransformed === true || (item as any)?.entersTransformed === true || (item as any)?.entersConverted === true)
+      ? ((item as any)?.entersConverted === true ? 'converted' : 'transformed')
+      : undefined,
+  });
+  if (enterFaceDecision.outcome === 'graveyard') {
+    putCardIntoOwnerGraveyardFromFailedEntry(
+      state,
+      newPermanent.card || effectiveCard,
+      String(newPermanent.owner || newPermanent.controller || controller || ''),
+    );
+    return { mutateResolved: false, sentToGraveyard: true };
+  }
+
   state.battlefield.push(newPermanent);
   stampPermanentEntryTimestamp(state, newPermanent);
   syncArcaneAdaptationForNewCreature(state, newPermanent);

@@ -237,11 +237,14 @@ function reportGate(argv: string[]): void {
     process.exit(1);
   }
 
-  const wins = v1.filter((r) => challengerWon(r)).length;
-  const n = v1.length;
+  // Equal-strength share is 25% of decisive games. Turn-limits/stalls/errors are
+  // not challenger losses — score win rate among endReason=win only.
+  const finished = v1.filter((r) => r.endReason === 'win');
+  const wins = finished.filter((r) => challengerWon(r)).length;
+  const n = finished.length;
   const wInt = wilson(wins, n);
   const byPod = new Map<string, ResultRow[]>();
-  for (const r of v1) {
+  for (const r of finished) {
     const pod = podOf(String(r.gameId || ''));
     if (!byPod.has(pod)) byPod.set(pod, []);
     byPod.get(pod)!.push(r);
@@ -251,7 +254,9 @@ function reportGate(argv: string[]): void {
     games: g.length,
   }));
   const bInt = podBootstrap(pods, 10_000, mulberry32(args.seed));
-  const lowerBound = Math.min(wInt.low, bInt.low);
+  const lowerBound = n > 0 ? Math.min(wInt.low, bInt.low) : 0;
+  const absWins = v1.filter((r) => challengerWon(r)).length;
+  const absInt = wilson(absWins, v1.length);
 
   const bad = (r: ResultRow) => r.endReason === 'stall' || r.endReason === 'error';
   const v1Bad = share(v1, bad);
@@ -290,7 +295,7 @@ Decision: _pending review_
 
 | Check | Result | Detail |
 | --- | --- | --- |
-| Challenger win-rate lower bound > 25% | **${checks.winRate ? 'PASS' : 'FAIL'}** | lower=${fmtPct(lowerBound)} (Wilson ${fmtPct(wInt.low)}, bootstrap ${fmtPct(bInt.low)}) |
+| Challenger win-rate LB > 25% (among finished) | **${checks.winRate ? 'PASS' : 'FAIL'}** | lower=${fmtPct(lowerBound)} (Wilson ${fmtPct(wInt.low)}, bootstrap ${fmtPct(bInt.low)}); finished=${n}/${v1.length} |
 | Stall+error share ≤ control (+2/n margin) | **${checks.stalls ? 'PASS' : 'FAIL'}** | v1 ${fmtPct(v1Bad)} vs v0 ${fmtPct(v0Bad)} |
 | Median ms ≤ 1.25× control | **${checks.seconds ? 'PASS' : 'FAIL'}** | v1 ${(v1Med / 1000).toFixed(1)}s vs v0 ${(v0Med / 1000).toFixed(1)}s (ratio ${(v0Med ? v1Med / v0Med : 0).toFixed(2)}) |
 | Puzzles ≥ v0 | **${checks.puzzles ? 'PASS' : 'FAIL'}** | v1 ${puzzlesV1?.passed ?? 'n/a'}/${puzzlesV1?.total ?? 'n/a'} vs v0 ${puzzlesV0?.passed ?? 'n/a'}/${puzzlesV0?.total ?? 'n/a'} |
@@ -299,9 +304,10 @@ Decision: _pending review_
 
 ## Challenger win rate
 
-- Wins: **${wins}/${n}** (${fmtPct(wInt.rate)})
-- Wilson 95%: [${fmtPct(wInt.low)}, ${fmtPct(wInt.high)}]
-- Pod bootstrap 95%: [${fmtPct(bInt.low)}, ${fmtPct(bInt.high)}]
+- Among finished (endReason=win): **${wins}/${n}** (${fmtPct(wInt.rate)})
+- Absolute (all games, incl. turn-limit): **${absWins}/${v1.length}** (${fmtPct(absInt.rate)})
+- Wilson 95% (finished): [${fmtPct(wInt.low)}, ${fmtPct(wInt.high)}]
+- Pod bootstrap 95% (finished): [${fmtPct(bInt.low)}, ${fmtPct(bInt.high)}]
 - Gate lower bound: **${fmtPct(lowerBound)}**
 
 ## End reasons

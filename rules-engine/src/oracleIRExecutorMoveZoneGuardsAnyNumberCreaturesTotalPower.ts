@@ -75,9 +75,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
         { cardType: 'creature' },
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -284,9 +282,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
       parsedCreatureHandOrCommandLesserMv.cardType,
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -429,9 +425,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
         parsedCountExiledWithSource.cardType,
         'battlefield',
         battlefieldControllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         battlefieldEntryOverrides
       );
@@ -497,9 +491,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
                 'any',
                 'battlefield',
                 battlefieldControllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               )
@@ -559,9 +551,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
                 'any',
                 'battlefield',
                 battlefieldControllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               )
@@ -607,9 +597,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
                 'any',
                 'battlefield',
                 battlefieldControllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               )
@@ -661,9 +649,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
                 'any',
                 'battlefield',
                 battlefieldControllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               )

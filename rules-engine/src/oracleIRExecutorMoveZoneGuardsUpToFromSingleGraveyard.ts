@@ -278,9 +278,7 @@ export function tryApplyMoveZoneGuardsFromUpToFromSingleGraveyard(args: MoveZone
         'any',
         'battlefield',
         bfController,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         battlefieldEntryOverrides
       );
@@ -421,9 +419,7 @@ export function tryApplyMoveZoneGuardsFromUpToFromSingleGraveyard(args: MoveZone
       parsedOpponentChoiceFromTargetPlayerGy,
       'battlefield',
       step.battlefieldController?.kind === 'owner_of_moved_cards' ? graveyardOwnerId : controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       undefined,
       battlefieldEntryOverrides,
@@ -523,9 +519,7 @@ export function tryApplyMoveZoneGuardsFromUpToFromSingleGraveyard(args: MoveZone
         { cardType: parsedAllCardsMilledThisWay.cardType },
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -593,9 +587,7 @@ export function tryApplyMoveZoneGuardsFromUpToFromSingleGraveyard(args: MoveZone
       { cardType: parsedAllCardsDiscardedThisWay.cardType },
       'battlefield',
       battlefieldControllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       undefined,
       undefined,
       battlefieldEntryOverrides

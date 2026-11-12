@@ -141,6 +141,7 @@ export function dequeuePendingNextEndStepZoneChangeTriggers(ctx: GameContext): a
               ? { ...(entry.battlefieldCounters as Record<string, number>) }
               : undefined,
             battlefieldFaceDown: entry?.battlefieldFaceDown === true ? true : undefined,
+            battlefieldTransformed: entry?.battlefieldTransformed === true ? true : undefined,
             battlefieldSuspected: entry?.battlefieldSuspected === true ? true : undefined,
           }],
           delayedSourceName: String(entry?.sourceName || 'Delayed trigger').trim(),
@@ -235,6 +236,7 @@ export function dequeuePendingUpkeepGraveyardReturnTriggers(ctx: GameContext, tu
               ? { ...(entry.battlefieldCounters as Record<string, number>) }
               : undefined,
             battlefieldFaceDown: entry?.battlefieldFaceDown === true ? true : undefined,
+            battlefieldTransformed: entry?.battlefieldTransformed === true ? true : undefined,
             battlefieldSuspected: entry?.battlefieldSuspected === true ? true : undefined,
           }],
           delayedSourceName: String(entry?.sourceName || 'Delayed trigger').trim(),

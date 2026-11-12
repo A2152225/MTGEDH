@@ -33,6 +33,7 @@ import { upsertOneShotCastFromExilePromptPermission } from "./resolutionProcessP
 import { broadcastGame, getPlayerName } from "./util.js";
 import { putCardOntoBattlefield } from "./resolutionPutCardOntoBattlefieldUtils.js";
 import { tryHandleLibrarySearchOracleIrChoiceResume } from "./resolutionLibrarySearchOracleIrChoiceResume.js";
+import { takeAndStampCardFromZoneArray } from "../../../rules-engine/src/oracleIRExecutorZoneOpsBattlefieldEntry.js";
 
 export function isTrueLibrarySearchStep(step: any): boolean {
   const searchZone = String(step?.searchZone || 'library').toLowerCase();
@@ -166,19 +167,18 @@ export async function handleLibrarySearchResponse(
   const cardMap = new Map(allRevealedCards.map((c: any) => [c.id, c]));
   let didSelectFromLibrary = false;
   const takeCardFromLibrary = (cardId: string) => {
-    const idx = lib.findIndex((c: any) => c.id === cardId);
-    if (idx >= 0) {
+    const taken = takeAndStampCardFromZoneArray(lib, cardId, 'library');
+    if (taken) {
       didSelectFromLibrary = true;
-      return lib.splice(idx, 1)[0];
+      return taken;
     }
     return cardMap.get(cardId);
   };
 
   const takeCardFromGraveyard = (cardId: string) => {
     const gy = Array.isArray(z.graveyard) ? z.graveyard : (z.graveyard = []);
-    const idx = gy.findIndex((c: any) => c?.id === cardId);
-    if (idx >= 0) {
-      const [taken] = gy.splice(idx, 1);
+    const taken = takeAndStampCardFromZoneArray(gy, cardId, 'graveyard');
+    if (taken) {
       z.graveyardCount = gy.length;
       return taken;
     }
@@ -187,15 +187,14 @@ export async function handleLibrarySearchResponse(
 
   const takeCardFromExile = (cardId: string) => {
     const ex = Array.isArray(z.exile) ? z.exile : (z.exile = []);
-    const idx = ex.findIndex((c: any) => c?.id === cardId);
-    if (idx >= 0) {
-      const [taken] = ex.splice(idx, 1);
+    const taken = takeAndStampCardFromZoneArray(ex, cardId, 'exile');
+    if (taken) {
       z.exileCount = ex.length;
 
       // If the card is being removed from the true exile zone and placed elsewhere
       // (hand/battlefield/library/etc), strip any impulse-style playable-from-exile tags.
       // This prevents stale permissions from following the card into other zones.
-      if (taken && String(destination || '').toLowerCase() !== 'exile') {
+      if (String(destination || '').toLowerCase() !== 'exile') {
         cleanupCardLeavingExile(state as any, taken);
       }
       return taken;
@@ -205,9 +204,8 @@ export async function handleLibrarySearchResponse(
 
   const takeCardFromHand = (cardId: string) => {
     const hand = Array.isArray(z.hand) ? z.hand : (z.hand = []);
-    const idx = hand.findIndex((c: any) => c?.id === cardId);
-    if (idx >= 0) {
-      const [taken] = hand.splice(idx, 1);
+    const taken = takeAndStampCardFromZoneArray(hand, cardId, 'hand');
+    if (taken) {
       z.handCount = hand.length;
       return taken;
     }
@@ -330,7 +328,7 @@ export async function handleLibrarySearchResponse(
     for (const cardId of battlefieldIds || []) {
       const card = selectedCards.find(c => c && c.id === cardId);
       if (card) {
-        const createdPermanentId = await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkPermanentEntersTapped, game, io, gameId);
+        const createdPermanentId = await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkPermanentEntersTapped, game, io, gameId, String(card.sourceZone || card.enteredFromZone || 'library'), String(card.owner || card.ownerId || searchOwnerId || pid), Number.isFinite(Number(card.sourceIndex)) ? Number(card.sourceIndex) : undefined);
         createdPermanentIds.push(createdPermanentId);
 
         // Optional: add extra counters as part of the effect (planeswalker templates).
@@ -366,7 +364,7 @@ export async function handleLibrarySearchResponse(
       if (!card) continue;
       
       if (destination === 'battlefield') {
-        const createdPermanentId = await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkPermanentEntersTapped, game, io, gameId);
+        const createdPermanentId = await putCardOntoBattlefield(card, pid, entersTapped, state, battlefield, uid, parsePT, cardManaValue, applyCounterModifications, getETBTriggersForPermanent, triggerETBEffectsForPermanent, detectEntersWithCounters, creatureWillHaveHaste, checkPermanentEntersTapped, game, io, gameId, String(card.sourceZone || card.enteredFromZone || 'library'), String(card.owner || card.ownerId || searchOwnerId || pid), Number.isFinite(Number(card.sourceIndex)) ? Number(card.sourceIndex) : undefined);
         createdPermanentIds.push(createdPermanentId);
 
         // Optional: add extra counters as part of the effect (planeswalker templates).

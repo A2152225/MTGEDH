@@ -270,6 +270,7 @@ export function tryApplyMoveZoneLinkedExileBulkStep(params: {
       entersTapped,
       step.entersFaceDown,
       effectiveWithCounters,
+      Boolean(step.entersTransformed),
       undefined,
       battlefieldEntryOverrides
     );

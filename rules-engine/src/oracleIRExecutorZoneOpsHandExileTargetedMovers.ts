@@ -27,6 +27,7 @@ export function moveTargetedCardFromHand(
   entersTapped?: boolean,
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
+  entersTransformed?: boolean,
   attachedToBattlefieldPermanentId?: string,
   battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
   oracleIrEntry?: OracleIrBattlefieldEntryContext
@@ -89,7 +90,7 @@ export function moveTargetedCardFromHand(
     state,
     card,
     controllerId,
-    { entersTapped, entersFaceDown, withCounters },
+    { entersTapped, entersFaceDown, withCounters, entersTransformed },
     oracleIrEntry,
   );
   if (entryResolution.kind === 'halted') return { kind: 'halted' };
@@ -98,9 +99,7 @@ export function moveTargetedCardFromHand(
     [card],
     playerId,
     controllerId,
-    entryResolution.entersTapped,
-    entryResolution.entersFaceDown,
-    entryResolution.withCounters,
+    entryResolution.entersTapped, entryResolution.entersFaceDown, entryResolution.withCounters, entryResolution.entersTransformed,
     'hand',
     attachment.attachmentTarget,
     battlefieldEntryOverrides,
@@ -128,6 +127,7 @@ export function moveTargetedCardFromExile(
   entersTapped?: boolean,
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
+  entersTransformed?: boolean,
   attachedToBattlefieldPermanentId?: string,
   battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
   oracleIrEntry?: OracleIrBattlefieldEntryContext
@@ -255,7 +255,7 @@ export function moveTargetedCardFromExile(
     state,
     card,
     controllerId,
-    { entersTapped, entersFaceDown, withCounters },
+    { entersTapped, entersFaceDown, withCounters, entersTransformed },
     oracleIrEntry,
   );
   if (entryResolution.kind === 'halted') return { kind: 'halted' };
@@ -264,9 +264,7 @@ export function moveTargetedCardFromExile(
     [card],
     playerId,
     controllerId,
-    entryResolution.entersTapped,
-    entryResolution.entersFaceDown,
-    entryResolution.withCounters,
+    entryResolution.entersTapped, entryResolution.entersFaceDown, entryResolution.withCounters, entryResolution.entersTransformed,
     'exile',
     attachment.attachmentTarget,
     battlefieldEntryOverrides,

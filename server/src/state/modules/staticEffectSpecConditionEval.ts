@@ -44,6 +44,7 @@ type ConditionSpec = {
     keyword?: string;
     keywords?: readonly string[];
     power?: number;
+    toughness?: number;
     creatureType?: string;
     cardType?: string;
     count?: number;
@@ -350,7 +351,7 @@ export function permanentHasKeywordAbility(permanent: BattlefieldPermanent, keyw
       return true;
     }
     if (list && typeof list === 'object' && !Array.isArray(list)) {
-      const map = list as Record<string, unknown>;
+      const map = list as unknown as Record<string, unknown>;
       if (map[kw] === true || map[keyword] === true) return true;
     }
   }

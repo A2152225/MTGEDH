@@ -280,6 +280,7 @@ export function tryDeferTriggeredAbilityTargetSelection(
           ? { ...((item as any).battlefieldCounters as Record<string, number>) }
           : undefined,
         battlefieldFaceDown: (item as any).battlefieldFaceDown === true,
+        battlefieldTransformed: (item as any).battlefieldTransformed === true,
         battlefieldSuspected: (item as any).battlefieldSuspected === true,
         ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
         validTargets,

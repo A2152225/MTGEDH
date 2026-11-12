@@ -78,9 +78,7 @@ export function tryApplyMoveZoneGuardsFromSingleTargetFromTargetPlayerExile(args
           ? targetPlayerId
           : controllerId
         : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -124,9 +122,7 @@ export function tryApplyMoveZoneGuardsFromSingleTargetFromTargetPlayerExile(args
         effectiveCriteria,
         'hand',
         undefined,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         ctx.sourceName,
         battlefieldEntryOverrides,
@@ -238,9 +234,7 @@ export function tryApplyMoveZoneGuardsFromSingleTargetFromTargetPlayerExile(args
       effectiveCriteria,
       step.to === 'library' ? (libraryPlacement === 'top' ? 'library_top' : 'library_bottom') : step.to,
       step.to === 'battlefield' ? controllerId : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       ctx.sourceName,
       battlefieldEntryOverrides,
@@ -291,9 +285,7 @@ export function tryApplyMoveZoneGuardsFromSingleTargetFromTargetPlayerExile(args
       parsedSingleTargetFromYourHand.cardType,
       step.to,
       step.to === 'battlefield' ? controllerId : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       undefined,
       battlefieldEntryOverrides
     );
@@ -343,9 +335,7 @@ export function tryApplyMoveZoneGuardsFromSingleTargetFromTargetPlayerExile(args
       parsedTargetFaceUpExiledCard.cardType,
       step.to,
       step.to === 'battlefield' ? location.playerId : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -387,9 +377,7 @@ export function tryApplyMoveZoneGuardsFromSingleTargetFromTargetPlayerExile(args
       parsedSingleTargetFromYourExile.cardType,
       step.to,
       step.to === 'battlefield' ? controllerId : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       undefined,
       battlefieldEntryOverrides
     );

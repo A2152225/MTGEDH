@@ -5,9 +5,11 @@
 // Public entry points:
 //   wrapTriggeredInterveningIfAbility
 //   mergeAdditionalCombatContinuationAbilities
+//   mergeExileUntilFollowupAbilities
 //   mergeSplitChooseModeParsedAbilities
 
-import type { OracleIRAbility } from './oracleIR';
+import type { OracleEffectStep, OracleIRAbility } from './oracleIR';
+import { normalizeOracleText } from './oracleIRParserUtils';
 import type { OracleTextParseResult, ParsedAbility } from './oracleTextParser';
 import { AbilityType } from './oracleTextParser';
 
@@ -53,6 +55,59 @@ export function mergeAdditionalCombatContinuationAbilities(abilities: OracleIRAb
     merged.push(ability);
   }
 
+  return merged.length === abilities.length ? abilities : merged;
+}
+
+function isExileUntilStep(step: OracleEffectStep | undefined): boolean {
+  if (!step || (step.kind !== 'exile_top' && step.kind !== 'impulse_exile_top')) return false;
+  const raw = normalizeOracleText(String((step as { amount?: { raw?: string } }).amount?.raw || step.raw || ''));
+  return /\buntil (?:they|you) exile\b/i.test(raw);
+}
+
+function isAssimilateReminderUnknown(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown' && step.kind !== 'grant_static_ability') return false;
+  const raw = normalizeOracleText(String(step.raw || (step as { effectText?: unknown }).effectText || ''));
+  return /it(?:'s| is) a .+ and loses all other creature types/i.test(raw) || /to assimilate a card/i.test(raw);
+}
+
+function isExileUntilFollowupStep(step: OracleEffectStep): boolean {
+  if (isAssimilateReminderUnknown(step)) return true;
+  const raw = normalizeOracleText(String(step.raw || ''));
+  if ((step as { battlefieldAssimilate?: boolean }).battlefieldAssimilate) return true;
+  if (/^assimilate\s+(?:that card|it)$/i.test(raw)) return true;
+  if (step.kind === 'move_zone') {
+    const what = String((step as { what?: { text?: string } }).what?.text || '').trim().toLowerCase();
+    if (what === 'that card' || what === 'it' || what === 'the rest' || what === 'the rest of the exiled cards') return true;
+  }
+  return /^(?:they|that player|that opponent|its controller|the defending player|you)\s+puts?\s+the rest on the bottom/i.test(raw);
+}
+
+function isExileUntilFollowupAbility(ability: OracleIRAbility): boolean {
+  if (ability.type === AbilityType.TRIGGERED || ability.type === AbilityType.STATIC || ability.type === AbilityType.ACTIVATED) return false;
+  if (String(ability.triggerCondition || '').trim()) return false;
+  const steps = ability.steps || [];
+  return steps.length > 0 && steps.every(isExileUntilFollowupStep);
+}
+
+/** Fold "Assimilate that card. They put the rest on the bottom..." back onto an exile-until trigger. */
+export function mergeExileUntilFollowupAbilities(abilities: OracleIRAbility[]): OracleIRAbility[] {
+  if (abilities.length < 2) return abilities;
+  const merged: OracleIRAbility[] = [];
+  for (const ability of abilities) {
+    const previous = merged[merged.length - 1];
+    const previousSteps = previous?.steps || [];
+    if (previous && isExileUntilStep(previousSteps[previousSteps.length - 1]) && isExileUntilFollowupAbility(ability)) {
+      const followupSteps = (ability.steps || []).filter((step) => !isAssimilateReminderUnknown(step));
+      merged[merged.length - 1] = {
+        ...previous,
+        text: [previous.text, ability.text].filter(Boolean).join(' '),
+        effectText: [previous.effectText, ability.effectText].filter(Boolean).join(' '),
+        steps: [...previousSteps, ...followupSteps],
+      };
+      continue;
+    }
+    merged.push(ability);
+  }
   return merged.length === abilities.length ? abilities : merged;
 }
 

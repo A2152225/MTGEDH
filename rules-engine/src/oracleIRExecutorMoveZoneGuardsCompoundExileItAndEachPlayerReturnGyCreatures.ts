@@ -126,9 +126,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
       parsedTypedCardFromTargetPlayerGy,
       step.to === 'exile' ? 'exile' : step.to === 'battlefield' ? 'battlefield' : 'hand',
       step.to === 'battlefield' ? targetPlayerId : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      step.withCounters
+      step.entersTapped, step.entersFaceDown, step.withCounters, step.entersTransformed
     );
     return result.kind === 'impossible'
       ? {
@@ -243,9 +241,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
               controllerId,
               ctx,
               cardType: 'creature',
-              entersTapped: step.entersTapped,
-              entersFaceDown: step.entersFaceDown,
-              withCounters: effectiveWithCounters,
+              entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
               battlefieldEntryOverrides,
             })
           : location.zone === 'graveyard'
@@ -256,9 +252,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
                 { cardType: 'creature' },
                 'battlefield',
                 controllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 undefined,
                 battlefieldEntryOverrides
@@ -271,9 +265,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
                   'creature',
                   'battlefield',
                   controllerId,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters,
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                   undefined,
                   battlefieldEntryOverrides
                 )
@@ -284,9 +276,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
                   'creature',
                   'battlefield',
                   controllerId,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters,
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                   undefined,
                   battlefieldEntryOverrides
                 )
@@ -298,9 +288,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
                 [card],
                 controllerId,
                 controllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 'library'
               )
             ),
@@ -341,9 +329,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
       parsedTopTypedCardFromYourGy,
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       undefined,
       undefined,
       battlefieldEntryOverrides
@@ -404,9 +390,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
         parsedAnyNumberFromYourGraveyard,
         'battlefield',
         bfController,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -431,9 +415,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
       controllerId,
       criteria,
       [],
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
     );
     return buildAppliedResult({
       state: returnResult.state,
@@ -472,9 +454,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
       parsedTopTypedCardFromTargetPlayerGy,
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       undefined,
       undefined,
       battlefieldEntryOverrides
@@ -524,9 +504,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
           parsedEachPlayerGyNotPutThisWay,
           'battlefield',
           player.id,
-          step.entersTapped,
-          step.entersFaceDown,
-          effectiveWithCounters,
+          step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
           undefined,
           undefined,
           battlefieldEntryOverrides
@@ -572,17 +550,13 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
             { cardType: 'any' },
             'battlefield',
             controllerId,
-            step.entersTapped,
-            step.entersFaceDown,
-            step.withCounters
+            step.entersTapped, step.entersFaceDown, step.withCounters, step.entersTransformed
           )
         : moveContextualCardToDestination(nextState, location, cardId, 'battlefield', {
             controllerId,
             ctx,
             cardType: 'any',
-            entersTapped: step.entersTapped,
-            entersFaceDown: step.entersFaceDown,
-            withCounters: step.withCounters,
+            entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: step.withCounters, entersTransformed: step.entersTransformed,
           });
     if (result.kind !== 'applied') {
       return {
@@ -674,9 +648,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
               { cardType: 'any' },
               'battlefield',
               bfControllerId,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               undefined,
               undefined,
               battlefieldEntryOverrides
@@ -689,9 +661,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
                 'any',
                 'battlefield',
                 bfControllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               )
@@ -702,9 +672,7 @@ export function tryApplyMoveZoneGuardsFromCompoundExileItAndEachPlayerReturnGyCr
                 'any',
                 'battlefield',
                 bfControllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               );

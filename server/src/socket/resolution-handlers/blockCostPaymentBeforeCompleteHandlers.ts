@@ -87,8 +87,8 @@ export async function processBlockCostPaymentBeforeStepComplete(
     ? payGenericManaWithAvailableSources(game.state, controllerId, amount, {
         excludedPermanentIds: blockers.map((entry: any) => String(entry?.blockerId || '')).filter(Boolean),
       })
-    : { ok: true, tappedPermanents: [], sacrificedPermanents: [], paymentManaDelta: {} as Record<string, number> };
-  if (!payment.ok) {
+    : { ok: true as const, tappedPermanents: [] as string[], sacrificedPermanents: [] as string[], paymentManaDelta: {} as Record<string, number>, consumed: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } };
+  if (payment.ok === false) {
     socket.emit('error', {
       code: 'INSUFFICIENT_MANA',
       message: payment.error || 'Insufficient mana.',

@@ -80,7 +80,7 @@ function withMatchingRestrictedFloatingMana<TPool extends Record<string, number>
   if (restricted.length === 0) return pool;
 
   let changed = false;
-  const next: TPool = { ...pool };
+  let next: TPool = { ...pool };
   for (const entry of restricted) {
     if (!entry) continue;
     const amount = Number(entry.amount || 0);
@@ -95,7 +95,10 @@ function withMatchingRestrictedFloatingMana<TPool extends Record<string, number>
     }
     const colorKey = restrictedFloatingEntryColorKey(entry);
     if (!colorKey) continue;
-    next[colorKey] = Number(next[colorKey] || 0) + amount;
+    next = {
+      ...next,
+      [colorKey]: Number((next as Record<string, number>)[colorKey] || 0) + amount,
+    };
     changed = true;
   }
   return changed ? next : pool;

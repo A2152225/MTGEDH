@@ -294,7 +294,7 @@ export function evaluateBatch368BulkConditionalClause(params: Batch368BulkParams
     const refName = String(
       (ctx as any)?.referencedCardName ??
         (ctx as any)?.targetCardName ??
-        params.contextualCardsFrom(params).at(-1)?.name ??
+        params.contextualCardsFrom(params).slice(-1)[0]?.name ??
         ''
     ).trim();
     if (!refName) return null;

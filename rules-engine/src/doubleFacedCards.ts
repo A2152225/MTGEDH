@@ -481,3 +481,13 @@ export function hasCharacteristicOnAnyFace(
 ): boolean {
   return checkFunction(card.frontFace) || checkFunction(card.backFace);
 }
+
+
+/**
+ * Rule 713.1 (20261106): Meld cards each have a Magic card face on one side and
+ * half of an oversized card face on the other. They are not considered
+ * double-faced cards (although they were under previous rules).
+ */
+export function isMeldCardConsideredDoubleFaced(): boolean {
+  return false;
+}

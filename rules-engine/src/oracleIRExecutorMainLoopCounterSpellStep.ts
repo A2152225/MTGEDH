@@ -437,6 +437,7 @@ export function applyCounterSpellStep(
           applied: true,
           state,
           log: [`No ${targetLabel} left on the stack to counter`],
+          lastMovedCards: [],
         };
       }
       return {

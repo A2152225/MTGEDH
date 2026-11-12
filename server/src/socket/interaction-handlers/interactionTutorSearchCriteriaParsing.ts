@@ -422,6 +422,7 @@ export function parseSearchCriteria(criteria: string): {
     'zariel', 'dakkon', 'dihada', 'jeska', 'ob nixilis', 'tezzeret', 'kiora',
     'xenagos', 'saheeli', 'huatli', 'angrath', 'aminatou', 'estrid', 'rowan', 'will',
     'kaito', 'the wanderer', 'wrenn', 'niko', 'quintorius', 'elminster', 'minsc',
+    'arzakon', 'dyfed', 'feroz', 'greensleeves', 'sifa', 'thomil', 'worzel',
   ];
   
   for (const pwType of planeswalkerTypes) {

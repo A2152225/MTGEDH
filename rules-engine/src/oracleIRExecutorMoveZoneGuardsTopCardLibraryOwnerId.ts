@@ -44,9 +44,7 @@ export function tryApplyMoveZoneGuardsFromTopCardLibraryOwnerId(args: MoveZoneGu
           ? topCardLibraryOwnerId
           : controllerId
         : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       undefined,
       step.faceDownWardCost
@@ -87,9 +85,7 @@ export function tryApplyMoveZoneGuardsFromTopCardLibraryOwnerId(args: MoveZoneGu
           ? bottomCardLibraryOwnerId
           : controllerId
         : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       undefined,
       step.faceDownWardCost
@@ -207,9 +203,7 @@ export function tryApplyMoveZoneGuardsFromTopCardLibraryOwnerId(args: MoveZoneGu
               { cardType: 'any' },
               destination as any,
               battlefieldControllerId,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
               undefined,
               battlefieldEntryOverrides
@@ -222,9 +216,7 @@ export function tryApplyMoveZoneGuardsFromTopCardLibraryOwnerId(args: MoveZoneGu
                 'any',
                 destination as any,
                 battlefieldControllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
                 battlefieldEntryOverrides
               )
@@ -247,9 +239,7 @@ export function tryApplyMoveZoneGuardsFromTopCardLibraryOwnerId(args: MoveZoneGu
                   {
                     controllerId,
                     cardType: 'any',
-                    entersTapped: step.entersTapped,
-                    entersFaceDown: step.entersFaceDown,
-                    withCounters: effectiveWithCounters,
+                    entersTapped: step.entersTapped, entersFaceDown: step.entersFaceDown, withCounters: effectiveWithCounters, entersTransformed: step.entersTransformed,
                     battlefieldEntryOverrides,
                     ctx,
                     stepKind: 'move_zone',
@@ -262,9 +252,7 @@ export function tryApplyMoveZoneGuardsFromTopCardLibraryOwnerId(args: MoveZoneGu
                   'any',
                   destination as any,
                   battlefieldControllerId,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters,
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                   attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
                   battlefieldEntryOverrides
                 );

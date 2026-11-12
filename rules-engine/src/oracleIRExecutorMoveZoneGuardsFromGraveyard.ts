@@ -116,17 +116,13 @@ export function tryApplyMoveZoneGuardsFromGraveyardSelectors(args: MoveZoneGuard
             controllerId,
             effectiveParsedFromGraveyard,
             [],
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
           )
         : putAllMatchingFromGraveyardOntoBattlefield(
             nextState,
             controllerId,
             effectiveParsedFromGraveyard.cardType,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
           );
       return finalizeAppliedResult(result);
     }
@@ -157,17 +153,13 @@ export function tryApplyMoveZoneGuardsFromGraveyardSelectors(args: MoveZoneGuard
               controllerId,
               controllerId,
               parsedFromExile.cardType,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
             )
           : putAllMatchingFromExileOntoBattlefield(
               nextState,
               controllerId,
               parsedFromExile.cardType,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
             );
       return finalizeAppliedResult(result);
     }
@@ -194,9 +186,7 @@ export function tryApplyMoveZoneGuardsFromGraveyardSelectors(args: MoveZoneGuard
             nextState,
             controllerId,
             parsedFromHand.cardType,
-            step.entersTapped,
-            step.entersFaceDown,
-            effectiveWithCounters
+            step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
           )
         : moveAllMatchingFromHand(nextState, controllerId, parsedFromHand.cardType, step.to);
 
@@ -395,9 +385,7 @@ export function tryApplyMoveZoneGuardsFromGraveyardSelectors(args: MoveZoneGuard
       controllerId,
       targetPlayerId,
       'land',
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
     );
     return buildAppliedResult({
       state: result.state,
@@ -417,9 +405,7 @@ export function tryApplyMoveZoneGuardsFromGraveyardSelectors(args: MoveZoneGuard
       { cardType: 'creature' },
       'battlefield',
       ownerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       undefined,
       undefined,
       battlefieldEntryOverrides
@@ -545,6 +531,7 @@ export function tryApplyMoveZoneGuardsFromGraveyardSelectors(args: MoveZoneGuard
       false,
       true,
       effectiveWithCounters,
+      Boolean(step.entersTransformed),
       undefined,
       { setTypeLine: 'Creature', loseAllAbilities: true }
     );
@@ -585,6 +572,7 @@ export function tryApplyMoveZoneGuardsFromGraveyardSelectors(args: MoveZoneGuard
         true,
         step.entersFaceDown,
         effectiveWithCounters,
+        Boolean(step.entersTransformed),
         undefined,
         battlefieldEntryOverrides
       );
@@ -714,9 +702,7 @@ export function tryApplyMoveZoneGuardsFromGraveyardSelectors(args: MoveZoneGuard
               'any',
               'battlefield',
               controllerId,
-              step.entersTapped,
-              step.entersFaceDown,
-              effectiveWithCounters,
+              step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
               undefined,
               battlefieldEntryOverrides
             )
@@ -728,9 +714,7 @@ export function tryApplyMoveZoneGuardsFromGraveyardSelectors(args: MoveZoneGuard
                 'any',
                 'battlefield',
                 controllerId,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters,
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
                 undefined,
                 battlefieldEntryOverrides
               )

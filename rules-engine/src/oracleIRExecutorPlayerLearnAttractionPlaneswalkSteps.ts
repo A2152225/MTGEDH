@@ -253,10 +253,7 @@ export function applyOpenAttractionStep(
     [attractionCard],
     playerId as PlayerID,
     playerId as PlayerID,
-    false,
-    false,
-    undefined,
-    'attraction'
+    false, false, undefined, false, 'attraction'
   );
 
   return {
@@ -479,10 +476,7 @@ export function applyAssembleStep(
     [contraptionCard],
     playerId as PlayerID,
     playerId as PlayerID,
-    false,
-    false,
-    undefined,
-    'contraption'
+    false, false, undefined, false, 'contraption'
   );
 
   return {

@@ -349,6 +349,20 @@ export const KEYWORD_GLOSSARY: Record<string, KeywordInfo> = {
     color: '#22c55e',
     reminderText: '{T}: Add {G}.',
   },
+  beammeup: {
+    term: 'Beam me up',
+    short: 'Beam',
+    color: '#38bdf8',
+    reminderText: 'You may cast this card from your graveyard if the resulting spell is an instant or sorcery by paying [cost] and returning a creature you control to its owner\'s hand rather than paying its mana cost. If the beam me up cost was paid, exile this card instead of putting it anywhere else any time it would leave the stack.',
+    rulesReference: 'Rule 702.196',
+  },
+  assimilate: {
+    term: 'Assimilate',
+    short: 'Assim',
+    color: '#a3e635',
+    reminderText: 'To assimilate a permanent, gain control of it and put a +1/+1 counter on it. It becomes a Borg artifact creature. To assimilate a permanent card in another zone, put it onto the battlefield under your control with a +1/+1 counter on it. It\'s a Borg artifact creature.',
+    rulesReference: 'Rule 701.72',
+  },
 };
 
 /**

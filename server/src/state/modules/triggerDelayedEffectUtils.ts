@@ -70,6 +70,7 @@ export function scheduleDelayedGraveyardReturn(ctx: GameContext, options: {
     battlefieldCounters?: Record<string, number>;
     battlefieldFaceDown?: boolean;
     battlefieldTurnFaceUp?: boolean;
+    battlefieldTransformed?: boolean;
     battlefieldSuspected?: boolean;
   }>;
 }): void {
@@ -112,6 +113,7 @@ export function scheduleDelayedGraveyardReturn(ctx: GameContext, options: {
           : undefined,
         ...(entry.battlefieldFaceDown === true ? { battlefieldFaceDown: true } : null),
         ...(entry.battlefieldTurnFaceUp === true ? { battlefieldTurnFaceUp: true } : null),
+        ...(entry.battlefieldTransformed === true ? { battlefieldTransformed: true } : null),
         ...(entry.battlefieldSuspected === true ? { battlefieldSuspected: true } : null),
       };
       stateAny.pendingDelayedGraveyardReturns.push(pendingEntry);

@@ -145,9 +145,7 @@ export function tryApplyMoveZoneGuardsFromThisPermanentAndTheExiledCard(args: Mo
         : step.to === 'battlefield' && step.battlefieldController?.kind === 'owner_of_moved_cards'
           ? match.playerId
           : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       undefined,
       battlefieldEntryOverrides
     );
@@ -228,9 +226,7 @@ export function tryApplyMoveZoneGuardsFromThisPermanentAndTheExiledCard(args: Mo
         criteria.cardType,
         step.to === 'battlefield' ? 'battlefield' : step.to,
         step.to === 'battlefield' && step.battlefieldController?.kind === 'you' ? controllerId : undefined,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         battlefieldEntryOverrides
       );
@@ -336,9 +332,7 @@ export function tryApplyMoveZoneGuardsFromThisPermanentAndTheExiledCard(args: Mo
         effectiveCriteria.cardType,
         'battlefield',
         step.battlefieldController?.kind === 'owner_of_moved_cards' ? controllerId : controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
         battlefieldEntryOverrides
       );

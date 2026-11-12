@@ -1,4 +1,5 @@
 import { extractCreatureTypes as extractCreatureTypesFromTypeLine } from '../../../shared/src/creatureTypes.js';
+import { isStationPermanentCreatureNow } from '../../../rules-engine/src/stationPermanentUtils.js';
 import { parseIntrinsicAlsoCreatureTypes } from './modules/intrinsicAlsoCreatureTypes.js';
 
 function normalizeCreatureType(type: string): string {
@@ -135,6 +136,11 @@ export function isCreatureNow(permanent: any): boolean {
   // R24: declarative static type additions (War Balloon: "it's an artifact creature").
   if (Array.isArray(permanent?.continuousTypeAdditions)
     && permanent.continuousTypeAdditions.some((t: unknown) => String(t).toLowerCase() === 'creature')) return true;
+
+  // Station spacecrafts become creatures at their charge threshold even when type_line stays Spacecraft.
+  if (isStationPermanentCreatureNow(permanent, String(permanent?.card?.oracle_text || permanent?.oracle_text || ''))) {
+    return true;
+  }
 
   return effectiveTypeLine.includes('creature');
 }

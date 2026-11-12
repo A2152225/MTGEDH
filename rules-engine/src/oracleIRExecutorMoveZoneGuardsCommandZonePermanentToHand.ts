@@ -354,9 +354,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanentToHand(args: MoveZ
           : step.to === 'battlefield' && step.battlefieldController?.kind === 'owner_of_moved_cards'
             ? match.playerId
             : undefined,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         battlefieldEntryOverrides
       );
@@ -463,9 +461,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanentToHand(args: MoveZ
           ? targetPlayerId
           : controllerId
         : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       undefined,
       battlefieldEntryOverrides,
@@ -551,9 +547,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanentToHand(args: MoveZ
           ? targetPlayerId
           : controllerId
         : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       undefined,
       battlefieldEntryOverrides,
@@ -618,9 +612,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanentToHand(args: MoveZ
           ? targetPlayerId
           : controllerId
         : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -685,9 +677,7 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanentToHand(args: MoveZ
           ? targetPlayerId
           : controllerId
         : undefined,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -795,17 +785,13 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanentToHand(args: MoveZ
                   player.id,
                   controllerId,
                   parsedEachPlayersGy.cardType,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
                 )
               : putAllMatchingFromGraveyardOntoBattlefield(
                   nextState,
                   player.id,
                   parsedEachPlayersGy.cardType,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
                 )
             : exileAllMatchingFromGraveyard(nextState, player.id, parsedEachPlayersGy.cardType, {
                 colorsAnyOf: parsedEachPlayersGy.colorsAnyOf,
@@ -847,17 +833,13 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanentToHand(args: MoveZ
                   player.id,
                   controllerId,
                   parsedEachPlayersExile.cardType,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
                 )
               : putAllMatchingFromExileOntoBattlefield(
                   nextState,
                   player.id,
                   parsedEachPlayersExile.cardType,
-                  step.entersTapped,
-                  step.entersFaceDown,
-                  effectiveWithCounters
+                  step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
                 );
       nextState = result.state;
       log.push(...result.log);
@@ -914,17 +896,13 @@ export function tryApplyMoveZoneGuardsFromCommandZonePermanentToHand(args: MoveZ
                 player.id,
                 controllerId,
                 parsedEachPlayersHand.cardType,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
               )
             : putAllMatchingFromHandOntoBattlefield(
                 nextState,
                 player.id,
                 parsedEachPlayersHand.cardType,
-                step.entersTapped,
-                step.entersFaceDown,
-                effectiveWithCounters
+                step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed
               )
           : moveAllMatchingFromHand(nextState, player.id, parsedEachPlayersHand.cardType, step.to);
       nextState = result.state;

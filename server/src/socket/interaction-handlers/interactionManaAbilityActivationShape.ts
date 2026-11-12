@@ -17,6 +17,7 @@ import { calculateManaProduction, resolveClientStyleManaAbilityById } from "../u
 import {
   getCommanderColorIdentity,
   getManaAbilitiesForPermanent,
+  parseManaSpendRestrictionFromOracle,
   resolvePermanentChosenColorSymbol,
 } from "../../state/modules/mana-abilities";
 import { parseWordNumber } from "../../state/utils";
@@ -484,5 +485,23 @@ export function getChosenTypeManaSelectionFields(ability: any): {
   return {
     manaRestriction: spendRestriction.restriction,
     manaRestrictedTo: spendRestriction.restrictedTo,
+  };
+}
+
+/** Prefer the selected ability's spendRestriction, then the permanent's oracle clause. */
+export function getManaSpendRestrictionSelectionFields(
+  permanent: any,
+  ability?: any,
+): {
+  manaRestriction?: string;
+  manaRestrictedTo?: string;
+} {
+  const fromAbility = getChosenTypeManaSelectionFields(ability);
+  if (fromAbility.manaRestriction) return fromAbility;
+  const parsed = parseManaSpendRestrictionFromOracle(String(permanent?.card?.oracle_text || permanent?.oracle_text || ''));
+  if (!parsed?.restriction) return {};
+  return {
+    manaRestriction: parsed.restriction,
+    ...(parsed.restrictedTo ? { manaRestrictedTo: parsed.restrictedTo } : {}),
   };
 }

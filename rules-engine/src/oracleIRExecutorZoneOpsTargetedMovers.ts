@@ -13,6 +13,7 @@ import {
   createBattlefieldPermanentsFromCards,
   resolveBattlefieldEntryBeforeCommit,
   resolveMoverAttachment,
+  stampCardZoneRemoval,
 } from './oracleIRExecutorZoneOpsBattlefieldEntry';
 import type { BattlefieldEntryCardOverrides } from './oracleIRExecutorZoneOpsBattlefieldEntry';
 import { tryCommitNonBattlefieldZoneMove } from './oracleIRExecutorZoneOpsGraveyardSelectMoves';
@@ -30,6 +31,7 @@ export function moveTargetedCardFromGraveyard(
   entersTapped?: boolean,
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
+  entersTransformed?: boolean,
   attachedToBattlefieldPermanentId?: string,
   referenceCardName?: string,
   battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
@@ -182,7 +184,7 @@ export function moveTargetedCardFromGraveyard(
     state,
     card,
     controllerId,
-    { entersTapped, entersFaceDown, withCounters },
+    { entersTapped, entersFaceDown, withCounters, entersTransformed },
     oracleIrEntry,
   );
   if (entryResolution.kind === 'halted') return { kind: 'halted' };
@@ -191,9 +193,7 @@ export function moveTargetedCardFromGraveyard(
     [card],
     playerId,
     controllerId,
-    entryResolution.entersTapped,
-    entryResolution.entersFaceDown,
-    entryResolution.withCounters,
+    entryResolution.entersTapped, entryResolution.entersFaceDown, entryResolution.withCounters, entryResolution.entersTransformed,
     'gy',
     attachment.attachmentTarget,
     battlefieldEntryOverrides,
@@ -220,6 +220,7 @@ export function moveTopCardFromLibrary(
   entersTapped?: boolean,
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
+  entersTransformed?: boolean,
   attachedToBattlefieldPermanentId?: string,
   battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
   faceDownWardCost?: string,
@@ -244,7 +245,8 @@ export function moveTopCardFromLibrary(
     };
   }
 
-  const [card, ...keptLibrary] = library;
+  const [topCard, ...keptLibrary] = library;
+  const card = stampCardZoneRemoval(topCard, 'library', 0);
 
   if (destination === 'hand') {
     const hand = Array.isArray(player.hand) ? [...player.hand, card] : [card];
@@ -320,7 +322,7 @@ export function moveTopCardFromLibrary(
     state,
     card,
     controllerId,
-    { entersTapped, entersFaceDown, withCounters },
+    { entersTapped, entersFaceDown, withCounters, entersTransformed },
     oracleIrEntry,
   );
   if (entryResolution.kind === 'halted') return { kind: 'halted' };
@@ -329,9 +331,7 @@ export function moveTopCardFromLibrary(
     [card],
     playerId,
     controllerId,
-    entryResolution.entersTapped,
-    entryResolution.entersFaceDown,
-    entryResolution.withCounters,
+    entryResolution.entersTapped, entryResolution.entersFaceDown, entryResolution.withCounters, entryResolution.entersTransformed,
     'library',
     attachment.attachmentTarget,
     battlefieldEntryOverrides,
@@ -358,6 +358,7 @@ export function moveBottomCardFromLibrary(
   entersTapped?: boolean,
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
+  entersTransformed?: boolean,
   attachedToBattlefieldPermanentId?: string,
   battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
   faceDownWardCost?: string,
@@ -382,7 +383,8 @@ export function moveBottomCardFromLibrary(
     };
   }
 
-  const card = library[library.length - 1];
+  const bottomIndex = library.length - 1;
+  const card = stampCardZoneRemoval(library[bottomIndex], 'library', bottomIndex);
   const keptLibrary = library.slice(0, -1);
 
   if (destination === 'hand') {
@@ -459,7 +461,7 @@ export function moveBottomCardFromLibrary(
     state,
     card,
     controllerId,
-    { entersTapped, entersFaceDown, withCounters },
+    { entersTapped, entersFaceDown, withCounters, entersTransformed },
     oracleIrEntry,
   );
   if (entryResolution.kind === 'halted') return { kind: 'halted' };
@@ -468,9 +470,7 @@ export function moveBottomCardFromLibrary(
     [card],
     playerId,
     controllerId,
-    entryResolution.entersTapped,
-    entryResolution.entersFaceDown,
-    entryResolution.withCounters,
+    entryResolution.entersTapped, entryResolution.entersFaceDown, entryResolution.withCounters, entryResolution.entersTransformed,
     'library',
     attachment.attachmentTarget,
     battlefieldEntryOverrides,
@@ -498,6 +498,7 @@ export function moveTargetedCardFromAnyGraveyard(
   entersTapped?: boolean,
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
+  entersTransformed?: boolean,
   attachedToBattlefieldPermanentId?: string,
   referenceCardName?: string,
   battlefieldEntryOverrides?: BattlefieldEntryCardOverrides,
@@ -541,6 +542,7 @@ export function moveTargetedCardFromAnyGraveyard(
         entersTapped,
         entersFaceDown,
         withCounters,
+        entersTransformed,
         attachedToBattlefieldPermanentId,
         referenceCardName,
         battlefieldEntryOverrides,

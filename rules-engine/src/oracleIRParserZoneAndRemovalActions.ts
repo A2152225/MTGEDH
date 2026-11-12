@@ -1,4 +1,5 @@
 import type { OracleEffectStep, OraclePlayerSelector, OracleZone } from './oracleIR';
+import { oracleTextInstructsEnterTransformedOrConverted } from './oracleIREnterTransformedPattern';
 import {
   inferZoneFromDestination,
   inferZoneFromDestinationPrefix,
@@ -136,6 +137,8 @@ function parseMoveZoneStep(args: {
   const battlefieldAttachedTo = parseMoveZoneBattlefieldAttachment(to, effectiveToRaw);
   const entersTapped =
     to === 'battlefield' && !/\buntapped\b/i.test(effectiveToRaw) && /\btapped\b/i.test(effectiveToRaw) ? true : undefined;
+  const entersTransformed =
+    to === 'battlefield' && oracleTextInstructsEnterTransformedOrConverted(`${rawClause} ${effectiveToRaw}`) ? true : undefined;
   const entersFaceDown = parseMoveZoneEntersFaceDown(to, effectiveToRaw);
   const withCounters = parseMoveZoneBattlefieldCounters(to, effectiveToRaw);
   let moveStep: OracleEffectStep = withMeta({
@@ -146,6 +149,7 @@ function parseMoveZoneStep(args: {
     battlefieldController,
     battlefieldAttachedTo,
     entersTapped,
+    entersTransformed,
     entersFaceDown,
     withCounters,
     raw: rawClause,

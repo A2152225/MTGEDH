@@ -57,7 +57,9 @@ export function ReportIssueModal(props: ReportIssueModalProps): React.ReactEleme
 
   return (
     <div
-      ref={panelRef}
+      ref={(node: HTMLDivElement | null) => {
+        (panelRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      }}
       role="dialog"
       aria-modal="false"
       aria-label={`Report an issue with ${cardName}`}

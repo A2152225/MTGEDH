@@ -81,22 +81,28 @@ export function resolveStackItemEffectiveCard(
     Array.isArray((card as any).card_faces)
   ) {
     const faces = (card as any).card_faces;
-    const frontFace = faces[0];
-    if (frontFace) {
-      effectiveTypeLine = frontFace.type_line || effectiveTypeLine;
+    const alreadyBack = (card as any).transformed === true
+      || (card as any).currentFace === 'back'
+      || Number((card as any).faceIndex) === 1
+      || (stackItem as any)?.transformed === true
+      || String((stackItem as any)?.castWithAbility || '').toLowerCase() === 'disturb';
+    const face = alreadyBack && faces[1] ? faces[1] : faces[0];
+    if (face) {
+      effectiveTypeLine = face.type_line || effectiveTypeLine;
       effectiveCard = {
         ...card,
-        type_line: frontFace.type_line || card.type_line,
-        oracle_text: frontFace.oracle_text || card.oracle_text,
-        mana_cost: frontFace.mana_cost || card.mana_cost,
-        power: frontFace.power || card.power,
-        toughness: frontFace.toughness || card.toughness,
-        loyalty: frontFace.loyalty || card.loyalty,
-        name: frontFace.name || card.name,
+        type_line: face.type_line || card.type_line,
+        oracle_text: face.oracle_text || card.oracle_text,
+        mana_cost: face.mana_cost || card.mana_cost,
+        power: face.power || card.power,
+        toughness: face.toughness || card.toughness,
+        loyalty: face.loyalty || card.loyalty,
+        name: face.name || card.name,
+        ...(alreadyBack ? { transformed: true, faceIndex: 1, currentFace: 'back' } : {}),
       };
       debug(
         2,
-        `[resolveStackItemEffectiveCard] Transform DFC ${effectiveCard.name}: using front face P/T ${frontFace.power}/${frontFace.toughness}`,
+        `[resolveStackItemEffectiveCard] Transform DFC ${effectiveCard.name}: using ${alreadyBack ? 'back' : 'front'} face P/T ${face.power}/${face.toughness}`,
       );
     }
   }

@@ -256,6 +256,7 @@ export function getTypeSpecificFields(step: ResolutionStep): Record<string, any>
       if ('nonSelectableCards' in step) fields.nonSelectableCards = step.nonSelectableCards;
       if ('contextValue' in step) fields.contextValue = step.contextValue;
       if ('entersTapped' in step) fields.entersTapped = step.entersTapped;
+      if ('entersTransformed' in step) fields.entersTransformed = (step as any).entersTransformed;
       if ('filter' in step) fields.filter = (step as any).filter;
       if ('targetPlayerId' in step) fields.targetPlayerId = (step as any).targetPlayerId;
       if ('splitDestination' in step) fields.splitDestination = (step as any).splitDestination;
@@ -556,6 +557,7 @@ export function getTypeSpecificFields(step: ResolutionStep): Record<string, any>
       if ('chooserOrder' in step) fields.chooserOrder = (step as any).chooserOrder;
       if ('chooserIndex' in step) fields.chooserIndex = (step as any).chooserIndex;
       if ('entersTapped' in step) fields.entersTapped = (step as any).entersTapped;
+  if ('entersTransformed' in step) fields.entersTransformed = (step as any).entersTransformed;
       if ('destination' in step) fields.destination = (step as any).destination;
       break;
 

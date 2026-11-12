@@ -353,7 +353,7 @@ export function applyWardManaPaymentSelection(
       }
 
       const payLifeResult = applyPayLifeManaAbilityCost(game, playerId, permanent, abilityId);
-      if (!payLifeResult.ok) return payLifeResult;
+      if (payLifeResult.ok === false) return payLifeResult;
 
       const wardManaLifeEffect = resolveManaAbilityLifeEffect({
         card: permCard,
@@ -664,7 +664,7 @@ export function applySelectedManaPaymentForResolutionCost(
       }
 
       const payLifeResult = applyPayLifeManaAbilityCost(game, playerId, permanent, abilityId);
-      if (!payLifeResult.ok) return payLifeResult;
+      if (payLifeResult.ok === false) return payLifeResult;
 
       const resolutionManaLifeEffect = resolveManaAbilityLifeEffect({
         card: permCard,

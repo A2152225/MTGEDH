@@ -201,6 +201,11 @@ export interface StackObject {
   };
   readonly timestamp: number;
   readonly type: 'spell' | 'ability';
+  readonly card?: { readonly id?: string; readonly replicateCount?: number };
+  readonly cardId?: string;
+  readonly source?: string;
+  readonly copyRetargetValidTargets?: readonly unknown[];
+  readonly replicateCount?: number;
 }
 
 export function createStackObject(

@@ -81,9 +81,7 @@ export function tryApplyMoveZoneGuardsFromUpToCountTotalMvFromYourGraveyard(args
         { cardType: parsedUpToCountTotalMvFromYourGraveyard.cardType },
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -293,9 +291,7 @@ export function tryApplyMoveZoneGuardsFromUpToCountTotalMvFromYourGraveyard(args
         { cardType: 'any' },
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides
@@ -341,9 +337,7 @@ export function tryApplyMoveZoneGuardsFromUpToCountTotalMvFromYourGraveyard(args
       parsedCreatureCardExiledWithSource.cardType,
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -399,9 +393,7 @@ export function tryApplyMoveZoneGuardsFromUpToCountTotalMvFromYourGraveyard(args
       'creature',
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -634,9 +626,7 @@ export function tryApplyMoveZoneGuardsFromUpToCountTotalMvFromYourGraveyard(args
       'creature',
       'battlefield',
       controllerId,
-      step.entersTapped,
-      step.entersFaceDown,
-      effectiveWithCounters,
+      step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
       attachmentResolution.kind === 'resolved' ? attachmentResolution.permanentId : undefined,
       battlefieldEntryOverrides
     );
@@ -675,9 +665,7 @@ export function tryApplyMoveZoneGuardsFromUpToCountTotalMvFromYourGraveyard(args
         { cardType: 'permanent' },
         'battlefield',
         controllerId,
-        step.entersTapped,
-        step.entersFaceDown,
-        effectiveWithCounters,
+        step.entersTapped, step.entersFaceDown, effectiveWithCounters, step.entersTransformed,
         undefined,
         undefined,
         battlefieldEntryOverrides

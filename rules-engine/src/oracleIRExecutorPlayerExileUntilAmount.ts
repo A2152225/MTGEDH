@@ -265,6 +265,27 @@ export function resolveUnknownExileUntilAmountForPlayer(
     return library.length;
   }
 
+  {
+    const typeMatch = raw.match(/^until (?:they|you) exile an? ([a-z]+) card$/i);
+    const typ = String(typeMatch?.[1] || '').toLowerCase();
+    const typelineTypes = new Set([
+      'artifact', 'battle', 'creature', 'enchantment', 'instant',
+      'kindred', 'land', 'planeswalker', 'sorcery', 'tribal', 'legendary',
+    ]);
+    if (typ && typelineTypes.has(typ)) {
+      for (let i = 0; i < library.length; i++) {
+        const typeLine = getCardTypeLineLower(library[i]);
+        if (!typeLine) return null;
+        if (typ === 'tribal') {
+          if (typeLine.includes('tribal') || typeLine.includes('kindred')) return i + 1;
+        } else if (typeLine.includes(typ)) {
+          return i + 1;
+        }
+      }
+      return library.length;
+    }
+  }
+
   return null;
 }
 

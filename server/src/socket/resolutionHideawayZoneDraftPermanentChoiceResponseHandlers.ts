@@ -33,6 +33,8 @@ import {
 } from "../../../rules-engine/src/oracleIRExecutorRepeatedZoneDraft.js";
 import { recordDeferredChaosEtbPermanentId } from "../state/modules/oracleIrChaosResolutionTriggerHold.js";
 import { stampPermanentEntryTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
+import { restoreRejectedBattlefieldEntries } from '../../../rules-engine/src/oracleIRExecutorZoneOpsBattlefieldEntry.js';
+import { resolveAndApplyEnterFace } from '../state/modules/enterBattlefieldFaceApplication.js';
 import { copyRetainedChosenCharacteristics } from '../../../shared/src/zoneRetainedCounters.js';
 
 /**
@@ -357,11 +359,13 @@ export function handleRepeatedZoneDraftResponse(
 
   let ownerId = '';
   let card: any = null;
+  let exileIndex = -1;
   for (const [playerId, zones] of Object.entries(game.state.zones as Record<string, any>)) {
     const exile = Array.isArray(zones?.exile) ? zones.exile : [];
     const index = exile.findIndex((entry: any) => String(entry?.id || '') === selectedCardId);
     if (index === -1) continue;
     ownerId = String(playerId);
+    exileIndex = index;
     [card] = exile.splice(index, 1);
     zones.exileCount = exile.length;
     break;
@@ -374,6 +378,7 @@ export function handleRepeatedZoneDraftResponse(
 
   const permanentId = uid('perm');
   const entersTapped = stepData.entersTapped !== false;
+  const entersTransformed = stepData.entersTransformed === true;
   const typeLine = String(card.type_line || '').toLowerCase();
   const isCreature = typeLine.includes('creature');
   const attachId = resolveRepeatedZoneDraftAuraAttachId(
@@ -406,20 +411,33 @@ export function handleRepeatedZoneDraftResponse(
   };
   copyRetainedChosenCharacteristics(card, returnedPermanent);
   copyRetainedChosenCharacteristics(card, returnedCard);
-  game.state.battlefield.push(returnedPermanent);
-  stampPermanentEntryTimestamp(game.state, game.state.battlefield[game.state.battlefield.length - 1]);
-  if (attachId && !isPlayerAttach) {
-    const host = game.state.battlefield.find((perm: any) => String(perm?.id || '') === attachId);
-    if (host) {
-      const attachments = Array.isArray(host.attachments) ? [...host.attachments] : [];
-      if (!attachments.includes(permanentId)) attachments.push(permanentId);
-      host.attachments = attachments;
+  let rejectedEnterTransformed = false;
+  if (entersTransformed) {
+    const enterFace = resolveAndApplyEnterFace(returnedPermanent, {
+      sourceZone: 'other',
+      extra: card,
+      intent: 'transformed',
+      representingCard: card,
+    });
+    if (enterFace.outcome === 'stay_in_zone' || enterFace.outcome === 'graveyard') {
+      const restored = restoreRejectedBattlefieldEntries(game.state, [{
+        card,
+        ownerId,
+        sourceZone: 'exile',
+        outcome: enterFace.outcome,
+        ...(exileIndex >= 0 ? { sourceIndex: exileIndex } : {}),
+      }]);
+      if (restored && restored !== game.state) {
+        if ((restored as any).zones) game.state.zones = (restored as any).zones;
+        if ((restored as any).players) game.state.players = (restored as any).players;
+      }
+      rejectedEnterTransformed = true;
+      debug(2, `[Resolution] Repeated zone draft: ${card?.name || selectedCardId} could not enter transformed; restored to exile`);
     }
   }
-
-  recordDeferredChaosEtbPermanentId(game.state, permanentId);
-
-  const nextRemaining = remainingCardIds.filter((id: string) => id !== selectedCardId);
+  const nextRemaining = rejectedEnterTransformed
+    ? remainingCardIds.slice()
+    : remainingCardIds.filter((id: string) => id !== selectedCardId);
   const chooserOrder = (Array.isArray(stepData.chooserOrder) ? stepData.chooserOrder : [chooserId])
     .map((id: any) => String(id || '').trim())
     .filter(Boolean);
@@ -427,6 +445,8 @@ export function handleRepeatedZoneDraftResponse(
     ? Math.max(0, Number(stepData.chooserIndex))
     : Math.max(0, chooserOrder.indexOf(chooserId));
   const nextChooserStartIndex = chooserOrder.length > 0 ? (currentIndex + 1) % chooserOrder.length : 0;
+  if (!rejectedEnterTransformed) {
+  game.state.battlefield.push(returnedPermanent);
 
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'effectProgramZoneMove', {
@@ -464,6 +484,8 @@ export function handleRepeatedZoneDraftResponse(
     message: `${getPlayerName(game, chooserId)} chooses ${card.name || 'a card'} from the auction.`,
     ts: Date.now(),
   });
+
+  }
 
   if (typeof (game as any).bumpSeq === 'function') {
     (game as any).bumpSeq();
@@ -503,6 +525,7 @@ export function handleRepeatedZoneDraftResponse(
       chooserOrder,
       chooserIndex: nextChooserIndex,
       entersTapped,
+      entersTransformed,
       destination: String(stepData.destination || 'battlefield'),
       oracleIrChoiceStepJson: stepData.oracleIrChoiceStepJson,
       oracleIrResumeStepsJson: stepData.oracleIrResumeStepsJson,

@@ -36,6 +36,7 @@ export type RepeatedZoneDraftApplyResult =
           readonly remainingCardIds: readonly string[];
           readonly chooserOrder: readonly string[];
           readonly entersTapped: boolean;
+          readonly entersTransformed?: boolean;
           readonly destination: string;
         };
       };
@@ -276,6 +277,7 @@ export function applyRepeatedZoneDraftStep(
     ? [...turnOrderIds.slice(startIndex), ...turnOrderIds.slice(0, startIndex)]
     : [startingPlayerId];
   const entersTapped = step.entersTapped === true;
+  const entersTransformed = step.entersTransformed === true;
 
   if (ctx.interactivePlayerChoices === true) {
     const anyoneCanPick = chooserOrder.some((chooserId) =>
@@ -299,6 +301,7 @@ export function applyRepeatedZoneDraftStep(
           remainingCardIds,
           chooserOrder,
           entersTapped,
+          entersTransformed,
           destination: step.destination,
         },
       },
@@ -338,6 +341,7 @@ export function applyRepeatedZoneDraftStep(
       entersTapped,
       undefined,
       undefined,
+      entersTransformed,
       attachId,
     );
     if (result.kind !== 'applied') continue;

@@ -18,7 +18,7 @@ import { escapeCardNameForRegex } from "./types.js";
 import { debug, debugWarn, debugError } from "../../../utils/debug.js";
 import { uid } from "../../utils.js";
 import { orderTriggersByAPNAP } from "./ordering.js";
-import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
+import { isCreatureNow, permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
 import { extractCreatureTypes as extractCreatureTypesFromTypeLine } from '../../../../../shared/src/creatureTypes.js';
 import { hasUnsupportedTargetRequirement, inferGenericTriggeredAbilityTargetMetadata } from "./target-metadata.js";
 import { detectTapTriggers, type TapTrigger } from "./tap-detection.js";
@@ -391,11 +391,10 @@ export function executeUntapTrigger(
       break;
       
     case 'creatures':
-      // Untap all creatures the controller owns
+      // Untap all creatures the controller owns (includes stationed Spacecrafts)
       for (const permanent of battlefield) {
         if (!permanent || permanent.controller !== trigger.controllerId) continue;
-        const typeLine = (permanent.card?.type_line || '').toLowerCase();
-        if (typeLine.includes('creature') && permanent.tapped) {
+        if (isCreatureNow(permanent) && permanent.tapped) {
           permanent.tapped = false;
           queueBecomesUntappedTriggers(ctx, permanent);
           debug(2, `[executeUntapTrigger] Untapped ${permanent.card?.name || permanent.id}`);

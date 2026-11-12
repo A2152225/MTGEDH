@@ -277,8 +277,11 @@ export function tryCalculateManaProductionDynamic(
   }
   
   // Everflowing Chalice - "Add {C} for each charge counter on Everflowing Chalice"
+  // Do NOT catch "Choose a color. Add one mana of that color for each charge counter"
+  // (Astral Cornucopia, Queen's Diamond) — those need a color prompt, not colorless.
   if (cardName.includes('everflowing chalice') ||
-      (oracleText.includes('for each charge counter') && oracleText.includes('add'))) {
+      (oracleText.includes('for each charge counter')
+        && (/\badd\s*\{c\}/i.test(oracleText) || oracleText.includes('add colorless')))) {
     const chargeCounters = permanent?.counters?.charge || 0;
     result.isDynamic = true;
     result.baseAmount = chargeCounters;
@@ -286,15 +289,24 @@ export function tryCalculateManaProductionDynamic(
     result.colors = ['C'];
   }
   
-  // Astral Cornucopia - "Add one mana of any color for each charge counter"
+  // Astral Cornucopia / Queen's Diamond — choose a color, then one mana of that color per charge.
+  // Also covers "any color for each charge counter" wordings.
   if (cardName.includes('astral cornucopia') ||
-      (oracleText.includes('for each charge counter') && oracleText.includes('any color'))) {
+      (oracleText.includes('for each charge counter') && (
+        oracleText.includes('any color')
+        || (oracleText.includes('choose a color') && oracleText.includes('of that color'))
+        || /mana of that color for each charge/i.test(oracleText)
+      ))) {
     const chargeCounters = permanent?.counters?.charge || 0;
     result.isDynamic = true;
     result.baseAmount = chargeCounters;
-    result.dynamicDescription = `Mana for each charge counter (${chargeCounters})`;
+    result.dynamicDescription = `Choose a color. Mana for each charge counter (${chargeCounters})`;
     result.colors = ['W', 'U', 'B', 'R', 'G'];
-    if (chosenColor) result.colors = [chosenColor];
+    result.requiresColorChoice = true;
+    if (chosenColor) {
+      result.colors = [chosenColor];
+      result.requiresColorChoice = false;
+    }
   }
   
   // Gemstone Array - Based on charge counters (can remove to add mana)

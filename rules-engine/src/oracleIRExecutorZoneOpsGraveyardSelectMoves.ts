@@ -208,6 +208,7 @@ export function putUpToMatchingFromGraveyardOntoBattlefieldWithController(
   entersTapped?: boolean,
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
+  entersTransformed?: boolean,
   attachedToBattlefieldPermanentId?: string,
   preferredIds: readonly string[] = [],
   excludeIds: readonly string[] = []
@@ -240,10 +241,7 @@ export function putUpToMatchingFromGraveyardOntoBattlefieldWithController(
     [...selection.moved],
     sourcePlayerId,
     controllerId,
-    entersTapped,
-    entersFaceDown,
-    withCounters,
-    'gy',
+    entersTapped, entersFaceDown, withCounters, entersTransformed, 'gy',
     attachmentTarget
   );
   const updatedPlayers = state.players.map(p =>
@@ -369,6 +367,7 @@ export function putExactMatchingFromGraveyardOntoBattlefieldWithController(
   entersTapped?: boolean,
   entersFaceDown?: boolean,
   withCounters?: Record<string, number>,
+  entersTransformed?: boolean,
   attachedToBattlefieldPermanentId?: string
 ):
   | { readonly kind: 'applied'; readonly state: GameState; readonly log: readonly string[]; readonly movedPermanentIds: readonly string[] }
@@ -389,10 +388,7 @@ export function putExactMatchingFromGraveyardOntoBattlefieldWithController(
     [...selection.moved],
     sourcePlayerId,
     controllerId,
-    entersTapped,
-    entersFaceDown,
-    withCounters,
-    'gy',
+    entersTapped, entersFaceDown, withCounters, entersTransformed, 'gy',
     attachmentTarget
   );
   const updatedPlayers = state.players.map(p =>
