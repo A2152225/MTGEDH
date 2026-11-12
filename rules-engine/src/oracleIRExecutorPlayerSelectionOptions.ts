@@ -139,12 +139,25 @@ function normalizeMoveZoneWhatCriteriaText(whatText: string): string {
     String(whatText || '')
       .replace(/\s+from your graveyard$/i, '')
       .replace(/\s+from among the cards milled this way$/i, '')
+      .replace(/\s+from among the milled cards$/i, '')
+      .replace(/\s+from among them$/i, '')
       .replace(/^those creature cards$/i, 'creature cards')
       .replace(/^those cards$/i, 'cards')
       .replace(/^one of those cards$/i, 'a card')
       .replace(/^a permanent card from among the cards milled this way$/i, 'a permanent card')
       .replace(/^a permanent card from your hand$/i, 'a permanent card'),
   );
+}
+
+function parseWordCountForSelectionLimits(raw: string): number | null {
+  const normalized = String(raw || '').trim().toLowerCase();
+  const asNumber = Number.parseInt(normalized, 10);
+  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
+  const words: Record<string, number> = {
+    a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  };
+  return words[normalized] ?? null;
 }
 
 function filterMoveZoneSelectionCandidates(
@@ -190,6 +203,14 @@ function filterMoveZoneSelectionCandidates(
   }
 
   const normalizedCriteria = normalizeMoveZoneWhatCriteriaText(whatText);
+  const upToTyped = normalizedCriteria.match(/^up to [a-z0-9]+ (.+?) cards?$/i);
+  if (upToTyped) {
+    const selectorLabel = String(upToTyped[1] || '').trim();
+    if (selectorLabel) {
+      const typed = pool.filter((card) => cardMatchesLookChooseSelector(card, `${selectorLabel} card`));
+      if (typed.length > 0 || selectorLabel.length > 0) return typed;
+    }
+  }
   const structured = parseMoveZoneSingleTargetCriteria(
     normalizedCriteria.replace(/^(?:a|an)\s+/i, ''),
   );
@@ -239,6 +260,15 @@ function resolveMoveZoneSelectionLimits(
   if (upToFromHand && !upToFromHand.useXValue && !upToFromHand.useReferenceAmount) {
     return { minSelections: 0, maxSelections: Math.min(upToFromHand.maxCount, candidateCount) };
   }
+  // "up to two artifact cards from among them" (Transwarp Hub / Ainok Wayfarer family)
+  const upToAmong = rawWhat.match(/^up to ([a-z0-9]+) (.+?) cards?(?: from among .+)?$/i)
+    || whatText.match(/^up to ([a-z0-9]+) (.+?) cards?$/i);
+  if (upToAmong) {
+    const maxCount = parseWordCountForSelectionLimits(String(upToAmong[1] || ''));
+    if (maxCount != null && maxCount > 0) {
+      return { minSelections: 0, maxSelections: Math.min(maxCount, candidateCount) };
+    }
+  }
   if (/^those cards$|^those creature cards$/i.test(whatText)) {
     return {
       minSelections: optional ? 0 : Math.min(1, candidateCount),
@@ -286,9 +316,12 @@ export function buildMoveZoneSelectionOptions(
   if (limits.maxSelections <= 0 && !optional) return null;
 
   const whatText = String((step.what as any)?.text || (step.what as any)?.raw || '').trim();
+  const raw = String(step.raw || '').trim();
+  const combined = `${whatText} ${raw}`;
   const toRaw = String(step.toRaw || step.raw || '').toLowerCase();
-  const fromHand = /from your hand/i.test(`${whatText} ${String(step.raw || '')}`);
-  const fromGraveyard = /from your graveyard|from a graveyard|from graveyards/i.test(`${whatText} ${String(step.raw || '')}`);
+  const fromHand = /from your hand/i.test(combined);
+  const fromGraveyard = /from your graveyard|from a graveyard|from graveyards/i.test(combined);
+  const fromAmongMilled = /milled this way|among the cards milled|among the milled cards|from among them/i.test(combined);
   const destination =
     step.to === 'battlefield'
       ? 'battlefield'
@@ -307,10 +340,11 @@ export function buildMoveZoneSelectionOptions(
         : fromHand
           ? 'none'
           : 'bottom';
+  const criteriaForFilter = normalizeMoveZoneWhatCriteriaText(whatText);
 
   return {
     playerId,
-    availableCards: (fromHand || fromGraveyard || /\bexiled with (?:it|this)\b/i.test(whatText)) && candidates.length > 0 ? candidates : pool,
+    availableCards: (fromHand || fromGraveyard || fromAmongMilled || /\bexiled with (?:it|this)\b/i.test(whatText)) && candidates.length > 0 ? candidates : pool,
     selectableCardIds: candidates
       .map((card) => String(card?.id || '').trim())
       .filter(Boolean),
@@ -321,9 +355,16 @@ export function buildMoveZoneSelectionOptions(
     remainderDestination,
     remainderRandomOrder: /random order/i.test(toRaw),
     remainderPlayerChoosesOrder: /any order/i.test(toRaw),
-    filter: buildLookChooseLibrarySearchFilter(whatText),
+    filter: buildLookChooseLibrarySearchFilter(criteriaForFilter),
     optional,
-    searchZone: fromHand ? 'hand' : fromGraveyard ? 'graveyard' : /\bexiled with (?:it|this)\b/i.test(whatText) ? 'exile' : 'library',
+    // Milled "from among them" cards live in the graveyard after the mill step.
+    searchZone: fromHand
+      ? 'hand'
+      : (fromGraveyard || fromAmongMilled)
+        ? 'graveyard'
+        : /\bexiled with (?:it|this)\b/i.test(whatText)
+          ? 'exile'
+          : 'library',
   };
 }
 

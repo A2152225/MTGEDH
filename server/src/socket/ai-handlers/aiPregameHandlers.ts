@@ -22,6 +22,7 @@ import {
   MAX_LIBRARY_SEARCH_LIMIT,
 } from "./aiConstants.js";
 import { getPersistedAIPlayerRuntimeData } from "./aiPlayerRuntimeData.js";
+import { buildOpeningDrawPersistPayloads } from "../shuffleLibraryEventPayload.js";
 
 /**
  * Extract color identity from a card's mana cost and oracle text
@@ -833,7 +834,9 @@ export async function autoSelectAICommander(
         // Persist shuffle and draw events if opening draw happened
         // This ensures undo/replay produces the same hand contents
         if (doingOpeningDraw || didManualDraw) {
-          await appendEvent(gameId, (game as any).seq || 0, 'shuffleLibrary', { playerId });
+          const payloads = buildOpeningDrawPersistPayloads(game, playerId);
+          await appendEvent(gameId, (game as any).seq || 0, 'shuffleLibrary', payloads.shuffle);
+          await appendEvent(gameId, (game as any).seq || 0, 'drawCards', payloads.draw);
           debug(1, '[AI] Persisted opening draw events (shuffle + draw) for player', playerId);
         }
       } catch (e) {

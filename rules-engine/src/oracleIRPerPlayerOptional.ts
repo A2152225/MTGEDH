@@ -30,6 +30,9 @@ export function isPerPlayerOptionalEffectText(effectText: string): boolean {
  * Controller may decline the entire triggered ability (Rule 603.4 optional).
  * Per-player "each player may …" effects are mandatory at trigger time.
  * Opponent-tax "you may … unless that player pays" is not a controller Yes/No.
+ *
+ * Only the *leading* effect clause decides this. "Mill five cards. You may put …"
+ * is a mandatory trigger with an optional resolution step — not a whole-ability Yes/No.
  */
 export function isControllerOptionalTriggeredAbilityEffectText(effectText: string): boolean {
   const lower = normalizePerPlayerOptionalText(effectText).toLowerCase();
@@ -38,7 +41,11 @@ export function isControllerOptionalTriggeredAbilityEffectText(effectText: strin
   if (/\bunless\b[\s\S]*\b(?:that player|that opponent|its controller|they)\b[\s\S]*\bpays?\b/.test(lower)) {
     return false;
   }
-  return /\byou may\b/.test(lower);
+  // Strip event prefixes so "Whenever …, you may …" still counts as fully optional.
+  const withoutEventPrefix = lower
+    .replace(/^(?:whenever|when|at the beginning of)[\s\S]*?,\s*/i, '')
+    .trim();
+  return /^you may\b/.test(withoutEventPrefix);
 }
 
 export function isEachPlayerMayPutLandFromHandOracleStep(step: OracleEffectStep): boolean {

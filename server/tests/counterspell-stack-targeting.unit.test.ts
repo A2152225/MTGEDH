@@ -114,6 +114,49 @@ describe('Fierce Guardianship / counterspell stack targeting', () => {
   });
 });
 
+describe('Disallow / Voidslime stack targeting', () => {
+  const disallowOracle =
+    "Counter target spell, activated ability, or triggered ability. (Mana abilities can't be targeted.)";
+
+  it('parses Disallow as targeting spells and abilities on the stack', () => {
+    const reqs = parseTargetRequirements(disallowOracle);
+    expect(reqs.needsTargets).toBe(true);
+    expect(reqs.targetTypes).toEqual(['spell', 'ability']);
+  });
+
+  it('offers a triggered ability on the stack as a legal Disallow target', () => {
+    const game = {
+      state: {
+        players: [
+          { id: 'p1', name: 'P1', life: 40 },
+          { id: 'p2', name: 'P2', life: 40 },
+        ],
+        battlefield: [],
+        stack: [
+          {
+            id: 'trigger_aura_shards',
+            type: 'triggered_ability',
+            controller: 'p2',
+            sourceName: 'Aura Shards',
+            description: 'you may destroy target artifact or enchantment.',
+          },
+        ],
+      },
+    };
+
+    const reqs = parseTargetRequirements(disallowOracle);
+    const targets = buildSpellTargetListFromRequirements(game, 'p1', reqs);
+    expect(targets.map((t) => t.id)).toEqual(['trigger_aura_shards']);
+    expect(
+      hasValidTargetsForSpell(game.state, 'p1', {
+        name: 'Disallow',
+        type_line: 'Instant',
+        oracle_text: disallowOracle,
+      }, { conservative: false }),
+    ).toBe(true);
+  });
+});
+
 describe('Bolt Bend / change-target stack legality', () => {
   const boltBendOracle =
     'This spell costs {3} less to cast if you control a creature with power 4 or greater.\n' +

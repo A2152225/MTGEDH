@@ -27,6 +27,10 @@ import {
   pendingImportConfirmations,
   toImportBufferCard,
 } from "./deckImportConfirmState.js";
+import {
+  buildShuffleLibraryEventPayload,
+  readHandCardIds,
+} from "../shuffleLibraryEventPayload.js";
 
 /**
  * applyConfirmedImport - idempotent / reentrancy-safe application of confirmed import.
@@ -444,9 +448,12 @@ export async function applyConfirmedImport(
               if (typeof (game as any).shuffleLibrary === "function") {
                 try {
                   (game as any).shuffleLibrary(p.initiator);
-                  appendEvent(p.gameId, game.seq, "shuffleLibrary", {
-                    playerId: p.initiator,
-                  });
+                  appendEvent(
+                    p.gameId,
+                    game.seq,
+                    "shuffleLibrary",
+                    buildShuffleLibraryEventPayload(game, p.initiator),
+                  );
                   debug(1, "[import] immediate shuffleLibrary", {
                     gameId: p.gameId,
                     playerId: p.initiator,
@@ -461,6 +468,12 @@ export async function applyConfirmedImport(
               if (typeof (game as any).drawCards === "function") {
                 try {
                   (game as any).drawCards(p.initiator, 7);
+                  const drawnCardIds = readHandCardIds(game, p.initiator);
+                  appendEvent(p.gameId, game.seq, "drawCards", {
+                    playerId: p.initiator,
+                    count: drawnCardIds.length || 7,
+                    drawnCardIds,
+                  });
                   debug(1, "[import] immediate drawCards(7)", {
                     gameId: p.gameId,
                     playerId: p.initiator,

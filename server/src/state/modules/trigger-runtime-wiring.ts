@@ -164,6 +164,7 @@ export function normalizeTriggerEffectDescriptionForExecution(effectText: string
 /**
  * True when the controller may decline the entire triggered ability (Rule 603.4 optional).
  * "Each player may …" is mandatory at trigger time — per-player choices happen during resolution.
+ * Keep in sync with isControllerOptionalTriggeredAbilityEffectText (rules-engine).
  */
 export function isControllerOptionalTriggeredAbilityEffect(effectText: string): boolean {
   // "You may choose new targets for the copy" is a resolution detail, not a may-trigger (Lucky Clover).
@@ -179,7 +180,11 @@ export function isControllerOptionalTriggeredAbilityEffect(effectText: string): 
   if (/\bunless\b[\s\S]*\b(?:that player|that opponent|its controller|they)\b[\s\S]*\bpays?\b/.test(lower)) {
     return false;
   }
-  return /\byou may\b/.test(lower);
+  // Leading clause only: "Mill five. You may put …" is mandatory + optional resolution step.
+  const withoutEventPrefix = lower
+    .replace(/^(?:whenever|when|at the beginning of)[\s\S]*?,\s*/i, '')
+    .trim();
+  return /^you may\b/.test(withoutEventPrefix);
 }
 
 export function normalizeTriggerEffectForIrAudit(effectText: string): string {

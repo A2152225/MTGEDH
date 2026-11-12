@@ -26,6 +26,7 @@ import { appendEvent } from "../db";
 import { fetchCardByExactNameStrict } from "../services/scryfall";
 import type { PlayerID } from "../../../shared/src";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { buildOpeningDrawPersistPayloads } from "./shuffleLibraryEventPayload.js";
 
 // Type helper for socket data
 interface SocketWithData extends Socket {
@@ -487,7 +488,9 @@ export function registerCommanderHandlers(io: Server, socket: Socket) {
             
             // If we did the opening draw (shuffle + draw 7), persist those events for replay
             if (doingOpeningDraw) {
-              appendEvent(gameId, game.seq, "shuffleLibrary", { playerId: pid });
+              const payloads = buildOpeningDrawPersistPayloads(game, pid);
+              appendEvent(gameId, game.seq, "shuffleLibrary", payloads.shuffle);
+              appendEvent(gameId, game.seq, "drawCards", payloads.draw);
               debug(1, "[commander] Persisted opening draw events (shuffle + draw 7) for player", pid);
             }
           } catch (err) {

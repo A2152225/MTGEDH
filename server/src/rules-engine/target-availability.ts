@@ -176,6 +176,12 @@ export function hasValidTargetsForSpell(
         Array.isArray(targetReqs.targetTypes)
         && targetReqs.targetTypes.some(t => String(t || '').toLowerCase().startsWith('graveyard_'))
       )
+      // Disallow / Voidslime: parsed reqs include stack abilities; legacy COUNTER_TARGET_SPELL
+      // categorization would miss triggered/activated abilities on the stack.
+      || (
+        Array.isArray(targetReqs.targetTypes)
+        && targetReqs.targetTypes.some(t => String(t || '').toLowerCase().includes('ability'))
+      )
     );
 
   if (spellSpec && !preferParsedTargetReqs) {

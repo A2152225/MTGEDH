@@ -61,6 +61,18 @@ describe('per-player optional guardrails', () => {
     ).toBe(false);
   });
 
+  it('does not treat mandatory mill with optional among-them put as whole-ability Yes/No', () => {
+    const transwarp =
+      'mill five cards. You may put up to two artifact cards from among them into your hand.';
+    expect(isControllerOptionalTriggeredAbilityEffectText(transwarp)).toBe(false);
+    expect(isControllerOptionalTriggeredAbilityEffect(transwarp)).toBe(false);
+    expect(
+      isControllerOptionalTriggeredAbilityEffect(
+        'When this Spacecraft enters, mill five cards. You may put up to two artifact cards from among them into your hand.',
+      ),
+    ).toBe(false);
+  });
+
   it('detects per-player optional oracle steps', () => {
     expect(isPerPlayerOptionalOracleStep({
       kind: 'add_counter',

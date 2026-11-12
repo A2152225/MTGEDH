@@ -690,13 +690,26 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     }
   }
 
-  // Bolt Bend / Disallow: "target spell or ability" is both stack kinds, not just "spell".
+  // Bolt Bend: "target spell or ability" is both stack kinds, not just "spell".
   const spellOrAbilityMatch = t.match(/target\s+spell or ability(?:\s+with a single target)?/i);
   if (spellOrAbilityMatch) {
     minTargets = 1;
     maxTargets = 1;
     targetTypes.push('spell', 'ability');
     targetDescription = String(spellOrAbilityMatch[0] || 'target spell or ability').trim();
+    return finish({ needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription });
+  }
+
+  // Disallow / Voidslime: "target spell, activated ability, or triggered ability".
+  // Must run before the generic "target spell" matcher, which would otherwise drop abilities.
+  const spellActivatedOrTriggeredMatch = t.match(
+    /target\s+spell,\s*activated(?:\s+ability)?,\s*or\s*triggered ability/i,
+  );
+  if (spellActivatedOrTriggeredMatch) {
+    minTargets = 1;
+    maxTargets = 1;
+    targetTypes.push('spell', 'ability');
+    targetDescription = String(spellActivatedOrTriggeredMatch[0] || 'target spell, activated ability, or triggered ability').trim();
     return finish({ needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription });
   }
 

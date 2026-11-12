@@ -15,9 +15,19 @@ export function registerTokenGroupMembers(
 }
 
 export function getTokenGroupMembers(game: any, groupId: string): string[] {
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
   const stored = game?._tokenGroupMembers?.[groupId];
   if (Array.isArray(stored) && stored.length > 0) {
-    return stored.slice();
+    // Drop members that left the battlefield so resolve/payment can rebuild from survivors.
+    const alive = stored
+      .map((id: unknown) => String(id || '').trim())
+      .filter((id: string) => Boolean(id) && battlefield.some((perm: any) => String(perm?.id || '') === id));
+    if (alive.length > 0) {
+      if (alive.length !== stored.length) {
+        registerTokenGroupMembers(game, groupId, alive);
+      }
+      return alive;
+    }
   }
   return rebuildTokenGroupMembersFromBattlefield(game, groupId);
 }
@@ -29,7 +39,21 @@ function getGroupPrototype(game: any, groupId: string): any | null {
 
   if (!groupId.startsWith('group_')) return null;
   const originalId = groupId.slice('group_'.length);
-  return battlefield.find((perm: any) => String(perm?.id || '') === originalId) || null;
+  const byOriginal = battlefield.find((perm: any) => String(perm?.id || '') === originalId);
+  if (byOriginal) return byOriginal;
+
+  // Seed permanent left the battlefield — use any surviving registered member so
+  // remaining same-name lands/tokens can still pay / attack via the group ref.
+  const stored = game?._tokenGroupMembers?.[groupId];
+  if (Array.isArray(stored)) {
+    for (const memberId of stored) {
+      const id = String(memberId || '').trim();
+      if (!id) continue;
+      const survivor = battlefield.find((perm: any) => String(perm?.id || '') === id);
+      if (survivor) return survivor;
+    }
+  }
+  return null;
 }
 
 function matchesGroupPrototype(perm: any, prototype: any, options?: { ignoreTapState?: boolean }): boolean {

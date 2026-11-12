@@ -59,6 +59,41 @@ describe('tokenGroupResolve', () => {
     expect(resolved.every((entry) => entry.targetPlayerId === 'p2')).toBe(true);
   });
 
+  it('keeps resolving a land group after the seed permanent leaves the battlefield', () => {
+    const game = makeGame([
+      {
+        id: 'perm_island_2',
+        controller: 'p1',
+        isToken: false,
+        card: { name: 'Island', type_line: 'Basic Land — Island' },
+        tapped: false,
+      },
+      {
+        id: 'perm_island_3',
+        controller: 'p1',
+        isToken: false,
+        card: { name: 'Island', type_line: 'Basic Land — Island' },
+        tapped: false,
+      },
+    ]);
+    // Group was originally seeded from perm_island_1, which has since left.
+    registerTokenGroupMembers(game, 'group_perm_island_1', [
+      'perm_island_1',
+      'perm_island_2',
+      'perm_island_3',
+    ]);
+
+    expect(getTokenGroupMembers(game, 'group_perm_island_1')).toEqual([
+      'perm_island_2',
+      'perm_island_3',
+    ]);
+    expect(resolveGroupedPermanentRef(game, 'p1', 'group_perm_island_1')).toBe('perm_island_2');
+    const used = new Set<string>(['perm_island_2']);
+    expect(resolveGroupedPermanentRef(game, 'p1', 'group_perm_island_1', { usedIds: used })).toBe(
+      'perm_island_3',
+    );
+  });
+
   it('rebuilds group members from battlefield when registry is missing', () => {
     const game = makeGame([
       {

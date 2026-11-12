@@ -93,6 +93,31 @@ function hasStationActivationWindow(ctx: GameContext, playerId: PlayerID, perman
   });
 }
 
+/**
+ * Station "N+ | {T}: …" lines are only live once the permanent has N charge counters.
+ * Returns the required threshold when `matchIndex` falls inside such a gated line.
+ */
+function stationChargeThresholdForAbilityMatch(oracleText: string, matchIndex: number | undefined): number | null {
+  if (typeof matchIndex !== 'number' || matchIndex < 0) return null;
+  const text = String(oracleText || '');
+  const linePattern = /(^|\n)(\d+)\+\s*\|[^\n]*/g;
+  let lineMatch: RegExpExecArray | null;
+  while ((lineMatch = linePattern.exec(text)) !== null) {
+    const lineStart = lineMatch.index + String(lineMatch[1] || '').length;
+    const lineEnd = lineMatch.index + lineMatch[0].length;
+    if (matchIndex >= lineStart && matchIndex < lineEnd) {
+      const threshold = parseInt(String(lineMatch[2] || ''), 10);
+      return Number.isFinite(threshold) ? threshold : null;
+    }
+  }
+  return null;
+}
+
+function permanentMeetsStationChargeThreshold(permanent: any, threshold: number): boolean {
+  const charges = Number(permanent?.counters?.charge || 0);
+  return Number.isFinite(charges) && charges >= threshold;
+}
+
 export function hasActivatableLoyaltyAbility(
   state: any,
   battlefield: any[],
@@ -305,6 +330,11 @@ export function hasActivatableAbility(
       // This prevents false positives in auto-pass system
       return false;
     }
+
+    // Station "3+ | {T}: …" must not look activatable (or block auto-pass) below threshold.
+    const stationGate = stationChargeThresholdForAbilityMatch(oracleText, abilityMatch.index);
+    const stationGateMet = stationGate == null || permanentMeetsStationChargeThreshold(permanent, stationGate);
+    if (stationGateMet) {
     
     const costsBeforeTap = abilityMatch[1] || ""; // Mana costs before {T}
     const additionalCostAfterTap = abilityMatch[2] || ""; // Other costs after {T}
@@ -386,6 +416,7 @@ export function hasActivatableAbility(
     }
     
     return true;
+    }
   }
   
   // Check for "Tap N untapped [type] you control" style activation costs

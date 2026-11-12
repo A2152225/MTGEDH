@@ -1,6 +1,8 @@
 /**
  * client/src/components/ReportIssueModal.tsx
- * Presentational modal: multiline description (required, max 2000), optional category, Submit / Cancel.
+ * Floating, non-modal report panel: multiline description (required, max 2000),
+ * optional category, Submit / Cancel. Draggable by the title bar, minimizable,
+ * and it does not close on outside click, backdrop, or Escape.
  */
 import React, { useState } from 'react';
 import {
@@ -9,7 +11,24 @@ import {
   ISSUE_DESCRIPTION_MAX,
   type IssueCategory,
 } from '../../../shared/src/issueReport';
+import { useDraggablePanel } from '../hooks/useDraggablePanel';
 import { validateIssueDescription } from '../utils/issueReportClient';
+
+const REPORT_ISSUE_PANEL_STORAGE_KEY = 'mtgedh.reportIssuePanel.position';
+
+const headerIconButtonStyle: React.CSSProperties = {
+  width: 32,
+  height: 32,
+  padding: 0,
+  borderRadius: 6,
+  border: '1px solid transparent',
+  background: 'transparent',
+  color: '#e5e7eb',
+  cursor: 'pointer',
+  fontSize: 16,
+  lineHeight: 1,
+  flexShrink: 0,
+};
 
 export interface ReportIssueModalProps {
   open: boolean;
@@ -27,6 +46,9 @@ export function ReportIssueModal(props: ReportIssueModalProps): React.ReactEleme
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<IssueCategory | ''>('');
   const [touched, setTouched] = useState(false);
+  const { panelRef, minimized, toggleMinimized, panelStyle, handleProps } = useDraggablePanel({
+    storageKey: REPORT_ISSUE_PANEL_STORAGE_KEY,
+  });
 
   if (!open) return null;
 
@@ -35,38 +57,81 @@ export function ReportIssueModal(props: ReportIssueModalProps): React.ReactEleme
 
   return (
     <div
+      ref={panelRef}
       role="dialog"
-      aria-modal="true"
+      aria-modal="false"
       aria-label={`Report an issue with ${cardName}`}
+      data-testid="report-issue-panel"
       style={{
-        position: 'fixed',
-        inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        ...panelStyle,
         zIndex: 11000,
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !submitting) onCancel();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' && !submitting) onCancel();
+        backgroundColor: '#1a1a2e',
+        borderRadius: 12,
+        width: minimized ? 'auto' : 'min(520px, 92vw)',
+        maxWidth: '92vw',
+        maxHeight: minimized ? undefined : 'calc(100vh - 16px)',
+        boxShadow: '0 12px 48px rgba(0,0,0,0.6)',
+        color: '#fff',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        boxSizing: 'border-box',
       }}
     >
       <div
+        {...handleProps}
+        data-testid="report-issue-title-bar"
         style={{
-          backgroundColor: '#1a1a2e',
-          borderRadius: 12,
-          padding: 24,
-          maxWidth: 520,
-          width: '92%',
-          boxShadow: '0 12px 48px rgba(0,0,0,0.6)',
-          color: '#fff',
+          ...handleProps.style,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          padding: minimized ? '8px 8px 8px 12px' : '10px 8px 10px 16px',
+          backgroundColor: '#121228',
+          borderBottom: minimized ? 'none' : '1px solid #2a2a44',
+          flexShrink: 0,
         }}
       >
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: '#fca5a5' }}>{'\u26A0'} Report Issue</h2>
-        <div style={{ marginTop: 4, fontSize: 14, color: '#9ca3af' }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#fca5a5', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {'\u26A0'} Report Issue
+        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }} data-no-drag>
+          <button
+            type="button"
+            aria-label={minimized ? 'Restore report issue panel' : 'Minimize report issue panel'}
+            title={minimized ? 'Restore' : 'Minimize'}
+            data-testid="report-issue-minimize"
+            onClick={toggleMinimized}
+            style={headerIconButtonStyle}
+          >
+            {minimized ? '\u25A1' : '\u2013'}
+          </button>
+          <button
+            type="button"
+            aria-label="Close report issue panel"
+            title="Close"
+            data-testid="report-issue-close"
+            onClick={onCancel}
+            disabled={submitting}
+            style={{ ...headerIconButtonStyle, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.5 : 1 }}
+          >
+            {'\u00D7'}
+          </button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: minimized ? 'none' : 'flex',
+          flexDirection: 'column',
+          padding: 24,
+          overflow: 'auto',
+          minHeight: 0,
+        }}
+        aria-hidden={minimized}
+      >
+        <div style={{ fontSize: 14, color: '#9ca3af' }}>
           <strong style={{ color: '#fff' }} data-testid="report-issue-card-name">{cardName}</strong>
           {zoneLabel ? <span> {'\u00B7'} {zoneLabel}</span> : null}
         </div>
