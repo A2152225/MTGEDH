@@ -223,9 +223,10 @@ export function getManaAbilitiesForPermanent(
     }
   }
   
-  // "Add one mana of any color" (like City of Brass, Mana Confluence, Command Tower)
-  // Only match if this is a tap ability for lands or it's explicitly a mana ability
-  if (isLand && landOracleText.includes("{t}:") && landOracleText.includes("add one mana of any color")) {
+  // Free "{T}: Add one mana of any color" (City of Brass / Command Tower).
+  // Do NOT match "{T}, Pay N life: Add one mana of any color" (Spire / Confluence) —
+  // that path is handled below as native_pay_life_any.
+  if (isLand && /\{t\}:\s*add\s+one\s+mana\s+of\s+any\s+color/i.test(landOracleText)) {
     // Check if this is restricted to commander's color identity
     // Pattern: "add one mana of any color in your commander's color identity"
     const isCommanderRestricted = /commander'?s?\s+color\s+identity|color\s+identity.*commander/i.test(landOracleText);
@@ -320,16 +321,23 @@ export function getManaAbilitiesForPermanent(
     const payLifeAnyColorMatch = landOracleText.match(/\{t\},\s*pay\s+(\d+)\s+life:\s*add\s+one\s+mana\s+of\s+any\s+color/i);
     if (payLifeAnyColorMatch) {
       const lifeAmount = parseInt(payLifeAnyColorMatch[1], 10);
-      abilities.push({
-        id: 'native_pay_life_any',
-        cost: `{T}, Pay ${lifeAmount} life`,
-        produces: ['W', 'U', 'B', 'R', 'G'],
-        producesAllAtOnce: false,
-        additionalCosts: [{
-          type: 'pay_life',
-          amount: lifeAmount,
-        }],
+      const requiresControlledArtifact = /activate only if you control an artifact/i.test(landOracleText);
+      const controlsArtifact = !requiresControlledArtifact || (gameState?.battlefield || []).some((p: any) => {
+        if (String(p?.controller || '') !== String(playerId || '')) return false;
+        return /\bartifact\b/i.test(String(p?.card?.type_line || ''));
       });
+      if (controlsArtifact) {
+        abilities.push({
+          id: 'native_pay_life_any',
+          cost: `{T}, Pay ${lifeAmount} life`,
+          produces: ['W', 'U', 'B', 'R', 'G'],
+          producesAllAtOnce: false,
+          additionalCosts: [{
+            type: 'pay_life',
+            amount: lifeAmount,
+          }],
+        });
+      }
     }
 
     const payLifeMatch = landOracleText.match(/\{t\},\s*pay\s+(\d+)\s+life:\s*add\s+\{([wubrgc])\}\s+or\s+\{([wubrgc])\}/i);

@@ -49,6 +49,45 @@ function getFloatingPaymentPoolKey(permanentId: string, mana: string, pool?: any
   return getFloatingPaymentPoolColorKey(permanentId, mana, pool);
 }
 
+function applyPayLifeManaAbilityCost(
+  game: any,
+  playerId: string,
+  permanent: any,
+  abilityId?: string,
+): { ok: true } | { ok: false; code: string; message: string } {
+  const ability = resolveLegacyManaAbilityById(game.state, permanent, playerId, abilityId);
+  const payLifeAmount = Math.max(
+    0,
+    Number(
+      (Array.isArray((ability as any)?.additionalCosts)
+        ? (ability as any).additionalCosts.find((cost: any) => cost?.type === 'pay_life')?.amount
+        : 0) || 0,
+    ),
+  );
+  if (payLifeAmount <= 0) return { ok: true };
+
+  const currentLife = Number(game.state.life?.[playerId] ?? 40);
+  const cardName = String((permanent as any)?.card?.name || 'Permanent');
+  if (!Number.isFinite(currentLife) || currentLife <= payLifeAmount) {
+    return {
+      ok: false,
+      code: 'INSUFFICIENT_LIFE',
+      message: `Cannot pay ${payLifeAmount} life for ${cardName} (you have ${Number.isFinite(currentLife) ? currentLife : 0} life)`,
+    };
+  }
+
+  if (!game.state.life) game.state.life = {};
+  game.state.life[playerId] = currentLife - payLifeAmount;
+  try {
+    (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+    (game.state as any).lifeLostThisTurn[String(playerId)] =
+      Number((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + payLifeAmount;
+  } catch {
+    // Best-effort tracking only.
+  }
+  return { ok: true };
+}
+
 /** Normalize a resolution step response into the payment-source list the appliers expect. */
 export function extractResolutionPaymentItems(rawSelections: any): ResolutionPaymentItem[] | undefined {
   const raw = Array.isArray(rawSelections?.payment)
@@ -312,6 +351,9 @@ export function applyWardManaPaymentSelection(
           selectedPaymentAvailableTotals[bonusKey] = (selectedPaymentAvailableTotals[bonusKey] || 0) + bonusAmount;
         }
       }
+
+      const payLifeResult = applyPayLifeManaAbilityCost(game, playerId, permanent, abilityId);
+      if (!payLifeResult.ok) return payLifeResult;
 
       const wardManaLifeEffect = resolveManaAbilityLifeEffect({
         card: permCard,
@@ -620,6 +662,9 @@ export function applySelectedManaPaymentForResolutionCost(
           selectedPaymentAvailableTotals[bonusKey] = (selectedPaymentAvailableTotals[bonusKey] || 0) + bonusAmount;
         }
       }
+
+      const payLifeResult = applyPayLifeManaAbilityCost(game, playerId, permanent, abilityId);
+      if (!payLifeResult.ok) return payLifeResult;
 
       const resolutionManaLifeEffect = resolveManaAbilityLifeEffect({
         card: permCard,

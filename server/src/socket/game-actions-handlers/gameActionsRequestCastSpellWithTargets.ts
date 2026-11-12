@@ -31,6 +31,7 @@ import {
 } from "./gameActionsCommandZoneAndAlternateCastCosts.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
 import { pendingReplicateCountFields } from "../../state/modules/replicateCastUtils.js";
+import { getOwnMainPhaseExtraTargetAugmentation } from "./gameActionsSpellTargetSelection.js";
 
 export type RequestCastSpellWithTargetsArgs = {
   io: Server;
@@ -675,11 +676,15 @@ export function tryQueueRequestCastSpellWithTargets(
           const auraTargetTypeForDescription = auraMatchForDescription
             ? String(auraMatchForDescription[1] || 'creature').toLowerCase()
             : null;
+          const mainPhaseExtraTargets = !isAura
+            ? getOwnMainPhaseExtraTargetAugmentation(game, String(playerId), oracleText, cardName)
+            : null;
           const targetDescription = isAura && auraTargetTypeForDescription
             ? `Enchant ${auraTargetTypeForDescription}`
-            : preferParsedTargetReqs
-              ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
-              : spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
+            : mainPhaseExtraTargets?.targetDescription
+              || (preferParsedTargetReqs
+                ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
+                : spellSpec?.targetDescription || targetReqs?.targetDescription || 'target');
 
           const targetStep = ResolutionQueueManager.addStep(gameId, {
             type: ResolutionStepType.TARGET_SELECTION,

@@ -114,6 +114,8 @@ export type CastSpellPaymentCheckpoint = {
   tappedPermanentIds: Set<string>;
   harmonizePermanentId: string | undefined;
   removedCounters: Array<{ permanentId: string; counterType: string; previousAmount: number }>;
+  /** Life paid via mana-ability pay-life costs during this payment attempt. */
+  paidLifeAmount: number;
 };
 
 export type CastSpellCostConvokeFromHandContinue = {
@@ -624,6 +626,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
         tappedPermanentIds: new Set<string>(),
         harmonizePermanentId: undefined as string | undefined,
         removedCounters: [] as Array<{ permanentId: string; counterType: string; previousAmount: number }>,
+        paidLifeAmount: 0,
       };
       const abortCastSpellPayment = (payload: { code: string; message: string }): void => {
         restorePlayerCastSpellPaymentCheckpoint(game, playerId, {
@@ -631,6 +634,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
           tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
           harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
           removedCounters: castSpellPaymentCheckpoint.removedCounters,
+          paidLifeAmount: castSpellPaymentCheckpoint.paidLifeAmount,
         });
         (game.state as any)._lastCastPaymentFailure = {
           code: payload.code,

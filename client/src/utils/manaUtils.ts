@@ -90,6 +90,8 @@ export interface ManaPaymentSource {
    * Auto-pay must float this from other sources/pool in the same payment, and tap those first.
    */
   activationManaCost?: string;
+  /** Life paid as part of activating this mana ability (Spire of Industry, Mana Confluence). */
+  lifeCost?: number;
 }
 
 function normalizeProducedColors(producedColors?: readonly string[]): Color[] {

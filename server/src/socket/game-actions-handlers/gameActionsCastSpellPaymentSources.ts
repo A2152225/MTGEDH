@@ -344,6 +344,7 @@ export function restorePlayerCastSpellPaymentCheckpoint(
     tappedPermanentIds: Iterable<string>;
     harmonizePermanentId?: string;
     removedCounters?: Array<{ permanentId: string; counterType: string; previousAmount: number }>;
+    paidLifeAmount?: number;
   },
 ): void {
   const pool = getOrInitManaPool(game.state, playerId) as any;
@@ -375,6 +376,20 @@ export function restorePlayerCastSpellPaymentCheckpoint(
       (permanent as any).counters[removed.counterType] = previousAmount;
     } else {
       delete (permanent as any).counters[removed.counterType];
+    }
+  }
+
+  const paidLife = Math.max(0, Math.floor(Number(checkpoint.paidLifeAmount || 0)));
+  if (paidLife > 0) {
+    if (!game.state.life) game.state.life = {};
+    const currentLife = Number(game.state.life[playerId] || 0);
+    game.state.life[playerId] = currentLife + paidLife;
+    try {
+      (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+      const lost = Number((game.state as any).lifeLostThisTurn[String(playerId)] || 0);
+      (game.state as any).lifeLostThisTurn[String(playerId)] = Math.max(0, lost - paidLife);
+    } catch {
+      // Best-effort rollback only.
     }
   }
 }

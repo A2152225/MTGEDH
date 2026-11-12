@@ -75,18 +75,29 @@ export function getSharedStaticCostAdjustments(
   const nonBattlefieldAdjustment = buildLiveSpellCostAdjustment(
     buildCostAdjustmentPlan(game?.state, playerId, card, { sourceTypes: ['emblem', 'plane', 'scheme'] }),
   );
-  const battlefieldTaxAdjustment = buildLiveSpellCostAdjustment(
+  // Battlefield reductions (Immortal Sun, medallions, etc.) live in buildCostAdjustmentPlan —
+  // the same plan that drives hand cost badges. Payment must use them too; previously only
+  // battlefield *taxes* were applied here, so hand showed {1} while payment still asked {2}.
+  const battlefieldAdjustment = buildLiveSpellCostAdjustment(
     buildCostAdjustmentPlan(game?.state, playerId, card, { sourceTypes: ['battlefield'] }),
   );
 
+  const colors: Record<string, number> = { ...nonBattlefieldAdjustment.coloredReductions };
+  for (const [color, amount] of Object.entries(battlefieldAdjustment.coloredReductions || {})) {
+    colors[color] = (Number(colors[color] || 0) || 0) + (Number(amount) || 0);
+  }
+
   return {
     reduction: {
-      generic: nonBattlefieldAdjustment.genericReduction,
-      colors: { ...nonBattlefieldAdjustment.coloredReductions },
-      messages: [...nonBattlefieldAdjustment.reductionMessages],
+      generic: nonBattlefieldAdjustment.genericReduction + battlefieldAdjustment.genericReduction,
+      colors,
+      messages: [
+        ...nonBattlefieldAdjustment.reductionMessages,
+        ...battlefieldAdjustment.reductionMessages,
+      ],
     },
-    genericTax: battlefieldTaxAdjustment.genericTax + nonBattlefieldAdjustment.genericTax,
-    taxMessages: [...battlefieldTaxAdjustment.taxMessages, ...nonBattlefieldAdjustment.taxMessages],
+    genericTax: battlefieldAdjustment.genericTax + nonBattlefieldAdjustment.genericTax,
+    taxMessages: [...battlefieldAdjustment.taxMessages, ...nonBattlefieldAdjustment.taxMessages],
   };
 }
 
@@ -283,14 +294,9 @@ export function calculateCostReduction(
         }
       }
       
-      // Etherium Sculptor: Artifact spells cost {1} less
-      if (permName.includes("etherium sculptor") || permName.includes("foundry inspector")) {
-        if (isArtifact) {
-          reduction.generic += 1;
-          reduction.messages.push(`${perm.card?.name}: -{1} (artifact)`);
-        }
-      }
-      
+      // Artifact-spell reducers (Etherium Sculptor / Foundry Inspector) come from
+      // buildCostAdjustmentPlan via getSharedStaticCostAdjustments — do not double-count.
+
       // Cloud Key: Chosen type costs {1} less
       if (permName.includes("cloud key") && chosenType) {
         const chosenCardType = chosenType.toLowerCase();
@@ -327,84 +333,14 @@ export function calculateCostReduction(
         }
       }
       
-      // ============================================
-      // COLOR BASED REDUCTIONS (Medallions)
-      // ============================================
-      
-      // Ruby Medallion: Red spells cost {1} less
-      if (permName.includes("ruby medallion") && hasRed) {
-        reduction.generic += 1;
-        reduction.messages.push(`Ruby Medallion: -{1} (red)`);
-      }
-      
-      // Sapphire Medallion: Blue spells cost {1} less
-      if (permName.includes("sapphire medallion") && hasBlue) {
-        reduction.generic += 1;
-        reduction.messages.push(`Sapphire Medallion: -{1} (blue)`);
-      }
-      
-      // Jet Medallion: Black spells cost {1} less
-      if (permName.includes("jet medallion") && hasBlack) {
-        reduction.generic += 1;
-        reduction.messages.push(`Jet Medallion: -{1} (black)`);
-      }
-      
-      // Pearl Medallion: White spells cost {1} less
-      if (permName.includes("pearl medallion") && hasWhite) {
-        reduction.generic += 1;
-        reduction.messages.push(`Pearl Medallion: -{1} (white)`);
-      }
-      
-      // Emerald Medallion: Green spells cost {1} less
-      if (permName.includes("emerald medallion") && hasGreen) {
-        reduction.generic += 1;
-        reduction.messages.push(`Emerald Medallion: -{1} (green)`);
-      }
-      
-      // The Wind Crystal: White spells cost {1} less
-      if (permName.includes("wind crystal") && hasWhite) {
-        reduction.generic += 1;
-        reduction.messages.push(`The Wind Crystal: -{1} (white)`);
-      }
-      
+      // Color medallions / Wind Crystal / God monuments: covered by
+      // buildCostAdjustmentPlan ("… spells you cast cost {N} less") via
+      // getSharedStaticCostAdjustments — do not double-count here.
+
       // Daru Warchief: Soldier spells cost {1} less
       if (permName.includes("daru warchief") && cardTypeLine.includes("soldier")) {
         reduction.generic += 1;
         reduction.messages.push(`Daru Warchief: -{1} (soldier)`);
-      }
-      
-      // ============================================
-      // MONUMENT COST REDUCTIONS (color creature spells)
-      // ============================================
-      
-      // Oketra's Monument: White creature spells cost {1} less
-      if (permName.includes("oketra's monument") && isCreature && hasWhite) {
-        reduction.generic += 1;
-        reduction.messages.push(`Oketra's Monument: -{1} (white creature)`);
-      }
-      
-      // Bontu's Monument: Black creature spells cost {1} less
-      if (permName.includes("bontu's monument") && isCreature && hasBlack) {
-        reduction.generic += 1;
-        reduction.messages.push(`Bontu's Monument: -{1} (black creature)`);
-      }
-      
-      // Hazoret's Monument: Red creature spells cost {1} less
-      if (permName.includes("hazoret's monument") && isCreature && hasRed) {
-        reduction.generic += 1;
-        reduction.messages.push(`Hazoret's Monument: -{1} (red creature)`);
-      }
-      
-      // Kefnet's Monument: Blue creature spells cost {1} less
-      if (permName.includes("kefnet's monument") && isCreature && hasBlue) {
-        reduction.generic += 1;
-        reduction.messages.push(`Kefnet's Monument: -{1} (blue creature)`);
-      }
-      
-      // Rhonas's Monument: Green creature spells cost {1} less
-      if (permName.includes("rhonas's monument") && isCreature && hasGreen) {
-        reduction.generic += 1;
-        reduction.messages.push(`Rhonas's Monument: -{1} (green creature)`);
       }
       
       // ============================================

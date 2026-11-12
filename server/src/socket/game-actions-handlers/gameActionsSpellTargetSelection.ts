@@ -7,8 +7,8 @@
  *
  * Public entry symbols: buildSpellTargetListFromRequirements,
  * buildGroupedSpellTargetMetadata, buildSpellTargetSelectionClauses,
- * mapSpellTargetRefToDisplay, shouldPreferParsedTargetReqs (re-export),
- * resolveTargetCount.
+ * getOwnMainPhaseExtraTargetAugmentation, mapSpellTargetRefToDisplay,
+ * shouldPreferParsedTargetReqs (re-export), resolveTargetCount.
  */
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { normalizeGameplayEffectText } from "../../../../rules-engine/src/oracleReminderText.js";
@@ -30,6 +30,74 @@ export function resolveTargetCount(baseCount: number | undefined, countIsX: bool
     return Number.isFinite(xValue) ? Math.max(0, Math.floor(Number(xValue))) : 0;
   }
   return Math.max(0, Number(baseCount ?? 0));
+}
+
+/** True when the active player is casting during their own main phase. */
+export function isCasterOwnMainPhase(game: any, playerId: string): boolean {
+  const state = game?.state || game || {};
+  const step = String(state.step || '').toUpperCase();
+  const phase = String(state.phase || '').toLowerCase();
+  const isMain =
+    step === 'MAIN1'
+    || step === 'MAIN2'
+    || step === 'MAIN'
+    || step === 'MAIN_1'
+    || step === 'MAIN_2'
+    || step.includes('MAIN')
+    || phase === 'precombatmain'
+    || phase === 'postcombatmain'
+    || phase.includes('main');
+  const active = String(state.activePlayer || state.turnPlayer || '');
+  return Boolean(isMain && active && active === String(playerId));
+}
+
+/**
+ * Return to Dust / similar: a later sentence grants an optional second target
+ * only if the spell was cast during the caster's main phase. That modifies the
+ * cast-time target count (min 1 / max 2) — it must not become a second prompt.
+ */
+export function isMainPhaseConditionalExtraTargetClause(clauseText: string): boolean {
+  const text = String(clauseText || '');
+  return /if you cast this spell during your main phase/i.test(text)
+    && /\bup to one other target\b/i.test(text);
+}
+
+export function oracleOffersOwnMainPhaseExtraTarget(oracleText: string): boolean {
+  return splitSpellTargetClauses(String(oracleText || ''))
+    .some((clause) => isMainPhaseConditionalExtraTargetClause(clause));
+}
+
+/**
+ * When the caster is in their own main phase and the spell has the Return to Dust
+ * style bonus, collapse that conditional into a single selection: choose 1 or 2.
+ */
+export function getOwnMainPhaseExtraTargetAugmentation(
+  game: any,
+  playerId: string,
+  oracleText: string,
+  cardName?: string,
+): { minTargets: number; maxTargets: number; targetDescription: string } | null {
+  if (!oracleOffersOwnMainPhaseExtraTarget(oracleText)) return null;
+  if (!isCasterOwnMainPhase(game, playerId)) return null;
+
+  const baseClause = splitSpellTargetClauses(String(oracleText || '')).find(
+    (clause) => !isMainPhaseConditionalExtraTargetClause(clause) && /\btarget\b/i.test(clause),
+  ) || '';
+  const { spellSpec, targetReqs, preferParsedTargetReqs } = resolveCastSpellParsedTargeting({
+    cardName: cardName || '',
+    oracleText: baseClause || String(oracleText || ''),
+    gameState: game?.state || game,
+    controllerId: String(playerId),
+  });
+  const baseDescription = preferParsedTargetReqs
+    ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
+    : spellSpec?.targetDescription || targetReqs?.targetDescription || 'target';
+
+  return {
+    minTargets: 1,
+    maxTargets: 2,
+    targetDescription: `${baseDescription}; up to one other`,
+  };
 }
 
 export function mapSpellTargetRefToDisplay(game: any, playerId: string, targetRef: any): any {
@@ -446,6 +514,10 @@ export function buildSpellTargetSelectionClauses(
   }> = [];
 
   for (const clauseText of clauses) {
+    // Main-phase "up to one other target" is an augmentation of the first
+    // selection (min 1 / max 2), not a second TARGET_SELECTION prompt.
+    if (isMainPhaseConditionalExtraTargetClause(clauseText)) continue;
+
     const { spellSpec, targetReqs, preferParsedTargetReqs } = resolveCastSpellParsedTargeting({
       cardName,
       oracleText: clauseText,

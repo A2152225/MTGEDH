@@ -1034,3 +1034,50 @@ describe('chosen-type Cavern of Souls source stamping', () => {
     ]);
   });
 });
+
+describe('Spire of Industry pay-life any-color payment sources', () => {
+  const SPIRE_ORACLE =
+    '{T}: Add {C}.\n{T}, Pay 1 life: Add one mana of any color. Activate only if you control an artifact.';
+
+  const spire = {
+    id: 'spire_1',
+    controller: 'p1',
+    tapped: false,
+    card: {
+      id: 'spire_card',
+      name: 'Spire of Industry',
+      type_line: 'Land',
+      oracle_text: SPIRE_ORACLE,
+    },
+  };
+
+  const solRing = {
+    id: 'sol_1',
+    controller: 'p1',
+    tapped: false,
+    card: {
+      id: 'sol_card',
+      name: 'Sol Ring',
+      type_line: 'Artifact',
+      oracle_text: '{T}: Add {C}{C}.',
+    },
+  };
+
+  it('offers colored mana when the controller has an artifact', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [spire, solRing] as any);
+    const colored = sources.find((source) => source.abilityId === 'native_pay_life_any');
+    expect(colored).toMatchObject({
+      name: 'Spire of Industry',
+      abilityId: 'native_pay_life_any',
+      lifeCost: 1,
+      options: ['W', 'U', 'B', 'R', 'G'],
+    });
+    expect(sources.some((source) => source.abilityId === 'native_c' && source.name === 'Spire of Industry')).toBe(true);
+  });
+
+  it('hides the colored ability when no artifact is controlled', () => {
+    const sources = buildAvailableManaSourcesForPlayer('p1', [spire] as any);
+    expect(sources.some((source) => source.abilityId === 'native_pay_life_any')).toBe(false);
+    expect(sources.some((source) => source.abilityId === 'native_c' && source.name === 'Spire of Industry')).toBe(true);
+  });
+});

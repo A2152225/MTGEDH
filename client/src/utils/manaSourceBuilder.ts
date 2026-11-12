@@ -96,7 +96,8 @@ function supportsInlineSelectedPaymentAbility(ability: InlineSelectedPaymentAbil
   if (ability.isLoyaltyAbility || ability.isFetchAbility || ability.requiresTarget) return false;
   if (ability.requiresUntap) return false;
   if (!supportsSequentialInlineActivationManaCost(ability.manaCost)) return false;
-  if (typeof ability.lifeCost === 'number' && ability.lifeCost > 0) return false;
+  // Pay-N-life mana (Spire of Industry, Mana Confluence, pain duals) is supported in
+  // cast payment — server deducts the life when the source is selected.
   if (Array.isArray(ability.otherCosts) && ability.otherCosts.length > 0) return false;
 
   const normalizedCost = String(ability.cost || '').toLowerCase();
@@ -105,6 +106,19 @@ function supportsInlineSelectedPaymentAbility(ability: InlineSelectedPaymentAbil
   if (/\bpay\b/.test(normalizedCost) && !/\bpay\s+\d+\s+life\b/.test(normalizedCost)) return false;
 
   return true;
+}
+
+/** "Activate only if you control an artifact" (Spire of Industry). */
+function abilityRequiresControlledArtifact(ability: InlineSelectedPaymentAbility): boolean {
+  const text = `${ability.description || ''} ${ability.effect || ''}`;
+  return /activate only if you control an artifact/i.test(text);
+}
+
+function playerControlsArtifact(battlefield: BattlefieldPermanent[], playerId: string): boolean {
+  return battlefield.some((perm) => {
+    if (String(perm?.controller || '') !== String(playerId)) return false;
+    return /\bartifact\b/i.test(String(perm?.card?.type_line || ''));
+  });
 }
 
 function parseChosenColorManaEffect(
@@ -391,6 +405,12 @@ function normalizeInlinePaymentAbilityId(ability: InlineSelectedPaymentAbility):
   if (ability.cost === '{T}' && normalizedEffect === 'add {r}') return 'native_r';
   if (ability.cost === '{T}' && normalizedEffect === 'add {g}') return 'native_g';
   if (ability.cost === '{T}' && normalizedEffect === 'add {c}') return 'native_c';
+  if (
+    /\bpay\s+\d+\s+life\b/i.test(String(ability.cost || ''))
+    && /add\s+one\s+mana\s+of\s+any\s+color/i.test(ability.effect)
+  ) {
+    return 'native_pay_life_any';
+  }
   if (ability.cost === '{T}' && /add\s+one\s+mana\s+of\s+any\s+color/i.test(ability.effect)) return 'native_any';
   if (ability.cost === '{T}' && /add\s+one\s+mana\s+of\s+any\s+type/i.test(ability.effect)) return 'native_any';
   // Thriving lands keep their printed ability id so both fixed + chosen colors remain available.
@@ -676,6 +696,7 @@ function buildInlineManaSourcesForPermanent(
 
   for (const ability of parsedAbilities) {
     if (!supportsInlineSelectedPaymentAbility(ability)) continue;
+    if (abilityRequiresControlledArtifact(ability) && !playerControlsArtifact(globalBattlefield, playerId)) continue;
     if (isCreature && ability.requiresTap && !canCreatureUseTapAbilityNow(perm, globalBattlefield)) continue;
 
     const parsedEffect = parseChosenColorManaEffect(
@@ -722,12 +743,19 @@ function buildInlineManaSourcesForPermanent(
       abilityForRestriction,
     );
 
+    const lifeCost = typeof ability.lifeCost === 'number' && ability.lifeCost > 0
+      ? ability.lifeCost
+      : undefined;
+    const payLifeLabel = lifeCost
+      ? `${ability.label || 'Add mana'} (pay ${lifeCost} life)`
+      : ability.label;
+
     sources.push({
       id: `${actualSourceId}::${normalizedAbilityId}`,
       sourcePermanentId: actualSourceId,
       abilityId: normalizedAbilityId,
       name: card.name,
-      label: ability.label,
+      label: payLifeLabel,
       options: parsedEffect.options,
       ...(Array.isArray(producedColors) && producedColors.length > 0 ? { producedColors } : {}),
       ...(typeof consumable === 'boolean' ? { consumable } : {}),
@@ -739,6 +767,7 @@ function buildInlineManaSourcesForPermanent(
       ...(spendRestriction ? { spendRestriction } : {}),
       ...(grantsUncounterableOnSpend ? { grantsUncounterableOnSpend: true } : {}),
       ...(ability.manaCost ? { activationManaCost: ability.manaCost } : {}),
+      ...(lifeCost ? { lifeCost } : {}),
     });
   }
 

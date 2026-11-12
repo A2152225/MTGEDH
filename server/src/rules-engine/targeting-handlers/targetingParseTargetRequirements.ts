@@ -592,8 +592,8 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: scope, ...manaValueConstraint };
   }
   
-  // Check for "up to X target" patterns
-  const upToMatch = t.match(/up\s+to\s+(\w+)\s+target\s+([^.]+?)(?:\s+that\s+player\s+controls|\.|,|$)/i);
+  // Check for "up to X [other] target" patterns (Return to Dust bonus clause, etc.)
+  const upToMatch = t.match(/up\s+to\s+(\w+)(?:\s+other)?\s+target\s+([^.]+?)(?:\s+that\s+player\s+controls|\.|,|$)/i);
   if (upToMatch) {
     const numWord = String(upToMatch[1] || '').toLowerCase();
     const rawTargetType = String(upToMatch[2] || '').trim().toLowerCase();

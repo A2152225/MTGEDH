@@ -131,6 +131,18 @@ export function hasActivatableLoyaltyAbility(
   if (!typeLine.includes('planeswalker')) return false;
   if (permanentActivatedAbilitiesLockedByAttachment(permanent, state, false).locked) return false;
 
+  // Immortal Sun: "Players can't activate planeswalkers' loyalty abilities."
+  for (const other of battlefield) {
+    if (!other || other.phasedOut) continue;
+    const otherOracle = String(other?.card?.oracle_text || '').toLowerCase();
+    if (
+      /players can't activate planeswalkers'? loyalty abilities/.test(otherOracle)
+      || /players can't activate loyalty abilities of planeswalkers/.test(otherOracle)
+    ) {
+      return false;
+    }
+  }
+
   const activationsThisTurn = (permanent as any).loyaltyActivationsThisTurn || 0;
   let maxActivations = 1;
 

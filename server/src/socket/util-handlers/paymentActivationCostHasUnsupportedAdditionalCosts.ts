@@ -8,9 +8,10 @@ import { parseRemoveCounterActivationCost } from "./manaRemoveCounterCostParse.j
 
 /**
  * True when an activation cost includes costs spell-payment cannot currently pay
- * (discard, exile, pay life text residue, remove-from-other, etc.). Shared by cast
- * payment and AI payment planning so the AI never selects sources the caster rejects.
- * Self remove-counter clauses are supported and stripped before the residue check.
+ * (discard, exile, remove-from-other, etc.). Pay-N-life and self-sacrifice are
+ * supported. Shared by cast payment and AI payment planning so the AI never
+ * selects sources the caster rejects. Self remove-counter clauses are supported
+ * and stripped before the residue check.
  */
 export function paymentActivationCostHasUnsupportedAdditionalCosts(
   activationCost?: string | null,
@@ -22,6 +23,8 @@ export function paymentActivationCostHasUnsupportedAdditionalCosts(
   let residue = normalizedCost;
   residue = residue.replace(/\{(?:[tq]|\d+|[wubrgc])\}/gi, ' ');
   residue = residue.replace(/sacrifice\s+[^,;:]*/gi, ' ');
+  // Pay-life mana (Spire of Industry, Mana Confluence, Horizon lands) is paid in cast payment.
+  residue = residue.replace(/\bpay\s+\d+\s+life\b/gi, ' ');
   // Bounce / karoo lands: "{T}, Return this land to its owner's hand: Add {R}{W}"
   residue = residue.replace(
     /return\s+(?:this\s+(?:land|permanent)|~|CARDNAME)\s+to\s+(?:its\s+owner'?s\s+hand|your\s+hand)/gi,

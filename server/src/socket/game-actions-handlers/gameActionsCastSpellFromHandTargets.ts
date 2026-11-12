@@ -28,6 +28,7 @@ import {
   buildGroupedSpellTargetMetadata,
   buildSpellTargetListFromRequirements,
   buildSpellTargetSelectionClauses,
+  getOwnMainPhaseExtraTargetAugmentation,
   resolveTargetCount,
   shouldPreferParsedTargetReqs,
 } from "./gameActionsSpellTargetSelection.js";
@@ -335,9 +336,17 @@ export function tryPromptCastSpellTargetsFromHand(
       // Handle targeting for instants/sorceries
       // Use BOTH spellSpec (for known patterns) and targetReqs (for any "target" text)
       if (needsTargetSelection) {
-        // This spell requires targets - check if we have them already
-        const requiredMinTargets = resolvedMinTargets;
-        const requiredMaxTargets = resolvedMaxTargets;
+        // This spell requires targets - check if we have them already.
+        // Return to Dust-style "if you cast during your main phase, you may
+        // exile up to one other target" widens the *same* prompt to max 2.
+        const mainPhaseExtraTargets = getOwnMainPhaseExtraTargetAugmentation(
+          game,
+          String(playerId),
+          oracleText,
+          String(cardInHand.name || ''),
+        );
+        const requiredMinTargets = mainPhaseExtraTargets?.minTargets ?? resolvedMinTargets;
+        const requiredMaxTargets = mainPhaseExtraTargets?.maxTargets ?? resolvedMaxTargets;
         
         // CRITICAL: Check if there's already a pending cast for this card to prevent infinite loop
         // If a pending cast exists, it means we've already requested targets before
@@ -447,9 +456,10 @@ export function tryPromptCastSpellTargetsFromHand(
             : requiredMaxTargets;
           
           // Emit target selection request
-          const targetDescription = preferParsedTargetReqs
-            ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
-            : targetReqs?.targetDescription || spellSpec?.targetDescription || 'target';
+          const targetDescription = mainPhaseExtraTargets?.targetDescription
+            || (preferParsedTargetReqs
+              ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
+              : targetReqs?.targetDescription || spellSpec?.targetDescription || 'target');
           const effectId = `cast_${cardId}_${Date.now()}`;
           
           // Store pending cast info for after targets are selected (like requestCastSpell does)

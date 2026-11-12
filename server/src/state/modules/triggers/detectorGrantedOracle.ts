@@ -8,6 +8,11 @@
 
 import { getContinuousGrantedAbilitiesForPermanent } from '../staticEffectSpec.js';
 import { persistedGrantedAbilitiesSurvivingLoss } from '../persistedGrantedAbilityLoss.js';
+import {
+  filterOracleTextToActiveStationAbilities,
+  hasStationThresholdMarkers,
+  readChargeCounterCount,
+} from '../../../utils/stationParser.js';
 
 const FIRST_TIME_EACH_TURN_RE =
   /\s+for the first time(?: each turn| during each of your turns)/gi;
@@ -79,7 +84,13 @@ export function resolveDetectorOracleForPermanent(
   oncePerTurn: boolean;
   onlyOnControllerTurn: boolean;
 } {
-  const merged = mergeDetectorOracleWithContinuousGrants(printedOracle, permanent, gameState);
+  // Station "N+ | …" lines (and following lines until the next marker) are not
+  // printed abilities until charge counters reach N — strip them for detectors.
+  let printed = String(printedOracle || '');
+  if (hasStationThresholdMarkers(printed)) {
+    printed = filterOracleTextToActiveStationAbilities(printed, readChargeCounterCount(permanent));
+  }
+  const merged = mergeDetectorOracleWithContinuousGrants(printed, permanent, gameState);
   return annotateFirstTimeEachTurnOracle(merged.oracleText);
 }
 

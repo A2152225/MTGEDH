@@ -312,6 +312,22 @@ export function checkChainVeilEndStepTrigger(gameState: any, playerId: string): 
  * - Eidolon of Obstruction (loyalty abilities cost {1} more for opponents)
  * - Teferi's Talent emblem (instant speed loyalty activation)
  */
+/** Immortal Sun / similar: "Players can't activate planeswalkers' loyalty abilities." */
+export function loyaltyAbilitiesLockedByStaticEffect(gameState: any): boolean {
+  const battlefield = Array.isArray(gameState?.battlefield) ? gameState.battlefield : [];
+  for (const permanent of battlefield) {
+    if (!permanent || permanent.phasedOut) continue;
+    const oracle = String(permanent?.card?.oracle_text || permanent?.card?.oracleText || '').toLowerCase();
+    if (
+      /players can't activate planeswalkers'? loyalty abilities/.test(oracle)
+      || /players can't activate loyalty abilities of planeswalkers/.test(oracle)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function canActivateLoyaltyAbility(
   permanent: any,
   abilityIndex: number,
@@ -322,6 +338,10 @@ export function canActivateLoyaltyAbility(
   // Check controller
   if (permanent?.controller !== playerId) {
     return { canActivate: false, reason: "Not your planeswalker" };
+  }
+
+  if (loyaltyAbilitiesLockedByStaticEffect(gameState)) {
+    return { canActivate: false, reason: "Players can't activate planeswalkers' loyalty abilities" };
   }
   
   // Check if already activated this turn, considering Chain Veil and similar effects

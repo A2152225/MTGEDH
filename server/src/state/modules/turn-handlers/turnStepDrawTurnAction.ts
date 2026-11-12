@@ -35,8 +35,13 @@ export function runTurnStepDrawTurnAction(
             debug(2, `${ts()} [nextStep] Skipped draw step turn action for ${turnPlayer} (${skipDrawSource})`);
             try { applyOptionalDrawStepSkipLifeGain(ctx, String(turnPlayer)); } catch {}
           } else if (shouldPerformDrawStepTurnAction(ctx, String(turnPlayer))) {
-            // Calculate total cards to draw: 1 (base) + any additional draws from effects
-            const additionalDraws = (ctx as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
+            // Calculate total cards to draw: 1 (base) + any additional draws from effects.
+            // Prefer ctx bag, fall back to state — recalculatePlayerEffects writes both, but
+            // some replay/reset paths only refresh state.additionalDrawsPerTurn.
+            const additionalDraws =
+              Number((ctx as any).additionalDrawsPerTurn?.[turnPlayer] ?? 0) ||
+              Number((ctx.state as any)?.additionalDrawsPerTurn?.[turnPlayer] ?? 0) ||
+              0;
             const totalDraws = 1 + additionalDraws;
             const replayDrawnCardIds = (Array.isArray((ctx.state as any)?._replayDrawStepCardIds)
               ? (ctx.state as any)._replayDrawStepCardIds

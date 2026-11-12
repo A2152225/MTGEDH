@@ -195,7 +195,9 @@ function performDrawStepTurnActionDuringPhaseSkip(
 
   const additionalDraws = options?.skipAdditionalDraws
     ? 0
-    : (game as any).additionalDrawsPerTurn?.[turnPlayer] || 0;
+    : (Number((game as any).additionalDrawsPerTurn?.[turnPlayer] ?? 0) ||
+      Number((game.state as any)?.additionalDrawsPerTurn?.[turnPlayer] ?? 0) ||
+      0);
   const totalDraws = 1 + additionalDraws;
   let drawn: unknown[] = [];
 
@@ -823,7 +825,10 @@ export function completePendingPhaseSkipCore(ctx: PhaseSkipContext): PhaseSkipCo
           debugWarn(1, '[phaseSkip] Failed to recalculate player effects:', recalcErr);
         }
 
-        const additionalDraws = game.additionalDrawsPerTurn?.[turnPlayer] || 0;
+        const additionalDraws =
+          Number(game.additionalDrawsPerTurn?.[turnPlayer] ?? 0) ||
+          Number((game.state as any)?.additionalDrawsPerTurn?.[turnPlayer] ?? 0) ||
+          0;
         const totalDraws = 1 + additionalDraws;
         const drawn = game.drawCards(turnPlayer, totalDraws);
         if (Array.isArray(drawn)) {

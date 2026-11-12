@@ -115,6 +115,22 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
   }
 
   {
+    // Compound type-line intersection ("artifact creatures") — parseClassList would
+    // treat multi-word phrases as a single unknown class and return null.
+    const m = raw.match(/^x is the number of (other )?artifact creatures you control$/i);
+    if (m) {
+      const isOther = Boolean(String(m[1] || '').trim());
+      const excludedId = isOther ? String(ctx?.sourceId || '').trim() : '';
+      return controlled.filter((permanent: any) => {
+        const id = String(permanent?.id || '').trim();
+        if (excludedId && id === excludedId) return false;
+        const typeLine = String(permanent?.card?.type_line || permanent?.type_line || permanent?.cardType || '').toLowerCase();
+        return /\bcreature\b/.test(typeLine) && /\bartifact\b/.test(typeLine);
+      }).length;
+    }
+  }
+
+  {
     const m = raw.match(/^x is the number of (.+) you control$/i);
     if (m) {
       const spec = parseColorQualifiedClassSpec(String(m[1] || ''));

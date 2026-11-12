@@ -37,6 +37,7 @@ import {
   buildGroupedSpellTargetMetadata,
   buildSpellTargetListFromRequirements,
   buildSpellTargetSelectionClauses,
+  getOwnMainPhaseExtraTargetAugmentation,
   mapSpellTargetRefToDisplay,
   resolveTargetCount,
   shouldPreferParsedTargetReqs,
@@ -141,16 +142,22 @@ export function tryComputeRequestCastSpellTargets(
     // counts from instant/sorcery targetReqs � those are null for Auras and would
     // emit minTargets/maxTargets 0, which makes the client show not-allowed on every
     // host and blocks selection (Fertile Ground / Enchant land, etc.).
-    const requiredMinTargets = isAura
+    const parsedMinTargets = isAura
       ? 1
       : spellSpec && !preferParsedTargetReqs
         ? resolveTargetCount(spellSpec.minTargets, (spellSpec as any).minTargetsIsX === true, chosenXValue)
         : resolveTargetCount(targetReqs?.minTargets, (targetReqs as any)?.minTargetsIsX === true, chosenXValue);
-    const requiredMaxTargets = isAura
+    const parsedMaxTargets = isAura
       ? 1
       : spellSpec && !preferParsedTargetReqs
         ? resolveTargetCount(spellSpec.maxTargets, (spellSpec as any).maxTargetsIsX === true, chosenXValue)
         : resolveTargetCount(targetReqs?.maxTargets, (targetReqs as any)?.maxTargetsIsX === true, chosenXValue);
+    // Return to Dust-style main-phase bonus widens one prompt to max 2 (not a second step).
+    const mainPhaseExtraTargets = !isAura
+      ? getOwnMainPhaseExtraTargetAugmentation(game, String(playerId), oracleText, cardName)
+      : null;
+    const requiredMinTargets = mainPhaseExtraTargets?.minTargets ?? parsedMinTargets;
+    const requiredMaxTargets = mainPhaseExtraTargets?.maxTargets ?? parsedMaxTargets;
 
     const needsTargets = isAura || requiredMaxTargets > 0;
 

@@ -194,6 +194,8 @@ export function resolutionPaymentActivationCostHasUnsupportedAdditionalCosts(
   if (resolutionManaSourceSelfSacrifices(game, playerId, permanent, mana, abilityId)) {
     residue = residue.replace(/sacrifice\s+[^,;:]*/gi, ' ');
   }
+  // Pay-life mana is applied during resolution payment (Spire / Confluence / Horizon lands).
+  residue = residue.replace(/\bpay\s+\d+\s+life\b/gi, ' ');
   residue = residue.replace(/[().]/g, ' ');
   residue = residue.replace(/,/g, ' ');
   residue = residue.replace(/\s+/g, ' ').trim();

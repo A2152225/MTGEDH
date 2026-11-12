@@ -17,6 +17,11 @@ import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
 import { spellOrdinalForCaster } from "./spell-cast.js";
 import { spellCastTriggerIRVerdict } from "./triggerIRVerdict.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource, spellCastConditionMatches } from "./triggerConditionFamilyMatch.js";
+import {
+  filterOracleTextToActiveStationAbilities,
+  hasStationThresholdMarkers,
+  readChargeCounterCount,
+} from "../../../utils/stationParser.js";
 /**
  * Get all spell-cast triggers that should fire when a spell is cast
  */
@@ -166,9 +171,13 @@ export function getSpellCastTriggers(
     }
 
     const spellOrdinal = spellOrdinalForCaster(ctx.state, casterId, spellCard);
+    const printedOracle = String(permanent.card.oracle_text || '');
+    const oracleForLines = hasStationThresholdMarkers(printedOracle)
+      ? filterOracleTextToActiveStationAbilities(printedOracle, readChargeCounterCount(permanent))
+      : printedOracle;
     for (const line of collectMatchingParsedEventLines({
       ctx,
-      oracleText: String(permanent.card.oracle_text || ''),
+      oracleText: oracleForLines,
       event: 'spell_cast',
       subjectPermanent: spellCard,
       subjectControllerId: casterId,

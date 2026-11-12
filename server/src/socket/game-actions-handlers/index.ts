@@ -317,6 +317,8 @@ export {
   buildGroupedSpellTargetMetadata,
   buildSpellTargetListFromRequirements,
   buildSpellTargetSelectionClauses,
+  getOwnMainPhaseExtraTargetAugmentation,
+  isCasterOwnMainPhase,
   mapSpellTargetRefToDisplay,
   resolveTargetCount,
   shouldPreferParsedTargetReqs,

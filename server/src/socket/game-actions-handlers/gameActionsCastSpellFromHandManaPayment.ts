@@ -526,9 +526,40 @@ export function tryApplyCastSpellManaPaymentFromHand(
             debug(2, `[castSpellFromHand] Added ${bonus.amount} ${bonus.color} bonus mana from enchantments/effects`);
           }
 
+          const resolvedManaAbility = resolveLegacyManaAbilityById(game.state, permanent, playerId, abilityId);
+          const payLifeAmount = Math.max(
+            0,
+            Number(
+              (Array.isArray((resolvedManaAbility as any)?.additionalCosts)
+                ? (resolvedManaAbility as any).additionalCosts.find((cost: any) => cost?.type === 'pay_life')?.amount
+                : 0) || 0,
+            ),
+          );
+          if (payLifeAmount > 0) {
+            const currentLife = Number(game.state.life?.[playerId] ?? 40);
+            if (!Number.isFinite(currentLife) || currentLife <= payLifeAmount) {
+              abortCastSpellPayment({
+                code: 'INSUFFICIENT_LIFE',
+                message: `Cannot pay ${payLifeAmount} life for ${(permCard as any).name || 'Permanent'} (you have ${Number.isFinite(currentLife) ? currentLife : 0} life)`,
+              });
+              return;
+            }
+            if (!game.state.life) game.state.life = {};
+            game.state.life[playerId] = currentLife - payLifeAmount;
+            castSpellPaymentCheckpoint.paidLifeAmount =
+              Number(castSpellPaymentCheckpoint.paidLifeAmount || 0) + payLifeAmount;
+            try {
+              (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+              (game.state as any).lifeLostThisTurn[String(playerId)] =
+                Number((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + payLifeAmount;
+            } catch {
+              // Best-effort tracking only.
+            }
+          }
+
           const manaLifeEffect = resolveManaAbilityLifeEffect({
             card: permCard,
-            ability: resolveLegacyManaAbilityById(game.state, permanent, playerId, abilityId),
+            ability: resolvedManaAbility,
             abilityText: resolveActivatedAbilityLineById(permanent, abilityId)?.lineText,
             producesColoredMana: String(mana || '').toUpperCase() !== 'C',
           });
@@ -555,10 +586,11 @@ export function tryApplyCastSpellManaPaymentFromHand(
           tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
           harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
           removedCounters: castSpellPaymentCheckpoint.removedCounters,
+          paidLifeAmount: castSpellPaymentCheckpoint.paidLifeAmount,
         });
         debugWarn(
           1,
-          `[castSpellFromHand] Aborting cast of ${cardInHand.name} (${cardId}) � cast timing lost (priority=${String(game.state.priority)}, player=${playerId})`,
+          `[castSpellFromHand] Aborting cast of ${cardInHand.name} (${cardId}) — cast timing lost (priority=${String(game.state.priority)}, player=${playerId})`,
         );
         socket.emit('error', {
           code: 'CAST_TIMING_LOST',

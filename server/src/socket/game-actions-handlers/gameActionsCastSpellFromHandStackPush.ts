@@ -296,6 +296,7 @@ export function tryPushCastSpellFromHandToStack(
                 tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
                 harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
                 removedCounters: castSpellPaymentCheckpoint.removedCounters,
+                paidLifeAmount: castSpellPaymentCheckpoint.paidLifeAmount,
               });
               try {
                 delete (cardInHand as any).pendingAdditionalCostSacrificeIds;
@@ -494,10 +495,11 @@ export function tryPushCastSpellFromHandToStack(
                   tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
                   harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
                   removedCounters: castSpellPaymentCheckpoint.removedCounters,
+                  paidLifeAmount: castSpellPaymentCheckpoint.paidLifeAmount,
                 });
                 debugWarn(
                   1,
-                  `[castSpellFromHand] applyEvent was idempotent for ${cardInHand.name} (${cardId}) � already on battlefield; refunded payment`,
+                  `[castSpellFromHand] applyEvent was idempotent for ${cardInHand.name} (${cardId}) — already on battlefield; refunded payment`,
                 );
                 return;
               }

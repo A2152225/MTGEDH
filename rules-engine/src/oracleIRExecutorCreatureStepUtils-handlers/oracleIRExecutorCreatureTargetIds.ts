@@ -340,7 +340,7 @@ export function resolveCreatureTargetIds(
     return resolveBlockingCreatureIds(state);
   }
 
-  if (targetText === 'nonartifact creatures') {
+  if (targetText === 'nonartifact creatures' || targetText === 'all nonartifact creatures') {
     return battlefield
       .filter((permanent) =>
         isExecutorCreature(permanent)

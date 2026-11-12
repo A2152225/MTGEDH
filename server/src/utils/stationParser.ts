@@ -170,3 +170,33 @@ export function getRequiredThresholdForAbility(
 export function isStationCreature(chargeCounters: number, oracleText: string): boolean {
   return isStationPermanentCreatureNow({ counters: { charge: chargeCounters } }, oracleText);
 }
+
+/** True when oracle includes at least one `N+ | …` station threshold marker. */
+export function hasStationThresholdMarkers(oracleText: string): boolean {
+  return /^\s*\d+\+\s*\|/m.test(String(oracleText || ''));
+}
+
+/** Read charge counters from a permanent (station progress). */
+export function readChargeCounterCount(permanent: any): number {
+  const counters = permanent?.counters;
+  if (!counters || typeof counters !== 'object' || Array.isArray(counters)) return 0;
+  const raw = (counters as any).charge ?? (counters as any).Charge ?? 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/**
+ * Oracle lines currently live for trigger/ability detection on a Station card.
+ * Lines after `N+ |` stay off until the permanent has N charge counters
+ * (e.g. Type-03 Borg Vessel's cast trigger is under 7+, not always-on).
+ */
+export function filterOracleTextToActiveStationAbilities(
+  oracleText: string,
+  chargeCounters: number,
+): string {
+  const text = String(oracleText || '');
+  if (!hasStationThresholdMarkers(text)) return text;
+  const parsed = parseStationAbilities(text);
+  if (parsed.length === 0) return text;
+  return getActiveStationAbilities(Math.max(0, Number(chargeCounters) || 0), parsed).join('\n');
+}

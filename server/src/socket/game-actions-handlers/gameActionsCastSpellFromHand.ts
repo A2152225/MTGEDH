@@ -355,6 +355,7 @@ export async function handleCastSpellFromHandRequest(
                 tappedPermanentIds: castSpellPaymentCheckpoint.tappedPermanentIds,
                 harmonizePermanentId: castSpellPaymentCheckpoint.harmonizePermanentId,
                 removedCounters: castSpellPaymentCheckpoint.removedCounters,
+                paidLifeAmount: castSpellPaymentCheckpoint.paidLifeAmount,
               });
               debugWarn(
                 1,
