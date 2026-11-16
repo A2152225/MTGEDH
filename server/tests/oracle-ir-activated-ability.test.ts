@@ -562,4 +562,63 @@ describe('oracle IR activated ability execution', () => {
     expect(humble?.controller).toBe('p3');
     expect(humble?.controller).not.toBe('p1');
   });
+
+  it('exiles the chosen noncreature artifact for Haywire Mite', () => {
+    // Oracle: "{G}, Sacrifice this creature: Exile target noncreature artifact or noncreature enchantment."
+    const ctx = {
+      state: {
+        players: [
+          { id: 'p1', name: 'Player 1', exile: [], graveyard: [] },
+          { id: 'p2', name: 'Player 2', exile: [], graveyard: [] },
+        ],
+        battlefield: [
+          {
+            id: 'sol-ring',
+            controller: 'p2',
+            owner: 'p2',
+            card: { id: 'sol-ring-card', name: 'Sol Ring', type_line: 'Artifact' },
+          },
+          {
+            id: 'ornithopter',
+            controller: 'p2',
+            owner: 'p2',
+            card: { id: 'ornithopter-card', name: 'Ornithopter', type_line: 'Artifact Creature — Thopter' },
+          },
+          {
+            id: 'rhystic',
+            controller: 'p2',
+            owner: 'p2',
+            card: { id: 'rhystic-card', name: 'Rhystic Study', type_line: 'Enchantment' },
+          },
+        ],
+        life: { p1: 40, p2: 40 },
+        turnNumber: 1,
+        zones: {
+          p1: { hand: [], library: [], graveyard: [], exile: [] },
+          p2: { hand: [], library: [], graveyard: [], exile: [] },
+        },
+      },
+      gameId: 'test_haywire_mite_exile',
+      bumpSeq: () => {},
+      libraries: new Map(),
+    } as any;
+
+    const result = tryApplyOracleIRToActivatedAbility(ctx, {
+      controller: 'p1',
+      sourceName: 'Haywire Mite',
+      oracleText: '{G}, Sacrifice this creature: Exile target noncreature artifact or noncreature enchantment.',
+      sourcePermanentId: 'mite',
+      targets: ['sol-ring'],
+      allowOptional: true,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.applied).toBeGreaterThan(0);
+    expect((ctx.state.battlefield || []).map((perm: any) => perm.id).sort()).toEqual([
+      'ornithopter',
+      'rhystic',
+    ]);
+    const owner = (ctx.state.players || []).find((player: any) => player.id === 'p2');
+    expect((owner?.exile || []).map((card: any) => card.name)).toContain('Sol Ring');
+  });
 });

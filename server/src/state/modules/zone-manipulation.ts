@@ -28,6 +28,7 @@ import { recordCardLeftGraveyardThisTurn } from "./turn-tracking.js";
 import { movePermanentToLibrary } from "./zones.js";
 import { applyBatch92LeaveBattlefieldToHand } from './replacementBatch92DiesReplacements.js';
 import { applyBatch106NamedCountersOnExiled } from './batch106Apply.js';
+import { batch112ZoneFollowup } from './batch112Apply.js';
 import { applyCardToLibraryBottom, applyCardToLibraryTop } from './batch94ZoneChangeApply.js';
 import { triggerLifeGainEffects } from '../utils.js';
 
@@ -484,6 +485,7 @@ function applyDeclarativeZoneChangeReplacementOutcome(
     if (options.sourceZone === 'battlefield' && options.permanentId) {
       moveRemovedPermanentToExile(ctx, object, options.permanentId);
       applyBatch106NamedCountersOnExiled(ctx, object, result.metadata);
+      batch112ZoneFollowup(ctx, object, result.metadata);
       if ((result.metadata as any)?.putP1P1OnSourceEqualToObjectPower === true) {
         const sourceId = String((result.metadata as any)?.sourcePermanentId || '').trim();
         const battlefield: any[] = Array.isArray((ctx.state as any)?.battlefield) ? (ctx.state as any).battlefield : [];

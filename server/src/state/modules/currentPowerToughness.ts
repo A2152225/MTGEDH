@@ -30,6 +30,8 @@ import { applyBatch108PowerToughnessAdjustment } from './batch108Apply.js';
 import { applyBatch109PowerToughnessAdjustment } from './batch109Apply.js';
 import { applyBatch110PowerToughnessAdjustment } from './batch110Apply.js';
 import { applyCommanderCreatureGrantPT } from './commanderCreatureGrants.js';
+import { applyBatch111BasePowerToughness, applyBatch111PowerToughnessAdjustment } from './batch111Apply.js';
+import { applyBatch112PowerToughness } from './batch112Apply.js';
 
 export interface CurrentPowerToughness {
   power: number;
@@ -132,12 +134,15 @@ export function getCurrentPowerToughness(perm: any, state: any): { power: number
       toughness: current.toughness + (switched ? pending.power : pending.toughness),
     };
     {
-      const adjusted = applyBatch106PowerToughnessAdjustment(perm, state, next.power, next.toughness);
+      const base111 = applyBatch111BasePowerToughness(perm, state, next.power, next.toughness);
+      const adjusted = applyBatch106PowerToughnessAdjustment(perm, state, base111.power, base111.toughness);
       const adjusted107 = applyBatch107PowerToughnessAdjustment(perm, state, adjusted.power, adjusted.toughness);
       const adjusted108 = applyBatch108PowerToughnessAdjustment(perm, state, adjusted107.power, adjusted107.toughness);
       const adjusted109 = applyBatch109PowerToughnessAdjustment(perm, state, adjusted108.power, adjusted108.toughness);
       const adjusted110 = applyBatch110PowerToughnessAdjustment(perm, state, adjusted109.power, adjusted109.toughness);
-      return applyCommanderCreatureGrantPT(perm, state, adjusted110.power, adjusted110.toughness);
+      const granted = applyCommanderCreatureGrantPT(perm, state, adjusted110.power, adjusted110.toughness);
+      const adjusted111 = applyBatch111PowerToughnessAdjustment(perm, state, granted.power, granted.toughness);
+      return applyBatch112PowerToughness(perm, state, adjusted111.power, adjusted111.toughness);
     }
   } finally {
     if (resolveKey) permanentsResolvingCurrentPowerToughness.delete(resolveKey);

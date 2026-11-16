@@ -29,6 +29,7 @@ import { collectEnchantedCreatureBlockPayment } from "../../state/modules/enchan
 import { findBlockerCapacityViolation } from "./combatBlockerCapacity.js";
 import { findMinimumBlockersViolation } from "./combatMinimumBlockers.js";
 import { findMaximumBlockersViolation } from "./combatBatch30BlockLimits.js"; // B30
+import { batch111GreaterPowerBlockReason } from "../../state/modules/batch111Apply.js";
 import {
   collectBlockLifeTax,
   collectBlockTax,
@@ -655,6 +656,12 @@ export async function handleDeclareBlockers(
         code: "TOO_FEW_BLOCKERS",
         message: `${minimumViolation.name} can't be blocked except by ${minimumViolation.required} or more creatures.`,
       });
+      return;
+    }
+
+    const greaterPowerBlock = batch111GreaterPowerBlockReason(resolvedBlockers, battlefield);
+    if (greaterPowerBlock) {
+      socket.emit("error", { code: "GREATER_POWER_BLOCK", message: greaterPowerBlock });
       return;
     }
 

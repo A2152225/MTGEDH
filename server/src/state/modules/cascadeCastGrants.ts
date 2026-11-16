@@ -9,6 +9,7 @@
  */
 import { getNativeCascadeCount } from '../../../../rules-engine/src/cards/castTriggers.js';
 import { grantsCascadeFromHandByOpponentsLifeLost } from './batch98CombatAndKeywords.js';
+import { batch112CascadeExtra } from './batch112Apply.js';
 
 const FIRST_EXILE_SPELL_HAS_CASCADE =
   /the first spell you cast from exile each turn has cascade/i;
@@ -156,5 +157,5 @@ export function getCascadeInstancesForCast(
   const native = getNativeCascadeCount(String(card?.oracle_text || card?.oracleText || ''));
   const granted = getGrantedCascadeCountForCast(state, playerId, card, options);
   const conditional = getConditionalSelfCascadeCount(state, playerId, card);
-  return native + granted + conditional;
+  return native + granted + conditional + batch112CascadeExtra(state, playerId, card, options.castSourceZone);
 }

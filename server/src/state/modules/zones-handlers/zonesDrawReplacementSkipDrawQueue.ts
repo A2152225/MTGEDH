@@ -21,11 +21,11 @@ export function queueSkipDrawReplacementStep(
   const keywords = Array.isArray(metadata?.exceptKeywords)
     ? metadata.exceptKeywords.map((keyword: unknown) => String(keyword || '').trim().toLowerCase()).filter(Boolean)
     : [];
-  if (keywords.length === 0) return false;
 
   const sourceName = String(metadata?.sourceName || 'Skip this draw').trim() || 'Skip this draw';
   const sourcePermanentId = String(metadata?.sourcePermanentId || 'skip-draw').trim() || 'skip-draw';
   const keywordLabel = keywords.join(' and/or ');
+  const plainSkip = keywords.length === 0;
 
   ResolutionQueueManager.addStep(gameId, {
     id: uid('skip_draw_choice'),
@@ -33,7 +33,9 @@ export function queueSkipDrawReplacementStep(
     playerId: playerId as PlayerID,
     sourceId: sourcePermanentId,
     sourceName,
-    description: `Skip this draw? If you do, until your next turn you can't be attacked except by creatures with ${keywordLabel}.`,
+    description: plainSkip
+      ? `${sourceName}: You may skip this draw.`
+      : `Skip this draw? If you do, until your next turn you can't be attacked except by creatures with ${keywordLabel}.`,
     mandatory: true,
     minSelections: 1,
     maxSelections: 1,
@@ -47,7 +49,9 @@ export function queueSkipDrawReplacementStep(
       {
         id: 'skip_draw',
         label: 'Skip this draw',
-        description: `Until your next turn, you can't be attacked except by creatures with ${keywordLabel}.`,
+        description: plainSkip
+          ? 'Do not draw this card.'
+          : `Until your next turn, you can't be attacked except by creatures with ${keywordLabel}.`,
       },
     ],
   } as any);

@@ -24,6 +24,7 @@ import { collectStaticEffectSources } from "./static-effect-sources";
 import { findFreeHandCastsThisTurnSource, grantsStaticFreeHandCasts } from "../../../../rules-engine/src/freeHandCastGrant.js";
 import { spellHasConvokeForCast } from "./casting-modifiers.js";
 import { getGrantedSpellOrHandKeyword } from "./batch95SpellAndHandKeywordGrants.js";
+import { batch112SpellKeyword } from "./batch112Apply.js";
 import { permanentIsCommanderCard } from "./triggerPermanentUtils.js";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan } from "./cost-adjustments.js";
 import { getValgavothExileCastLifeCost } from "./valgavothExilePlay.js";
@@ -454,7 +455,7 @@ export function hasDelveAlternateCost(
   const oracleText = (card.oracle_text || "").toLowerCase();
   
   // Check for delve keyword
-  if (!oracleText.includes("delve")) {
+  if (!oracleText.includes("delve") && !batch112SpellKeyword(state, playerId, card, 'delve')) {
     return false;
   }
   

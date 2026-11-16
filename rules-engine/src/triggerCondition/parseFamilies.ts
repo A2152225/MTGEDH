@@ -546,7 +546,7 @@ function parseTriggerEventSentenceOlder(sentence: string): ParsedTriggerEventSen
 }
 
 /** "Landfall — Whenever ...": an ability word labels the trigger and is not part of it. */
-const ABILITY_WORD_PREFIX = /^\s*[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
+const ABILITY_WORD_PREFIX = /^\s*(?:[\d,]+\s+)?[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
 
 export function parseTriggerClause(sentence: string, cardName?: string): ParsedTriggerClause | null {
   const unlabeled = String(sentence || '').replace(ABILITY_WORD_PREFIX, '');

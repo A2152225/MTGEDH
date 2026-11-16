@@ -5,6 +5,7 @@
 // Public entry symbols: permanentCantHaveCountersPut, filterRestrictedCounterDeltas.
 
 import { opponentsCantGetPlusOneCounters } from './batch102Apply.js';
+import { batch112CounterAllowed } from './batch112Apply.js';
 
 const SELF_RE = /(?:^|[.\n]\s*)(?:this (?:creature|permanent|artifact|enchantment|land)|~) can't have counters put on it\b/i;
 const ATTACHED_RE = /\b(?:enchanted|equipped) (?:creature|permanent)\b[^.\n]*\bcan't have counters put on it\b/i;
@@ -30,6 +31,7 @@ const GROUP_RE = /(?:^|[.\n]\s*)(?:(other )?(creatures|permanents|artifacts) you
 export function bannedCounterKinds(state: any, perm: any): string[] {
   const out: string[] = [];
   if (permanentCantHaveCountersPut(state, perm)) out.push('*');
+  if (perm && !batch112CounterAllowed(state, perm, '*', 1)) out.push('*');
   const tl = String(perm?.card?.type_line || '').toLowerCase();
   for (const src of Array.isArray(state?.battlefield) ? state.battlefield : []) {
     if (!src || src.phasedOut) continue;

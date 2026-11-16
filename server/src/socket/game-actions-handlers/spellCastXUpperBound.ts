@@ -8,6 +8,7 @@
 // Public entry symbols: computeSpellCastXUpperBound.
 
 import { spellHasConvokeForCast } from "../../state/modules/casting-modifiers.js";
+import { batch113ColoredXLimit } from "../../state/modules/batch113Remaining.js";
 
 const DEFAULT_X_CAP = 20;
 
@@ -41,6 +42,8 @@ export function computeSpellCastXUpperBound(
   castSourceZone?: string,
 ): number {
   try {
+    const coloredCap = batch113ColoredXLimit(card);
+    if (coloredCap != null) return coloredCap;
     const state = game?.state || {};
     const battlefield: any[] = Array.isArray(state.battlefield) ? state.battlefield : [];
     const pool = state.manaPool?.[playerId] || {};

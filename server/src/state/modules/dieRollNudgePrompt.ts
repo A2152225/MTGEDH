@@ -20,10 +20,12 @@ const LIFE_WORDS: Record<string, number> = { a: 1, an: 1, one: 1 };
 const COUNTER_RE = /after you roll a die, you may remove a \+1\/\+1 counter from (?:this creature|~)\. if you do, increase or decrease the result by 1/i;
 const LIFE_RE = /after you roll a die, you may pay (\d+|a|an|one) life\. if you do, increase or decrease the result by 1/i;
 const ONCE_RE = /do this only once each turn/i;
+const REROLL_RE = /once each turn, you may pay \{1\} to reroll/i;
 
 export type DieRollNudge =
   | { kind: 'counter'; oncePerTurn: boolean }
-  | { kind: 'life'; life: number; oncePerTurn: boolean };
+  | { kind: 'life'; life: number; oncePerTurn: boolean }
+  | { kind: 'reroll'; oncePerTurn: boolean };
 
 function normalize(text: unknown): string {
   return String(text || '').replace(/\u2019/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/\s+/g, ' ').trim();
@@ -31,6 +33,7 @@ function normalize(text: unknown): string {
 
 export function parseDieRollNudge(oracle: unknown): DieRollNudge | null {
   const text = normalize(oracle);
+  if (REROLL_RE.test(text)) return { kind: 'reroll', oncePerTurn: true };
   if (COUNTER_RE.test(text)) return { kind: 'counter', oncePerTurn: ONCE_RE.test(text) };
   const life = text.match(LIFE_RE);
   if (!life) return null;
@@ -50,6 +53,23 @@ function playerLife(state: any, playerId: string): number {
   if (Number.isFinite(Number(fromMap))) return Number(fromMap);
   const player = (state?.players || []).find((entry: any) => String(entry?.id || '') === playerId);
   return Number(player?.life ?? state?.startingLife ?? 40);
+}
+
+function manaAvailable(state: any, playerId: string): number {
+  const pool = state?.manaPool?.[playerId];
+  if (!pool || typeof pool !== 'object') return 0;
+  return Object.values(pool).reduce<number>((sum, value) => sum + Math.max(0, Number(value || 0)), 0);
+}
+
+function spendOneMana(state: any, playerId: string): void {
+  const pool = state?.manaPool?.[playerId];
+  if (!pool || typeof pool !== 'object') return;
+  for (const key of Object.keys(pool)) {
+    if (Number(pool[key] || 0) > 0) {
+      pool[key] = Number(pool[key]) - 1;
+      return;
+    }
+  }
 }
 
 function currentTurn(state: any): number {
@@ -78,6 +98,7 @@ function eligibleNudge(state: any, playerId: string): { permanent: any; nudge: D
     if (nudge.oncePerTurn && alreadyUsedThisTurn(state, id)) continue;
     if (nudge.kind === 'counter' && plusCounterCount(permanent) < 1) continue;
     if (nudge.kind === 'life' && playerLife(state, playerId) < nudge.life) continue;
+    if (nudge.kind === 'reroll' && manaAvailable(state, playerId) < 1) continue;
     return { permanent, nudge };
   }
   return null;
@@ -100,20 +121,30 @@ export function queueDieRollNudgePrompt(args: { ctx: any; playerId: string }): b
   const name = String(permanent.card?.name || 'Creature');
   const costLabel = nudge.kind === 'counter'
     ? 'remove a +1/+1 counter from this creature'
-    : `pay ${nudge.life} life`;
+    : nudge.kind === 'reroll'
+      ? 'pay {1} and reroll'
+      : `pay ${nudge.life} life`;
+  const reroll = nudge.kind === 'reroll';
   try {
     queueResolveTopOfStackPrompt(ctx, {
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: args.playerId as PlayerID,
       sourceId: id,
       sourceName: name,
-      description: `${name}: You rolled ${result}. You may ${costLabel}. If you do, increase or decrease the result by 1.`,
+      description: reroll
+        ? `${name}: You rolled ${result}. You may pay {1} to reroll.`
+        : `${name}: You rolled ${result}. You may ${costLabel}. If you do, increase or decrease the result by 1.`,
       mandatory: false,
-      options: [
-        { id: 'decline', label: 'Leave the result unchanged' },
-        { id: 'increase', label: `Pay and increase the result to ${result + 1}` },
-        { id: 'decrease', label: `Pay and decrease the result to ${result - 1}` },
-      ],
+      options: reroll
+        ? [
+            { id: 'decline', label: 'Keep the roll' },
+            { id: 'reroll', label: 'Pay {1} and reroll' },
+          ]
+        : [
+            { id: 'decline', label: 'Leave the result unchanged' },
+            { id: 'increase', label: `Pay and increase the result to ${result + 1}` },
+            { id: 'decrease', label: `Pay and decrease the result to ${result - 1}` },
+          ],
       minSelections: 1,
       maxSelections: 1,
       [DIE_ROLL_NUDGE_FLAG]: true,
@@ -176,6 +207,18 @@ export function applyDieRollNudgeToState(state: any, args: {
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const permanent = battlefield.find((entry: any) => String(entry?.id || '') === permanentId);
   if (args.kind === 'counter' && permanent) removeOnePlusCounter(permanent);
+  if (args.kind === 'reroll' && playerId) {
+    spendOneMana(state, playerId);
+    const sides = Math.max(2, Math.floor(Number(state?.lastDieRoll?.sides || 6)));
+    const forced = Number(state?.nextDieRoll);
+    const rolled = Number.isFinite(forced) && forced >= 1 && forced <= sides ? forced : 1 + Math.floor(Math.random() * sides);
+    const current = Math.floor(Number(state?.lastDieRoll?.result || 0));
+    if (args.oncePerTurn && permanentId) {
+      state.dieRollNudgeUsedThisTurn = state.dieRollNudgeUsedThisTurn || {};
+      state.dieRollNudgeUsedThisTurn[permanentId] = currentTurn(state);
+    }
+    return writeResult(state, playerId, rolled - current);
+  }
   if (args.kind === 'life' && args.life > 0 && playerId) {
     state.life = state.life || {};
     const current = playerLife(state, playerId);
@@ -224,7 +267,7 @@ export function tryHandleDieRollNudgeChoice(
   const playerId = String(step.playerId || response?.playerId || '');
   const state = game?.state;
   if (!state) return true;
-  const paying = choice === 'increase' || choice === 'decrease';
+  const paying = choice === 'increase' || choice === 'decrease' || choice === 'reroll';
   const delta = choice === 'increase' ? 1 : choice === 'decrease' ? -1 : 0;
   let result = Math.floor(Number(state.lastDieRoll?.result || step.dieResult || 0));
   if (paying) {

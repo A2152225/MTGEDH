@@ -7,6 +7,7 @@ import { getEffectivePower } from "../util-handlers/getEffectivePowerToughness.j
 import { graveyardHasLessonCard } from "../../state/modules/batch100CombatAndKeywords.js";
 import { batch106CanAttackAsThoughItDidntHaveDefender } from '../../state/modules/batch106Apply.js';
 import { defenderConditionCastNoncreatureSpell } from '../../state/modules/batch109Apply.js';
+import { wordNumber } from '../../state/modules/batch111Parsers.js';
 
 function escapeRe(v: string): string { return v.replace(/[.*+?^${}()|[\]\\]/g, (c) => '\\' + c); }
 
@@ -80,6 +81,15 @@ export function evaluateDefenderCondition(cond: string, source: any, battlefield
     return false;
   }
   if (defenderConditionCastNoncreatureSpell(cond, gameState, controllerId)) return true;
+  m = cond.match(/^~'s power is (\d+) or greater$/);
+  if (m) return getEffectivePower(source, gameState) >= Number(m[1]);
+  m = cond.match(/^an opponent has (\d+|[a-z]+) or more cards in their graveyard$/);
+  if (m) {
+    const need = wordNumber(m[1]);
+    const zones = gameState?.zones && typeof gameState.zones === 'object' ? gameState.zones : {};
+    return Object.entries(zones).some(([id, zone]) => id !== String(controllerId)
+      && (Array.isArray((zone as any)?.graveyard) ? (zone as any).graveyard.length : 0) >= need);
+  }
   if (/^you have no cards in hand$/.test(cond)) {
     const z = gameState?.zones?.[controllerId];
     return (Number(z?.handCount ?? z?.hand?.length ?? 0) || 0) === 0;
@@ -87,7 +97,7 @@ export function evaluateDefenderCondition(cond: string, source: any, battlefield
   return false;
 }
 
-const SELF_RE = /^(?:as long as (.+?), )?(?:~|it|this creature) can attack as though it didn't have defender(?: as long as (.+))?$/;
+const SELF_RE = /^(?:as long as (.+?), )?(?:~|it|this creature) can attack as though it didn't have defender(?: as long as (.+))?(?: and .+)?$/;
 const GLOBAL_RE = /^(?:as long as (.+?), )?(?:creatures you control|each creature you control) can attack as though (?:they|it) didn't have defender$/;
 // B72: Guardians of Oboro — "Modified creatures you control can attack as though they didn't have defender."
 const MODIFIED_RE = /^(?:as long as (.+?), )?modified creatures you control can attack as though (?:they|it) didn't have defender$/;

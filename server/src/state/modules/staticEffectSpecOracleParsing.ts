@@ -97,6 +97,9 @@ import { pushBatch107LongTailStaticSpecs } from './staticEffectSpec-handlers/bat
 import { pushBatch108LongTailStaticSpecs } from './staticEffectSpec-handlers/batch108LongTailStatics.js';
 import { pushBatch109LongTailStaticSpecs } from './staticEffectSpec-handlers/batch109LongTailStatics.js';
 import { pushBatch110LongTailStaticSpecs } from './staticEffectSpec-handlers/batch110LongTailStatics.js';
+import { pushBatch111LongTailStaticSpecs } from './staticEffectSpec-handlers/batch111LongTailStatics.js';
+import { pushBatch112LongTailStaticSpecs } from './staticEffectSpec-handlers/batch112LongTailStatics.js';
+import { pushBatch113LongTailStaticSpecs } from './staticEffectSpec-handlers/batch113LongTailStatics.js';
 import { pushBatch95LongTailStaticSpecs } from './staticEffectSpec-handlers/batch95LongTailStatics.js';
 import { pushConditionalScopedGrantSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingConditionalScopedGrants.js';
 import { splitStationThresholdLines, gateStationThresholdSpecs } from './staticEffectSpec-handlers/staticEffectSpecOracleParsingStationThresholds.js';
@@ -225,6 +228,9 @@ function parseStaticEffectSpecsFromOraclePermanentCore(
   pushBatch108LongTailStaticSpecs(specs, source, perm, oracle);
   pushBatch109LongTailStaticSpecs(specs, source, perm, oracle);
   pushBatch110LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch111LongTailStaticSpecs(specs, source, perm, oracle);
+  pushBatch112LongTailStaticSpecs(specs, source, perm, String((perm as any)?.card?.oracle_text || oracle));
+  pushBatch113LongTailStaticSpecs(specs, source, perm, String((perm as any)?.card?.oracle_text || oracle));
   pushBatch95LongTailStaticSpecs(specs, source, perm, oracle);
   pushConditionalScopedGrantSpecs(specs, source, oracle);
   pushTrekSelfStaticSpecs(specs, source, oracle);

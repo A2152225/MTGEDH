@@ -18,6 +18,7 @@ import {
   detectAnotherCreaturePreventDamagePlusOneReplacement,
 } from './game-state-effects.js';
 import { protectionPreventsSource } from './combat-mechanics.js';
+import { batch112GlobalWither } from './batch112Apply.js';
 import { applyBatch107PlayerCounterPlusOne } from './batch107Apply.js';
 import { batch108PermanentHasKeyword } from './batch108Apply.js';
 import { permanentHasIndestructible } from '../../rules-engine/index.js';
@@ -159,7 +160,7 @@ export function inferInfectWitherFlags(
   const characteristics = getCombatDamageSourceCharacteristics(sourcePermanent, (ctx as any).state);
   return {
     infect: explicitInfect || characteristics.hasInfect,
-    wither: explicitWither || characteristics.hasInfect || characteristics.hasWither,
+    wither: explicitWither || characteristics.hasInfect || characteristics.hasWither || batch112GlobalWither((ctx as any).state),
     sourcePermanent,
   };
 }

@@ -1,4 +1,5 @@
 import { getEffectivePower, resolveActivatedAbilityLineById } from '../../socket/util.js';
+import { batch113PowerUpLimit } from './batch113Remaining.js';
 import {
   parseManaCost,
   stringifyParsedManaCost,
@@ -201,14 +202,26 @@ export function getActivatedAbilityIndexFromAbilityId(abilityId: string): number
   return Number.isFinite(index) && index >= 0 ? index : -1;
 }
 
-export function hasUsedPowerUpAbility(permanent: any, abilityIndex: number): boolean {
-  if (!Number.isInteger(abilityIndex) || abilityIndex < 0) return false;
+export function powerUpAbilityUseCount(permanent: any, abilityIndex: number): number {
+  if (!Number.isInteger(abilityIndex) || abilityIndex < 0) return 0;
+  const counts = (permanent as any)?.powerUpAbilityUseCount;
+  const counted = Number(counts?.[String(abilityIndex)]);
+  if (Number.isFinite(counted)) return counted;
   const used = (permanent as any)?.powerUpAbilitiesUsed;
-  return Boolean(used && used[String(abilityIndex)] === true);
+  return used && used[String(abilityIndex)] === true ? 1 : 0;
+}
+
+export function hasUsedPowerUpAbility(permanent: any, abilityIndex: number, limit = 1): boolean {
+  return powerUpAbilityUseCount(permanent, abilityIndex) >= Math.max(1, limit);
 }
 
 export function markPowerUpAbilityUsed(permanent: any, abilityIndex: number): void {
   if (!Number.isInteger(abilityIndex) || abilityIndex < 0) return;
+  const next = powerUpAbilityUseCount(permanent, abilityIndex) + 1;
+  (permanent as any).powerUpAbilityUseCount = {
+    ...((permanent as any)?.powerUpAbilityUseCount || {}),
+    [String(abilityIndex)]: next,
+  };
   (permanent as any).powerUpAbilitiesUsed = {
     ...((permanent as any)?.powerUpAbilitiesUsed || {}),
     [String(abilityIndex)]: true,
@@ -313,6 +326,6 @@ export function maybeMarkPowerUpAbilityUsedFromActivationContext(
   if (!permanent || String(permanent.controller || '') !== String(controllerId)) return;
 
   const pricing = resolvePowerUpActivationPricing(permanent, game.state, controllerId, options);
-  if (!pricing || hasUsedPowerUpAbility(permanent, pricing.powerUpAbilityIndex)) return;
+  if (!pricing || hasUsedPowerUpAbility(permanent, pricing.powerUpAbilityIndex, batch113PowerUpLimit(game.state, controllerId))) return;
   markPowerUpAbilityUsed(permanent, pricing.powerUpAbilityIndex);
 }

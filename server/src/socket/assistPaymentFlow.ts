@@ -11,6 +11,8 @@
 import type { Server, Socket } from "socket.io";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { applyAssistContribution, hasAssist, maxAssistAmount } from "../state/modules/assistPayment.js";
+import { drawCards } from "../state/modules/zones-handlers/zonesDrawCards.js";
+import { batch113AssistDraws, batch113SpellHasAssist } from "../state/modules/batch113Remaining.js";
 import { broadcastGame, ensureGame } from "./util.js";
 
 type AssistCredit = { amount: number; helperId: string; turn: number; paidByColor?: Record<string, number> };
@@ -56,7 +58,7 @@ export function requestAssistForPendingCast(
   if (!(state?.players || []).some((p: any) => p?.id === helperId)) return 'UNKNOWN_PLAYER';
   const card = findCasterCard(state, casterId, String(pending.cardId));
   const oracle = String(card?.oracle_text || pending.oracleText || '');
-  if (!hasAssist(oracle)) return 'NO_ASSIST';
+  if (!hasAssist(oracle) && !batch113SpellHasAssist(state, casterId, card)) return 'NO_ASSIST';
   const max = maxAssistAmount(String(pending.manaCost || card?.mana_cost || ''), Number(pending.xValue || 0));
   if (max <= 0) return 'NO_GENERIC_COST';
   ResolutionQueueManager.addStep(gameId, {
@@ -119,7 +121,19 @@ export function consumeAssistCredit(state: any, casterId: string, cardId: string
   if (!credit) return generic;
   delete state.assistCredits[key];
   if (credit.turn !== currentTurn(state)) return generic;
-  return Math.max(0, generic - Math.max(0, Number(credit.amount || 0)));
+  const paid = Math.max(0, Number(credit.amount || 0));
+  if (paid > 0 && batch113AssistDraws(state, casterId)) {
+    state.pendingAssistDraw = { casterId: String(casterId), helperId: String(credit.helperId || '') };
+  }
+  return Math.max(0, generic - paid);
+}
+
+export function flushPendingAssistDraw(ctx: any, casterId: string): void {
+  const pending = ctx?.state?.pendingAssistDraw;
+  if (!pending || String(pending.casterId) !== String(casterId)) return;
+  delete ctx.state.pendingAssistDraw;
+  drawCards(ctx, casterId as any, 1);
+  if (pending.helperId) drawCards(ctx, pending.helperId, 1);
 }
 
 /**

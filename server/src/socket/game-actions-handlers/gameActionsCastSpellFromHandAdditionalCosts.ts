@@ -19,6 +19,7 @@ import { ResolutionQueueManager, ResolutionStepType } from "../../state/resoluti
 import { debug } from "../../utils/debug.js";
 import { getEffectivePower, getPlayerName } from "../util";
 import { getEffectiveAdditionalCost } from "./gameActionsAdditionalCastCosts.js";
+import { batch113SwampSacrificeCount, batch113TargetLifeTax } from "../../state/modules/batch113Remaining.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
 import { tryQueueOnCastKeywordPrompts } from "./gameActionsOnCastKeywordPrompts.js";
 import { canPayLifeAmount, payLifeAmount } from "../../state/modules/batch97PayLife.js";
@@ -83,6 +84,10 @@ export function tryPromptCastSpellAdditionalCostsFromHand(
       // Check for additional costs (discard a card, sacrifice, etc.)
       // This handles cards like Seize the Spoils, Faithless Looting, etc.
       let additionalCost = getEffectiveAdditionalCost(cardInHand, oracleText);
+      const swampCount = batch113SwampSacrificeCount(game.state, playerId, String(cardInHand?.mana_cost || cardInHand?.manaCost || ''), 'spell');
+      if (swampCount > 0 && !additionalCost) additionalCost = { type: 'sacrifice', amount: swampCount, filter: 'swamp' } as any;
+      const lifeTax = batch113TargetLifeTax(game.state, playerId, targets);
+      if (lifeTax > 0 && !additionalCost) additionalCost = { type: 'pay_life', amount: lifeTax } as any;
   const blitzOrBestowExtra = takeFirstBlitzOrGraveyardBestowAdditionalCost({
     oracleText,
     alternateCostId,

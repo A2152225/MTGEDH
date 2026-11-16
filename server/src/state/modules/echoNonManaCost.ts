@@ -61,7 +61,17 @@ export function maybeQueueEchoNonManaCostTrigger(
       triggerDescription: trimmed,
     },
     onPay: async () => {
-      if (cost.kind === 'life') {
+      if (cost.kind === 'sacrifice-lands') {
+        const lands = (Array.isArray(state?.battlefield) ? state.battlefield : []).filter((perm: any) => perm
+          && String(perm.controller || '') === String(triggerController)
+          && String(perm.id || '') !== permanentId
+          && /\bland\b/i.test(String(perm.card?.type_line || '')));
+        if (lands.length < cost.count) sacrificePermanent(ctx, permanentId, triggerController);
+        else {
+          lands.slice(0, cost.count).forEach((land: any) => sacrificePermanent(ctx, String(land.id), triggerController));
+          markEchoPaid(ctx, permanentId);
+        }
+      } else if (cost.kind === 'life') {
         payEquipLifeCost(state, String(triggerController), `Pay ${cost.amount} life`);
         markEchoPaid(ctx, permanentId);
       } else {

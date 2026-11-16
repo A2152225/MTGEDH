@@ -1,6 +1,7 @@
 import { resolvePermanentEntersTapped } from '../../../../rules-engine/src/oracleIRBattlefieldEntryProposal.js';
 import { debug } from '../../utils/debug.js';
 import { enterUntappedOverrideSourceName } from './landsEnterUntappedOverride.js';
+import { batch112EntersUntapped } from './batch112Apply.js';
 
 /**
  * Check if a permanent should enter the battlefield tapped.
@@ -11,6 +12,7 @@ export function checkPermanentEntersTapped(
   permanentController: string,
   permanentCard: any,
 ): boolean {
+  if (batch112EntersUntapped(permanentCard, permanentController, { battlefield })) return false;
   const entersTapped = resolvePermanentEntersTapped({
     battlefield,
     controllerId: permanentController,

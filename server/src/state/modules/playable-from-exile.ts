@@ -8,6 +8,7 @@ import { canCastWarpedCardFromExile } from "./warpDelayedEffects.js";
 import { mayPlayCardsExiledWithSourceThisTurn } from './staticEffectSpec-handlers/batch95LongTailStatics.js';
 import { mayPlayCardExiledWithValgavoth } from './valgavothExilePlay.js';
 import { mayCastDraugrIceExileCard } from './draugrExileSnowSpend.js';
+import { batch112MayPlayExiledCard } from './batch112Apply.js';
 
 export function getPlayableFromExileDurablePermissionForCard(
   state: any,
@@ -123,6 +124,7 @@ export function isCardOnAdventureForPlayer(card: any, playerId: PlayerID): boole
 
 export function cardAllowsPlayerToPlayFromExile(card: any, playerId: PlayerID, currentTurn: number, state?: any): boolean {
   if (!card || typeof card !== 'object') return false;
+  if (state && batch112MayPlayExiledCard(state, playerId, card)) return true;
   if (state) {
     try {
       if (mayPlayCardsExiledWithSourceThisTurn(state, playerId, card)) return true;

@@ -10,7 +10,7 @@ import { queueGenericTriggeredAbility } from '../triggerEmissionFamilyUtils.js';
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 import { irOwnsPrintedAction, queueParsedActionTriggers } from './queueParsedSpecialRuntimeIr.js';
 
-const ABILITY_WORD = /^\s*[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
+const ABILITY_WORD = /^\s*(?:[\d,]+\s+)?[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
 const REGEN_RIDER = /^when (?:it|that creature|the creature) regenerates this way,?\s*(.+?)\.?$/i;
 const LEAVES_RIDER = /^when (that|the targeted|the|this) (creature|artifact|permanent|enchantment) leaves the battlefield this turn,?\s*(.+?)\.?$/i;
 

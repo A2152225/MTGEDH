@@ -11,6 +11,8 @@
 import { getBatch107BlockRestrictionReason } from '../../state/modules/batch107Apply.js';
 import { getBatch108BlockRestrictionReason } from '../../state/modules/batch108Apply.js';
 import { getBatch109BlockRestrictionReason } from '../../state/modules/batch109Apply.js';
+import { batch111BlockRestrictionReason } from '../../state/modules/batch111Apply.js';
+import { batch112BlockRestriction } from '../../state/modules/batch112Apply.js';
 
 const SELF = "(?:^|[\\n.]\\s*)(?:(?:this creature|this permanent|it|~)\\s+)?can(?:'t|not) be blocked ";
 const EXCEPT_KEYWORD_RE = new RegExp(SELF + 'except by creatures with (flying|reach)(?:,?\\s+(?:and\\/or|or|and)\\s+(flying|reach))?\\b', 'i');
@@ -73,6 +75,10 @@ export function getBatch25BlockRestrictionReason(
   if (batch108Reason) return batch108Reason;
   const batch109Reason = getBatch109BlockRestrictionReason(attacker, blocker, battlefield);
   if (batch109Reason) return batch109Reason;
+  const batch111Reason = batch111BlockRestrictionReason(attacker, blocker, battlefield);
+  if (batch111Reason) return batch111Reason;
+  const batch112Reason = batch112BlockRestriction(attacker, blocker, battlefield);
+  if (batch112Reason) return batch112Reason;
   const texts = selfTexts(attacker, attackerTexts);
   for (const text of texts) {
     const m = text.match(EXCEPT_KEYWORD_RE);

@@ -29,6 +29,8 @@ import { batch105AttackRestrictionReason } from '../../state/modules/batch105App
 import { batch106AttackRestrictionReason } from '../../state/modules/batch106Apply.js';
 import { batch108AttackRestrictionReason, batch108CanOnlyAttackAloneReason } from '../../state/modules/batch108Apply.js';
 import { batch109AttackRestrictionReason } from '../../state/modules/batch109Apply.js';
+import { batch111AttackRestrictionReason } from '../../state/modules/batch111Apply.js';
+import { batch112AttackRestriction } from '../../state/modules/batch112Apply.js';
 import { getDefendingLandAttackRestrictionReason } from "./combatDefendingLandRestriction.js";
 import { defenderConditionedAttackReason } from "./combatR36DefenderConditionedAttack.js"; // R36
 import { graveyardCountAttackRestrictionReason } from "./combatBatch30AttackRestrictions.js"; // B30
@@ -174,6 +176,11 @@ export function getOwnerAttackRestrictionReason(
   if (b108Attack) return b108Attack;
   const b109Attack = batch109AttackRestrictionReason(creature, options?.proposedAttackerIds, (options?.gameState as any) || { battlefield: options?.battlefield });
   if (b109Attack) return b109Attack;
+  const b111Attack = batch111AttackRestrictionReason(creature, options?.proposedAttackerIds, (options?.gameState as any) || { battlefield: options?.battlefield }, String(defendingPlayerId || ''));
+  if (b111Attack) return b111Attack;
+  const attackState = (options?.gameState as any) || { battlefield: options?.battlefield };
+  const b112Attack = batch112AttackRestriction(creature, attackState, String(defendingPlayerId || ''));
+  if (b112Attack) return b112Attack;
     const restriction = getIllegalDefendingPlayerRestriction({
     oracleText: String(creature?.card?.oracle_text || creature?.oracle_text || ''),
     ownerId: creature?.owner || creature?.ownerId,

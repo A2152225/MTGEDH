@@ -8,6 +8,8 @@ import { permanentHasKeywordAbility } from "../../../../rules-engine/src/permane
 import { getEffectivePower } from "../../socket/util-handlers/getEffectivePowerToughness.js";
 import { untapTypeChoiceSource } from "./untapTypeChoiceRestriction.js"; // B48
 import { batch109SnowUntapProhibition } from "./batch109Apply.js";
+import { batch111UntapProhibition } from "./batch111Apply.js";
+import { batch112UntapReplacement } from "./batch112Apply.js";
 
 const QUAL_RE = /\bcreatures with (?:(flying|reach|defender|horsemanship|shadow|haste|trample)|power (\d+) or (greater|less)) don't untap during their controllers' untap steps/;
 // B36: "Nonbasic lands don't untap during their controllers' untap steps." (Back to Basics)
@@ -69,6 +71,15 @@ export function qualifiedUntapProhibitionSource(battlefield: readonly any[] | un
   const list = Array.isArray(battlefield) ? battlefield : [];
   const snow = batch109SnowUntapProhibition(list, permanent, state);
   if (snow) return snow;
+  const batch111 = batch111UntapProhibition(permanent, state || { battlefield: list });
+  if (batch111) return batch111;
+  const landsUntapped = list.filter((perm: any) => perm && perm.untappedThisStep && /\bland\b/i.test(String(perm?.card?.type_line || ''))).length;
+  const batch112 = batch112UntapReplacement(permanent, state || { battlefield: list }, landsUntapped);
+  if (batch112 === 'stop') return 'Untap limit';
+  if (batch112 === 'remove-wind') {
+    if (permanent?.counters) permanent.counters.wind = 0;
+    return 'Wind counters';
+  }
   const b53CantBecome = cantBecomeUntappedSource(list, permanent); // B53
   if (b53CantBecome) return b53CantBecome;
   const b48Matrix = untapTypeChoiceSource(list, permanent, state); // B48

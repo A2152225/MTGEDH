@@ -8,6 +8,13 @@ import type {
 
 type ChooseModeStep = Extract<OracleEffectStep, { readonly kind: 'choose_mode' }>;
 
+function villainousChoiceRepeats(state: GameState, controller: string, raw: string): boolean {
+  if (!/villainous choice/i.test(raw) || !/opponent/i.test(raw)) return false;
+  const board = Array.isArray((state as any)?.battlefield) ? (state as any).battlefield : [];
+  return board.some((perm: any) => String(perm?.controller || '') === controller
+    && /if an opponent would face a villainous choice, they face that choice an additional time/i.test(String(perm?.card?.oracle_text || '')));
+}
+
 type SkipOptions = {
   readonly pending?: boolean;
   readonly classification?: 'unsupported' | 'ambiguous' | 'player_choice' | 'invalid_input';
@@ -73,7 +80,8 @@ export function applyChooseModeStep(
     };
   }
 
-  const canRepeatModes = Boolean((step as any).canRepeatModes);
+  const villainousExtra = villainousChoiceRepeats(state, String(ctx.controllerId || ''), String((step as any).raw || ''));
+  const canRepeatModes = Boolean((step as any).canRepeatModes) || villainousExtra;
   const normalizedSelectedModeIds = rawSelectedModeIds
     .map(id => (typeof id === 'string' ? id.trim() : ''))
     .filter(Boolean);
@@ -95,6 +103,7 @@ export function applyChooseModeStep(
   let minModes = Math.max(0, Number((step as any).minModes ?? 0) || 0);
   const maxModesRaw = Number((step as any).maxModes ?? -1);
   let maxModes = Number.isFinite(maxModesRaw) && maxModesRaw >= 0 ? maxModesRaw : Infinity;
+  if (villainousExtra) maxModes = Math.max(maxModes === Infinity ? 2 : maxModes, 2);
   if (Boolean((step as any).teamworkChooseBoth) && ctx.teamworkWasPaid === true) {
     const modeCount = Array.isArray((step as any).modes) ? (step as any).modes.length : 0;
     maxModes = Math.min(2, modeCount > 0 ? modeCount : 2);

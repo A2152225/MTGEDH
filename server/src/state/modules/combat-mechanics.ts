@@ -48,6 +48,9 @@ import { batch105HasDoubleStrike } from "./batch105Apply.js";
 import { batch108PermanentHasKeyword } from "./batch108Apply.js";
 import { batch109PermanentHasKeyword } from "./batch109Apply.js";
 import { batch110PermanentHasKeyword } from "./batch110Apply.js";
+import { batch111PermanentHasKeyword } from "./batch111Apply.js";
+import { batch113ManaValueProtection } from "./batch113Remaining.js";
+import { batch112PermanentHasKeyword } from "./batch112Apply.js";
 import { commanderCreatureGrantHasKeyword } from "./commanderCreatureGrants.js";
 import { getEffectiveColors } from "./effectiveColors.js";
 import { ghostlyFlameDamageSourceIsColorless } from "./staticEffectSpec-handlers/batch97LongTailStatics.js";
@@ -375,6 +378,8 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
       if (batch108PermanentHasKeyword(keywordSubject, gameState, needle)) return true;
       if (batch109PermanentHasKeyword(keywordSubject, gameState, needle)) return true;
       if (batch110PermanentHasKeyword(keywordSubject, gameState, needle)) return true;
+      if (batch111PermanentHasKeyword(keywordSubject, gameState, needle)) return true;
+      if (batch112PermanentHasKeyword(keywordSubject, gameState, needle)) return true;
       if (commanderCreatureGrantHasKeyword(keywordSubject, gameState, needle)) return true;
       if (permanentLosesKeyword(keywordSubject, needle, keywordBattlefield)) return false;
       if (permanentHasKeywordAbility(keywordSubject, needle, keywordBattlefield)) return true;
@@ -614,6 +619,8 @@ export function protectionPreventsSource(
       return true;
     }
   }
+  const sourceManaValue = Number(sourcePermanent?.card?.mana_value ?? sourcePermanent?.card?.cmc ?? sourcePermanent?.manaValue ?? 0);
+  if (batch113ManaValueProtection(protectedPermanent, sourceManaValue)) return true;
   const colors = ghostlyFlameDamageSourceIsColorless(sourcePermanent, gameState)
     ? []
     : getEffectiveColors(sourcePermanent, gameState);

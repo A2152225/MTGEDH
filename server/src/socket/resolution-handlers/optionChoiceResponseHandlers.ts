@@ -37,6 +37,7 @@ import { tryHandleBatch101OptionChoice } from '../resolutionOptionChoiceBatch101
 import { tryHandleBatch102OptionChoice } from '../resolutionOptionChoiceBatch102Handlers.js';
 import { tryHandleDiceExchangeBasePTChoice } from '../../state/modules/diceExchangeBasePTPrompt.js';
 import { tryHandleDieRollNudgeChoice } from '../../state/modules/dieRollNudgePrompt.js';
+import { applyOptionalFirstDrawRevealChoice } from '../../state/modules/firstDrawRevealStatic.js';
 import { tryHandleOffspringCastChoice } from './offspringCastChoiceHandler.js';
 import { broadcastGame } from '../util.js';
 import { tryHandleBreathstealerPayOrDiscard } from "./breathstealerPayOrDiscardHandler.js";
@@ -130,6 +131,14 @@ export async function handleOptionChoiceResponse(
   } catch {}
 
   if (tryHandleDiceExchangeBasePTChoice(io, game, gameId, step, response)) {
+    try { broadcastGame(io, game, gameId); } catch {}
+    return;
+  }
+
+  const revealChoice = Array.isArray((response as any)?.selections) && (response as any).selections[0]
+    ? String((response as any).selections[0]?.id || (response as any).selections[0])
+    : String((response as any)?.selectedOption || (response as any)?.optionId || 'decline');
+  if (applyOptionalFirstDrawRevealChoice(game, stepData, revealChoice)) {
     try { broadcastGame(io, game, gameId); } catch {}
     return;
   }

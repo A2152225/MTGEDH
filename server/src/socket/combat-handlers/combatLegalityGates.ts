@@ -42,6 +42,7 @@ import { getQualifierBlockRestrictionReason } from "./combatQualifierBlockRestri
 import { batch104BlockRestrictionReason } from "../../state/modules/batch104Apply.js";
 import { batch108CannotBlockReason, getBatch108BlockRestrictionReason } from "../../state/modules/batch108Apply.js";
 import { getBatch109BlockRestrictionReason } from "../../state/modules/batch109Apply.js";
+import { batch111BlockRestrictionReason } from "../../state/modules/batch111Apply.js";
 import { batch105BlockRestrictionReason } from '../../state/modules/batch105Apply.js';
 import { getNoAbilitiesBlockRestrictionReason } from "../../../../shared/src/combatNoAbilitiesBlockRestriction.js";
 import { staticGrantBlockRestrictionReason } from "./combatR35StaticBlockRestrictions.js"; // R35
@@ -540,6 +541,8 @@ export function canBlockAttacker(
   if (b108Reason) return { canBlock: false, reason: b108Reason };
   const b109Reason = getBatch109BlockRestrictionReason(attacker, blocker, battlefield);
   if (b109Reason) return { canBlock: false, reason: b109Reason };
+  const b111Reason = batch111BlockRestrictionReason(attacker, blocker, battlefield, gameState);
+  if (b111Reason) return { canBlock: false, reason: b111Reason };
 
   // Check for counters that prevent blocking (e.g., bribery counters with Gwafa Hazid)
   // Uses scalable pattern matching instead of hardcoded card checks

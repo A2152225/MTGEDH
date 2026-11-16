@@ -33,6 +33,8 @@ export interface LoyaltyAbility {
   isUltimate?: boolean;
   isVariableCost?: boolean; // True for -X abilities
   xBasedEffect?: string; // Description of what X represents (e.g., "mana value")
+  dieRollMin?: number;
+  dieRollMax?: number;
 }
 
 export interface PlaneswalkerAbilities {
@@ -151,6 +153,40 @@ export function parsePlaneswalkerAbilities(card: any, permanent: any): Planeswal
       targetType,
       isVariableCost,
       xBasedEffect,
+    });
+  }
+
+  const dieGated = /^(\d+)(?: or (\d+))? [\u2014\u2013-] \[([+\u2212\u2013\u2014-]?\d+)\](?:, then|, and)?\s*(.+)$/gim;
+  const dieThenCost = /^(\d+)(?: or (\d+))? [\u2014\u2013-] (.+?), then \[([+\u2212\u2013\u2014-]?\d+)\]\.?$/gim;
+  let dieMatch;
+  while ((dieMatch = dieGated.exec(oracleText)) !== null) {
+    const dieRollMin = parseInt(dieMatch[1], 10);
+    const dieRollMax = dieMatch[2] ? parseInt(dieMatch[2], 10) : dieRollMin;
+    const costString = dieMatch[3].replace(/[\u2212\u2013\u2014]/g, '-');
+    const effect = dieMatch[4].trim();
+    const cost = parseInt(costString, 10);
+    abilities.push({
+      cost: Number.isFinite(cost) ? cost : 0,
+      costDisplay: costString.startsWith('+') || costString.startsWith('-') ? costString : `${cost}`,
+      effect,
+      requiresTarget: /target|choose/i.test(effect),
+      dieRollMin,
+      dieRollMax,
+    });
+  }
+  while ((dieMatch = dieThenCost.exec(oracleText)) !== null) {
+    const dieRollMin = parseInt(dieMatch[1], 10);
+    const dieRollMax = dieMatch[2] ? parseInt(dieMatch[2], 10) : dieRollMin;
+    const effect = dieMatch[3].trim();
+    const costString = dieMatch[4].replace(/[\u2212\u2013\u2014]/g, '-');
+    const cost = parseInt(costString, 10);
+    abilities.push({
+      cost: Number.isFinite(cost) ? cost : 0,
+      costDisplay: costString.startsWith('+') || costString.startsWith('-') ? costString : `${cost}`,
+      effect,
+      requiresTarget: /target|choose|creature or player/i.test(effect),
+      dieRollMin,
+      dieRollMax,
     });
   }
   
@@ -348,10 +384,6 @@ export function canActivateLoyaltyAbility(
   const activationsThisTurn = permanent?.loyaltyActivationsThisTurn || 0;
   const maxActivations = getLoyaltyActivationLimit(gameState, playerId);
   
-  if (activationsThisTurn >= maxActivations) {
-    return { canActivate: false, reason: "Already activated maximum loyalty abilities this turn" };
-  }
-  
   // Check current loyalty
   const currentLoyalty = permanent?.counters?.loyalty || permanent?.card?.loyalty || 0;
   const abilities = parsePlaneswalkerAbilities(permanent?.card, permanent);
@@ -361,6 +393,15 @@ export function canActivateLoyaltyAbility(
   }
   
   const ability = abilities.abilities[abilityIndex];
+  const rolled = Number(permanent?.loyaltyDieRoll);
+  if (ability.dieRollMin != null && (!Number.isFinite(rolled) || rolled < ability.dieRollMin || rolled > (ability.dieRollMax ?? ability.dieRollMin))) {
+    return { canActivate: false, reason: "That loyalty ability needs a different die roll" };
+  }
+  const oracle = String(permanent?.card?.oracle_text || '');
+  const extraFromDie = rolled === 6 && /two more times/i.test(oracle) ? 2 : 0;
+  if (activationsThisTurn >= maxActivations + extraFromDie) {
+    return { canActivate: false, reason: "Already activated maximum loyalty abilities this turn" };
+  }
   
   // Calculate additional mana cost from effects like Eidolon of Obstruction
   const additionalManaCost = getLoyaltyAdditionalCost(gameState, playerId, permanent);

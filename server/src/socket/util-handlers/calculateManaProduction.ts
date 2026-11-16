@@ -17,6 +17,7 @@ import { tryCalculateManaProductionCreaturePower } from "./tryCalculateManaProdu
 import { tryCalculateManaProductionStorageBattery } from "./tryCalculateManaProductionStorageBattery.js";
 import { tryCalculateManaProductionBonusesAndTotal } from "./tryCalculateManaProductionBonusesAndTotal.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/staticEffectSpec.js";
+import { applyBatch112ManaProduction } from "../../state/modules/batch112Apply.js";
 
 /**
  * 
@@ -105,7 +106,7 @@ export function calculateManaProduction(
     selectedLegacyManaColors,
     hasSelectedLegacyManaAbility,
   });
-  if (landBasic !== undefined) return landBasic;
+  if (landBasic !== undefined) return applyBatch112ManaProduction(landBasic, gameState, permanent, playerId);
 
   
   const dynamic = tryCalculateManaProductionDynamic({
@@ -136,7 +137,7 @@ export function calculateManaProduction(
     chosenColor,
     typeLine,
   });
-  if (creaturePower !== undefined) return creaturePower;
+  if (creaturePower !== undefined) return applyBatch112ManaProduction(creaturePower, gameState, permanent, playerId);
 
   const storageBattery = tryCalculateManaProductionStorageBattery({
     result,
@@ -147,7 +148,7 @@ export function calculateManaProduction(
     selectedAbilityCostText,
     hasSelectedLegacyManaAbility,
   });
-  if (storageBattery !== undefined) return storageBattery;
+  if (storageBattery !== undefined) return applyBatch112ManaProduction(storageBattery, gameState, permanent, playerId);
 
 
   const bonuses = tryCalculateManaProductionBonusesAndTotal({
@@ -159,7 +160,7 @@ export function calculateManaProduction(
     typeLine,
     card,
   });
-  if (bonuses !== undefined) return bonuses;
-  return result;
+  if (bonuses !== undefined) return applyBatch112ManaProduction(bonuses, gameState, permanent, playerId);
+  return applyBatch112ManaProduction(result, gameState, permanent, playerId);
 
 }

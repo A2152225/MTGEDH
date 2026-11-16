@@ -1,6 +1,6 @@
 # Phase 5 static/replacement census (owned_but_unhandled)
 
-Generated 2026-11-16T00:59:03.509Z by `npm run census:statics` (server/scripts/static-replacement-census.ts).
+Generated 2026-11-16T05:52:58.399Z by `npm run census:statics` (server/scripts/static-replacement-census.ts).
 
 Candidate lines: Commander-legal permanent faces, reminder text stripped, lines that end in a period and are
 not triggers, activated abilities, or keyword lists. A line is **declarative-handled** when
@@ -10,11 +10,11 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 
 | Metric | Lines |
 |---|---|
-| Candidate static/replacement lines | 10829 |
-| Declarative-handled | 3070 |
-| Owned by another subsystem | 7589 |
-| owned_but_unhandled (static) | 129 |
-| owned_but_unhandled (replacement) | 41 |
+| Candidate static/replacement lines | 10828 |
+| Declarative-handled | 3237 |
+| Owned by another subsystem | 7591 |
+| owned_but_unhandled (static) | 0 |
+| owned_but_unhandled (replacement) | 0 |
 
 ## Run history
 
@@ -273,6 +273,12 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 | 2026-11-16 00:36Z | 10829 | 3070 | 7579 | 138 | 42 |
 | 2026-11-16 00:40Z | 10829 | 3070 | 7584 | 133 | 42 |
 | 2026-11-16 00:59Z | 10829 | 3070 | 7589 | 129 | 41 |
+| 2026-11-16 04:40Z | 10829 | 3131 | 7589 | 74 | 35 |
+| 2026-11-16 05:08Z | 10828 | 3217 | 7589 | 17 | 5 |
+| 2026-11-16 05:12Z | 10828 | 3224 | 7590 | 13 | 1 |
+| 2026-11-16 05:14Z | 10828 | 3224 | 7590 | 13 | 1 |
+| 2026-11-16 05:15Z | 10828 | 3225 | 7590 | 12 | 1 |
+| 2026-11-16 05:52Z | 10828 | 3237 | 7591 | 0 | 0 |
 
 ## Other subsystems
 
@@ -1009,49 +1015,11 @@ separately and not counted as gaps. Remaining lines are `owned_but_unhandled` fo
 - after you roll a die, you may pay N life and nudge the result: 1
 - creature spells you cast gain offspring {N}: 1
 - ~ can't attack unless you sacrifice N islands: 1
+- color-word rewrite (effectiveOracleText): 1
 - alternative reconfigure cost choice (targetSelectionEquipAlternativeCost): 1
+- would-enter discard a land (land-would-enter-replacement): 1
 
 ## Top 40 unhandled families (by cards affected)
 
 | # | Scope | Family | Cards | Example cards |
 |---|---|---|---|---|
-| 1 | static | each creature you control has "…" | 1 | Tyvar the Bellicose |
-| 2 | static | players can't cast spells or play lands with a name originally printed in the arabian nights expansion | 1 | City in a Bottle |
-| 3 | static | crew N | 1 | Luxurious Locomotive |
-| 4 | static | space sculptor (~ divides the battlefield into alpha, beta, and gamma sectors | 1 | Space Beleren |
-| 5 | replacement | if damage would be dealt to you, exile that many cards from your graveyard instead | 1 | Nefarious Lich |
-| 6 | static | ~ gets ±N/±N, where x is the greatest number of stored results on it of the same value | 1 | Centaur of Attention |
-| 7 | static | you may reveal the first card you draw each turn as you draw it | 1 | Inquisitor Eisenhorn |
-| 8 | static | enchanted creature gets ±N/±N for each other enchantment on the battlefield | 1 | Ancestral Mask |
-| 9 | static | the attacking player chooses how each creature blocks each combat | 1 | Invasion Plans |
-| 10 | static | as long as there are eight or more cards in your graveyard, ~ has base power and toughness ±N/±N | 1 | Doc Ock, Sinister Scientist |
-| 11 | static | during your turn, nonland permanent cards in your graveyard have retrace | 1 | Six |
-| 12 | replacement | if a COLOR instant or sorcery spell you control would deal damage, it deals double that damage instead | 1 | Fire Servant |
-| 13 | static | equipped creature gets ±N/±N, where x is its mana value | 1 | Hedron Matrix |
-| 14 | static | all creatures of the chosen type get ±N/±N | 1 | Engineered Plague |
-| 15 | replacement | as long as ~'s power is N or greater, it can attack as though it didn't have defender | 1 | Karsus Depthguard |
-| 16 | static | ~ gets ±N/±N for each card exiled with it | 1 | Lumbering Battlement |
-| 17 | replacement | if a basic land you control is tapped for mana, it produces mana of a color of your choice instead of any othe | 1 | Pulse of Llanowar |
-| 18 | replacement | if a land is tapped for mana, it produces {M} instead of any other type | 1 | Infernal Darkness |
-| 19 | static | enchanted creature can't be blocked except by walls | 1 | Invisibility |
-| 20 | replacement | all damage is dealt as though its source had wither | 1 | Everlasting Torment |
-| 21 | static | ~ can't attack or block unless there are N or more cards in exile | 1 | Ketramose, the New Dawn |
-| 22 | static | echo—sacrifice N lands | 1 | Skizzik Surger |
-| 23 | static | enchanted creature is a demon spirit | 1 | Oni Possession |
-| 24 | static | as long as there are fewer than eight cards in your graveyard, ~ isn't a creature | 1 | The Warring Triad |
-| 25 | replacement | the first time you would create N or more tokens each turn, you may instead create that many tokens that are c | 1 | Moonlit Meditation |
-| 26 | static | creatures you control that are enchanted get ±N/±N and can't be blocked except by creatures with defender | 1 | Infiltrator's Magemark |
-| 27 | replacement | if another creature you control with a ±N/±N counter on it would be destroyed, instead remove all ±N/±N counte | 1 | Dr. McCoy, Surly Surgeon |
-| 28 | static | ~ gets ±N/±N for each face-down creature on the battlefield | 1 | Primal Whisperer |
-| 29 | replacement | if a creature you control that's enchanted would die, return it to its owner's hand instead | 1 | Necromancer's Magemark |
-| 30 | replacement | if ~'s power is negative, he assigns combat damage as though his power were positive | 1 | Loot, the Anomaly |
-| 31 | static | ~'s power is equal to the number of creature cards in all graveyards | 1 | Necrogoyf |
-| 32 | replacement | if damage would be dealt to you, put that many delay counters on ~ instead | 1 | Delaying Shield |
-| 33 | replacement | if a land is tapped for mana, it produces COLOR mana instead of any other type | 1 | Ritual of Subdual |
-| 34 | static | N,N needles — whenever ~ attacks, it gets ±N/±N until end of turn | 1 | Jumbo Cactuar |
-| 35 | replacement | if you would draw a card, instead look at the top N cards of your library, then put N into your hand and the r | 1 | Underrealm Lich |
-| 36 | static | this spacecraft gets ±N/±N for each artifact you control | 1 | Uthros Research Craft |
-| 37 | replacement | if a nontoken creature an opponent controls would die, instead exile that card and create a ±N/±N COLOR zombie | 1 | Kalitas, Traitor of Ghet |
-| 38 | static | as long as an opponent was dealt noncombat damage this turn, ~ has flying and haste | 1 | Whiplash Wordsmith // Vicious Verse |
-| 39 | static | each player may look at cards they exiled with ~, and they may play lands and cast spells from among those car | 1 | Shared Fate |
-| 40 | static | ~ can't attack unless a COLOR or COLOR creature also attacks | 1 | Scarred Puma |

@@ -28,6 +28,7 @@ import { applyOrQueueOpponentLibraryDrawReplacement } from './zones-handlers/zon
 import { maybeQueueJinnieFayTokenChoice } from './counters_tokens-handlers/countersTokensJinnieFayQueue.js';
 import { maybeQueueFirstTokensCopyEquippedChoice, listFirstTokensCopyEquippedCandidates } from './counters_tokens-handlers/countersTokensFirstTokensCopyEquippedQueue.js';
 import { maybeQueueEsixFirstTokensChoice, listEsixFirstTokenSources, ESIX_FIRST_TOKENS_EFFECT_ID } from './batch101EnterCopyAndTokens.js';
+import { applyChainsDrawReplacement, applySharedFateDrawReplacement, autoApplyOrQueueLookOneRestGraveyard } from './batch112Draw.js';
 
 export type ReplacementOrderEventKind = 'card-draw' | 'token-creation';
 
@@ -61,6 +62,9 @@ const DESCRIPTIONS: Record<string, string> = {
   'dredge-draw-replacement-choice': 'You may dredge instead of drawing',
   'zurs-weirding-draw-replacement': "A replacement that may change this draw (Zur's Weirding family)",
   'skip-draw-step-replacement': 'You may skip this draw',
+  'look-one-rest-graveyard': 'Look at the top cards, put one into your hand, and the rest into your graveyard',
+  'chains-draw-replacement': 'Discard a card instead of drawing. If you do, draw. If you don\'t, mill',
+  'shared-fate-draw': 'Exile the top card of an opponent\'s library face down instead of drawing',
   'optional-draw-to-counter': 'You may put a study counter on this instead of drawing',
   'draw-replaced-by-exile-opponent-library': 'Exile cards from an opponent library instead of drawing',
   'optional-token-identity-choice': 'You may create those tokens as a different kind',
@@ -358,6 +362,15 @@ function dispatchDrawCandidate(
     const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();
     if (queued || ((ctx as any).isReplaying && replayNextEventType === 'pursuitDrawReplacementResolve')) return 'break';
     return 'none';
+  }
+  if (effectId === 'look-one-rest-graveyard') {
+    return autoApplyOrQueueLookOneRestGraveyard(ctx, playerId, metadata);
+  }
+  if (effectId === 'chains-draw-replacement') {
+    return applyChainsDrawReplacement(ctx, playerId);
+  }
+  if (effectId === 'shared-fate-draw') {
+    return applySharedFateDrawReplacement(ctx, playerId, String(metadata?.sourcePermanentId || ''));
   }
   if (effectId === 'draw-replaced-by-exile-opponent-library') {
     const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();

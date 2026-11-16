@@ -177,6 +177,21 @@ export function detectCardDrawTriggers(card: any, permanent: any, gameState?: an
     });
   }
 
+  const instantSorceryReveal = oracleText.match(/whenever you reveal an instant or sorcery card this way,?\s*([^.]+)/i);
+  if (instantSorceryReveal) {
+    const effect = timingTriggerEffect(oracleText, instantSorceryReveal, 1);
+    if (effect && !triggers.some((trigger) => trigger.effect === effect)) {
+      triggers.push({
+        permanentId,
+        cardName,
+        controllerId,
+        triggerType: 'reveal_this_way',
+        effect,
+        mandatory: !/^you may\b/i.test(effect),
+      });
+    }
+  }
+
   const revealThisWayPatterns = [
     /whenever you reveal a (land|nonland) card this way,?\s*([^.]+)/gi,
     /when you reveal a (land|nonland) card this way,?\s*([^.]+)/gi,
@@ -211,7 +226,11 @@ function revealedFirstDrawMatches(ctx: GameContext, permanent: any, trigger: Car
   if (!reveal) return false;
   if (reveal[1] === 'on each of your turns' && String((ctx.state as any)?.turnPlayer || (ctx.state as any)?.activePlayer || '') !== String(drawingPlayerId)) return false;
   const typeLine = String(drawnCard?.type_line || drawnCard?.card?.type_line || '').toLowerCase();
+  if (/you may reveal the first card you draw/.test(oracle) && !drawnCard?.revealedOnDraw) return false;
   if (trigger.triggerType === 'reveal_creature_this_way') return typeLine.includes('creature');
+  if (/instant or sorcery card this way/.test(String(trigger.effect || '')) || /instant or sorcery card this way/.test(oracle) && /create /.test(String(trigger.effect || ''))) {
+    return /\binstant\b|\bsorcery\b/.test(typeLine);
+  }
   const effect = String(trigger.effect || '').toLowerCase();
   const kind = new RegExp('reveal an? (land|nonland) card this way,?\\s*' + effect.slice(0, 20).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).exec(oracle);
   const isLand = typeLine.includes('land');

@@ -17,6 +17,7 @@ import { removeControlEffects, syncControlFromRegistry } from "../continuousEffe
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { clearTemporaryGraveyardKeywordGrants, clearTemporaryPlayableFromGraveyardPermissions } from "../graveyard-permissions.js";
 import { expireDelayedDealtDamageWatchers } from "../triggers/dealt-damage-watchers.js";
+import { batch112SkipDamageCleanup } from "../batch112Apply.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -43,6 +44,7 @@ function clearDamageFromPermanents(ctx: GameContext) {
 
     for (const permanent of battlefield) {
       if (!permanent) continue;
+      if (batch112SkipDamageCleanup(permanent)) continue;
 
       const hadDamage =
         Number(permanent.damageMarked || 0) > 0 ||

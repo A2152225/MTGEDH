@@ -5,6 +5,8 @@
  * used elsewhere ({ white, blue, black, red, green, colorless }).
  */
 
+import { batch113SpellHasAssist } from './batch113Remaining.js';
+
 const POOL_KEYS = ['colorless', 'white', 'blue', 'black', 'red', 'green'] as const;
 
 export function hasAssist(oracleText: string): boolean {
@@ -50,7 +52,8 @@ export function applyAssistContribution(
   totalCost: string,
   xValue = 0,
 ): AssistContributionResult {
-  if (!spell || !hasAssist(String(spell.oracle_text || spell.card?.oracle_text || ''))) {
+  const printed = String(spell?.oracle_text || spell?.card?.oracle_text || '');
+  if (!spell || (!hasAssist(printed) && !batch113SpellHasAssist(state, casterId, spell))) {
     return { ok: false, paid: 0, reason: 'NO_ASSIST' };
   }
   if (!helperId || helperId === casterId) return { ok: false, paid: 0, reason: 'HELPER_MUST_BE_OTHER_PLAYER' };

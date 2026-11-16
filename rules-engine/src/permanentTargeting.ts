@@ -268,6 +268,18 @@ export function canTargetPermanent(
   const sourceType = sourceInfo.objectType;
   const opponentTargeting = isOpponentTargeting(permanent, sourceInfo.controllerId);
 
+  const sourceCard = sourceInfo.card as { mana_value?: number; cmc?: number; oracle_text?: string; oracleText?: string } | undefined;
+  const sourceManaValue = Number((sourceInfo as { manaValue?: number }).manaValue ?? sourceCard?.mana_value ?? sourceCard?.cmc ?? NaN);
+  const quality = String((permanent as any)?.chosenOddEven || (permanent as any)?.card?.chosenOddEven || '').toLowerCase();
+  const ownText = String((permanent as any)?.card?.oracle_text || '').toLowerCase();
+  if (
+    Number.isFinite(sourceManaValue)
+    && (quality === 'odd' || quality === 'even')
+    && /protection from each mana value of the chosen quality/.test(ownText)
+    && ((quality === 'even') === (Math.abs(Math.trunc(sourceManaValue)) % 2 === 0))
+  ) {
+    return { canTarget: false, reason: 'target has protection from that mana value' };
+  }
   const protectionAbilities = parseProtectionFromText(combinedText, String((permanent as any)?.id || ''));
   if (
     protectionAbilities.length > 0 &&

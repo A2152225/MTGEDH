@@ -19,6 +19,7 @@ import {
 import { persistTurnStepTriggeredAbility } from "./turnStepTriggerPersist.js";
 import { queueExiledTimeCounterRemovedTriggers } from "../triggers/queueExiledTimeCounterRemoved.js";
 import { debug } from "../../../utils/debug.js";
+import { batch112SkipUpkeep } from "../batch112Apply.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -37,6 +38,7 @@ export function runTurnStepUpkeep(
   usePersistedTurnStepTriggers: boolean,
   pushTriggersToStack: (triggers: any[], triggerType: string, idPrefix: string) => void,
 ): void {
+          if (batch112SkipUpkeep((ctx as any).state, turnPlayer)) return;
           const delayedUpkeepDraws = dequeuePendingUpkeepDrawTriggers(ctx);
           const delayedUpkeepReturns = dequeuePendingUpkeepGraveyardReturnTriggers(ctx, turnPlayer);
           pushTriggersToStack([...delayedUpkeepDraws, ...delayedUpkeepReturns], 'upkeep', 'upkeep');

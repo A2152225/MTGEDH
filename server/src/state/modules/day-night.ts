@@ -9,6 +9,7 @@ import { applyTransformAttachToPlayer } from './batch94TransformAttach.js';
 import { applyAsTransformsEvents, queuePendingTransformChooseOpponentChoices } from './batch99TransformEvents.js';
 import { maybeQueueTransformAttachPlayerChoice, queuePendingTransformAttachPlayerChoices } from './transformAttachPlayerChoice.js';
 import { applyPendingCraftLinkage } from './batch102CraftLinkage.js';
+import { batch113ApplyTransformCopy } from './batch113Remaining.js';
 
 export type DayNight = 'day' | 'night';
 
@@ -49,6 +50,7 @@ export function transformPermanentToFace(
   if ('toughness' in newFace) card.toughness = newFace.toughness;
   if (newFace.type_line) card.type_line = newFace.type_line;
   if (newFace.oracle_text) card.oracle_text = newFace.oracle_text;
+  batch113ApplyTransformCopy(permanent);
   if (newFace.image_uris) card.image_uris = newFace.image_uris;
   if ('loyalty' in newFace) card.loyalty = newFace.loyalty;
 

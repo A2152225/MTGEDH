@@ -27,7 +27,7 @@ import { tryApplyBatch92DrawReplacementsInLoop } from "../replacementBatch92Draw
 import { applyBatch19DrawInstead } from "../replacementBatch19DrawInstead.js";
 import { tryQueueRevealUntilKindDrawStep } from "./zonesDrawReplacementRevealUntilKind.js";
 import { isCardDrawProhibited, getCardDrawCapRemaining } from "../playersCantDrawCards.js";
-import { applyFirstDrawReveal } from '../firstDrawRevealStatic.js';
+import { applyFirstDrawReveal, optionalFirstDrawRevealPermanent, queueOptionalFirstDrawReveal } from '../firstDrawRevealStatic.js';
 import { applyBreathstealerAfterDraw } from '../breathstealersCryptDrawReveal.js';
 import { applyQuantumRiddlerDrawBonus } from '../replacementBatch93DrawReplacements.js';
 import { applyBatch103EmptyHandDrawTwo, registerBatch103DrawCards } from '../batch103Apply.js';
@@ -418,7 +418,11 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
   const drawnCardFor = (drawNumber: number) => drawnHand[drawnHand.length - Number(cardsDrawn || 0) + (drawNumber - firstDrawNumber)];
   // B51: "Reveal the first card you draw each turn" static (firstDrawRevealStatic).
   if (firstDrawNumber === 1 && Number(cardsDrawn || 0) > 0) {
-    try { applyFirstDrawReveal(ctx, String(drawingPlayerId), 1, drawnCardFor(1)); } catch { /* reveal is informational */ }
+    const drawn = drawnCardFor(1);
+    try {
+      if (optionalFirstDrawRevealPermanent(ctx.state, String(drawingPlayerId))) queueOptionalFirstDrawReveal(ctx, String(drawingPlayerId), drawn);
+      else applyFirstDrawReveal(ctx, String(drawingPlayerId), 1, drawn);
+    } catch { /* reveal is informational */ }
   }
   try {
     const drawnBatch = [];

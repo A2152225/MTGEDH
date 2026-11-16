@@ -525,6 +525,8 @@ export function permanentMatchesSelector(
     if (!sel.typeLineTermsAnyOf.some(term => hasExecutorClass(perm, String(term || '').trim()))) return false;
   }
 
+  if (sel.excludeCreature && hasExecutorClass(perm, 'creature')) return false;
+
   if (sel.types.includes('permanent')) return true;
   if (sel.types.includes('nonland_permanent')) return hasExecutorClass(perm, 'permanent') && !hasExecutorClass(perm, 'land');
 

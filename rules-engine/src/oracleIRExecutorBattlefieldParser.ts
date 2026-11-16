@@ -18,6 +18,8 @@ export type SimpleBattlefieldSelector = {
   readonly usesChosenCreatureType?: boolean;
   readonly tokenOnly?: boolean;
   readonly attackingOnly?: boolean;
+  /** "noncreature artifact" and "noncreature artifact or noncreature enchantment". */
+  readonly excludeCreature?: boolean;
   /** "creatures with flying" / "creatures without flying" (creature-only selectors). */
   readonly keywordsAll?: readonly string[];
   readonly keywordsNone?: readonly string[];
@@ -412,12 +414,19 @@ export function parseSimpleBattlefieldSelector(
     'vehicle',
   ]);
   const types: SimplePermanentType[] = [];
+  let noncreatureAlternativeCount = 0;
   for (const part of parts) {
-    let t = part.trim().toLowerCase().replace(/^(?:a|an|the)\s+/, '');
+    let t = part.trim().toLowerCase().replace(/^(?:a|an|the)\s+/, '').replace(/[.\s]+$/g, '');
+    if (/^non-?creature\s+/.test(t)) {
+      noncreatureAlternativeCount += 1;
+      t = t.replace(/^non-?creature\s+/, '').trim();
+    }
     if (t.endsWith('s')) t = t.slice(0, -1);
     if (!allowed.has(t as SimplePermanentType)) return null;
     types.push(t as SimplePermanentType);
   }
+  // Mixed "noncreature artifact or enchantment" is not a single exclude-creature union.
+  if (noncreatureAlternativeCount > 0 && noncreatureAlternativeCount !== parts.length) return null;
 
   return {
     kind: 'battlefield_selector',
@@ -430,6 +439,7 @@ export function parseSimpleBattlefieldSelector(
     ...(parsedNontokenOnly ? { nontokenOnly: true } : {}),
     ...(tappedOnly ? { tappedOnly: true } : {}),
     ...(nonbasicOnly ? { nonbasicOnly: true } : {}),
+    ...(noncreatureAlternativeCount > 0 ? { excludeCreature: true } : {}),
   };
 }
 

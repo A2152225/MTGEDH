@@ -3,13 +3,18 @@
 // (kept dependency-free so detection does not pull socket modules into the upkeep import graph).
 // Public entry symbols: EchoNonManaCost, parseEchoNonManaCost.
 
-export type EchoNonManaCost = { kind: 'discard' } | { kind: 'life'; amount: number };
+export type EchoNonManaCost = { kind: 'discard' } | { kind: 'life'; amount: number } | { kind: 'sacrifice-lands'; count: number };
 
 const DASH = '(?:\\u2014|\\u2013|-|:)';
 
 /** Parses "Echo\u2014Discard a card" / "Echo\u2014Pay N life" from oracle text or "<cost> or sacrifice" text. */
 export function parseEchoNonManaCost(text: unknown): { cost: EchoNonManaCost; label: string } | null {
   const s = String(text || '');
+  const lands = s.match(new RegExp('(?:^|\\n|\\b)echo\\s*' + DASH + '\\s*sacrifice (\\d+|two|three|four) lands', 'i'));
+  if (lands) {
+    const count = /^\d+$/.test(lands[1]) ? Number(lands[1]) : ({ two: 2, three: 3, four: 4 } as Record<string, number>)[lands[1].toLowerCase()] || 2;
+    return { cost: { kind: 'sacrifice-lands', count }, label: `Sacrifice ${count} lands` };
+  }
   const m = s.match(new RegExp('(?:^|\\n|\\b)echo\\s*' + DASH + '\\s*(discard an? card|pay (\\d+) life)', 'i'))
     || s.match(/^\s*(discard an? card|pay (\d+) life) or sacrifice\b/i);
   if (!m) return null;

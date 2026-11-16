@@ -4,6 +4,7 @@ import { debug } from '../../../utils/debug.js';
 import { getOrCreatePlayerZones } from '../triggerLibraryMillUtils.js';
 import { pushCardToPlayerGraveyardWithReplacements } from '../graveyardEntryUtils.js';
 import { processLifeChange } from '../game-state-effects.js';
+import { batch112RadiationGainsLife } from '../batch112Apply.js';
 
 function readPlayerRadCount(state: any, playerId: PlayerID): number {
   const player = (state?.players || []).find((entry: any) => String(entry?.id || '') === String(playerId));
@@ -84,7 +85,9 @@ export function processRadCountersAtPrecombatMain(ctx: GameContext, playerId: Pl
       const player = players.find((entry: any) => String(entry?.id || '') === String(playerId));
       const startingLife = state.startingLife ?? 40;
       const currentLife = state.life[playerId] ?? player?.life ?? startingLife;
-      const nextLife = currentLife - Math.abs(finalAmount);
+      const nextLife = batch112RadiationGainsLife(state, playerId)
+        ? currentLife + Math.abs(finalAmount)
+        : currentLife - Math.abs(finalAmount);
       state.life[playerId] = nextLife;
       if (player) {
         player.life = nextLife;

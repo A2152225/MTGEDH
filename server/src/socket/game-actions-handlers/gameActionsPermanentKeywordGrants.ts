@@ -18,6 +18,7 @@ import {
   oracleTextHasOwnKeyword,
 } from "../../../../rules-engine/src/oracleOwnKeywordText.js";
 import { debugWarn } from "../../utils/debug.js";
+import { batch112HasteDespiteSummoningSickness } from "../../state/modules/batch112Apply.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/staticEffectSpec.js";
 import { extractCreatureTypes } from "./gameActionsCastCostReduction.js";
 import { permanentHasKeywordAbility, permanentLosesKeyword } from "../../../../rules-engine/src/permanentKeywordAbilities.js";
@@ -101,6 +102,7 @@ export function permanentHasSummoningSickness(
   if (creatureHasHaste(permanent, battlefield, controller)) {
     return false;
   }
+  if (batch112HasteDespiteSummoningSickness(permanent, { battlefield }, undefined)) return false;
   return permanent?.summoningSickness === true || permanent?.enteredThisTurn === true;
 }
 

@@ -11,6 +11,7 @@ import { parseManaCost, normalizeParsedManaCost, canPayManaCostWithAvailableSour
 import { hasPayableAlternateCost } from '../alternate-costs.js';
 import { hasValidTargetsForSpell } from '../../../rules-engine/target-availability.js';
 import { getGrantedCastFromGraveyardKeywordInfo, type GraveyardCastingPermissionCostMode } from '../graveyard-permissions.js';
+import { batch112GrantsRetrace } from '../batch112Apply.js';
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan } from '../cost-adjustments.js';
 import { getEffectiveAdditionalCost } from '../../../socket/game-actions.js';
 import { debug, debugWarn } from '../../../utils/debug.js';
@@ -138,6 +139,10 @@ function getAvailableGraveyardCastKeywordInfo(
       return { keyword, cost: printedInfo.cost, additionalExileCount: printedInfo.additionalExileCount };
     }
 
+    if (keyword === 'retrace' && batch112GrantsRetrace((ctx as any).state, playerId, card)) {
+      const manaCost = String(card?.mana_cost || card?.manaCost || '').trim();
+      return { keyword, cost: manaCost || undefined };
+    }
     if (keyword === 'escape' && dinosaurHasGrantedEscape((ctx as any).state, card, playerId)) {
       const manaCost = String(card?.mana_cost || card?.manaCost || '').trim();
       return { keyword, cost: manaCost, additionalExileCount: 3 };

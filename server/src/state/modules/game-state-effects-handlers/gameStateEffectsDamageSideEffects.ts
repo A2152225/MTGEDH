@@ -21,6 +21,7 @@ import { applyBatch96DamageSideEffects } from "../replacementBatch96DamageReplac
 import { applyBatch103DamageSideEffects, combatDamageCantBePreventedFor } from "../batch103Apply.js";
 import { applyBatch104DamageSideEffects } from "../batch104Apply.js";
 import { applyBatch108DamagePrevention } from "../batch108Apply.js";
+import { applyBatch112DamageReplacement } from "../batch112Apply.js";
 
 function markDamage(perm: any, amount: number): void {
   perm.markedDamage = (Number(perm.markedDamage) || 0) + amount;
@@ -49,6 +50,13 @@ export function applyDamageSideEffectReplacements(
 ): { amount: number; modifiers: string[] } | null {
   if (!(Number(damageAmount) > 0)) return null;
   const state = (ctx as any)?.state || ctx;
+  const replaced = applyBatch112DamageReplacement(state, Number(damageAmount), String(damageDealer || ''), String(damageReceiver || ''), targetPermanentId);
+  if (replaced) return { amount: replaced.amount, modifiers: [replaced.note || 'batch 112 damage replacement'] };
+  if (!isCombatDamage && !targetPermanentId && damageReceiver) {
+    const received = state.noncombatDamageReceivedThisTurn || {};
+    received[String(damageReceiver)] = Number(received[String(damageReceiver)] || 0) + Number(damageAmount);
+    state.noncombatDamageReceivedThisTurn = received;
+  }
   const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
   if (!battlefield.length) return null;
   if (combatDamageCantBePreventedFor(state, { damageDealer, isCombatDamage, damageSourcePermanentId })) return null;

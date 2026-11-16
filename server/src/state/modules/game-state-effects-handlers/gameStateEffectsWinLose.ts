@@ -11,6 +11,7 @@
 // Leaf must not import game-state-effects.ts or game-state-effects-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
+import { batch112LoseGameReplacement, shuffleForLichMirror } from "../batch112Apply.js";
 import type { PlayerID } from "../../../../../shared/src/index.js";
 import { checkThassasOracleWin } from "../../../../../rules-engine/src/winEffectCards.js";
 import { markPlayerOutOfPriority } from "../priorityEligibility.js";
@@ -226,6 +227,19 @@ export function checkLoseConditions(
   
   const life = getPlayerLife(ctx, playerId);
   const cantLose = hasCantLoseEffect(ctx, playerId);
+  const stateAny = (ctx as any).state || ctx;
+  const poisonNow = stateAny?.poisonCounters?.[playerId] || 0;
+  const commanderNow = stateAny?.commanderDamage?.[playerId] || {};
+  const wouldLoseNow = life <= 0 || poisonNow >= 10 || Object.values(commanderNow).some((damage) => Number(damage) >= 21);
+  if (wouldLoseNow && batch112LoseGameReplacement(stateAny, playerId)) {
+    const turn = Number(stateAny.turnNumber || 0);
+    stateAny.lichMirrorTurn = stateAny.lichMirrorTurn || {};
+    if (stateAny.lichMirrorTurn[playerId] !== turn) {
+      shuffleForLichMirror(stateAny, playerId);
+      stateAny.lichMirrorTurn[playerId] = turn;
+      return { lost: false };
+    }
+  }
   
   // 0 or less life
   if (life <= 0) {

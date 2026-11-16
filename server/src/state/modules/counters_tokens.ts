@@ -17,6 +17,7 @@ import { ResolutionQueueManager } from "../resolution/index.js";
 import { ResolutionStepType } from "../resolution/types.js";
 import { ensureInitialDayNightDesignationFromBattlefield } from "./day-night.js";
 import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
+import { batch112DestroyReplacement } from "./batch112Apply.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
 import { applyShieldCounterDamagePrevention } from "./counter-common-effects.js";
@@ -483,6 +484,10 @@ export function destroyPermanent(ctx: GameContext, permanentId: string, triggerD
     return true;
   }
 
+  if (batch112DestroyReplacement(state, normalizedId)) {
+    bumpSeq();
+    return true;
+  }
   return movePermanentToGraveyard(ctx, normalizedId, triggerDeathEffects);
 }
 

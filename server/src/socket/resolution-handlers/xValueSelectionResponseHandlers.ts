@@ -21,6 +21,22 @@ import {
 } from "../../state/resolution/index.js";
 import { debugWarn } from "../../utils/debug.js";
 import { requestCastSpellForSocket } from "../game-actions.js";
+import { batch113ColoredXLimit } from "../../state/modules/batch113Remaining.js";
+
+function cappedSpellX(game: any, step: any, selected: number): number {
+  const id = String(step?.spellCardId || '');
+  let card: any = null;
+  const zones = game?.state?.zones || {};
+  for (const zone of Object.values(zones) as any[]) {
+    if (!zone || typeof zone !== 'object' || card) continue;
+    for (const pile of [zone.hand, zone.library, zone.graveyard, zone.exile, zone.commandZone, zone.command]) {
+      const found = Array.isArray(pile) ? pile.find((entry: any) => String(entry?.id || '') === id) : null;
+      if (found) { card = found; break; }
+    }
+  }
+  const cap = batch113ColoredXLimit(card);
+  return cap == null ? selected : Math.min(selected, cap);
+}
 import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
 import {
   applyDelayedDrawUpToChoice,
@@ -225,7 +241,7 @@ export async function handleXValueSelectionResponse(
         castWithoutPayingManaCost: stepAny?.spellCastWithoutPayingManaCost === true,
         bypassExilePermissionCheck: stepAny?.spellBypassExilePermissionCheck === true,
         ignoreTimingRestrictions: stepAny?.spellIgnoreTimingRestrictions === true,
-        xValue: selectedXValue,
+        xValue: cappedSpellX(game, stepAny, selectedXValue),
       },
     );
 

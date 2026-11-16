@@ -13,7 +13,7 @@ function triggerDoublerHandles(line: string, cardName: string): boolean {
   return found.length > 0 && found.every((d: any) => !d.unsupportedReason);
 }
 
-const ABILITY_WORD = /^\s*[A-Za-z][A-Za-z0-9' -]{0,40}?\s+(?:\u2014|--?)\s+/;
+const ABILITY_WORD = /^\s*(?:[\d,]+\s+)?[A-Za-z][A-Za-z0-9' -]{0,40}?\s+(?:\u2014|--?)\s+/;
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

@@ -54,6 +54,8 @@ import { collectBatch91ScryReplacementSpecsFromState } from './replacementBatch9
 import { collectBatch91LoseGameReplacementSpecsFromState } from './replacementBatch91LoseGameReplacements.js';
 import { collectBatch91DrawReplacementSpecsFromState } from './replacementBatch91DrawReplacements.js';
 import { collectRevealCreaturesDrawSpecsFromState } from './revealCreaturesDrawReplacement.js';
+import { collectBatch111ReplacementSpecsFromState } from './replacementBatch111Collect.js';
+import { collectBatch112ReplacementSpecsFromState } from './replacementBatch112Collect.js';
 import { collectBatch91DamageReplacementSpecsFromState } from './replacementBatch91DamageReplacements.js';
 import { collectBatch91NamedTokenReplacementSpecsFromState } from './replacementBatch91NamedTokenReplacements.js';
 import { collectBatch92ReplacementSpecsFromState } from './replacementBatch92Collect.js';
@@ -361,6 +363,8 @@ function collectReplacementEffectSpecsFromStateUncached(state: unknown): Replace
   specs.push(...collectBatch91LoseGameReplacementSpecsFromState(state));
   specs.push(...collectBatch91DrawReplacementSpecsFromState(state));
   specs.push(...collectRevealCreaturesDrawSpecsFromState(state));
+  specs.push(...collectBatch111ReplacementSpecsFromState(state));
+  specs.push(...collectBatch112ReplacementSpecsFromState(state));
   specs.push(...collectBatch91DamageReplacementSpecsFromState(state));
   specs.push(...collectBatch91NamedTokenReplacementSpecsFromState(state));
   specs.push(...collectBatch92ReplacementSpecsFromState(state));

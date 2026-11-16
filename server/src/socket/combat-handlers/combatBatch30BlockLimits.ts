@@ -5,6 +5,8 @@
 // Origin parent: combatDeclareBlockersRequest.ts (next to findMinimumBlockersViolation).
 // Public entry symbols: getMaximumBlockers, findMaximumBlockersViolation, trimAssignmentsToMaximumBlockers (B31 AI path).
 
+import { batch111MaxBlockers } from "../../state/modules/batch111Apply.js";
+
 const WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
 const MAX_RE = /can't be blocked by more than (\d+|one|two|three|four|five) creatures?/;
 // B38 power-gated team cap: "Each creature you control with power 4 or greater can't be blocked by more than one creature." (Challenger Troll)
@@ -60,7 +62,7 @@ export function getMaximumBlockers(attacker: any, battlefield: readonly any[]): 
       max = Math.min(max, toNum(cm[2]));
     }
   }
-  return max;
+  return Math.min(max, batch111MaxBlockers(attacker, battlefield || []));
 }
 
 /** First attacker blocked by more creatures than allowed, or null. */

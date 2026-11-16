@@ -3,6 +3,8 @@
 // continuous abilities or from a battlefield grant such as Cultist of the Absolute.
 // Public: extractWardCostText, findBattlefieldGrantedWardCost, findAnyGrantedWardCost.
 
+import { batch112WardCost } from './batch112Apply.js';
+
 const LIFE_WORDS: Record<string, number> = {
   a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
   six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -106,6 +108,8 @@ export function findBattlefieldGrantedWardCost(state: any, permanent: any): stri
 
 export function findAnyGrantedWardCost(permanent: any, state?: any): string | null {
   if (!permanent) return null;
+  const experienceWard = batch112WardCost(permanent, state);
+  if (experienceWard) return experienceWard;
   if (typeof permanent.wardCost === 'string' && permanent.wardCost.trim()) return permanent.wardCost.trim();
   for (const ability of abilityList(permanent)) {
     const trimmed = String(ability || '').trim();

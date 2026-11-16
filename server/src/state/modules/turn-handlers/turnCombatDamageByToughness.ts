@@ -5,6 +5,8 @@
 // power", Arcades "with defender", and self "~ assigns ...".
 // Public entry symbols: assignsCombatDamageByToughness, combatDamageAssignmentAmount.
 
+import { batch112CombatDamageAmount } from '../batch112Apply.js';
+
 const CORE = 'assigns? combat damage equal to (?:its|their) toughness rather than (?:its|their) power';
 const EACH_RE = new RegExp(`\\beach creature( you control)?( with defender| with toughness greater than its power)? ${CORE}`);
 const SELF_RE = new RegExp(`(?:\\bthis creature|~) ${CORE}`);
@@ -52,6 +54,6 @@ export function combatDamageAssignmentAmount(
   stats: { power: number; toughness: number },
 ): number {
   const battlefield = Array.isArray(ctx?.state?.battlefield) ? ctx.state.battlefield : [];
-  if (assignsCombatDamageByToughness(perm, battlefield, stats)) return Math.max(0, Number(stats.toughness) || 0);
-  return stats.power;
+  const base = assignsCombatDamageByToughness(perm, battlefield, stats) ? Math.max(0, Number(stats.toughness) || 0) : stats.power;
+  return batch112CombatDamageAmount(perm, base);
 }

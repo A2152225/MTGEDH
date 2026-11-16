@@ -13,6 +13,7 @@ import { findBatch93CastRestrictionViolation } from './batch93CastRestrictions.j
 import { namedPermanentCastIsLocked } from './batch102Apply.js';
 import { batch104CastRestrictionReason } from './batch104Apply.js';
 import { batch105CannotCastInstantDuringCombat, batch105CannotCastOrPlayForWardOfBones } from './batch105Apply.js';
+import { batch112CastRestriction } from './batch112Apply.js';
 
 const NUMBER_WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -87,6 +88,8 @@ export function findOracleCastingLimitViolation(
   if (b105Instant) return { prohibited: true, reason: b105Instant };
   const b105Ward = batch105CannotCastOrPlayForWardOfBones(state, pid, spell, 'cast');
   if (b105Ward) return { prohibited: true, reason: b105Ward };
+  const b112Cast = batch112CastRestriction(state, pid, spell);
+  if (b112Cast) return { prohibited: true, reason: b112Cast };
   const spellTypeLine = spell?.type_line ?? spell?.card?.type_line ?? spell?.typeLine;
   const spellIsCreature = isCreatureTypeLine(spellTypeLine);
   const turnPlayer = String(state?.turnPlayer ?? state?.activePlayer ?? '');

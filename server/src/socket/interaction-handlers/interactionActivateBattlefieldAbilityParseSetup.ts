@@ -32,6 +32,7 @@ import {
   hasUsedPowerUpAbility,
   parsePowerUpActivatedAbility,
 } from "../../state/modules/marvelMechanicsHelpers.js";
+import { batch113PowerUpLimit, batch113SwampSacrificeCount } from "../../state/modules/batch113Remaining.js";
 import { debug } from "../../utils/debug.js";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
 import {
@@ -192,7 +193,7 @@ export function trySetupActivateBattlefieldAbilityParse(
   const powerUpInfo = parsePowerUpActivatedAbility(powerUpLineText);
   if (powerUpInfo) {
     powerUpAbilityIndex = selectedAbilityIndex < abilities.length ? selectedAbilityIndex : abilityIndex;
-    if (hasUsedPowerUpAbility(permanent, powerUpAbilityIndex)) {
+    if (hasUsedPowerUpAbility(permanent, powerUpAbilityIndex, batch113PowerUpLimit(game.state, pid))) {
       socket.emit('error', {
         code: 'POWER_UP_ALREADY_USED',
         message: `Each power-up ability on ${cardName} can only be activated once.`,
@@ -211,6 +212,12 @@ export function trySetupActivateBattlefieldAbilityParse(
     sacrificeCount = 1;
     mustBeOther = false;
     requiredChargeCounters = null;
+  }
+  const droughtCount = batch113SwampSacrificeCount(game.state, pid, String(manaCost || ''), 'ability');
+  if (droughtCount > 0 && !sacrificeType) {
+    sacrificeType = 'land';
+    sacrificeSubtype = 'Swamp';
+    sacrificeCount = droughtCount;
   }
 
   const selectedAbilityFullText = selectedAbilityIndex < abilities.length

@@ -9,6 +9,8 @@ import { LATE_BATCH_OTHER_SYSTEMS_B105 } from './static-replacement-census-class
 import { LATE_BATCH_OTHER_SYSTEMS_B106 } from './static-replacement-census-classify-late-batches-b106.js';
 import { LATE_BATCH_OTHER_SYSTEMS_B107 } from './static-replacement-census-classify-late-batches-b107.js';
 import { LATE_BATCH_OTHER_SYSTEMS_B109 } from './static-replacement-census-classify-late-batches-b109.js';
+import { LATE_BATCH_OTHER_SYSTEMS_B112 } from './static-replacement-census-classify-late-batches-b112.js';
+import { LATE_BATCH_OTHER_SYSTEMS_B113 } from './static-replacement-census-classify-late-batches-b113.js';
 import { LATE_BATCH_OTHER_SYSTEMS_B101 } from './static-replacement-census-classify-late-batches-b101.js';
 import { LATE_BATCH_OTHER_SYSTEMS_B102 } from './static-replacement-census-classify-late-batches-b102.js';
 import { LATE_BATCH_OTHER_SYSTEMS_B96 } from './static-replacement-census-classify-late-batches-b96.js';
@@ -24,7 +26,7 @@ import { LATE_BATCH_OTHER_SYSTEMS_B48_B69 } from './static-replacement-census-cl
 
 export const LATE_BATCH_OTHER_SYSTEMS: Array<[string, RegExp]> = [
 
-  ...LATE_BATCH_OTHER_SYSTEMS_B109, ...LATE_BATCH_OTHER_SYSTEMS_B107, ...LATE_BATCH_OTHER_SYSTEMS_B106,  ...LATE_BATCH_OTHER_SYSTEMS_B105,
+  ...LATE_BATCH_OTHER_SYSTEMS_B113, ...LATE_BATCH_OTHER_SYSTEMS_B112, ...LATE_BATCH_OTHER_SYSTEMS_B109, ...LATE_BATCH_OTHER_SYSTEMS_B107, ...LATE_BATCH_OTHER_SYSTEMS_B106,  ...LATE_BATCH_OTHER_SYSTEMS_B105,
   ...LATE_BATCH_OTHER_SYSTEMS_B104,
   ...LATE_BATCH_OTHER_SYSTEMS_B103,
   ...LATE_BATCH_OTHER_SYSTEMS_B102,

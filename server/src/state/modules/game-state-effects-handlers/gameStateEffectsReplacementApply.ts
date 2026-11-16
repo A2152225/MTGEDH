@@ -29,6 +29,8 @@ import {
 } from "../replacementEffectSpec.js";
 import { collectBatch103DamageModifyEffects } from "../batch103Apply.js";
 import { collectBatch109DamageAdjustments } from "../batch109Apply.js";
+import { collectBatch111DamageAdjustments } from "../batch111Apply.js";
+import { batch112DamageAdjustments } from "../batch112Apply.js";
 import {
   collectOraclePatternLifeLossReplacementSpecsFromState,
   overlaySpecsMatchLifeLoss,
@@ -66,11 +68,13 @@ export type ReplacementEffectType =
   | 'halve_round_up' // /2 (rounded up, like Gisela's prevention)
   | 'prevent'       // Set to 0
   | 'cap'          // Prevent all but N (Temple Altisaur family)
+  | 'cap_if_at_least' // If damage is at least `threshold`, it becomes `value` (Divine Presence)
   | 'floor';        // Raise damage to at least N (Ojer Axonil)
 
 export interface ReplacementEffect {
   type: ReplacementEffectType;
   value?: number;     // For 'add_flat' type
+  threshold?: number; // For 'cap_if_at_least': the amount that must be reached first
   source: string;     // Card name that provides this effect
   controllerId?: string; // Who controls the source
 }
@@ -150,6 +154,7 @@ export function applyBeneficialReplacements(
   const sortedEffects = [...effects].sort((a, b) => {
     const order: Record<ReplacementEffectType, number> = {
       'cap': 0,            // Cap first so remaining N can still be doubled
+      'cap_if_at_least': 0,
       'floor': 1,          // Raise before flat adds and multipliers
       'add_flat': 2,
       'double': 3,
@@ -192,6 +197,13 @@ export function applyBeneficialReplacements(
         const cap = Math.max(0, Number(effect.value ?? 1));
         amount = Math.min(amount, cap);
         appliedEffects.push(`${effect.source}: prevent all but ${cap} (${before} -> ${amount})`);
+        break;
+      }
+      case 'cap_if_at_least': {
+        const threshold = Math.max(0, Number(effect.threshold ?? 0));
+        const next = Math.max(0, Number(effect.value ?? 0));
+        if (amount >= threshold) amount = next;
+        appliedEffects.push(`${effect.source}: ${threshold} or more becomes ${next} (${before} -> ${amount})`);
         break;
       }
       case 'floor': {
@@ -255,6 +267,7 @@ export function applyDamageReplacementsMinimized(
       'floor': 5,          // Raise after multipliers so a double can clear the floor
       'add_flat': 6,       // Add last so it's not multiplied
       'cap': 7,            // Cap last so doubled damage still becomes N
+      'cap_if_at_least': 8,
     };
     return (order[a.type] || 99) - (order[b.type] || 99);
   });
@@ -289,6 +302,13 @@ export function applyDamageReplacementsMinimized(
         const cap = Math.max(0, Number(effect.value ?? 1));
         amount = Math.min(amount, cap);
         appliedEffects.push(`${effect.source}: prevent all but ${cap} (${before} -> ${amount})`);
+        break;
+      }
+      case 'cap_if_at_least': {
+        const threshold = Math.max(0, Number(effect.threshold ?? 0));
+        const next = Math.max(0, Number(effect.value ?? 0));
+        if (amount >= threshold) amount = next;
+        appliedEffects.push(`${effect.source}: ${threshold} or more becomes ${next} (${before} -> ${amount})`);
         break;
       }
       case 'floor': {
@@ -374,6 +394,13 @@ export function applyReplacementsCustomOrder(
         const cap = Math.max(0, Number(effect.value ?? 1));
         amount = Math.min(amount, cap);
         appliedEffects.push(`${effect.source}: prevent all but ${cap} (${before} -> ${amount})`);
+        break;
+      }
+      case 'cap_if_at_least': {
+        const threshold = Math.max(0, Number(effect.threshold ?? 0));
+        const next = Math.max(0, Number(effect.value ?? 0));
+        if (amount >= threshold) amount = next;
+        appliedEffects.push(`${effect.source}: ${threshold} or more becomes ${next} (${before} -> ${amount})`);
         break;
       }
       case 'floor': {
@@ -488,6 +515,12 @@ export function detectDamageReplacementEffects(
     effects.push(effect);
   }
   for (const effect of collectBatch109DamageAdjustments(state, { damageDealer, damageReceiver, damageSourcePermanentId, isCombatDamage, targetPermanentId })) {
+    effects.push(effect);
+  }
+  for (const effect of collectBatch111DamageAdjustments(state, { damageDealer, damageReceiver, damageSourcePermanentId, isCombatDamage, targetPermanentId })) {
+    effects.push(effect);
+  }
+  for (const effect of batch112DamageAdjustments(state, { damageDealer, damageReceiver, isCombatDamage, targetPermanentId })) {
     effects.push(effect);
   }
 

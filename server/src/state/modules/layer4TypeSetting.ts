@@ -19,6 +19,8 @@ import { batch107AdditionalTypes, batch107GrantedCreatureTypes, batch107Permanen
 import { batch108AdditionalTypes, batch108GrantedCreatureTypes, batch108PermanentHasKeyword } from './batch108Apply.js';
 import { batch109PermanentHasKeyword } from './batch109Apply.js';
 import { batch110AdditionalTypes, batch110PermanentHasKeyword } from './batch110Apply.js';
+import { batch111AdditionalTypes, batch111LosesCreature, batch111PermanentHasKeyword } from './batch111Apply.js';
+import { batch112AdditionalTypes, batch112PermanentHasKeyword } from './batch112Apply.js';
 
 export const LAYER4_ADDED_TYPES_FIELD = 'layer4AddedTypes';
 
@@ -114,6 +116,8 @@ export function layer4AddedTypesFor(perm: any, state: any): string[] {
     for (const typ of batch107AdditionalTypes(perm, state)) added.add(typ);
     for (const typ of batch108AdditionalTypes(perm, state)) added.add(typ);
   for (const typ of batch110AdditionalTypes(perm, state)) added.add(typ);
+  for (const typ of batch111AdditionalTypes(perm, state)) added.add(typ);
+  for (const typ of batch112AdditionalTypes(perm, state)) added.add(typ);
   return [...added];
 }
 
@@ -149,6 +153,8 @@ export function stampLayer4TypeSetting(state: any): void {
     for (const typ of batch107AdditionalTypes(perm, state)) added.add(typ);
     for (const typ of batch108AdditionalTypes(perm, state)) added.add(typ);
     for (const typ of batch110AdditionalTypes(perm, state)) added.add(typ);
+    for (const typ of batch111AdditionalTypes(perm, state)) added.add(typ);
+    for (const typ of batch112AdditionalTypes(perm, state)) added.add(typ);
     if (added.size > 0) perm[LAYER4_ADDED_TYPES_FIELD] = [...added];
     else if (LAYER4_ADDED_TYPES_FIELD in perm) delete perm[LAYER4_ADDED_TYPES_FIELD];
     const grantedTypes = [
@@ -156,11 +162,19 @@ export function stampLayer4TypeSetting(state: any): void {
       ...batch108GrantedCreatureTypes(perm, state),
     ];
     perm.batch107GrantedCreatureTypes = grantedTypes;
-    const grantedKeywords = (['hexproof', 'menace', 'first strike', 'lifelink', 'double strike', 'prowess', 'trample'] as const).filter((kw) => (
+    const grantedKeywords = (['hexproof', 'menace', 'first strike', 'lifelink', 'double strike', 'prowess', 'trample', 'flying', 'haste', 'indestructible', 'shroud'] as const).filter((kw) => (
       batch107PermanentHasKeyword(perm, state, kw) || batch108PermanentHasKeyword(perm, state, kw)
       || batch109PermanentHasKeyword(perm, state, kw) || batch110PermanentHasKeyword(perm, state, kw)
+      || batch111PermanentHasKeyword(perm, state, kw) || batch112PermanentHasKeyword(perm, state, kw)
     ));
     perm.batch107GrantedKeywords = grantedKeywords;
+    if (batch111LosesCreature(perm, state)) {
+      perm.notCreature = true;
+      perm.notCreatureFromBatch111 = true;
+    } else if (perm.notCreatureFromBatch111) {
+      delete perm.notCreature;
+      delete perm.notCreatureFromBatch111;
+    }
   }
   stampBatch100CreatureTypeLoss(state);
 }

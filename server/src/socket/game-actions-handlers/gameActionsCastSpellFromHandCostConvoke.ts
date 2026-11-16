@@ -20,7 +20,7 @@ import {
   parseImpendingInfo,
 } from "../../state/modules/alternate-costs.js";
 import { resolveGrantedKeywordAlternateCost } from "../../state/modules/batch96GrantedKeywordHooks.js";
-import { consumeAssistCredit } from "../assistPaymentFlow.js";
+import { consumeAssistCredit, flushPendingAssistDraw } from "../assistPaymentFlow.js";
 import { spellHasConvokeForCast } from "../../state/modules/casting-modifiers.js";
 import {
   applyWebSlingingReturnedCreatureCost,
@@ -393,6 +393,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
       // Calculate total mana cost for spell from hand (using reduced cost)
       // Assist (CR 702.132): generic mana already paid by a helping player.
       const totalGeneric = isForceAltCostPaid ? payableCost.generic : consumeAssistCredit(game.state, playerId, String(cardInHand?.id || ''), payableCost.generic);
+      if (!isForceAltCostPaid) flushPendingAssistDraw(game, playerId);
       const totalColored = payableCost.colors;
       const castingTypeLine = String(cardInHand?.type_line || '').toLowerCase();
       const castingCreatureSpell = castingTypeLine.includes('creature');

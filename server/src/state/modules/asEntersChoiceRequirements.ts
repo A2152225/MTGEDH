@@ -195,6 +195,10 @@ function collectIrAsEntersChoices(oracleText: string, cardName: string): AsEnter
     }
   }
 
+  if (!requirements.some((req) => req.kind === 'player') && /as\s+.+\s+enters,\s*choose a player/i.test(oracleText)) {
+    requirements.push({ kind: 'player', mandatory: true, reason: 'Choose a player' });
+  }
+
   return requirements;
 }
 

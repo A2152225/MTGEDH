@@ -37,6 +37,7 @@ import {
 import { mirrorGraveyardCastingPermissionsToDurable } from '../modules/graveyard-permissions.js';
 import { persistEffectProgramStateDiffs, snapshotEffectProgramReplayBaseline } from './effectProgramStateDiffPersistence.js';
 import { hydrateOracleIRPlayerZonesFromContext } from '../modules/oracleIrServerZoneSync.js';
+import { batch113VillainousExtra } from '../modules/batch113Remaining.js';
 
 interface StoredEffectProgramRuntime {
   readonly runtime: EffectProgramRuntime<GameState>;
@@ -315,6 +316,19 @@ function buildKickerChooseBothQueueExtras(
   };
 }
 
+function buildVillainousExtraQueueExtras(
+  game: any,
+  pause: EffectProgramChoicePause<any>,
+  oracleIrBridge?: EffectProgramOracleIrBridgeConfig,
+): EffectProgramQueueExtraConfig {
+  const payload = (pause.choiceEvent as any)?.payload || pause.step?.choiceRequest?.payload;
+  const oracleStep = (payload as any)?.oracleStep as any;
+  const raw = String(oracleStep?.raw || (payload as any)?.raw || '');
+  const controller = String((oracleIrBridge?.irCtx as any)?.controllerId || (game as any)?.state?.priorityPlayerId || '');
+  if (!batch113VillainousExtra((game as any)?.state, controller, raw)) return {};
+  return { minModes: 2, maxModes: 2, canRepeatModes: true };
+}
+
 function continueEffectProgramResolution(args: {
   readonly game: any;
   readonly gameId: string;
@@ -382,10 +396,12 @@ function continueEffectProgramResolution(args: {
 
     const teamworkExtras = buildTeamworkChooseBothQueueExtras(runResult.pendingChoice, args.oracleIrBridge);
     const kickerExtras = buildKickerChooseBothQueueExtras(runResult.pendingChoice, args.oracleIrBridge);
+    const villainousExtras = buildVillainousExtraQueueExtras(args.game, runResult.pendingChoice, args.oracleIrBridge);
     const queuedStep = queueEffectProgramChoice(args.gameId, runResult.pendingChoice, {
       ...(args.queueExtraConfig || {}),
       ...teamworkExtras,
       ...kickerExtras,
+      ...villainousExtras,
     });
     storeRuntimeForStep(args.gameId, queuedStep.id, {
       runtime: runResult.pendingChoice.runtime,

@@ -13,7 +13,7 @@ import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js
 import { queueParsedActionTriggers, parsedEffectDuplicates } from './queueParsedSpecialRuntimeIr.js';
 import { maybeQueueDiceExchangeFromLastDieRoll } from '../diceExchangeBasePTPrompt.js';
 
-const ABILITY_WORD = /^\s*[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
+const ABILITY_WORD = /^\s*(?:[\d,]+\s+)?[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
 
 function sentencesOf(card: any): string[] {
   const name = String(card?.name || '');

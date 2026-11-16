@@ -11,6 +11,7 @@ import { readGlobalColorSetting } from './globalColorSetting.js';
 import { readBatch103ColorSetting } from './batch103ColorSetting.js';
 import { readBatch107ColorSetting } from './batch107Apply.js';
 import { readBatch108ColorSetting } from './batch108Apply.js';
+import { batch111AddedColor } from './batch111Apply.js';
 
 const COLOR_WORD_TO_SYMBOL: Record<string, string> = {
   white: 'W',
@@ -118,6 +119,7 @@ export function getEffectiveColors(
     if (b107c.colorless && b107c.set.length === 0) return resolveColorsWithSetting([], additions);
     const b108c = readBatch108ColorSetting(state, object);
     for (const c of b108c.set) setters.push(COLOR_SET_PREFIX + c);
+    for (const c of batch111AddedColor(object, state)) setters.push(COLOR_SET_PREFIX + c);
   }
   // Layer 5 colour setting (Frogify): SET: entries replace the printed / CDA colours.
   return resolveColorsWithSetting(base, [...setters, ...additions]);

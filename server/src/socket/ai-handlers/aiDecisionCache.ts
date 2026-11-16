@@ -55,7 +55,7 @@ export function aiCandidateStableKey(c: AIActionCandidate): string {
     const id = String(c.land?.card?.id || '');
     return `land:${id}`;
   }
-  return `other:${c.kind}`;
+  return `other:${(c as { kind: string }).kind}`;
 }
 
 export function getCachedObservation(game: any, seat: string): Observation | null {
