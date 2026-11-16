@@ -23,6 +23,13 @@ import { applyLayer7bSetBasePowerToughness } from "./setBasePtTimestampResolutio
 import { sumLongDurationPtModifiers } from "./longDurationPtModifiers.js";
 import { countActivePowerToughnessSwitches, evaluateLayer7PowerToughness } from "./layer7PowerToughness.js";
 import { registerCurrentPowerToughnessResolver } from "../../../../rules-engine/src/currentPowerToughnessHook.js";
+import { applyBatch105PowerToughnessAdjustment } from './batch105Apply.js';
+import { applyBatch106PowerToughnessAdjustment } from './batch106Apply.js';
+import { applyBatch107PowerToughnessAdjustment } from './batch107Apply.js';
+import { applyBatch108PowerToughnessAdjustment } from './batch108Apply.js';
+import { applyBatch109PowerToughnessAdjustment } from './batch109Apply.js';
+import { applyBatch110PowerToughnessAdjustment } from './batch110Apply.js';
+import { applyCommanderCreatureGrantPT } from './commanderCreatureGrants.js';
 
 export interface CurrentPowerToughness {
   power: number;
@@ -120,10 +127,18 @@ export function getCurrentPowerToughness(perm: any, state: any): { power: number
     const pending = sumUnmirroredOracleIrPtModifiers(perm);
     // Pending pumps are layer 7c, so under an active 7d switch they land on the other side.
     const switched = countActivePowerToughnessSwitches(perm) % 2 === 1;
-    return {
+    const next = {
       power: current.power + (switched ? pending.toughness : pending.power),
       toughness: current.toughness + (switched ? pending.power : pending.toughness),
     };
+    {
+      const adjusted = applyBatch106PowerToughnessAdjustment(perm, state, next.power, next.toughness);
+      const adjusted107 = applyBatch107PowerToughnessAdjustment(perm, state, adjusted.power, adjusted.toughness);
+      const adjusted108 = applyBatch108PowerToughnessAdjustment(perm, state, adjusted107.power, adjusted107.toughness);
+      const adjusted109 = applyBatch109PowerToughnessAdjustment(perm, state, adjusted108.power, adjusted108.toughness);
+      const adjusted110 = applyBatch110PowerToughnessAdjustment(perm, state, adjusted109.power, adjusted109.toughness);
+      return applyCommanderCreatureGrantPT(perm, state, adjusted110.power, adjusted110.toughness);
+    }
   } finally {
     if (resolveKey) permanentsResolvingCurrentPowerToughness.delete(resolveKey);
   }

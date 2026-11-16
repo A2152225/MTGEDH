@@ -64,7 +64,7 @@ export const TRIGGERED_KEYWORD_PATTERNS: KeywordPattern[] = [
   
   // Annihilator N - Whenever this creature attacks, defending player sacrifices N permanents
   {
-    pattern: /\bannihilator\s+(\d+)\b/i,
+    pattern: /\bannihilator\s+(\d+|x)\b/i,
     keyword: 'annihilator',
     category: 'triggered',
     timing: 'attacks',
@@ -149,12 +149,12 @@ export const TRIGGERED_KEYWORD_PATTERNS: KeywordPattern[] = [
   
   // Bushido N - Whenever this creature blocks or becomes blocked, it gets +N/+N
   {
-    pattern: /\bbushido\s+(\d+)\b/i,
+    pattern: /\bbushido\s+(?:(\d+)|[xX])\b/i,
     keyword: 'bushido',
     category: 'triggered',
     timing: 'blocks',
     valueType: 'pt_bonus',
-    effect: (match) => `+${match[1]}/+${match[1]} until end of turn when blocking or blocked`,
+    effect: (match) => match[1] ? `+${match[1]}/+${match[1]} until end of turn when blocking or blocked` : '+X/+X until end of turn when blocking or blocked, where X is the number of attacking creatures',
     mandatory: true,
   },
   
@@ -270,7 +270,7 @@ export const TRIGGERED_KEYWORD_PATTERNS: KeywordPattern[] = [
   
   // Soulshift N - When this creature dies, return target Spirit card with mana value N or less from graveyard to hand
   {
-    pattern: /\bsoulshift\s+(\d+)\b/i,
+    pattern: /\bsoulshift\s+(\d+|x)\b/i,
     keyword: 'soulshift',
     category: 'triggered',
     timing: 'dies',

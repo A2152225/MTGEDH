@@ -223,12 +223,26 @@ export function resetAIActionLocksForTests(): void {
   aiActionGenerations.clear();
 }
 
+export type AIExclusiveActionContext = {
+  generation: number;
+  /** False after a real-wall timeout supersedes this run (late work must stop). */
+  isCurrent: () => boolean;
+};
+
+export function isAIExclusiveGenerationCurrent(
+  gameId: string,
+  playerId: PlayerID,
+  generation: number,
+): boolean {
+  return aiActionGenerations.get(getAIActionKey(gameId, playerId)) === generation;
+}
+
 export async function runExclusiveAIAction(
   io: Server,
   gameId: string,
   playerId: PlayerID,
   kind: AIScheduledActionKind,
-  action: () => Promise<void>,
+  action: (ctx: AIExclusiveActionContext) => Promise<void>,
   options?: { readonly timeoutMs?: number },
 ): Promise<void> {
   const key = getAIActionKey(gameId, playerId);
@@ -248,6 +262,10 @@ export async function runExclusiveAIAction(
     1_000,
     Number(options?.timeoutMs ?? AI_EXCLUSIVE_ACTION_TIMEOUT_MS) || AI_EXCLUSIVE_ACTION_TIMEOUT_MS,
   );
+  const ctx: AIExclusiveActionContext = {
+    generation,
+    isCurrent: () => aiActionGenerations.get(key) === generation,
+  };
 
   // Use node:timers (not globalThis.setTimeout) so vitest spies that stub the global
   // for AI scheduling drains cannot instantly fire this hang-safety timeout.
@@ -262,7 +280,10 @@ export async function runExclusiveAIAction(
   });
 
   try {
-    await Promise.race([action(), timeoutPromise]);
+    // Timeout supersedes generation so a late CPU-bound action can bail via ctx.isCurrent().
+    // Sync work still blocks the event loop until the next await — callers must check
+    // isCurrent after awaits (and prefer short sync scans on large boards).
+    await Promise.race([action(ctx), timeoutPromise]);
     aiActionDebugStage.set(key, `${kind}:done`);
   } catch (err) {
     aiActionError = err;

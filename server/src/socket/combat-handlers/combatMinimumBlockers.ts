@@ -16,7 +16,10 @@ function texts(permanent: any): string[] {
   return out;
 }
 
-export function getMinimumBlockers(attacker: any): number {
+import { batch105PermanentHasMenace } from '../../state/modules/batch105Apply.js';
+import { batch107PermanentHasMenace } from '../../state/modules/batch107Apply.js';
+
+export function getMinimumBlockers(attacker: any, _battlefield?: any[], state?: any): number {
   let min = 1;
   const keywords: unknown[] = [
     ...(Array.isArray(attacker?.card?.keywords) ? attacker.card.keywords : []),
@@ -26,6 +29,8 @@ export function getMinimumBlockers(attacker: any): number {
   const hasMenace = keywords.some((k) => String(k || '').toLowerCase() === 'menace')
     || all.some((t) => t.split('\n').some((line) => line.replace(/\([^)]*\)/g, '').split(/,\s*/).map((p) => p.trim().replace(/\.$/, '')).includes('menace')));
   if (hasMenace) min = 2;
+  if (!hasMenace && state && batch105PermanentHasMenace(attacker, state)) min = 2;
+  if (!hasMenace && state && batch107PermanentHasMenace(attacker, state)) min = 2;
   for (const t of all) {
     for (const m of t.matchAll(/can't be blocked except by (\d+|[a-z]+) or more creatures/g)) {
       const n = /^\d+$/.test(m[1]) ? Number(m[1]) : WORDS[m[1]];

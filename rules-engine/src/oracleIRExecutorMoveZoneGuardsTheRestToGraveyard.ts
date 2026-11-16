@@ -152,6 +152,8 @@ export function tryApplyMoveZoneGuardsFromTheRestToGraveyard(args: MoveZoneGuard
     const cardId =
       preferredCardId ||
       exiledIds[exiledIds.length - 1] ||
+      // A bound/chosen object ("return that card to the battlefield" after a choice) beats an arbitrary ledger entry.
+      preferredIds.find((id) => Boolean(findBoundCardZoneLocation(nextState, id))) ||
       ledgerIds[0] ||
       String(ctx.targetPermanentId || ctx.targetCreatureId || '').trim();
     const location = cardId ? findBoundCardZoneLocation(nextState, cardId) : null;

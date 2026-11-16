@@ -8,9 +8,12 @@
  * Public entry symbols: getGrantedCascadeCountForCast, getCascadeInstancesForCast.
  */
 import { getNativeCascadeCount } from '../../../../rules-engine/src/cards/castTriggers.js';
+import { grantsCascadeFromHandByOpponentsLifeLost } from './batch98CombatAndKeywords.js';
 
 const FIRST_EXILE_SPELL_HAS_CASCADE =
   /the first spell you cast from exile each turn has cascade/i;
+const FIRST_SPELL_EACH_TURN_HAS_CASCADE =
+  /the first spell you cast each turn has cascade/i;
 const COMMANDER_SPELLS_HAVE_CASCADE =
   /commander spells you cast have cascade/i;
 // B69: Quandrix, the Proof
@@ -78,6 +81,12 @@ function isEnchantmentSpell(card: any): boolean {
   return /\benchantment\b/.test(tl);
 }
 
+function isFirstSpellCastThisTurn(state: any, playerId: string): boolean {
+  const list = Array.isArray(state?.spellsCastThisTurn) ? state.spellsCastThisTurn : [];
+  const pid = String(playerId || '');
+  return !list.some((s: any) => String(s?.casterId || s?.controller || s?.playerId || '') === pid);
+}
+
 export function getGrantedCascadeCountForCast(
   state: any,
   playerId: string,
@@ -85,6 +94,7 @@ export function getGrantedCascadeCountForCast(
   options: {
     castSourceZone?: string;
     isFirstSpellCastFromExileThisTurn?: boolean;
+    isFirstSpellCastThisTurn?: boolean;
     isCommander?: boolean;
   } = {},
 ): number {
@@ -103,11 +113,21 @@ export function getGrantedCascadeCountForCast(
     if (isSliverSpell(card) && SLIVER_SPELLS_HAVE_CASCADE.test(oracle)) count += 1;
     if (fromHand && isEnchantmentSpell(card) && ENCHANTMENT_FROM_HAND_HAVE_CASCADE.test(oracle)) count += 1;
   }
+  if (fromHand && grantsCascadeFromHandByOpponentsLifeLost(state, playerId, card)) count += 1;
   if (String(options.castSourceZone || '').toLowerCase() === 'exile' && options.isFirstSpellCastFromExileThisTurn) {
     for (const perm of battlefield) {
       if (!perm) continue;
       if (String(perm.controller || '') !== String(playerId || '')) continue;
       if (FIRST_EXILE_SPELL_HAS_CASCADE.test(normalizeOracle(perm))) count += 1;
+    }
+  }
+  const firstThisTurn = options.isFirstSpellCastThisTurn === true
+    || (options.isFirstSpellCastThisTurn !== false && isFirstSpellCastThisTurn(state, playerId) && options.isFirstSpellCastThisTurn == null);
+  if (firstThisTurn) {
+    for (const perm of battlefield) {
+      if (!perm) continue;
+      if (String(perm.controller || '') !== String(playerId || '')) continue;
+      if (FIRST_SPELL_EACH_TURN_HAS_CASCADE.test(normalizeOracle(perm))) count += 1;
     }
   }
   return count;
@@ -130,6 +150,7 @@ export function getCascadeInstancesForCast(
   options: {
     castSourceZone?: string;
     isFirstSpellCastFromExileThisTurn?: boolean;
+    isFirstSpellCastThisTurn?: boolean;
   } = {},
 ): number {
   const native = getNativeCascadeCount(String(card?.oracle_text || card?.oracleText || ''));

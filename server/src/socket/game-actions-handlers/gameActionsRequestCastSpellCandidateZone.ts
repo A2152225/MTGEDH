@@ -66,6 +66,7 @@ export type RequestCastSpellCandidateZoneArgs = {
     xValue?: number;
     timesKicked?: number;
     replicateCount?: number;
+    offspringPaid?: boolean;
     librarySearchStepToResume?: any;
   };
 };

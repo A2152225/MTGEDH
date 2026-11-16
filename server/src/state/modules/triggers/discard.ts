@@ -139,7 +139,7 @@ export function detectDiscardTriggers(card: any, permanent: any, gameState?: any
 export function getDiscardTriggers(
   ctx: GameContext,
   discardingPlayerId: string,
-  options?: { fromCycling?: boolean; causeControllerId?: string },
+  options?: { fromCycling?: boolean; causeControllerId?: string; atRandom?: boolean },
 ): DiscardTrigger[] {
   const cause = String(options?.causeControllerId || '').trim();
   const triggers: DiscardTrigger[] = [];
@@ -204,6 +204,7 @@ export function getDiscardTriggers(
       subjectPermanent: { id: '', typeLine: 'Card', controllerId: discardingPlayerId },
       subjectControllerId: discardingPlayerId,
       sourcePermanent: permanent,
+      matchContext: { atRandom: options?.atRandom === true },
     })) {
       if (options?.fromCycling && line.condition?.event === 'cycles') continue;
       const normalized = line.effect.toLowerCase();

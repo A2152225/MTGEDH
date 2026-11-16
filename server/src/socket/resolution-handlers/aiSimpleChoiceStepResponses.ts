@@ -159,13 +159,22 @@ export function buildAiSimpleChoiceStepResponse(
       // AI keeps cards in original order (simple strategy)
       const ponderStep = step as any;
       const cards = ponderStep.cards || [];
+      const variant = String(ponderStep.variant || '');
+      const pickToHand = ponderStep.tomorrowDrawReplacement === true
+        || variant === 'anticipate'
+        || variant === 'tomorrow'
+        || variant === 'telling_time';
+      const ids = cards.map((c: any) => String(c?.id || '')).filter(Boolean);
+      const toHand = pickToHand && ids.length ? [ids[0]] : [];
+      const newOrder = pickToHand ? ids.slice(1) : ids;
 
       const response: ResolutionStepResponse = {
         stepId: step.id,
         playerId: step.playerId,
         selections: {
-          newOrder: cards.map((c: any) => c.id),
+          newOrder,
           shouldShuffle: false,
+          ...(toHand.length ? { toHand } : {}),
         },
         cancelled: false,
         timestamp: Date.now(),

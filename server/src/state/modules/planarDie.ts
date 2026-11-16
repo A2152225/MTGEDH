@@ -3,18 +3,13 @@
  * Faces: chaos, planeswalk, and four blanks.
  * Public: rollPlanarDie.
  */
-
 import type { GameContext } from '../context.js';
-import { queueParsedKeywordAction } from './triggerEmissionFamilyUtils.js';
+import { applyPlanarDieFaces, queueIchorPlanarDiceIgnoreChoice } from './ichorPlanarDiceChoice.js';
+import { ichorPlanarDiceAdjustment } from './replacementBatch98Collect.js';
 
 export type PlanarDieFace = 'chaos' | 'planeswalk' | 'blank';
 
 const FACES: readonly PlanarDieFace[] = ['chaos', 'planeswalk', 'blank', 'blank', 'blank', 'blank'];
-
-function activePlaneName(state: any): string {
-  const plane = state?.activePlane || state?.currentPlane;
-  return String(plane?.name || plane || '').trim().toLowerCase();
-}
 
 export function rollPlanarDie(
   ctx: GameContext,
@@ -25,12 +20,20 @@ export function rollPlanarDie(
   const rolled = face && FACES.includes(face)
     ? face
     : FACES[Math.floor(Math.random() * FACES.length)]!;
-  const chaoticAether = activePlaneName(state) === 'chaotic aether';
-  const chaos = rolled === 'chaos' || (chaoticAether && rolled === 'blank');
-  state.planarDieRollsThisTurn = Array.isArray(state.planarDieRollsThisTurn) ? state.planarDieRollsThisTurn : [];
-  state.planarDieRollsThisTurn.push({ playerId, face: rolled, chaos, ts: Date.now() });
-  state.lastPlanarDieRoll = { playerId, face: rolled, chaos };
-  queueParsedKeywordAction(ctx, playerId, 'roll_planar_die');
-  if (chaos) queueParsedKeywordAction(ctx, playerId, 'chaos');
+  const ichor = ichorPlanarDiceAdjustment(state, playerId);
+  const extraFaces: PlanarDieFace[] = [];
+  if (ichor && ichor.extra > 0) {
+    for (let i = 0; i < ichor.extra; i++) extraFaces.push(FACES[Math.floor(Math.random() * FACES.length)]!);
+  }
+  const faces: PlanarDieFace[] = [rolled, ...extraFaces];
+  if (ichor && (ichor.extra > 0 || ichor.ignore > 0)) {
+    // Ignore-one is a player choice; stash the faces and do not apply them yet.
+    state.ichorPlanarDicePending = { playerId, ignore: ichor.ignore, faces };
+  }
+  if (ichor && ichor.ignore > 0) {
+    queueIchorPlanarDiceIgnoreChoice(ctx);
+    return rolled;
+  }
+  applyPlanarDieFaces(ctx, playerId, faces);
   return rolled;
 }

@@ -55,6 +55,7 @@ export function recordCardPutIntoGraveyardThisTurn(
       stateAny.creatureCardPutIntoYourGraveyardThisTurn = stateAny.creatureCardPutIntoYourGraveyardThisTurn || {};
       stateAny.creatureCardPutIntoYourGraveyardThisTurn[owner] = true;
     }
+      stateAny.creatureCardsPutIntoGraveyardsThisTurn = Number(stateAny.creatureCardsPutIntoGraveyardsThisTurn || 0) + 1;
 
     // Battlefield-only, typed graveyard tracking for intervening-if templates.
     if (options?.fromBattlefield) {

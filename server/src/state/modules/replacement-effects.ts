@@ -1,4 +1,5 @@
 import { evaluateDeclarativeReplacementEvent, collectReplacementEffectSpecsFromState, overlaySpecsMatchLibrarySearch, summarizeTokenAmountReplacements } from './replacementEffectSpec.js';
+import { applyContainmentPriestExileIfNeeded } from './containmentPriestAndEonHubApply.js';
 import { summarizeLifeLossAmountReplacements } from './replacementEffectSpec-handlers/replacementEffectSpecLifeLossOracleTemplates.js';
 import type { GameContext } from '../context.js';
 import {
@@ -687,7 +688,9 @@ const tokenCreationReplacementEvaluator: ReplacementEffectEvaluator = (event) =>
     tokenTypeLine: event.tokenTypeLine,
     metadata: event.metadata,
   });
-  if (summary.multiplier <= 1 && summary.extraTokens === 0) return null;
+  const additionalTokens = Array.isArray((summary as any).additionalTokens) ? (summary as any).additionalTokens : [];
+  const replaceCreatedToken = (summary as any).replaceCreatedToken;
+  if (summary.multiplier <= 1 && summary.extraTokens === 0 && additionalTokens.length === 0 && !replaceCreatedToken) return null;
 
   return {
     applied: true,
@@ -701,6 +704,8 @@ const tokenCreationReplacementEvaluator: ReplacementEffectEvaluator = (event) =>
       multiplier: summary.multiplier,
       sources: [...summary.extraSources, ...summary.doubleSources],
       ...(event.tokenName ? { tokenName: event.tokenName } : {}),
+      ...(additionalTokens.length ? { additionalTokens } : {}),
+      ...(replaceCreatedToken ? { replaceCreatedToken } : {}),
     },
   };
 };
@@ -717,6 +722,7 @@ const counterPlacementReplacementEvaluator: ReplacementEffectEvaluator = (event)
         String(event.targetPermanentId || ''),
         originalDeltas,
         overlaySpecs,
+        (event as any).cause,
       ),
   );
   if (!deltasDiffer(originalDeltas, modifiedDeltas)) return null;
@@ -957,10 +963,30 @@ export function evaluateDamageReplacementEvent(event: Omit<DamageReplacementEven
 }
 
 export function evaluateBattlefieldEntryReplacementEvent(event: Omit<BattlefieldEntryReplacementEvent, 'type'>): ReplacementEffectResult {
-  return evaluateReplacementEvent({
+  const result = evaluateReplacementEvent({
     type: 'battlefield-entry',
     ...event,
   });
+  const priest = applyContainmentPriestExileIfNeeded({
+    state: (event as any).state,
+    card: (event as any).card,
+    permanent: (event as any).permanent,
+    wasCast: (event as any).wasCast,
+    enteredFromCast: (event as any).enteredFromCast || (event as any).permanent?.enteredFromCast || (event as any).card?.enteredFromCast,
+    enteredFromZone: (event as any).enteredFromZone || (event as any).permanent?.enteredFromZone || (event as any).card?.enteredFromZone,
+    isToken: (event as any).isToken,
+  });
+  if (priest.applied) {
+    return {
+      applied: true,
+      eventType: 'battlefield-entry',
+      effectId: 'nontoken-uncast-enter-exile',
+      replacementDestination: 'exile' as any,
+      reason: 'nontoken-uncast-enter-exile',
+      metadata: { ...(result.metadata || {}), redirectedByContainmentPriest: true },
+    };
+  }
+  return result;
 }
 
 export function evaluateLifeGainReplacementEvent(event: Omit<LifeGainReplacementEvent, 'type'>): ReplacementEffectResult {

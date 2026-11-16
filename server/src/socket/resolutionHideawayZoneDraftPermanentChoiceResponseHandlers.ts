@@ -447,6 +447,7 @@ export function handleRepeatedZoneDraftResponse(
   const nextChooserStartIndex = chooserOrder.length > 0 ? (currentIndex + 1) % chooserOrder.length : 0;
   if (!rejectedEnterTransformed) {
   game.state.battlefield.push(returnedPermanent);
+  stampPermanentEntryTimestamp(game.state, returnedPermanent);
 
   try {
     appendEvent(gameId, (game as any).seq ?? 0, 'effectProgramZoneMove', {

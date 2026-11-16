@@ -6,6 +6,7 @@
 import React, { useMemo } from "react";
 import { getTextColorsForBackground } from "../utils/appearanceSettings";
 import { useAppDismissResolutionStepUi } from "./appDismissResolutionStepUi";
+import { useAppDamageAssignmentOverlay } from "./appDamageAssignmentOverlay";
 import { useAppPlayCombatHandlers } from "./appPlayCombatHandlers";
 import { useAppPlayDerivedEffects } from "./appPlayDerivedEffects";
 import { useAppPlayModalHandlers } from "./appPlayModalHandlers";
@@ -217,6 +218,8 @@ export function useAppPlayRuntime(p: Record<string, any>) {
     youRef,
     yourTurnBannerVisible,
   } = p;
+  const damageAssignment = useAppDamageAssignmentOverlay({ safeView });
+  const { setDamageAssignmentData, setDamageAssignmentModalOpen } = damageAssignment;
   const { dismissResolutionStepUi } = useAppDismissResolutionStepUi({
     setActiveResolutionPrompt,
     setAdditionalCostModalOpen,
@@ -231,6 +234,8 @@ export function useAppPlayRuntime(p: Record<string, any>) {
     setCounterMovementModalOpen,
     setCreatureTypeModalOpen,
     setDanceWithCalamityCastModalOpen,
+    setDamageAssignmentData,
+    setDamageAssignmentModalOpen,
     setDanceWithCalamityCastRequest,
     setDanceWithCalamityModalOpen,
     setDanceWithCalamityRequest,
@@ -344,6 +349,8 @@ export function useAppPlayRuntime(p: Record<string, any>) {
     setCreatureTypeModalData,
     setCreatureTypeModalOpen,
     setDanceWithCalamityCastModalOpen,
+    setDamageAssignmentData,
+    setDamageAssignmentModalOpen,
     setDanceWithCalamityCastRequest,
     setDanceWithCalamityModalOpen,
     setDanceWithCalamityRequest,
@@ -683,6 +690,7 @@ export function useAppPlayRuntime(p: Record<string, any>) {
 
   return {
     dismissResolutionStepUi,
+    damageAssignmentOverlay: damageAssignment.damageAssignmentOverlay,
     isTable,
     showUtilityRail,
     showExpandedUtilityRail,

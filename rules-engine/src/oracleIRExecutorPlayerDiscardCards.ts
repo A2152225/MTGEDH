@@ -12,6 +12,7 @@ import {
   stampCardsPutIntoGraveyardThisTurn,
 } from './oracleIRExecutorPlayerZoneAccess';
 import { applyDiscardToBattlefieldReplacements } from './discardToBattlefieldReplacement';
+import { playerProtectedFromOpponentDiscard } from './sacrificeCauseProtection';
 
 /** Loxodon Smiter-style replacement: opponent-caused discards of matching cards go to the battlefield. */
 function withDiscardToBattlefield<R extends { state: GameState; discardedCards: any[]; log: string[] }>(
@@ -84,6 +85,10 @@ export function discardCardsForPlayer(
   count: number,
   bridgeOptions?: PlayerZoneChangeBridgeContext,
 ): ReturnType<typeof discardCardsForPlayerRaw> {
+  const cause = String((bridgeOptions?.ctx as any)?.controllerId || '');
+  if (playerProtectedFromOpponentDiscard((state as any).battlefield, String(playerId), cause)) {
+    return { state, log: [], applied: true, needsChoice: false, discardedCount: 0, discardedCards: [] };
+  }
   return withDiscardToBattlefield(discardCardsForPlayerRaw(state, playerId, count, bridgeOptions), playerId, bridgeOptions);
 }
 
@@ -181,6 +186,10 @@ export function discardSpecificCardsForPlayer(
   cardIds: readonly string[],
   bridgeOptions?: PlayerZoneChangeBridgeContext,
 ): ReturnType<typeof discardSpecificCardsForPlayerRaw> {
+  const cause = String((bridgeOptions?.ctx as any)?.controllerId || '');
+  if (playerProtectedFromOpponentDiscard((state as any).battlefield, String(playerId), cause)) {
+    return { state, log: [], applied: true, discardedCount: 0, discardedCards: [], missingCardIds: [] };
+  }
   return withDiscardToBattlefield(discardSpecificCardsForPlayerRaw(state, playerId, cardIds, bridgeOptions) as any, playerId, bridgeOptions) as any;
 }
 

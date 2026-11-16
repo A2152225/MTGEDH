@@ -620,6 +620,9 @@ export function maybeResumeOracleIRStepsAfterResolution(
       ...(Number.isFinite(Number(step?.oracleIrXValue))
         ? { xValue: Number(step.oracleIrXValue) }
         : {}),
+      ...(Number.isFinite(Number(step?.oracleIrReferenceAmount))
+        ? { referenceAmount: Math.max(0, Math.floor(Number(step.oracleIrReferenceAmount))) }
+        : {}),
       triggerItem: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim()
         ? {
             id: String(step?.copyTriggeredAbilityTriggerStackItemId || '').trim() || undefined,

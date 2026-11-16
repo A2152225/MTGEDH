@@ -46,7 +46,7 @@ export interface AdditionalCostModalProps {
   open: boolean;
   cardId: string;
   cardName: string;
-  costType: 'discard' | 'sacrifice' | 'remove_counters';
+  costType: 'discard' | 'sacrifice' | 'remove_counters' | 'conspire' | 'pay_life';
   amount: number;
   title: string;
   description: string;
@@ -102,24 +102,34 @@ export function AdditionalCostModal({
   }, [amount]);
 
   const handleConfirm = useCallback(() => {
+    if (costType === 'pay_life') {
+      onConfirm(['pay']);
+      setSelectedIds(new Set());
+      return;
+    }
     if (selectedIds.size === amount) {
       onConfirm(Array.from(selectedIds));
       setSelectedIds(new Set());
     }
-  }, [selectedIds, amount, onConfirm]);
+  }, [selectedIds, amount, onConfirm, costType]);
 
   if (!open) return null;
 
+  const isPayLife = costType === 'pay_life';
   const options = costType === 'discard'
     ? availableCards
     : (costType === 'remove_counters' ? availableCounters : availableTargets);
-  const canConfirm = selectedIds.size === amount;
-  const costNoun = costType === 'discard'
+  const canConfirm = isPayLife || selectedIds.size === amount;
+  const costNoun = isPayLife
+    ? 'life'
+    : (costType === 'discard'
     ? 'card'
-    : (costType === 'remove_counters' ? 'counter' : 'permanent');
-  const costVerb = costType === 'discard'
+    : (costType === 'remove_counters' ? 'counter' : (costType === 'conspire' ? 'creature' : 'permanent')));
+  const costVerb = isPayLife
+    ? 'Pay'
+    : (costType === 'discard'
     ? 'Discard'
-    : (costType === 'remove_counters' ? 'Remove' : 'Sacrifice');
+    : (costType === 'remove_counters' ? 'Remove' : (costType === 'conspire' ? 'Tap' : 'Sacrifice')));
 
   return (
     <div

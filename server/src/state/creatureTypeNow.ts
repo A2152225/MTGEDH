@@ -1,6 +1,8 @@
 import { extractCreatureTypes as extractCreatureTypesFromTypeLine } from '../../../shared/src/creatureTypes.js';
 import { isStationPermanentCreatureNow } from '../../../rules-engine/src/stationPermanentUtils.js';
+import { permanentLosesCreatureTypeNow } from './modules/batch100CombatAndKeywords.js';
 import { parseIntrinsicAlsoCreatureTypes } from './modules/intrinsicAlsoCreatureTypes.js';
+import { batch107EffectiveTypeLineOverride, batch107PermanentIsLandNotCreature } from './modules/batch107Apply.js';
 
 function normalizeCreatureType(type: string): string {
   return String(type || '')
@@ -40,6 +42,8 @@ function hasIntrinsicEveryCreatureType(permanent: any): boolean {
 }
 
 function getEffectiveTypeLine(permanent: any): string {
+  const overridden = batch107EffectiveTypeLineOverride(permanent);
+  if (overridden) return overridden;
   const base = String(permanent?.card?.type_line || permanent?.type_line || '');
 
   // Honor type-replacement / type-change modifiers with an explicit newTypeLine.
@@ -69,6 +73,7 @@ function permanentAddsChosenCreatureTypeToSelf(permanent: any): boolean {
 
 export function isCreatureNow(permanent: any): boolean {
   if (!permanent) return false;
+  if (batch107PermanentIsLandNotCreature(permanent)) return false;
 
   const oracleText = String(permanent?.oracle_text || permanent?.card?.oracle_text || '').toLowerCase();
   const effectiveTypeLine = getEffectiveTypeLine(permanent).toLowerCase();
@@ -84,6 +89,7 @@ export function isCreatureNow(permanent: any): boolean {
   // Highest-priority explicit flags used by animation effects.
   if (permanent.isCreature === true) return true;
   if (permanent.animated === true) return true;
+  if (permanentLosesCreatureTypeNow(permanent)) return false;
 
   // Some systems record a replaced type-set.
   if (permanent.typesReplaced === true) {
@@ -172,6 +178,7 @@ export function getCreatureTypesNow(permanent: any): Set<string> {
   for (const t of normalizeCreatureTypeList(permanent?.typeAdditions)) out.add(t);
   for (const t of normalizeCreatureTypeList(permanent?.continuousTypeAdditions)) if (!NON_SUBTYPE_TYPE_WORDS.has(t)) out.add(t);
   for (const t of normalizeCreatureTypeList(permanent?.grantedCreatureTypes)) out.add(t);
+  for (const t of normalizeCreatureTypeList(permanent?.batch107GrantedCreatureTypes)) out.add(t);
 
   // Legacy tracking (stack.addCreatureType)
   for (const t of normalizeCreatureTypeList(permanent?.addedTypes)) out.add(t);

@@ -19,6 +19,8 @@ export function useAppDismissResolutionStepUi(p: Record<string, any>) {
     setColorChoiceModalOpen,
     setCounterMovementModalOpen,
     setCreatureTypeModalOpen,
+    setDamageAssignmentData,
+    setDamageAssignmentModalOpen,
     setDanceWithCalamityCastModalOpen,
     setDanceWithCalamityCastRequest,
     setDanceWithCalamityModalOpen,
@@ -84,6 +86,8 @@ export function useAppDismissResolutionStepUi(p: Record<string, any>) {
     setReturnControlledPermanentModalOpen(false);
     setHideawayChoiceModalOpen(false);
     setProliferateModalOpen(false);
+    setDamageAssignmentModalOpen(false);
+    setDamageAssignmentData(null);
     setLifeRedistributionModalOpen(false);
     setLifeRedistributionData(null);
     setFatesealModalOpen(false);

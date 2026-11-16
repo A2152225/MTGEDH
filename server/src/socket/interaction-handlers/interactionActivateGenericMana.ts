@@ -59,8 +59,13 @@ export async function tryHandleActivateGenericMana(
   ctx: ActivateBattlefieldAbilityContext,
   mut: ActivateGenericAbilityMutationState,
   extras: ActivateGenericAbilityExtras,
-  recordAddedMana: (poolKey: string, amount: number) => void,
+  recordAddedManaBase: (poolKey: string, amount: number) => void,
 ): Promise<boolean> {
+  let manaProducedTotal = 0;
+  const recordAddedMana = (poolKey: string, amount: number): void => {
+    manaProducedTotal += Number(amount) || 0;
+    recordAddedManaBase(poolKey, amount);
+  };
   const {
     abilityText,
     requiresTap,
@@ -250,22 +255,7 @@ export async function tryHandleActivateGenericMana(
     
     // Get mana multiplier
     const manaMultiplier = getManaMultiplier(game.state, permanent, pid);
-    
-    // Check for Virtue of Strength (only affects basic lands)
-    let effectiveMultiplier = manaMultiplier;
-    if (manaMultiplier > 1 && !isBasic && isLand) {
-      const modifiers = detectManaModifiers(game.state, pid);
-      const virtueModifier = modifiers.find(m => 
-        m.cardName.toLowerCase().includes('virtue of strength') && 
-        m.type === 'mana_multiplier'
-      );
-      if (virtueModifier) {
-        const otherMultiplier = modifiers
-          .filter(m => m.type === 'mana_multiplier' && m.cardName !== virtueModifier.cardName)
-          .reduce((acc, m) => acc * (m.multiplier || 1), 1);
-        effectiveMultiplier = otherMultiplier;
-      }
-    }
+    const effectiveMultiplier = manaMultiplier;
     
     // Handle devotion-based mana
     if (devotionMana && devotionMana.amount > 0) {
@@ -693,6 +683,20 @@ export async function tryHandleActivateGenericMana(
         });
       }
     }
+  // "Whenever a mana ability of this creature resolves" (Tyvar the Bellicose's grant) sees the produced amount.
+  if (manaProducedTotal > 0) {
+    try {
+      const resolvedTriggers = triggerAbilityActivatedTriggers(game as any, {
+        activatedBy: pid as any,
+        sourcePermanentId: permanentId as any,
+        isManaAbility: true,
+        abilityText,
+        manaAbilityResolved: true,
+        manaProduced: manaProducedTotal,
+      });
+      persistAbilityActivatedTriggerPushes(gameId, game, resolvedTriggers);
+    } catch {}
+  }
   mut.pendingLifePaymentForCost = pendingLifePaymentForCost;
   mut.pendingManaLifeLossAmount = pendingManaLifeLossAmount;
   mut.pendingManaLifeLossIsDamage = pendingManaLifeLossIsDamage;

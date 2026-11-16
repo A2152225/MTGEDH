@@ -93,7 +93,7 @@ function applyStaticAuraControlEffects(
     if (!typeLine.includes('enchantment') || !typeLine.includes('aura')) continue;
 
     const oracleText = String(card.oracle_text || '').toLowerCase();
-    if (!/\byou control enchanted (?:creature|permanent)\b/i.test(oracleText)) continue;
+    if (!/\byou control enchanted (?:creature|permanent|artifact|land|planeswalker|enchantment|equipment)\b/i.test(oracleText)) continue;
 
     const attachedToId = String((aura as any).attachedTo || '').trim();
     if (!attachedToId) continue;

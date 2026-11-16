@@ -14331,7 +14331,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ).toBe(false);
   });
 
-  it('prunes temporary additional-land unknown steps while keeping the rest of the spell text', () => {
+  it('lowers temporary additional-land unknown steps to this-turn grants while keeping the rest of the spell text', () => {
     const ir = parseOracleTextToIR(
       'Put a +1/+1 counter on up to one target creature. You gain 2 life. You may play an additional land this turn.',
       'Scale the Heights'
@@ -14341,6 +14341,13 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
       expect.arrayContaining([
         expect.objectContaining({ kind: 'add_counter' }),
         expect.objectContaining({ kind: 'gain_life', amount: { kind: 'number', value: 2 } }),
+        expect.objectContaining({
+          kind: 'grant_static_ability',
+          duration: 'this_turn',
+          effectText: expect.arrayContaining([
+            expect.stringMatching(/additional land this turn/i),
+          ]),
+        }),
       ])
     );
     expect(

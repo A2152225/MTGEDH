@@ -25,6 +25,8 @@ export type NoncombatDamageRecipients = {
   readonly legacyEffects?: readonly string[];
   /** Source not on the battlefield (resolving spell): { id, controller, card }. */
   readonly pseudoSource?: any;
+  /** Damage amount for exact-N and at-least-N conditions. */
+  readonly amount?: number;
 };
 
 /**
@@ -82,10 +84,10 @@ export function queueNoncombatDealsDamageTriggers(ctx: any, damageSourceId: stri
     || recipients.pseudoSource;
   if (!damageSource) return [];
   const recipientContexts = [
-    ...recipients.playerIds.map((playerId) => ({ damageKind: 'noncombat', damageRecipientPlayerId: String(playerId) })),
+    ...recipients.playerIds.map((playerId) => ({ damageKind: 'noncombat', damageRecipientPlayerId: String(playerId), damagedPlayerId: String(playerId), causeControllerId: String(damageSource.controller || ''), ...(recipients.amount != null ? { damageAmount: recipients.amount } : {}) })),
     ...recipients.permanentIds.map((permanentId) => {
       const perm = battlefield.find((entry: any) => String(entry?.id || '') === String(permanentId));
-      return { damageKind: 'noncombat', damageRecipientIsCreature: /\bcreature\b/i.test(String(perm?.card?.type_line || perm?.type_line || '')) };
+      return { damageKind: 'noncombat', damageRecipientIsCreature: /\bcreature\b/i.test(String(perm?.card?.type_line || perm?.type_line || '')), damagedPermanentControllerId: String(perm?.controller || ''), causeControllerId: String(damageSource.controller || '') };
     }),
   ];
   if (recipientContexts.length === 0) return [];

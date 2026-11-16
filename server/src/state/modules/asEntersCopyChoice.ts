@@ -34,14 +34,18 @@ export function checkAsEntersCopyChoiceForNewPermanents(game: any, gameId: strin
     if (alreadyQueued) continue;
 
     const copyType = copyReq.copyType || 'permanent';
+    const copyTypes: string[] = Array.isArray(copyReq.copyTypes) && copyReq.copyTypes.length
+      ? copyReq.copyTypes
+      : (copyType === 'artifact-or-enchantment' ? ['artifact', 'enchantment'] : [copyType]);
+    const controllerOnly = copyReq.controllerOnly === true;
     const validTargets = battlefield
       .filter((candidate: any) => {
         const candidateId = String(candidate?.id || '').trim();
         if (!candidateId || candidateId === permanentId) return false;
+        if (controllerOnly && String(candidate?.controller || '') !== String(permanent.controller || '')) return false;
         const typeLine = String(candidate?.card?.type_line || candidate?.type_line || '').toLowerCase();
-        if (copyType === 'land') return typeLine.includes('land');
-        if (copyType === 'creature') return typeLine.includes('creature');
-        return Boolean(typeLine);
+        if (copyTypes.includes('permanent')) return Boolean(typeLine);
+        return copyTypes.some((type) => typeLine.includes(type));
       })
       .map((candidate: any) => ({
         id: String(candidate.id),
@@ -54,7 +58,7 @@ export function checkAsEntersCopyChoiceForNewPermanents(game: any, gameId: strin
     const controller = String(permanent.controller || permanent.controllerId || permanent.owner || '').trim() as PlayerID;
     if (!controller) continue;
     const cardName = String(permanent.card?.name || 'Permanent');
-    const copyNoun = copyType === 'permanent' ? 'permanent' : copyType;
+    const copyNoun = copyTypes.includes('permanent') ? 'permanent' : copyTypes.join(' or ');
 
     ResolutionQueueManager.addStep(gameId, {
       type: ResolutionStepType.TARGET_SELECTION,
@@ -65,7 +69,7 @@ export function checkAsEntersCopyChoiceForNewPermanents(game: any, gameId: strin
       sourceName: cardName,
       sourceImage: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
       validTargets,
-      targetTypes: copyType === 'permanent' ? ['creature', 'artifact', 'enchantment', 'land', 'planeswalker'] : [copyType],
+      targetTypes: copyTypes.includes('permanent') ? ['creature', 'artifact', 'enchantment', 'land', 'planeswalker'] : copyTypes.filter((type) => type !== 'artifact-or-enchantment'),
       minTargets: 0,
       maxTargets: 1,
       targetDescription: `any ${copyNoun} on the battlefield`,

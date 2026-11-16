@@ -5,6 +5,7 @@ import { debug, debugWarn } from '../../utils/debug.js';
 import { getETBTriggersForPermanent } from './triggered-abilities.js';
 import { triggerETBEffectsForToken } from './triggerEtbEntryEffects.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
+import { maybeCreateOffspringToken } from './offspringCast.js';
 import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 import { permanentHasTriggeredAbilities } from './triggers/triggeredAbilitySuppression.js';
 
@@ -104,6 +105,7 @@ export function queuePermanentEntersBattlefieldTriggerStackItems(
     }
 
     triggerETBEffectsForPermanent(ctx, newPermanent, controller, true);
+    maybeCreateOffspringToken(ctx, newPermanent, controller);
   } catch (err) {
     debugWarn(1, '[resolveTopOfStack] Failed to detect ETB triggers:', err);
   }

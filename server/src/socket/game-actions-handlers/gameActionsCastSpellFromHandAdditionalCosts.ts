@@ -11,6 +11,7 @@ import type { Server, Socket } from "socket.io";
 import type { PaymentItem } from "../../../../shared/src/index.js";
 import type { GameContext } from "../../state/context.js";
 import { canPlayerPayLife } from "../../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
+import { playersCannotPayLifeToCastOrActivateNonMana } from "../../state/modules/karnsSylexPayLifeRestriction.js";
 import { getDeclarativeLeaveBattlefieldReplacementHint as getLeaveBattlefieldReplacementHint } from "../../state/modules/leaveBattlefieldReplacementHint.js";
 import { buildBeholdSelectionOptions } from "../../state/modules/chosen-creature-type.js";
 import { queueLifePaymentTriggers } from "../../state/modules/triggers/pay-life.js";
@@ -19,6 +20,14 @@ import { debug } from "../../utils/debug.js";
 import { getEffectivePower, getPlayerName } from "../util";
 import { getEffectiveAdditionalCost } from "./gameActionsAdditionalCastCosts.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
+import { tryQueueOnCastKeywordPrompts } from "./gameActionsOnCastKeywordPrompts.js";
+import { canPayLifeAmount, payLifeAmount } from "../../state/modules/batch97PayLife.js";
+import { takeFirstBlitzOrGraveyardBestowAdditionalCost } from "./gameActionsBlitzAndGraveyardBestowCosts.js";
+import { toCollectEvidenceAdditionalCost } from "./collectEvidenceCastContinuation.js";
+import { paymentAlreadyResolvedPayLifeCost, queuePayLifeAdditionalCostPrompt } from "./gameActionsPayLifeAdditionalCostPrompt.js";
+import { madnessPayLifeAdditionalCost } from "../madnessCastOffer.js";
+import { takeKickerPayLifeAdditionalCost } from "../../state/modules/kickerPayLifeCost.js";
+import { takeKickerReturnCreatureAdditionalCost } from "../../state/modules/kickerReturnCreatureCost.js";
 
 export type CastSpellAdditionalCostsFromHandArgs = {
   io: Server;
@@ -73,9 +82,58 @@ export function tryPromptCastSpellAdditionalCostsFromHand(
 
       // Check for additional costs (discard a card, sacrifice, etc.)
       // This handles cards like Seize the Spoils, Faithless Looting, etc.
-      const additionalCost = getEffectiveAdditionalCost(cardInHand, oracleText);
+      let additionalCost = getEffectiveAdditionalCost(cardInHand, oracleText);
+  const blitzOrBestowExtra = takeFirstBlitzOrGraveyardBestowAdditionalCost({
+    oracleText,
+    alternateCostId,
+    sourceZone: String((args as any).castSourceZone || (args as any).sourceZone || cardInHand?.zone || '') ,
+  });
+  if (!additionalCost) {
+    const madnessLifeCost = madnessPayLifeAdditionalCost(oracleText, alternateCostId);
+    if (madnessLifeCost) additionalCost = madnessLifeCost as any;
+  }
+  if (!additionalCost) {
+    const kickerLifeCost = takeKickerPayLifeAdditionalCost({ oracleText, alternateCostId, card: cardInHand });
+    if (kickerLifeCost) additionalCost = kickerLifeCost as any;
+  }
+  if (!additionalCost) {
+    const kickerReturnCost = takeKickerReturnCreatureAdditionalCost({ oracleText, alternateCostId, card: cardInHand });
+    if (kickerReturnCost) additionalCost = kickerReturnCost as any;
+  }
+  if (!additionalCost && blitzOrBestowExtra) {
+    if (blitzOrBestowExtra.type === 'pay_life') {
+      additionalCost = { type: 'pay_life', amount: blitzOrBestowExtra.amount } as any;
+    } else if (blitzOrBestowExtra.type === 'discard') {
+      additionalCost = { type: 'discard', amount: blitzOrBestowExtra.count } as any;
+    } else if (blitzOrBestowExtra.type === 'collect_evidence') {
+      additionalCost = toCollectEvidenceAdditionalCost(blitzOrBestowExtra.required, blitzOrBestowExtra.mandatory === true) as any;
+    }
+  }
+      if (tryQueueOnCastKeywordPrompts({
+        game,
+        gameId,
+        playerId: String(playerId),
+        cardId,
+        cardName: String(cardInHand?.name || 'Spell'),
+        card: cardInHand,
+        oracleText,
+        skip: shouldSkipAllPrompts,
+        sourceImage: cardInHand?.image_uris?.small || cardInHand?.image_uris?.normal,
+        castSpellFromHandArgs: {
+          cardId,
+          payment,
+          targets,
+          xValue,
+          alternateCostId,
+          convokeTappedCreatures,
+        },
+      })) {
+        return;
+      }
       const additionalCostPaid = (payment as any[])?.some((p: any) => p && p.additionalCostPaid === true) ||
-                                  (targets as any)?.additionalCostPaid === true;
+                                  (targets as any)?.additionalCostPaid === true ||
+                                  (cardInHand as any)?.payLifeAdditionalCostResolved === true ||
+                                  ((cardInHand as any)?.additionalCostPaid === true && String((cardInHand as any)?.additionalCostMethod || '') === 'pay_life');
 
       // Bargain (WOE): optional additional cost while casting.
       // We treat this as a replay-stable, explicit player choice: either they sacrificed (wasBargained=true)
@@ -651,13 +709,71 @@ export function tryPromptCastSpellAdditionalCostsFromHand(
 
           debug(2, `[castSpellFromHand] Queued sacrifice of ${additionalCost.amount} ${additionalCost.filter || 'permanent'}(s) for ${cardInHand.name}`);
           return; // Wait for sacrifice selection via Resolution Queue
-        } else if (additionalCost.type === 'pay_life') {
-          // Pay X life as an additional cost (Vampiric Tutor, etc.)
+        } else if (additionalCost.type === 'return') {
+          const battlefield = game.state?.battlefield || [];
+          const validReturnTargets = battlefield.filter((p: any) => {
+            if (p.controller !== playerId) return false;
+            const tl = (p.card?.type_line || '').toLowerCase();
+            if (!additionalCost.filter) return tl.includes('creature');
+            return tl.includes(String(additionalCost.filter).toLowerCase());
+          });
+          if (validReturnTargets.length < additionalCost.amount) {
+            socket.emit("error", {
+              code: "CANNOT_PAY_COST",
+              message: `Cannot cast ${cardInHand.name}: You need to return ${additionalCost.amount} ${additionalCost.filter || 'creature'}(s) you control to their owners' hands.`,
+            });
+            return;
+          }
+          const existingReturn = ResolutionQueueManager
+            .getStepsForPlayer(gameId, playerId as any)
+            .find((s: any) => s?.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT && String((s as any)?.sourceId || '') === String(cardId) && String((s as any)?.costType || '') === 'return');
+          if (!existingReturn) {
+            const returnCostStep = ResolutionQueueManager.addStep(gameId, {
+              type: ResolutionStepType.ADDITIONAL_COST_PAYMENT,
+              playerId: playerId as any,
+              sourceId: cardId,
+              sourceName: cardInHand.name,
+              sourceImage: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              description: `As an additional cost to kick ${cardInHand.name}, return ${additionalCost.amount} ${additionalCost.filter || 'creature'}${additionalCost.amount > 1 ? 's' : ''} you control to its owner's hand.`,
+              mandatory: true,
+              cardId,
+              cardName: cardInHand.name,
+              costType: 'return',
+              amount: additionalCost.amount,
+              filter: additionalCost.filter || 'creature',
+              title: `Return ${additionalCost.filter || 'creature'} to hand to kick ${cardInHand.name}`,
+              imageUrl: cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+              availableTargets: validReturnTargets.map((p: any) => ({
+                id: p.id,
+                name: p.card?.name || 'Unknown',
+                imageUrl: p.card?.image_uris?.small || p.card?.image_uris?.normal,
+                typeLine: p.card?.type_line,
+              })),
+              castSpellFromHandArgs: {
+                cardId,
+                payment,
+                targets,
+                xValue,
+                alternateCostId,
+                convokeTappedCreatures,
+              },
+            } as any);
+            persistQueuedSpellCastStepContinuation(gameId, game, {
+              playerId,
+              cardId,
+              queuedResolutionStep: { ...(returnCostStep as any) },
+            });
+          }
+          debug(2, `[castSpellFromHand] Queued return of ${additionalCost.amount} ${additionalCost.filter || 'creature'}(s) for ${cardInHand.name}`);
+          return;
+        } else if (additionalCost.type === 'pay_life' && !paymentAlreadyResolvedPayLifeCost(payment) && (cardInHand as any)?.payLifeAdditionalCostResolved !== true) {
+          // Confirm pay-life additional costs (Blitz extras, etc.) through AdditionalCostModal
+          // before deducting. After confirm, payLifeAmount may still queue a CR 616.1 order.
           const startingLife = game.state.startingLife || 40;
           const currentLife = game.state.life?.[playerId] ?? startingLife;
           
           // Validate that player can pay the life (total + Angel / life-lock restrictions)
-          if (!canPlayerPayLife(game as GameContext, String(playerId))) {
+          if (!canPlayerPayLife(game as GameContext, String(playerId)) || playersCannotPayLifeToCastOrActivateNonMana(game.state, String(playerId))) {
             socket.emit("error", {
               code: "CANNOT_PAY_COST",
               message: `Cannot cast ${cardInHand.name}: players can't pay life.`,
@@ -671,32 +787,23 @@ export function tryPromptCastSpellAdditionalCostsFromHand(
             });
             return;
           }
-          
-          // Pay the life immediately
-          game.state.life = game.state.life || {};
-          game.state.life[playerId] = currentLife - additionalCost.amount;
 
-          // Track life lost this turn.
-          try {
-            (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
-            (game.state as any).lifeLostThisTurn[String(playerId)] =
-              ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(additionalCost.amount || 0);
-          } catch {}
-          queueLifePaymentTriggers(game as any, String(playerId), Number(additionalCost.amount || 0), { sourceId: cardId, sourceName: cardInHand.name });
-          
-          io.to(gameId).emit("chat", {
-            id: `m_${Date.now()}`,
+          if (queuePayLifeAdditionalCostPrompt({
+            game,
             gameId,
-            from: "system",
-            message: `${getPlayerName(game, playerId)} pays ${additionalCost.amount} life to cast ${cardInHand.name}. (${currentLife} G�� ${game.state.life[playerId]})`,
-            ts: Date.now(),
-          });
-          
-          debug(2, `[castSpellFromHand] Player paid ${additionalCost.amount} life for ${cardInHand.name}`);
-          
-          // Mark additional cost as paid
-          (targets as any) = (targets as any) || {};
-          (targets as any).additionalCostPaid = true;
+            playerId,
+            cardId,
+            cardInHand,
+            amount: additionalCost.amount,
+            payment,
+            targets,
+            xValue,
+            alternateCostId,
+            convokeTappedCreatures,
+          })) {
+            debug(2, `[castSpellFromHand] Queued pay ${additionalCost.amount} life prompt for ${cardInHand.name}`);
+            return;
+          }
         } else if (additionalCost.type === 'squad') {
           // Squad: "As an additional cost to cast this spell, you may pay {cost} any number of times"
           // Prompt the player to choose how many times to pay the squad cost

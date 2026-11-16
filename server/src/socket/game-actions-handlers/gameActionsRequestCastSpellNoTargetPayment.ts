@@ -16,6 +16,7 @@ import { calculateWebSlingingOptions } from "../../state/modules/keywordCastMech
 import { getDeclarativeLeaveBattlefieldReplacementHint as getLeaveBattlefieldReplacementHint } from "../../state/modules/leaveBattlefieldReplacementHint.js";
 import { calculateSneakOptions } from "../../state/modules/sneakCastUtils.js";
 import { queueLifePaymentTriggers } from "../../state/modules/triggers/pay-life.js";
+import { tryPayInlineCastAdditionalLifeCost } from "./payCastSpellAdditionalLifeCost.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
 import { getEffectivePower, getPlayerName } from "../util";
@@ -40,6 +41,7 @@ import {
 } from "./gameActionsCommandZoneAndAlternateCastCosts.js";
 import { appendManaCost } from "./gameActionsModalCastModeCosts.js";
 import { pendingReplicateCountFields } from "../../state/modules/replicateCastUtils.js";
+import { tryQueueOnCastKeywordPrompts } from "./gameActionsOnCastKeywordPrompts.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
 
 export type RequestCastSpellNoTargetPaymentArgs = {
@@ -183,52 +185,49 @@ export function tryQueueRequestCastSpellNoTargetPayment(
     };
 
     const additionalCost = getEffectiveAdditionalCost(cardInHand, oracleText);
+    if (tryQueueOnCastKeywordPrompts({
+      game,
+      gameId,
+      playerId: String(playerId),
+      cardId,
+      cardName,
+      card: cardInHand,
+      oracleText,
+      skip: requestCastAdditionalCostPaid,
+      effectId,
+      sourceId: effectId,
+      sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
+      castSpellFromHandArgs: {
+        cardId,
+        faceIndex: selectedFaceIndex,
+        fromZone: castSourceZone,
+        xValue: chosenXValue,
+        alternateCostId: options?.forcedAlternateCostId,
+        castWithoutPayingManaCost: isFreeCast,
+        bypassExilePermissionCheck,
+        ignoreTimingRestrictions,
+        skipPriorityCheck: true,
+      },
+    })) {
+      return;
+    }
     if (!requestCastAdditionalCostPaid && additionalCost?.type === 'pay_life') {
       const startingLife = game.state.startingLife || 40;
       const currentLife = game.state.life?.[playerId] ?? startingLife;
-      if (!canPlayerPayLife(game as GameContext, String(playerId))) {
-        delete (game.state as any).pendingSpellCasts[effectId];
-        socket.emit('error', {
-          code: 'CANNOT_PAY_COST',
-          message: `Cannot cast ${cardName}: players can't pay life.`,
-        });
-        return;
-      }
-      if (currentLife < additionalCost.amount) {
-        delete (game.state as any).pendingSpellCasts[effectId];
-        socket.emit('error', {
-          code: 'CANNOT_PAY_COST',
-          message: `Cannot cast ${cardName}: You need to pay ${additionalCost.amount} life but only have ${currentLife} life.`,
-        });
-        return;
-      }
-
-      game.state.life = game.state.life || {};
-      game.state.life[playerId] = currentLife - additionalCost.amount;
-
-      try {
-        (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
-        (game.state as any).lifeLostThisTurn[String(playerId)] =
-          ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(additionalCost.amount || 0);
-      } catch {}
-      queueLifePaymentTriggers(game as any, String(playerId), Number(additionalCost.amount || 0), { sourceId: cardId, sourceName: cardName });
-
-      (cardInHand as any).additionalCostPaid = true;
-      (cardInHand as any).additionalCostMethod = 'pay_life';
-
-      const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
-      if (pendingCast) {
-        pendingCast.additionalCostPaid = true;
-        pendingCast.additionalCostMethod = 'pay_life';
-      }
-
-      io.to(gameId).emit('chat', {
-        id: `m_${Date.now()}`,
+      if (!tryPayInlineCastAdditionalLifeCost({
+        io,
+        game,
         gameId,
-        from: 'system',
-        message: `${getPlayerName(game, playerId)} pays ${additionalCost.amount} life to cast ${cardName}. (${currentLife} -> ${game.state.life[playerId]})`,
-        ts: Date.now(),
-      });
+        playerId: String(playerId),
+        cardId,
+        cardName,
+        amount: Number(additionalCost.amount || 0),
+        card: cardInHand,
+        effectId,
+        emitError: (payload) => socket.emit('error', payload),
+        })) {
+        return;
+        }
     } else if (!requestCastAdditionalCostPaid && additionalCost?.type === 'discard') {
       const discardableHandCards = hand.filter((c: any) => (castSourceZone === 'hand' ? c.id !== cardId : true));
       if (discardableHandCards.length < additionalCost.amount) {

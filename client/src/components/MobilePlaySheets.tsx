@@ -76,6 +76,8 @@ export type MobilePlaySheetsProps = MobileToolsHubProps & {
   mulligansTaken?: number;
   onKeepHand?: () => void;
   onMulligan?: () => void;
+  canUseSerumPowder?: boolean;
+  onSerumPowder?: () => void;
   onUnkeepHand?: () => void;
   onRandomizeStart?: () => void;
   isPreGame?: boolean;
@@ -128,6 +130,8 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
     mulligansTaken,
     onKeepHand,
     onMulligan,
+  canUseSerumPowder,
+  onSerumPowder,
     onUnkeepHand,
     onRandomizeStart,
     isPreGame = false,
@@ -143,6 +147,8 @@ export const MobilePlaySheets: React.FC<MobilePlaySheetsProps> = (props) => {
       mulligansTaken={mulligansTaken}
       onKeepHand={onKeepHand}
       onMulligan={onMulligan}
+      canUseSerumPowder={canUseSerumPowder}
+      onSerumPowder={onSerumPowder}
       onUnkeepHand={onUnkeepHand}
       onRandomizeStart={onRandomizeStart}
       showRandomStart={isPreGame}

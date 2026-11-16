@@ -15,6 +15,7 @@ import { debug, debugWarn } from "../../../utils/debug.js";
 import { expireSourceLinkedPtModifiers } from "../sourceLinkedPtModifiers.js";
 import { getUntapStepLimits } from "../untapStepLimits.js";
 import { applyUntapStepCaps } from "../untapStepCapChoice.js";
+import { opponentStunCountersLocked } from '../batch101LongTailApply.js';
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -65,6 +66,11 @@ export function untapPermanentsForPlayer(ctx: GameContext, playerId: string) {
         // Check for stun counters (Rule 122.1c)
         // If a tapped permanent with a stun counter would become untapped, instead remove a stun counter
         if (permanent.counters && permanent.counters.stun > 0) {
+          try {
+            if (opponentStunCountersLocked((ctx as any).state, permanent)) {
+              continue;
+            }
+          } catch {}
           // Remove one stun counter instead of untapping
           permanent.counters.stun -= 1;
           if (permanent.counters.stun === 0) {

@@ -5,6 +5,9 @@ import {
   type DurablePlayableFromExileAction,
 } from "./durable-permissions.js";
 import { canCastWarpedCardFromExile } from "./warpDelayedEffects.js";
+import { mayPlayCardsExiledWithSourceThisTurn } from './staticEffectSpec-handlers/batch95LongTailStatics.js';
+import { mayPlayCardExiledWithValgavoth } from './valgavothExilePlay.js';
+import { mayCastDraugrIceExileCard } from './draugrExileSnowSpend.js';
 
 export function getPlayableFromExileDurablePermissionForCard(
   state: any,
@@ -120,6 +123,19 @@ export function isCardOnAdventureForPlayer(card: any, playerId: PlayerID): boole
 
 export function cardAllowsPlayerToPlayFromExile(card: any, playerId: PlayerID, currentTurn: number, state?: any): boolean {
   if (!card || typeof card !== 'object') return false;
+  if (state) {
+    try {
+      if (mayPlayCardsExiledWithSourceThisTurn(state, playerId, card)) return true;
+    } catch { /* hook optional */ }
+  }
+  if (state) {
+    try {
+      if (mayPlayCardExiledWithValgavoth(state, playerId, card)) return true;
+    } catch { /* hook optional */ }
+    try {
+      if (mayCastDraugrIceExileCard(state, playerId, card)) return true;
+    } catch { /* hook optional */ }
+  }
 
   if (isCardOnAdventureForPlayer(card, playerId)) {
     return state ? cardMeetsPlayFromExileConditions(state, card, playerId) : true;

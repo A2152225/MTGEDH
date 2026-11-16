@@ -20,6 +20,8 @@ import { appendEvent } from "../../db/index.js";
 import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolution/index.js";
 import { debugWarn } from "../../utils/debug.js";
 import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+import { maybeQueuePickAxeAttachChoice } from '../../state/modules/batch101LongTailApply.js';
+import { maybeQueueSanctuaryBladeColorChoice } from '../../state/modules/batch102Apply.js';
 
 import { queueTapTriggersForTappedPermanents } from "../../state/modules/tap-trigger-queue.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
@@ -29,7 +31,7 @@ import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
  *
  * Returns false (and logs) when the pair is no longer a legal attachment.
  */
-async function attachEquipmentToPermanentById(
+export async function attachEquipmentToPermanentById(
   ioRef: any,
   gameRef: any,
   currentGameId: string,
@@ -114,6 +116,14 @@ async function attachEquipmentToPermanentById(
       debugWarn(1, '[Resolution] Failed to persist equipPermanent event for attachEquipmentToPermanent:', err);
     }
   }
+
+
+  try {
+    maybeQueuePickAxeAttachChoice({ ...(gameRef as any), state: gameRef.state, gameId: currentGameId }, equipment, targetPermanentId);
+  } catch {}
+  try {
+    maybeQueueSanctuaryBladeColorChoice({ ...(gameRef as any), state: gameRef.state, gameId: currentGameId }, equipment, targetPermanentId);
+  } catch {}
 
   return true;
 }

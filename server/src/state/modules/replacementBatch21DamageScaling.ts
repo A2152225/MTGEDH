@@ -13,6 +13,7 @@
 // Leaf: must not import replacementEffectSpec.ts or replacementEffectSpec-handlers/index.ts.
 
 import type { ReplacementEffectSpec } from './replacementEffectSpec-handlers/replacementEffectSpecTypes.js';
+import { collectBatch107DamageScalingSpecs } from './replacementBatch107Collect.js';
 
 const FIRE_COUNTER_PLUS_RE =
   /if a source you control would deal damage to an opponent or a permanent an opponent controls, it deals that much damage plus an amount of damage equal to the number of fire counters on (?:this enchantment|this permanent|~) instead/;
@@ -37,7 +38,7 @@ function speedOf(state: unknown, playerId: string): number {
 
 export function collectBatch21DamageScalingSpecs(
   oracle: string,
-  source: { sourcePermanentId: string; sourceController: string; sourceName: string; counters?: unknown },
+  source: { sourcePermanentId: string; sourceController: string; sourceName: string; counters?: unknown; power?: unknown; card?: { power?: unknown } },
   state?: unknown,
 ): ReplacementEffectSpec[] {
   const specs: ReplacementEffectSpec[] = [];
@@ -84,5 +85,6 @@ export function collectBatch21DamageScalingSpecs(
       reason: 'self_combat_damage_to_player_double',
     });
   }
+  specs.push(...collectBatch107DamageScalingSpecs(oracle, source));
   return specs;
 }

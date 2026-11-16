@@ -272,7 +272,7 @@ describe('damage-received watcher emission', () => {
     });
     expect((ctx as any).state.stack.some((item: any) => (
       item.permanentId === watcher.id
-      && item.triggerType === 'dealt_damage'
+      && (item.triggerType === 'dealt_damage' || item.triggerType === 'you_are_dealt_damage')
       && /put that many \+1\/\+1 counters/i.test(String(item.effect || ''))
     ))).toBe(true);
   });

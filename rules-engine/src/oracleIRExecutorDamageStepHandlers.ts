@@ -565,7 +565,7 @@ function applyDamageToMatchingBattlefield(
       }
       return damaged;
     }
-    if (hasExecutorClass(permanent as any, 'planeswalker')) return removeLoyaltyFromPlaneswalker(permanent as any, finalAmount);
+    if (hasExecutorClass(permanent as any, 'planeswalker')) return removeLoyaltyFromPlaneswalker(permanent as any, finalAmount, preventionState || state);
     return permanent as any;
   }) as any;
 

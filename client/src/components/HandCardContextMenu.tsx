@@ -79,8 +79,9 @@ export function HandCardContextMenu({
   const hasBuyback = oracleText.includes('buyback');
   const hasForetell = oracleText.includes('foretell') || !!(card as any)?.grantedForetellCost; // UI36: granted foretell
   const cyclingMatch = (card?.oracle_text || '').match(/cycling\s*(\{[^}]+\})/i);
-  const hasCycling = !!cyclingMatch;
-  const cyclingCost = cyclingMatch ? cyclingMatch[1] : null;
+  const cyclingPayLifeMatch = (card?.oracle_text || '').match(/cycling\s*[\u2014\u2013-]\s*(pay\s+\d+\s+life)/i);
+  const hasCycling = !!cyclingMatch || !!cyclingPayLifeMatch;
+  const cyclingCost = cyclingMatch ? cyclingMatch[1] : (cyclingPayLifeMatch ? cyclingPayLifeMatch[1] : null);
   
   // Adjust position to keep menu on screen
   // Use a small delay to ensure the menu is fully rendered before measuring

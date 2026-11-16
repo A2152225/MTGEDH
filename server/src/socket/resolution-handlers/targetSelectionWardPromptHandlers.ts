@@ -29,7 +29,7 @@ import {
 } from "../../state/resolution/index.js";
 import { debugWarn } from "../../utils/debug.js";
 import { asThoughAbilitySuppressedForTarget } from "../../rules-engine/targeting-handlers/targetingProtectionKeywordStaticOverride.js";
-import { resolveWardCasterForTargetSelection } from "../resolutionWardUtils.js";
+import { resolveWardCasterForTargetSelection, tryCounterByWard } from "../resolutionWardUtils.js";
 import { broadcastGame, getPlayerName } from "../util.js";
 
 function parseBlightN(cost: string): number | null {
@@ -108,7 +108,7 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
       continue;
     }
 
-    const wardCost = getPermanentWardCost(targetPerm);
+    const wardCost = getPermanentWardCost(targetPerm, game.state);
     if (!wardCost) continue;
 
     const normalizedWardCost = String(wardCost || '').trim().replace(/[\s\t]+/g, ' ').replace(/[.;,]+$/g, '').trim();
@@ -135,7 +135,7 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
           gameId,
         } as unknown as GameContext;
 
-        counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+        tryCounterByWard(game, gameId, String(sourceId || ''), String(targetPerm.controller || 'system'));
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -218,7 +218,7 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
       const lifeAmount = parseCountToken(lifeMatch[1]);
       if (!lifeAmount || lifeAmount <= 0) {
         const ctx = makeCounterCtx();
-        counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+        tryCounterByWard(game, gameId, String(sourceId || ''), String(targetPerm.controller || 'system'));
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -235,7 +235,7 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
       const currentLife = game.state.life?.[casterId] ?? startingLife;
       if (currentLife < lifeAmount || !canPlayerPayLife(makeCounterCtx(), casterId)) {
         const ctx = makeCounterCtx();
-        counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+        tryCounterByWard(game, gameId, String(sourceId || ''), String(targetPerm.controller || 'system'));
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -281,7 +281,7 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
       const discardCount = parseCountToken(discardMatch[1]);
       if (!discardCount || discardCount <= 0) {
         const ctx = makeCounterCtx();
-        counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+        tryCounterByWard(game, gameId, String(sourceId || ''), String(targetPerm.controller || 'system'));
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -297,7 +297,7 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
       const hand: any[] = Array.isArray(zones?.hand) ? zones.hand : [];
       if (hand.length < discardCount) {
         const ctx = makeCounterCtx();
-        counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+        tryCounterByWard(game, gameId, String(sourceId || ''), String(targetPerm.controller || 'system'));
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -344,7 +344,7 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
       const sacKind = String(sacrificeMatch[2] || '').trim().toLowerCase();
       if (!sacCount || sacCount <= 0 || !sacKind) {
         const ctx = makeCounterCtx();
-        counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+        tryCounterByWard(game, gameId, String(sourceId || ''), String(targetPerm.controller || 'system'));
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -373,7 +373,7 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
 
       if (eligible.length < sacCount) {
         const ctx = makeCounterCtx();
-        counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+        tryCounterByWard(game, gameId, String(sourceId || ''), String(targetPerm.controller || 'system'));
         io.to(gameId).emit('chat', {
           id: `m_${Date.now()}`,
           gameId,
@@ -418,7 +418,7 @@ export function maybeQueueWardPaymentPromptsForTargetSelection(
     // Unknown ward cost (non-mana and non-blight). Fail closed.
     {
       const ctx = makeCounterCtx();
-      counterStackItem(ctx, sourceId, String(targetPerm.controller || 'system'));
+      tryCounterByWard(game, gameId, String(sourceId || ''), String(targetPerm.controller || 'system'));
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,

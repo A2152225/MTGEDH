@@ -8,6 +8,7 @@
  */
 
 import type { PlayerID } from '../../../../../shared/src/index.js';
+import { noteNontokenPermanentEnteredThisTurn } from '../batch102Apply.js';
 
 function incrementTurnCounter(
   state: any,
@@ -46,6 +47,11 @@ export function recordBattlefieldEntryTurnTracking(
   const isPlaneswalker = typeLine.includes('planeswalker');
   const isBattle = typeLine.includes('battle');
   const permanentId = String(permanent?.id || '');
+  try {
+    noteNontokenPermanentEnteredThisTurn(state, String(controller || ''), permanent?.isToken === true);
+  } catch {
+    // best-effort only
+  }
 
   if (!isLand) {
     incrementTurnCounter(state, 'nonlandPermanentsEnteredBattlefieldThisTurn', controller);

@@ -83,6 +83,10 @@ export function TableLayoutZoneCardContextMenu(props: {
           socket.emit('discard', { gameId, cardId });
         }
       }}
+      canSpecialDiscard={Boolean(gameId && zoneContextMenu.zone === 'hand' && (playableCards || []).includes(`vultures-discard-${String(zoneContextMenu.card?.id || '')}`))}
+      onSpecialDiscard={(cardId) => {
+        if (gameId) socket.emit('circlingVulturesDiscard', { gameId, cardId });
+      }}
       onActivateAbility={(cardId, abilityId) => {
         dispatchZoneCardAbility({
           zone: zoneContextMenu.zone,

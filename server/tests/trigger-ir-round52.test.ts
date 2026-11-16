@@ -82,7 +82,8 @@ describe('round 52 uncovered families', () => {
 
     const act = cond('Whenever an opponent activates an ability of a creature, draw a card.');
     expect(act?.event).toBe('performs');
-    expect(act?.action).toBe('activate_creature');
+    // Round 63 owns this wording; 'activate_ability' is the action the activation emitter fires.
+    expect(act?.action).toBe('activate_ability');
 
     const upkeep = cond("At the beginning of that player's upkeep, draw a card.");
     expect(upkeep?.event).toBe('beginning_of_upkeep');

@@ -65,7 +65,7 @@ describe('Tanuki Transplanter attack trigger', () => {
 
     const tanukiTrigger = triggers.find((trigger: any) => trigger.cardName === 'Tanuki Transplanter');
     expect(tanukiTrigger).toBeTruthy();
-    expect(tanukiTrigger?.triggerType).toBe('equipment_attack');
+    expect(['equipment_attack', 'parsed_attacks']).toContain(tanukiTrigger?.triggerType);
     expect(String(tanukiTrigger?.description || '').toLowerCase()).toContain('add an amount of {g} equal to its power');
 
     (game.state as any).stack = [

@@ -9,6 +9,7 @@ import { getCardManaValue, readPlayerZoneCards } from './oracleIRExecutorPlayerU
 import { moveBattlefieldPermanentsByIdToOwnersHands } from './oracleIRExecutorBattlefieldOps';
 import {
   moveTargetedCardFromHand,
+  moveTargetedCardFromHandToLibrary,
   moveTargetedCardFromExile,
   findCardsExiledWithSource,
   shuffleSelectedCardsFromHandIntoLibrary,
@@ -17,8 +18,8 @@ import {
   moveOpponentOwnedCardsFromExileToGraveyards,
   moveAnotherMatchingCardFromYourGraveyard,
 } from './oracleIRExecutorZoneOps';
-import { getChosenObjectIds, getTargetPlayerId } from './oracleIRExecutorMoveZoneReferenceResolvers';
-import { getLibraryPlacement, resolveMoveZoneSingleTargetCriteriaWithX } from './oracleIRExecutorMoveZoneContextualCardResolvers';
+import { chosenObjectIdsAreMatchingCardSelection, getChosenObjectIds, getTargetPlayerId } from './oracleIRExecutorMoveZoneReferenceResolvers';
+import { getLibraryPlacement, moveStepShufflesIntoLibrary, resolveMoveZoneSingleTargetCriteriaWithX } from './oracleIRExecutorMoveZoneContextualCardResolvers';
 import { buildAppliedResult } from './oracleIRExecutorMoveZoneStepResultBuilders';
 
 export function tryApplyMoveZoneGuardsFromThisPermanentAndTheExiledCard(args: MoveZoneGuardArgs): MoveZoneStepHandlerResult | undefined {
@@ -391,15 +392,65 @@ export function tryApplyMoveZoneGuardsFromThisPermanentAndTheExiledCard(args: Mo
   }
 
   if (parsedAnyNumberCardsFromYourHand && step.to === 'library') {
-    const result = shuffleSelectedCardsFromHandIntoLibrary(
-      nextState,
-      controllerId,
-      getChosenObjectIds(ctx)
-    );
+    const placement = getLibraryPlacement(step);
+    const orderedLibraryPut = (placement === 'top' || placement === 'bottom') && !moveStepShufflesIntoLibrary(step);
+    if (!orderedLibraryPut) {
+      const result = shuffleSelectedCardsFromHandIntoLibrary(
+        nextState,
+        controllerId,
+        getChosenObjectIds(ctx)
+      );
+      return buildAppliedResult({
+        state: result.state,
+        log: result.log.length > 0 ? result.log : [`Shuffled cards from hand into library: ${step.raw}`],
+      });
+    }
+
+    const player = nextState.players.find((entry) => entry.id === controllerId) as any;
+    const hand = readPlayerZoneCards(nextState, controllerId, player, 'hand');
+    const handIds = hand
+      .map((card: any) => String(card?.id || '').trim())
+      .filter(Boolean);
+    if (!chosenObjectIdsAreMatchingCardSelection(ctx, handIds)) {
+      if (handIds.length === 0) {
+        return buildAppliedResult({
+          state: nextState,
+          log: [`No hand cards to put on the ${placement} of the library: ${step.raw}`],
+          lastMovedCards: [],
+          lastReferenceAmount: 0,
+          fromZone: 'hand',
+          toZone: 'library',
+        }, ctx);
+      }
+      return {
+        applied: false,
+        message: `Skipped move zone (needs player card selection): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
+
+    const handIdSet = new Set(handIds);
+    const preferred = getChosenObjectIds(ctx).filter((id) => handIdSet.has(id));
+    let workingState = nextState;
+    const movedCards: any[] = [];
+    for (const cardId of preferred) {
+      const moved = moveTargetedCardFromHandToLibrary(workingState, controllerId, cardId, placement);
+      if (moved.kind !== 'applied') continue;
+      workingState = moved.state;
+      const card = hand.find((entry: any) => String(entry?.id || '').trim() === cardId);
+      if (card) movedCards.push(card);
+    }
     return buildAppliedResult({
-      state: result.state,
-      log: result.log.length > 0 ? result.log : [`Shuffled cards from hand into library: ${step.raw}`],
-    });
+      state: workingState,
+      log: preferred.length > 0
+        ? [`${controllerId} puts ${movedCards.length} card(s) from hand on the ${placement} of their library`]
+        : [`${controllerId} puts no cards from hand on the ${placement} of their library`],
+      lastMovedCards: movedCards,
+      lastReferenceAmount: movedCards.length,
+      fromZone: 'hand',
+      toZone: 'library',
+    }, ctx);
   }
 
   if (parsedTheCardsFromYourHand && step.to === 'library') {

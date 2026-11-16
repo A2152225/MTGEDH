@@ -68,6 +68,21 @@ export function collectDiesExileReplacementSpecsFromState(state: unknown): Repla
           metadata: { putCounterOnExiled: hit[1] },
         });
       }
+      // B91: Ravenous Slime — exile and put that creature's power as +1/+1 counters on this creature.
+      const slime = s.match(/^if a creature an opponent controls would die, instead exile it and put a number of \+1\/\+1 counters equal to that creature's power on (this creature|~)$/);
+      if (slime) {
+        specs.push({
+          ...base, id: sourcePermanentId + ':opponent-creature-die-exile-power-counters', event: 'zone-change',
+          match: {
+            sourceZone: 'battlefield', destinationZone: 'graveyard', objectTypeLineIncludes: 'creature',
+            objectControllerIsOpponentOfSource: true,
+          },
+          instead: { redirectZone: 'exile' },
+          effectId: 'opponent-creature-die-exile-power-counters-on-source',
+          reason: 'opponent_creature_die_exile_power_counters_on_source',
+          metadata: { putP1P1OnSourceEqualToObjectPower: true, sourcePermanentId },
+        });
+      }
     }
   }
   return specs;
@@ -89,6 +104,14 @@ export function matchesZoneChangeOwnershipExtras(
   const damagedIds = spec.metadata?.damagedObjectIds;
   if (Array.isArray(damagedIds) && (!objectId || !damagedIds.includes(objectId))) return false;
   if (spec.metadata?.nontokenOnly === true && (object?.isToken === true || object?.card?.isToken === true)) return false;
+  if (spec.metadata?.objectControllerIsNotSourceController === true) {
+    const controller = String(object?.controller || event.controller || '').trim();
+    if (controller && controller === String(spec.sourceController || '').trim()) return false;
+  }
+  if (spec.metadata?.destinationOwnerIsOpponentOfSource === true) {
+    const owner = String(event.owner || object?.owner || object?.card?.owner || '').trim();
+    if (!owner || owner === String(spec.sourceController || '').trim()) return false;
+  }
   if (spec.metadata?.objectOwnerIsSourceController === true) {
     const owner = String(event.owner || object?.owner || object?.card?.owner || object?.controller || event.controller || '').trim();
     if (!owner || owner !== String(spec.sourceController || '').trim()) return false;

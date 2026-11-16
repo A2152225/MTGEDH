@@ -158,7 +158,9 @@ export function renderAppPlayOverlaysMid(p: Record<string, any>) {
         availableCounters={additionalCostModalData?.availableCounters}
         effectId={additionalCostModalData?.effectId}
         canCancel={
-          additionalCostModalData?.resolutionStepId
+          additionalCostModalData?.costType === 'pay_life'
+            ? true
+            : additionalCostModalData?.resolutionStepId
             ? additionalCostModalData?.resolutionStepMandatory === false
             : true
         }

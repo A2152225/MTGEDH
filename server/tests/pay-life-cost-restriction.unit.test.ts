@@ -8,6 +8,7 @@ import {
   getOptionalPaymentValidationFailure,
   queueShockLandPaymentStep,
 } from '../src/socket/optional-payment-prompts.js';
+import { tryHandlePayLifeAdditionalCostPayment } from '../src/socket/resolution-handlers/payLifeAdditionalCostPaymentHandler.js';
 import { handleLifePaymentResponse } from '../src/socket/resolution-handlers/lifePaymentResponseHandlers.js';
 import { handleShockLandChoice } from '../src/socket/resolution-handlers/optionChoiceLandEntryReplacementHandlers.js';
 import { maybeQueueWardPaymentPromptsForTargetSelection } from '../src/socket/resolution-handlers/targetSelectionWardPromptHandlers.js';
@@ -235,7 +236,7 @@ describe('pay-life cost restriction wiring (Angel of Jubilation oracle)', () => 
     expect(canActivateAnyAbility(blocked, 'p1' as PlayerID)).toBe(false);
   });
 
-  it('from-hand pay-life additional cost is rejected with Angel oracle and charged without it', () => {
+  it('from-hand pay-life additional cost is rejected with Angel oracle and charged without it', async () => {
     const cardInHand = {
       id: 'life_spell_1',
       name: 'Blood Price',
@@ -278,12 +279,15 @@ describe('pay-life cost restriction wiring (Angel of Jubilation oracle)', () => 
     expect(blocked).toBeUndefined();
     expect(emitted.some((entry) => entry.event === 'error' && entry.payload?.code === 'CANNOT_PAY_COST')).toBe(true);
 
+    const openGameId = 'test_pay_life_restriction_cast_open';
+    ResolutionQueueManager.removeQueue(openGameId);
     const openGame = makeGame(false);
+    (openGame as any).bumpSeq = () => {};
     const allowed = tryPromptCastSpellAdditionalCostsFromHand({
       io,
       socket,
       game: openGame,
-      gameId: 'test_pay_life_restriction_cast_open',
+      gameId: openGameId,
       playerId: 'p1',
       cardId: 'life_spell_1',
       cardInHand,
@@ -297,9 +301,24 @@ describe('pay-life cost restriction wiring (Angel of Jubilation oracle)', () => 
       zones: { hand: [cardInHand] },
     });
 
-    expect(allowed?.kind).toBe('continue');
-    expect((allowed as any)?.targets?.additionalCostPaid).toBe(true);
+    expect(allowed).toBeUndefined();
+    expect(openGame.state.life.p1).toBe(40);
+    const payLifeStep = ResolutionQueueManager
+      .getQueue(openGameId)
+      .steps
+      .find((step: any) => step.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT && String((step as any).costType || '') === 'pay_life') as any;
+    expect(payLifeStep).toBeDefined();
+
+    const handled = await tryHandlePayLifeAdditionalCostPayment(
+      io,
+      openGame,
+      openGameId,
+      payLifeStep,
+      { playerId: 'p1', selections: ['pay'], cancelled: false } as any,
+    );
+    expect(handled).toBe(true);
     expect(openGame.state.life.p1).toBe(38);
+    ResolutionQueueManager.removeQueue(openGameId);
   });
 
   it('ward pay-life is unpayable under Angel oracle and still offered without it', () => {

@@ -10,32 +10,19 @@ import { sacrificePermanent } from './upkeep-triggers.js';
 import { finishPlayLandBattlefieldEntry, type PlayLandEntryOptions } from './stackPlayLandUtils.js';
 import { pushCardToPlayerGraveyardWithReplacements } from './graveyardEntryUtils.js';
 import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+import { parseTypedLandWouldEnterSacrifice, landMatchesTypedWouldEnterSacrifice } from './batch95LandWouldEnter.js';
 
 export const WOULD_ENTER_DISCARD_LAND_DECLINE_ID = 'decline_mox_diamond';
 
 export interface LandWouldEnterSacrificeReplacement {
   sacrificeCount: number;
   requireUntapped: boolean;
+  /** Basic land type to sacrifice (island, forest, ...). Omit for any land. */
+  requireType?: string;
 }
 
 export function parseLandWouldEnterSacrificeReplacement(oracleText: string): LandWouldEnterSacrificeReplacement | null {
-  const match = String(oracleText || '').match(
-    /if this land would enter(?: the battlefield)?,?\s*sacrifice\s+(two|three|four|\d+|a|an)\s+(untapped\s+)?lands?\s+instead/i,
-  );
-  if (!match) return null;
-
-  const countWord = String(match[1] || '').toLowerCase();
-  const sacrificeCount =
-    countWord === 'two' ? 2
-      : countWord === 'three' ? 3
-        : countWord === 'four' ? 4
-          : countWord === 'a' || countWord === 'an' ? 1
-            : Math.max(1, parseInt(countWord, 10) || 1);
-
-  return {
-    sacrificeCount,
-    requireUntapped: /\buntapped\b/i.test(String(match[0] || '')),
-  };
+  return parseTypedLandWouldEnterSacrifice(oracleText);
 }
 
 export function parseLandWouldEnterNamedSacrificeReplacement(oracleText: string): boolean {
@@ -93,9 +80,7 @@ function listEligibleSacrificeLands(
   return battlefield
     .filter((perm: any) => {
       if (!perm || String(perm.controller || '') !== String(playerId)) return false;
-      const typeLine = String(perm.card?.type_line || '').toLowerCase();
-      if (!/\bland\b/.test(typeLine)) return false;
-      if (replacement.requireUntapped && perm.tapped) return false;
+      if (!landMatchesTypedWouldEnterSacrifice(perm, replacement)) return false;
       return true;
     })
     .map((perm: any) => ({

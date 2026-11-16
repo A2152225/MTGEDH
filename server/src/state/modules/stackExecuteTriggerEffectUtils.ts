@@ -18,6 +18,7 @@ import { resolveTriggerStackItemEffectText } from './triggerStackItemEffectText.
 import { applyKeywordTriggerFallbackFromOracle } from './triggerKeywordFallbackUtils.js';
 import { tryApplyPresetTriggerChosenTypeEffects } from './stackExecuteTriggerChosenTypeUtils.js';
 import { applyStackParadigmTrigger, applyStackReboundTrigger } from './stackSpecialTriggerHandlers.js';
+import { applyStackRippleTrigger } from './rippleTrigger.js';
 import { processDetectedFirebendingResolvedTriggers } from './triggerEmissionFamilyUtils.js';
 import { applyTemporaryGraveyardKeywordGrantFromText } from './graveyard-permissions.js';
 import { tryApplyCastingModifierGrantsFromText } from './casting-modifiers.js';
@@ -62,6 +63,8 @@ export function executeTriggerEffect(
   if (!state) return;
   const triggerCard = (triggerItem as any)?.card || {};
   const battlefield = state.battlefield || [];
+
+  if (applyStackRippleTrigger({ ctx, controller: String(controller), sourceName, triggerItem })) return;
 
   const prefaceResult = tryApplyTriggerEffectPrefaceHandlers(
     ctx,

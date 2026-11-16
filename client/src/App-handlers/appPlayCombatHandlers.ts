@@ -12,6 +12,8 @@ import { expandGroupedTokensForDisplay, tokenDisplayInstanceCount } from "../uti
 import { debugError } from "../utils/debug";
 import { collectAttackYouTaxPreviewForDefender } from "../utils/combatAttackTax";
 import { buildAttackDefenders } from "../utils/attackDefenders";
+import { landPlayTimingBlockReason } from "../utils/landPlayTiming";
+import { isLandFaceTypeLine, modalDfcOfferedFaceIndexes } from "../utils/modalDfcFaceOffer";
 
 export function useAppPlayCombatHandlers(p: Record<string, any>) {
   const {
@@ -56,15 +58,53 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
 
     const oracleText = String((card as any).oracle_text || '').toLowerCase();
     const canFuse = sourceZone === 'hand' && layout === 'split' && oracleText.includes('fuse');
-    const faces: CardFaceOption[] = cardFaces.map((face, idx) => ({
-      id: `face_${idx}`,
-      name: (face as any).name || `Face ${idx + 1}`,
-      manaCost: (face as any).mana_cost ?? (face as any).manaCost,
-      typeLine: (face as any).type_line ?? (face as any).typeLine,
-      oracleText: (face as any).oracle_text ?? (face as any).oracleText,
-      imageUrl: (face as any).image_uris?.small || (face as any).image_uris?.normal || (face as any).imageUrl,
-      isDefault: layout === 'adventure' && idx === 0,
-    }));
+    const canPlayLandNow = landPlayTimingBlockReason({
+      you,
+      turnPlayer: safeView?.turnPlayer,
+      phase: safeView?.phase,
+      stackCount: Array.isArray((safeView as any)?.stack) ? (safeView as any).stack.length : 0,
+      landsPlayedThisTurn: you ? Number((safeView as any)?.landsPlayedThisTurn?.[you] || 0) : 0,
+      maxLandsPerTurn: you ? Number((safeView as any)?.maxLandsPerTurn?.[you] || 1) : 1,
+    }) == null;
+    const offeredIndexes = layout === 'modal_dfc'
+      ? modalDfcOfferedFaceIndexes(cardFaces, canPlayLandNow)
+      : cardFaces.map((_, idx) => idx);
+    if (layout === 'modal_dfc' && offeredIndexes.length === 0) {
+      return;
+    }
+    if (layout === 'modal_dfc' && offeredIndexes.length === 1 && safeView?.id) {
+      const faceIndex = offeredIndexes[0];
+      const face = cardFaces[faceIndex];
+      const fromZone = sourceZone !== 'hand' && sourceZone !== 'command' ? sourceZone : undefined;
+      if (isLandFaceTypeLine((face as any)?.type_line ?? (face as any)?.typeLine)) {
+        playLandWithPromptSync({
+          gameId: safeView.id,
+          cardId,
+          selectedFace: faceIndex,
+          ...(fromZone ? { fromZone } : {}),
+        });
+      } else {
+        requestCastSpellWithPromptSync({
+          gameId: safeView.id,
+          cardId,
+          faceIndex,
+          ...(fromZone ? { fromZone } : {}),
+        });
+      }
+      return;
+    }
+    const faces: CardFaceOption[] = offeredIndexes.map((idx) => {
+      const face = cardFaces[idx];
+      return {
+        id: `face_${idx}`,
+        name: (face as any).name || `Face ${idx + 1}`,
+        manaCost: (face as any).mana_cost ?? (face as any).manaCost,
+        typeLine: (face as any).type_line ?? (face as any).typeLine,
+        oracleText: (face as any).oracle_text ?? (face as any).oracleText,
+        imageUrl: (face as any).image_uris?.small || (face as any).image_uris?.normal || (face as any).imageUrl,
+        isDefault: layout === 'adventure' && idx === 0,
+      };
+    });
 
     setSplitCardData({
       cardId,
@@ -75,7 +115,7 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
       sourceZone,
     });
     setSplitCardModalOpen(true);
-  }, []);
+  }, [playLandWithPromptSync, requestCastSpellWithPromptSync, safeView, you]);
 
   const handleUseTopOfLibrary = React.useCallback(() => {
     if (!safeView || !you) return;
@@ -94,6 +134,14 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
 
     if (needsFaceChoice) {
       openSplitCardChoice(libraryTop.id, libraryTop, 'library');
+      return;
+    }
+
+    const playableCards = Array.isArray((safeView as any).playableCards) ? (safeView as any).playableCards as string[] : [];
+    const plotAction = (safeView as any).libraryTopPlotAction || (safeView as any).zones?.[you]?.libraryTopPlotAction;
+    const libraryCastPlayable = playableCards.includes(`library-${you}`);
+    if (plotAction && !libraryCastPlayable) {
+      socket.emit('plotLibraryTop', { gameId: safeView.id });
       return;
     }
 

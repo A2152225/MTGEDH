@@ -8,6 +8,7 @@ import { debugWarn } from '../../utils/debug.js';
 import { candidatesForComponent, describeTurnFaceUpCostComponents, type TurnFaceUpChoiceComponent, type TurnFaceUpCostComponent } from './turnFaceUpCostComponents.js';
 import { movePermanentToHand } from './zones.js';
 import { movePermanentToGraveyard } from './counters_tokens.js';
+import { payLifeAmount } from './batch97PayLife.js';
 
 export interface TurnFaceUpCostChoices {
   reveal?: string;
@@ -106,13 +107,15 @@ export function planTurnFaceUpNonManaCost(
 }
 
 function payLife(state: any, playerId: string, amount: number): void {
+  try {
+    payLifeAmount(state, playerId, amount);
+    return;
+  } catch { /* hook optional */ }
   state.life = state.life || {};
   const current = Number(state.life[playerId] ?? state.startingLife ?? 40);
   state.life[playerId] = current - amount;
   const player = (state.players || []).find((p: any) => String(p?.id) === String(playerId));
   if (player && typeof player.life === 'number') player.life = state.life[playerId];
-  state.lifeLostThisTurn = state.lifeLostThisTurn || {};
-  state.lifeLostThisTurn[playerId] = (state.lifeLostThisTurn[playerId] || 0) + amount;
 }
 
 function discardFromHand(state: any, playerId: string, cardId: string): void {

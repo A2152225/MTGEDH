@@ -15,6 +15,9 @@ import {
   hasBlanketCantAttack,
   permanentHasMustAttackRequirement,
 } from "../../../../rules-engine/src/attackRestrictionText.js";
+import { batch107CreatureMustAttackIfAble, batch107MustAlsoAttackDueToMagnet } from "../../state/modules/batch107Apply.js";
+import { batch108CreatureMustAttackIfAble } from "../../state/modules/batch108Apply.js";
+import { batch109AttackSourceForcesOthers } from "../../state/modules/batch109Apply.js";
 import { buildTapTriggeredStackItem, collectTapTriggersForTapEvent, serializeTapTriggeredStackItem } from "../../state/modules/triggers/tap-untap.js";
 import { canExertAsItAttacks, getSupportedExertAttackReward } from "../../state/modules/triggers/combat.js";
 import { isInterveningIfSatisfied } from "../../state/modules/triggers/intervening-if.js";
@@ -32,6 +35,7 @@ import {
 import { hasLegalMustAttackDefender } from "./combatDeclareAttackersSupport.js";
 import { getGoadedAttackTargets } from "../../../../rules-engine/src/actions/combat-handlers/combatGoadHelpers.js";
 import { getNearestOpponentDirectionAllowedDefenderId } from "../../state/modules/nearestOpponentDirectionAttackRestriction.js";
+import { permanentMustAttackIfAnotherYouControlAttacks } from "../../state/modules/batch98CombatAndKeywords.js";
 import { playerIsLegalAttackTarget } from "../../../../rules-engine/src/playerInGameStatus.js";
 
 export function enqueueSupportedExertChoiceSteps(
@@ -172,7 +176,7 @@ export function getCreatureGoadStatus(
 }
 
 type ForcedAttackViolation = {
-  code: 'GOAD_MUST_ATTACK' | 'MUST_ATTACK';
+  code: 'GOAD_MUST_ATTACK' | 'MUST_ATTACK' | 'MUST_ALSO_ATTACK';
   message: string;
 };
 
@@ -181,7 +185,7 @@ export type ForcedAttackerDeclaration = {
   defendingPlayerId: string;
 };
 
-type ForcedAttackKind = 'goad' | 'mustAttack';
+type ForcedAttackKind = 'goad' | 'mustAttack' | 'alsoAttack';
 
 type ForcedAttackEntry = {
   perm: any;
@@ -229,13 +233,48 @@ function collectForcedAttackEntries(game: any, playerId: PlayerID): ForcedAttack
     }
 
     if (
-      permanentHasMustAttackRequirement(perm, battlefield) &&
+      (permanentHasMustAttackRequirement(perm, battlefield)
+        || batch107CreatureMustAttackIfAble(perm, game && game.state)
+        || batch108CreatureMustAttackIfAble(perm, game && game.state)
+        || (getContinuousGrantedAbilitiesForPermanent(perm, game && game.state) || []).some((ability: any) => String(ability).includes('attacks each combat if able'))) &&
       hasLegalMustAttackDefender(perm, playerId, players, game?.state)
     ) {
       entries.push({ perm, kind: 'mustAttack' });
     }
   }
 
+  return entries;
+}
+
+function collectAlsoAttackIfAbleEntries(game: any, playerId: PlayerID): ForcedAttackEntry[] {
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const players = Array.isArray((game?.state as any)?.players) ? (game.state as any).players : [];
+  const entries: ForcedAttackEntry[] = [];
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== playerId) continue;
+    if (!isCurrentlyCreature(perm, battlefield, playerId)) continue;
+    if (!creatureCanBeForcedToAttack(perm, battlefield, playerId, players, game?.state)) continue;
+    const allowedDefenderId = getNearestOpponentDirectionAllowedDefenderId(game.state, playerId);
+    if (allowedDefenderId === null) continue;
+    if ((permanentMustAttackIfAnotherYouControlAttacks(perm, battlefield) || batch107MustAlsoAttackDueToMagnet(perm, game?.state)) && hasLegalMustAttackDefender(perm, playerId, players, game?.state)) {
+      entries.push({ perm, kind: 'alsoAttack' });
+    }
+  }
+  return entries;
+}
+
+function collectAttackIfSourceAttacksEntries(game: any, playerId: PlayerID): ForcedAttackEntry[] {
+  const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+  const players = Array.isArray((game?.state as any)?.players) ? (game.state as any).players : [];
+  const entries: ForcedAttackEntry[] = [];
+  for (const perm of battlefield) {
+    if (!perm || perm.controller !== playerId) continue;
+    if (!isCurrentlyCreature(perm, battlefield, playerId)) continue;
+    if (!creatureCanBeForcedToAttack(perm, battlefield, playerId, players, game?.state)) continue;
+    if (getNearestOpponentDirectionAllowedDefenderId(game.state, playerId) === null) continue;
+    if (!hasLegalMustAttackDefender(perm, playerId, players, game?.state)) continue;
+    entries.push({ perm, kind: 'alsoAttack' });
+  }
   return entries;
 }
 
@@ -264,6 +303,15 @@ function pickForcedAttackDefender(
     candidates = activeIds.filter((id) => id !== playerId);
   }
 
+  const granted = getContinuousGrantedAbilitiesForPermanent(perm, game && game.state) || [];
+  const preferMostLife = granted.some((ability: any) => String(ability).includes('attacks_player_with_most_life'));
+  if (preferMostLife) {
+    return candidates.reduce((highest, current) => {
+      const currentLife = players.find((player: any) => player.id === current)?.life ?? 40;
+      const highestLife = players.find((player: any) => player.id === highest)?.life ?? 40;
+      return currentLife > highestLife ? current : highest;
+    }, candidates[0] || '');
+  }
   return candidates.reduce((lowest, current) => {
     const currentLife = players.find((player: any) => player.id === current)?.life ?? 40;
     const lowestLife = players.find((player: any) => player.id === lowest)?.life ?? 40;
@@ -303,6 +351,32 @@ export function findForcedAttackViolation(
       message: `The following creature(s) attack each combat if able: ${mustAttackNames.join(', ')}`,
     };
   }
+  if (attacking.size > 0) {
+    const missingAlso = collectAlsoAttackIfAbleEntries(game, playerId)
+      .filter((entry) => !attacking.has(String(entry.perm.id)));
+    if (missingAlso.length > 0) {
+      const names = missingAlso.map((entry) => entry.perm.card?.name || 'Unknown');
+      return {
+        code: 'MUST_ALSO_ATTACK',
+        message: 'If a creature you control attacks, the following must also attack if able: ' + names.join(', '),
+      };
+    }
+    const battlefield = Array.isArray(game?.state?.battlefield) ? game.state.battlefield : [];
+    const sourceAttacking = battlefield.some((perm: any) => perm && perm.controller === playerId
+      && attacking.has(String(perm.id)) && batch109AttackSourceForcesOthers(perm));
+    if (sourceAttacking) {
+      const missingCompanions = collectAttackIfSourceAttacksEntries(game, playerId)
+        .filter((entry) => !attacking.has(String(entry.perm.id)));
+      if (missingCompanions.length > 0) {
+        const names = missingCompanions.map((entry) => entry.perm.card?.name || 'Unknown');
+        return {
+          code: 'MUST_ALSO_ATTACK',
+          message: 'If this creature attacks, the following must also attack if able: ' + names.join(', '),
+        };
+      }
+    }
+  }
+
   return null;
 }
 
@@ -323,6 +397,19 @@ export function resolveForcedAttackerDeclarations(
       defendingPlayerId,
     });
   }
+  if (declarations.length > 0) {
+    const already = new Set(declarations.map((d) => String(d.creatureId)));
+    for (const entry of collectAlsoAttackIfAbleEntries(game, playerId)) {
+      if (already.has(String(entry.perm.id))) continue;
+      const defendingPlayerId = pickForcedAttackDefender(game, playerId, entry.perm);
+      if (!defendingPlayerId) continue;
+      declarations.push({
+        creatureId: String(entry.perm.id),
+        defendingPlayerId,
+      });
+    }
+  }
+
   return declarations;
 }
 

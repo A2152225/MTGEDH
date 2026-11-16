@@ -24,6 +24,7 @@ import {
   handleRestartGameRequest,
   handleUnkeepHandRequest,
 } from "./game-actions-handlers/gameActionsPregameSocketHandlers.js";
+import { handleSerumPowderHandRestartRequest } from "./game-actions-handlers/gameActionsSerumPowderSocketHandlers.js";
 import {
   handleAdjustLifeRequest,
   handleMillRequest,
@@ -54,6 +55,8 @@ import {
   handlePhaseOutPermanentsRequest,
 } from "./game-actions-handlers/gameActionsForetellPhaseOutSocketHandlers.js";
 import { handleTurnFaceUpRequest } from "./game-actions-handlers/gameActionsTurnFaceUpSocketHandler.js";
+import { handlePlotLibraryTopRequest } from "./game-actions-handlers/gameActionsPlotLibraryTopSocketHandler.js";
+import { handleCirclingVulturesDiscardRequest } from "./game-actions-handlers/gameActionsCirclingVulturesDiscardSocketHandler.js";
 import {
   handleConcedeRequest,
   handleSetTriggerShortcutRequest,
@@ -146,6 +149,7 @@ export async function requestCastSpellForSocket(
     xValue?: number;
     timesKicked?: number;
     replicateCount?: number;
+    offspringPaid?: boolean;
     librarySearchStepToResume?: any;
   }
 ): Promise<void> {
@@ -481,6 +485,9 @@ export function registerGameActions(io: Server, socket: Socket) {
   socket.on("mulligan", (payload?: { gameId?: unknown }) =>
     handleMulliganRequest(io, socket, ensureInGameRoom, payload));
 
+  socket.on("serumPowderHandRestart", (payload?: { gameId?: unknown; sourceId?: unknown }) =>
+    handleSerumPowderHandRestartRequest(io, socket, ensureInGameRoom, payload));
+
   // ============================================================================
   // Life Total Adjustment
   // ============================================================================
@@ -573,6 +580,12 @@ export function registerGameActions(io: Server, socket: Socket) {
   // Morph / megamorph / disguise / manifest: turn face up (special action, no stack).
   socket.on("turnFaceUp", (payload?: { gameId?: unknown; permanentId?: unknown; revealCardId?: unknown }) =>
     handleTurnFaceUpRequest(io, socket, ensureInGameRoom, payload));
+
+  socket.on("plotLibraryTop", (payload?: { gameId?: unknown }) =>
+    handlePlotLibraryTopRequest(io, socket, ensureInGameRoom, payload));
+
+  socket.on("circlingVulturesDiscard", (payload?: { gameId?: unknown; cardId?: unknown }) =>
+    handleCirclingVulturesDiscardRequest(io, socket, ensureInGameRoom, payload));
 
   socket.on("castForetold", async (payload?: { gameId?: unknown; cardId?: unknown }) =>
     handleCastForetoldRequest(io, socket, ensureInGameRoom, handleCastSpellFromHand, payload));

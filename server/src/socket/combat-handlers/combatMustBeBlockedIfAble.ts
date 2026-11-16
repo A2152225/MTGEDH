@@ -10,6 +10,7 @@
 //   resolveMustBeBlockedIfAbleAssignments.
 
 import { getContinuousGrantedAbilitiesForPermanent } from '../../state/modules/staticEffectSpec.js';
+import { attackerMustBeBlockedByFlyingIfAble } from '../../state/modules/batch108Apply.js';
 import {
   ALL_ABLE_CREATURES_MUST_BLOCK,
   MUST_BE_BLOCKED_IF_ABLE,
@@ -59,6 +60,10 @@ export function attackerHasAllAbleCreaturesMustBlock(permanent: any, state: unkn
 export function attackerMustBeBlockedByKeywords(permanent: any, state: unknown): string[] {
   const keywords: string[] = [];
   const seen = new Set<string>();
+  if (attackerMustBeBlockedByFlyingIfAble(permanent) && !seen.has('flying')) {
+    seen.add('flying');
+    keywords.push('flying');
+  }
   for (const ability of getContinuousGrantedAbilitiesForPermanent(permanent, state)) {
     const keyword = keywordFromMustBeBlockedByAbility(ability);
     if (!keyword || seen.has(keyword)) continue;

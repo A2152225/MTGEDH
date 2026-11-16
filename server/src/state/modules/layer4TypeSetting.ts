@@ -8,6 +8,17 @@
 import { staticSourceAbilitiesRemoved } from '../../../../rules-engine/src/permanentKeywordAbilities.js';
 import { controllerHasLeftTheGame } from '../../../../rules-engine/src/playerInGameStatus.js';
 import { LAYER4_ANIMATION_SPECS } from './layer4TypeSettingAnimation.js';
+import { BATCH96_LAYER4_SPECS } from './staticEffectSpec-handlers/batch96LongTailStatics.js';
+import { BATCH99_LAYER4_SPECS } from './staticEffectSpec-handlers/batch99LongTailStatics.js';
+import { BATCH108_LAYER4_SPECS } from './staticEffectSpec-handlers/batch108LongTailStatics.js';
+import { stampBatch100CreatureTypeLoss } from './batch100CombatAndKeywords.js';
+import { batch104AdditionalTypes } from './batch104Apply.js';
+import { batch105AdditionalTypes } from './batch105Apply.js';
+import { batch106AdditionalTypes } from './batch106Apply.js';
+import { batch107AdditionalTypes, batch107GrantedCreatureTypes, batch107PermanentHasKeyword } from './batch107Apply.js';
+import { batch108AdditionalTypes, batch108GrantedCreatureTypes, batch108PermanentHasKeyword } from './batch108Apply.js';
+import { batch109PermanentHasKeyword } from './batch109Apply.js';
+import { batch110AdditionalTypes, batch110PermanentHasKeyword } from './batch110Apply.js';
 
 export const LAYER4_ADDED_TYPES_FIELD = 'layer4AddedTypes';
 
@@ -17,6 +28,8 @@ export interface Layer4TypePayload {
   /** Layer 7b base P/T granted alongside the type change, when the spec sets one. */
   basePT?: (perm: any) => { power: number; toughness: number };
   appliesTo: (perm: any) => boolean;
+  /** When set, the payload is omitted unless this returns true for the current state. */
+  sourceActive?: (state: any) => boolean;
 }
 
 interface Layer4Spec {
@@ -49,6 +62,9 @@ const SPECS: Layer4Spec[] = [
     }),
   },
   ...LAYER4_ANIMATION_SPECS,
+  ...BATCH96_LAYER4_SPECS,
+  ...BATCH99_LAYER4_SPECS,
+  ...BATCH108_LAYER4_SPECS,
 ];
 
 const sourceScans = new WeakMap<object, { signature: string; hasSource: boolean }>();
@@ -79,7 +95,9 @@ export function collectLayer4TypePayloads(state: any): Layer4TypePayload[] {
       if (!spec.re.test(text)) continue;
       if (controllerHasLeftTheGame(state, String(source.controller || ''))) continue;
       if (staticSourceAbilitiesRemoved(source, battlefield)) continue;
-      out.push({ sourceId: String(source.id || ''), ...spec.build(source) });
+      const payload = { sourceId: String(source.id || ''), ...spec.build(source) };
+      if (payload.sourceActive && !payload.sourceActive(state)) continue;
+      out.push(payload);
     }
   }
   return out;
@@ -90,6 +108,12 @@ export function layer4AddedTypesFor(perm: any, state: any): string[] {
   for (const payload of collectLayer4TypePayloads(state)) {
     if (payload.appliesTo(perm)) payload.addTypes.forEach((t) => added.add(t));
   }
+  for (const typ of batch104AdditionalTypes(perm, state)) added.add(typ);
+    for (const typ of batch105AdditionalTypes(perm, state)) added.add(typ);
+  for (const typ of batch106AdditionalTypes(perm, state)) added.add(typ);
+    for (const typ of batch107AdditionalTypes(perm, state)) added.add(typ);
+    for (const typ of batch108AdditionalTypes(perm, state)) added.add(typ);
+  for (const typ of batch110AdditionalTypes(perm, state)) added.add(typ);
   return [...added];
 }
 
@@ -119,7 +143,24 @@ export function stampLayer4TypeSetting(state: any): void {
     if (!perm) continue;
     const added = new Set<string>();
     for (const payload of payloads) if (payload.appliesTo(perm)) payload.addTypes.forEach((t) => added.add(t));
+    for (const typ of batch104AdditionalTypes(perm, state)) added.add(typ);
+    for (const typ of batch105AdditionalTypes(perm, state)) added.add(typ);
+    for (const typ of batch106AdditionalTypes(perm, state)) added.add(typ);
+    for (const typ of batch107AdditionalTypes(perm, state)) added.add(typ);
+    for (const typ of batch108AdditionalTypes(perm, state)) added.add(typ);
+    for (const typ of batch110AdditionalTypes(perm, state)) added.add(typ);
     if (added.size > 0) perm[LAYER4_ADDED_TYPES_FIELD] = [...added];
     else if (LAYER4_ADDED_TYPES_FIELD in perm) delete perm[LAYER4_ADDED_TYPES_FIELD];
+    const grantedTypes = [
+      ...batch107GrantedCreatureTypes(perm, state),
+      ...batch108GrantedCreatureTypes(perm, state),
+    ];
+    perm.batch107GrantedCreatureTypes = grantedTypes;
+    const grantedKeywords = (['hexproof', 'menace', 'first strike', 'lifelink', 'double strike', 'prowess', 'trample'] as const).filter((kw) => (
+      batch107PermanentHasKeyword(perm, state, kw) || batch108PermanentHasKeyword(perm, state, kw)
+      || batch109PermanentHasKeyword(perm, state, kw) || batch110PermanentHasKeyword(perm, state, kw)
+    ));
+    perm.batch107GrantedKeywords = grantedKeywords;
   }
+  stampBatch100CreatureTypeLoss(state);
 }

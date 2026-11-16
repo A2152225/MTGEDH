@@ -155,6 +155,9 @@ export interface ClientToServerEvents {
   
   // Take a mulligan
   mulligan: (payload: { gameId: GameID }) => void;
+
+  // Serum Powder: exile hand, then draw that many (does not consume a mulligan)
+  serumPowderHandRestart: (payload: { gameId: GameID; sourceId?: string }) => void;
   
   // Randomize starting player
   randomizeStartingPlayer: (payload: { gameId: GameID }) => void;

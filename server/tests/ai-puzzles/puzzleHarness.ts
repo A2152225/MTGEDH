@@ -32,6 +32,11 @@ export interface Puzzle {
   kind: PuzzleKind;
   /** v0 is known to miss this; suite stays green but counts as a baseline fail. */
   knownFailing?: boolean;
+  /**
+   * Held out for the Phase 2 gate (P2-4). Skipped in the default suite unless
+   * AI_PUZZLE_INCLUDE_HELD_OUT=1 — do not tune planners against these.
+   */
+  heldOut?: boolean;
   acceptable: string[];
   forbidden: string[];
   run: () => Promise<PuzzleResult>;
@@ -92,12 +97,17 @@ export function creature(
   } as BattlefieldPermanent;
 }
 
-export function makeAIEngine(playerId = 'ai-player', difficulty = 1): AIEngine {
+export function makeAIEngine(
+  playerId = 'ai-player',
+  difficulty = 1,
+  brain?: 'v0' | 'v1' | 'v2' | 'shadow',
+): AIEngine {
   const engine = new AIEngine();
   engine.registerAI({
     playerId,
     strategy: AIStrategy.BASIC,
     difficulty,
+    brain,
   });
   return engine;
 }
@@ -117,10 +127,18 @@ export async function decideAttackers(args: {
   battlefield: BattlefieldPermanent[];
   playerId?: string;
   commanderDamage?: Record<string, Record<string, number>>;
+  brain?: 'v0' | 'v1' | 'v2' | 'shadow';
 }): Promise<PuzzleResult> {
   seedAIRandom(42);
   const playerId = args.playerId || 'ai-player';
-  const engine = makeAIEngine(playerId);
+  const brain =
+    args.brain
+    || (String(process.env.AI_BRAIN || '').trim() as 'v0' | 'v1' | 'v2' | 'shadow' | '')
+    || undefined;
+  const engine = makeAIEngine(playerId, 1, brain || undefined);
+  const players = basePlayers(args.life).map((p) =>
+    p.id === playerId && brain ? { ...p, aiBrain: brain } : p,
+  );
   const gameState = {
     turn: 8,
     turnNumber: 8,
@@ -129,7 +147,7 @@ export async function decideAttackers(args: {
     activePlayerIndex: 0,
     battlefield: args.battlefield,
     life: args.life,
-    players: basePlayers(args.life),
+    players,
     commanderDamage: args.commanderDamage || {},
   } as unknown as GameState;
 
@@ -157,10 +175,15 @@ export async function decideBlockers(args: {
   otherPermanents?: BattlefieldPermanent[];
   commanderDamage?: Record<string, Record<string, number>>;
   playerId?: string;
+  brain?: 'v0' | 'v1' | 'v2' | 'shadow';
 }): Promise<PuzzleResult> {
   seedAIRandom(42);
   const playerId = args.playerId || 'ai-player';
-  const engine = makeAIEngine(playerId);
+  const brain =
+    args.brain
+    || (String(process.env.AI_BRAIN || '').trim() as 'v0' | 'v1' | 'v2' | 'shadow' | '')
+    || undefined;
+  const engine = makeAIEngine(playerId, 1, brain || undefined);
   const life = {
     [playerId]: args.life,
     attacker: 40,
@@ -176,7 +199,7 @@ export async function decideBlockers(args: {
     battlefield,
     life,
     players: [
-      { id: playerId, life: args.life, battlefield } as any,
+      { id: playerId, life: args.life, battlefield, ...(brain ? { aiBrain: brain } : {}) } as any,
       { id: 'attacker', life: 40, battlefield: [] as any },
       { id: 'bystander', life: 40, battlefield: [] as any },
     ],
@@ -277,6 +300,7 @@ export function formatPassTable(outcomes: PuzzleOutcome[]): string {
   const pass = outcomes.filter((o) => o.passed).length;
   const known = outcomes.filter((o) => !o.passed && o.knownFailing).length;
   lines.push('');
-  lines.push(`v0 pass: ${pass}/${outcomes.length} (knownFailing misses: ${known})`);
+  const brainLabel = String(process.env.AI_BRAIN || 'v0').trim() || 'v0';
+  lines.push(`${brainLabel} pass: ${pass}/${outcomes.length} (knownFailing misses: ${known})`);
   return lines.join('\n');
 }

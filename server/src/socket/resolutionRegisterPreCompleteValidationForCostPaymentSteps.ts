@@ -102,7 +102,10 @@ export function validateCostPaymentStepsBeforeComplete(
   if (step.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT) {
     const stepAny = step as any;
     const mandatory = Boolean(stepAny.mandatory);
-    const costType = String(stepAny.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal' | 'behold' | 'teamwork';
+    const costType = String(stepAny.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal' | 'behold' | 'teamwork' | 'pay_life';
+      if (costType === 'pay_life') {
+        return true;
+      }
     const amount = Math.max(0, Number(stepAny.amount ?? 0));
 
     if (cancelled) {

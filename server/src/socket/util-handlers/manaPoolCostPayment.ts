@@ -28,6 +28,8 @@ import { resolveLegacyManaAbilityById } from "./manaAbilityLineResolvers.js";
 import { consumeManaFromPool } from "./consumeManaFromPool.js";
 import { consumeManaFromPoolForPurpose } from "./consumeManaFromPoolForPurpose.js";
 import { parseManaCost } from "./parseManaCost.js";
+import { canPayManaCostWithSpendAsThough, payManaCostWithSpendAsThough } from "../../state/modules/manaSpendAsThough.js";
+import { getBatch106ManaSpendAsThoughRules } from "../../state/modules/batch106ManaSpendAsThough.js";
 
 type ValidateConsumeManaCostResult =
   | { ok: true; consumed: Record<string, number>; remaining: Record<string, number> }
@@ -82,8 +84,30 @@ function orderHybridOptions(options: string[]): string[] {
 export function validateAndConsumeManaCostFromPool(
   pool: ManaPool | Record<string, number>,
   manaCost: string,
-  opts?: { logPrefix?: string; purpose?: RestrictedManaSpendPurpose }
+  opts?: { logPrefix?: string; purpose?: RestrictedManaSpendPurpose; gameState?: any; playerId?: string; activatingCreatureAbility?: boolean }
 ): ValidateConsumeManaCostResult {
+  const spendRules = opts?.gameState && opts?.playerId
+    ? getBatch106ManaSpendAsThoughRules(opts.gameState, String(opts.playerId), {
+        activatingCreatureAbility: opts.activatingCreatureAbility === true || opts.purpose?.abilitySourceIsCreature === true,
+      })
+    : undefined;
+  if (spendRules && (spendRules.anyColor || spendRules.colorAsAny || spendRules.otherOnlyColorless)) {
+    const parsed = parseManaCost(manaCost);
+    const before = getPoolNumericSnapshot(pool);
+    if (!payManaCostWithSpendAsThough(pool as Record<string, number>, parsed, spendRules)) {
+      return { ok: false, error: opts?.logPrefix ? `${opts.logPrefix} Insufficient mana.` : 'Insufficient mana.' };
+    }
+    const remaining = getPoolNumericSnapshot(pool);
+    const consumed = {
+      white: before.white - remaining.white,
+      blue: before.blue - remaining.blue,
+      black: before.black - remaining.black,
+      red: before.red - remaining.red,
+      green: before.green - remaining.green,
+      colorless: before.colorless - remaining.colorless,
+    };
+    return { ok: true, consumed, remaining };
+  }
   const poolForResolution = opts?.purpose
     ? buildManaTotalsIncludingEligibleRestricted(pool as ManaPool, opts.purpose)
     : getPoolNumericSnapshot(pool);
@@ -175,6 +199,16 @@ export function validateAbilityManaCostFromPool(
   const pool = getOrInitManaPool(gameState, controllerId);
   const purpose = buildActivatedAbilityRestrictedManaPurpose(sourcePermanent);
   const poolForResolution = buildManaTotalsIncludingEligibleRestricted(pool as ManaPool, purpose);
+  const spendRules = getBatch106ManaSpendAsThoughRules(gameState, controllerId, {
+    activatingCreatureAbility: purpose.abilitySourceIsCreature === true,
+  });
+  if (spendRules.anyColor || spendRules.colorAsAny || spendRules.otherOnlyColorless) {
+    const parsed = parseManaCost(manaCost);
+    if (canPayManaCostWithSpendAsThough(poolForResolution as Record<string, number>, parsed, spendRules)) {
+      return { ok: true };
+    }
+    return { ok: false, error: 'Insufficient mana.' };
+  }
   const resolved = resolveManaCostForPoolPayment(poolForResolution, manaCost);
   if (!resolved.ok) {
     return { ok: false, error: (resolved as any).error || 'Insufficient mana.' };
@@ -193,7 +227,7 @@ export function payAbilityManaCostFromPool(
 ): ValidateConsumeManaCostResult {
   const pool = getOrInitManaPool(gameState, controllerId);
   const purpose = buildActivatedAbilityRestrictedManaPurpose(sourcePermanent);
-  return validateAndConsumeManaCostFromPool(pool, manaCost, { logPrefix, purpose });
+  return validateAndConsumeManaCostFromPool(pool, manaCost, { logPrefix, purpose, gameState, playerId: controllerId });
 }
 
 export function addCastSpellPaymentProducedMana(

@@ -138,9 +138,9 @@ describe('combat trigger persistence', () => {
       permanentId: 'attacker_1',
       sourceName: 'Signal Scout',
       controllerId: p1,
-      description: 'draw a card.',
-      effect: 'draw a card.',
-      triggerType: 'attacks',
+      description: 'draw a card',
+      effect: 'draw a card',
+      triggerType: 'parsed_attacks',
       triggeringPlayer: p1,
     });
 
@@ -228,7 +228,7 @@ describe('combat trigger persistence', () => {
       source: 'svyelun_1',
       permanentId: 'svyelun_1',
       triggeringPlayer: p1,
-      description: 'draw a card.',
+      description: 'draw a card',
     });
   });
 

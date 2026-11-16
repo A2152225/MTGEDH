@@ -117,7 +117,9 @@ export function isCurrentBatchReminderTargetOrDeckPattern(normalizedText: string
     /^your (?:commander costs|maximum hand size|devotion)\b/i.test(normalizedText) ||
     /^vehicles you control\b/i.test(normalizedText) ||
     /^vehicle creatures you control\b/i.test(normalizedText) ||
-    /^you (?:may )?play an additional land\b/i.test(normalizedText) ||
+    // Continuous each-turn extras are pruned in pruneExternallyHandledStaticUnknownAbilities.
+    // This-turn spell bonuses (Explore / Summer Bloom) must survive so
+    // pruneExternallyHandledTemporaryLandBonusUnknownSteps can lower them to grant_static_ability.
     /^you can cast spells only\b/i.test(normalizedText) ||
     /^you can spend mana\b/i.test(normalizedText) ||
     /^you control (?:enchanted|your opponents)\b/i.test(normalizedText) ||

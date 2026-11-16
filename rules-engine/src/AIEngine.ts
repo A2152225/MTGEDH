@@ -230,6 +230,8 @@ export interface AIPlayerConfig {
   readonly difficulty?: number; // 0-1, affects decision quality
   readonly thinkTime?: number;  // Simulated think time in ms
   readonly deckProfile?: DeckArchetypeProfile;
+  /** Phase 2: `v2` enables attack/block/turn planners. */
+  readonly brain?: 'v0' | 'v1' | 'v2' | 'shadow';
 }
 
 /**

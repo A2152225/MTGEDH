@@ -1,73 +1,46 @@
 # AI evaluator fit (P1-3)
 
-Generated 2026-11-12T16:30:42.685Z.
+## Active weights (kept)
 
-## Data
+**PASS** from prior maxTurns=90 fit (seed 2) — still in `evaluatorWeights.v1.ts`.
 
 | Metric | Value |
 | --- | --- |
-| Result rows | 100 |
-| Position rows | 6252 |
-| Wins used | 64 |
+| Source | `out/fit-max90-*.jsonl` + `out/fit-pos-max90-merged.jsonl` |
+| Wins used | 64 / 100 games |
 | Labeled positions | 3704 |
-| Train positions | 3041 |
-| Hold-out positions | 663 |
-| Pods (train/hold-out) | 20 / 5 |
-| L2 | 0.01 |
-| Seed | 2 |
+| Hold-out log-loss | 1.1671 (life-only 1.2311, uniform 1.2339) |
+| Calibrated | yes |
+| Sign check | yes |
 
-### End reasons
-
-- win: 64
-- stall: 21
-- turn-limit: 14
-- error: 1
-
-## Hold-out log-loss
-
-| Model | Log-loss |
+| Feature | Weight |
 | --- | --- |
-| Fitted | 1.1671 |
-| Life-only | 1.2311 |
-| Uniform | 1.2339 |
+| life | 0.8732 |
+| commanderDamageTaken | -0.4519 |
+| boardValue | 0.4505 |
+| otherPermanents | 0.0203 |
+| manaSources | 0.2817 |
+| handSize | -0.0610 |
+| commanderInPlay | 0.4847 |
+| loyalty | -0.4397 |
+| attackPower | -0.2311 |
 
-Beats both baselines: **yes**
+## Denser refit attempt (2026-11-15) — FAIL, not promoted
 
-## Reliability (10-point buckets)
+Post–SBA-fix v0 self-play: 400 games, seed 6000, maxTurns=90 (`out/fit-dense-*.jsonl`, `out/fit-pos-dense-merged.jsonl`).
 
-| Bucket | n | mean predicted | observed | gap | flag |
-| --- | --- | --- | --- | --- | --- |
-| 0.0–0.1 | 59 | 0.064 | 0.051 | 0.013 |  |
-| 0.1–0.2 | 384 | 0.159 | 0.154 | 0.006 |  |
-| 0.2–0.3 | 1228 | 0.249 | 0.261 | 0.013 |  |
-| 0.3–0.4 | 408 | 0.344 | 0.311 | 0.033 |  |
-| 0.4–0.5 | 100 | 0.441 | 0.500 | 0.059 |  |
-| 0.5–0.6 | 73 | 0.548 | 0.425 | 0.124 |  |
-| 0.6–0.7 | 48 | 0.646 | 0.750 | 0.104 |  |
-| 0.7–0.8 | 22 | 0.756 | 0.818 | 0.062 |  |
-| 0.8–0.9 | 11 | 0.843 | 0.727 | 0.116 |  |
-| 0.9–1.0 | 12 | 0.959 | 0.833 | 0.126 |  |
+| Metric | Value |
+| --- | --- |
+| End mix | 74 win / 323 turn-limit / 3 stall |
+| Position rows | 35376 |
+| Labeled positions | 5683 |
+| Hold-out log-loss | 0.9219 (beats life-only 1.1906 / uniform 1.2118) |
 
-Calibrated: **yes**
+**Rejected because:**
 
-## Weights
+- Life weight stably **negative** (~−0.61 at L2=0.01) — winners in long aggressive pods often sit lower on life, so the sign check fails.
+- Calibration FAIL in mid buckets (0.5–0.7 gaps >0.25).
+- L2≥0.5 restores a tiny positive life weight but calibration still fails.
+- Merging with prior max90 wins (138 wins total) still yields life &lt; 0 and bad mid-bucket calibration.
 
-| Feature | Weight | Expected sign | OK |
-| --- | --- | --- | --- |
-| life | 0.8732 | positive | yes |
-| commanderDamageTaken | -0.4519 | negative | yes |
-| boardValue | 0.4505 | positive | yes |
-| otherPermanents | 0.0203 | any | — |
-| manaSources | 0.2817 | positive | yes |
-| handSize | -0.0610 | any | — |
-| commanderInPlay | 0.4847 | any | — |
-| loyalty | -0.4397 | any | — |
-| attackPower | -0.2311 | any | — |
-
-Sign check (life/board/mana +, cmd dmg −): **yes**
-
-## Verdict
-
-**PASS** — wrote FITTED_WEIGHTS.
-
-Source: v0 self-play maxTurns=90, seed 4000 (`out/fit-max90-*.jsonl`, `out/fit-pos-max90-merged.jsonl`). Win sample 64/100; hold-out split seed 2.
+Prior PASS weights left unchanged. Next strength work should not rely on another plain refit of the same features — need feature/policy changes or Phase 2 planners.

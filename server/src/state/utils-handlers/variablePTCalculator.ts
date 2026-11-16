@@ -10,11 +10,15 @@ import {
   calculateChosenTypeBattlefieldCreatureCDA,
 } from "./variablePowerOnlyCalculator.js";
 import { calculateGreatestManaValuePowerCDA } from "./variablePowerGreatestManaValue.js";
+import { calculateGreatestMvNoncreaturePermanentAndGyCDA, calculatePermanentCardsInGraveyardPlusOneCDA } from "./variablePowerNoncreaturePermanentAndGy.js";
 import { calculateGreatestPowerAmongCDA } from "./variablePowerGreatestPower.js";
 import { calculateColorPermanentCountPT } from "./variableColorPermanentCount.js";
 import { getLifePaidOnEntryPT } from "../modules/asEntersPayAnyLife.js";
 import { calculateGenericCountCDA } from "./variablePTGenericCountCDA.js";
 import { landAwareTypeLine } from '../modules/effectiveLandTypeLine.js';
+import { calculateChosenPlayerHandPT } from '../modules/batch101LongTailApply.js';
+import { calculateBatch106VariablePT } from '../modules/batch106Apply.js';
+import { calculateBatch107VariablePT } from '../modules/batch107Apply.js';
 import {
   calculateAngryMobStyleCDA,
   calculateChosenColorOpponentsPermanentsCDA,
@@ -60,6 +64,10 @@ export function calculateVariablePT(
     battlefield.find((p: any) => p?.card === card)?.controller ??
     (card as any).owner;
   const zones = gameState?.zones || {};
+  {
+    const chosenHand = calculateChosenPlayerHandPT(card, gameState);
+    if (chosenHand) return chosenHand;
+  }
   // Battlefield sizes are small here, so linear lookup remains acceptable.
   
   // Marit Lage token - Defined as 20/20
@@ -380,8 +388,28 @@ export function calculateVariablePT(
   if (powerOnly) return powerOnly;
   const greatestMv = calculateGreatestManaValuePowerCDA(card, oracleText, battlefield, controllerId);
   if (greatestMv) return greatestMv;
+  const greatestMvB105 = calculateGreatestMvNoncreaturePermanentAndGyCDA(card, oracleText, battlefield, controllerId, gameState);
+  if (greatestMvB105) return greatestMvB105;
+  const soulsPt = calculatePermanentCardsInGraveyardPlusOneCDA(card, oracleText, gameState, controllerId);
+  if (soulsPt) return soulsPt;
   const greatestPower = calculateGreatestPowerAmongCDA(card, oracleText, gameState, controllerId);
   if (greatestPower) return greatestPower;
+  const batch106Cda = calculateBatch106VariablePT(
+    card,
+    oracleText,
+    battlefield.find((p: any) => p?.card?.id === card.id || p?.card === card || p === card) || card,
+    gameState,
+    String(controllerId ?? ''),
+  );
+  if (batch106Cda) return batch106Cda;
+  const batch107Cda = calculateBatch107VariablePT(
+    card,
+    oracleText,
+    battlefield.find((p: any) => p?.card?.id === card.id || p?.card === card || p === card) || card,
+    gameState,
+    String(controllerId ?? ''),
+  );
+  if (batch107Cda) return batch107Cda;
 
   // "each equal to the number of [COLOR] permanents/creatures you control"
   const colorCount = calculateColorPermanentCountPT(oracleText, battlefield, controllerId);

@@ -8,6 +8,9 @@ export { applyCastSpellEvents } from "./applyEventCastSpellEvents.js"; // castSp
 export { applyStackPromptEvents } from "./applyEventStackPromptEvents.js"; // cast continuation and stack prompts
 export { applyReflexivePromptEvents } from "./applyEventReflexivePromptEvents.js"; // reflexive when-you-do prompts
 export { applyCopyRetargetEvents } from "./applyEventCopyRetargetEvents.js"; // copy and retarget resolution
+export { applyOnCastKeywordAndPlotEvents } from "./applyEventOnCastKeywordAndPlotReplay.js"; // plotLibraryTop + casualty/demonstrate/conspire copies
+export { applyPursuitDrawReplacementEvents } from "./applyEventPursuitDrawReplacementReplay.js"; // Pursuit of Knowledge draw replacement
+export { applyCirclingVulturesDiscardEvents } from "./applyEventCirclingVulturesDiscardReplay.js"; // Circling Vultures special-action discard
 export { applyPermanentKeywordEvents } from "./applyEventPermanentKeywordEvents.js"; // goad, ward, crew, station, enlist
 export { applyTurnPhaseTopLibraryEvents } from "./applyEventTurnPhaseTopLibraryEvents.js"; // turn/step, scry/surveil/ponder
 export { applyLibraryGambleChoiceEvents } from "./applyEventLibraryGambleChoiceEvents.js"; // vault, dance, proliferate, clash

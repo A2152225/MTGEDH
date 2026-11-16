@@ -38,7 +38,7 @@ export function oracleGrantsSelfSpellFreeAlternateCost(oracleText: string): bool
 /**
  * Parse alternate costs from card oracle text
  */
-export function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName: string, grantedForetellCost?: string | null): AlternateCost[] {
+export function parseAlternateCosts(oracleText: string, cardManaCost: string, cardName: string, grantedForetellCost?: string | null, grantedCasualty?: number | null): AlternateCost[] {
   const costs: AlternateCost[] = [];
   const text = oracleText || '';
   const lowerText = text.toLowerCase();
@@ -306,6 +306,16 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
   
   // Kicker - optional additional cost
   const kickerMatch = text.match(/kicker\s*(\{[^}]+\}(?:\s*(?:and\/or|or)\s*\{[^}]+\})*)/i);
+  const kickerPayLifeMatch = text.replace(/[\u2014\u2013]/g, '-').match(/kicker\s*(?:-\s*)?pay\s+(\d+)\s+life/i);
+  if (kickerPayLifeMatch && !kickerMatch) {
+    costs.push({
+      id: 'kicker',
+      label: 'With Kicker',
+      description: `Pay ${kickerPayLifeMatch[1]} life as a kicker cost`,
+      manaCost: cardManaCost,
+      additionalCost: `Kicker: Pay ${kickerPayLifeMatch[1]} life`,
+    });
+  }
   if (kickerMatch) {
     // Calculate kicked cost (normal + kicker)
     const kickerCost = kickerMatch[1];
@@ -424,11 +434,13 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
     });
   }
   
-  // Casualty - sacrifice creature with power N or greater
+  // Casualty - sacrifice creature with power N or greater (printed or granted)
   const casualtyMatch = text.match(/casualty\s+(\d+)/i);
-  if (casualtyMatch) {
+  const grantedN = Number(grantedCasualty);
+  const casualtyN = casualtyMatch ? Number(casualtyMatch[1]) : (Number.isFinite(grantedN) && grantedN > 0 ? grantedN : 0);
+  if (casualtyN > 0 && costs[0]) {
     costs[0].additionalCost = (costs[0].additionalCost ? costs[0].additionalCost + '; ' : '') +
-      `Casualty ${casualtyMatch[1]}: Sacrifice a creature with power ${casualtyMatch[1]}+ to copy`;
+      `Casualty ${casualtyN}: Sacrifice a creature with power ${casualtyN}+ to copy`;
   }
   
   // Offering - sacrifice creature of type, reduce cost by its mana value

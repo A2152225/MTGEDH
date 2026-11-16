@@ -8,6 +8,7 @@
 // applyLoseLifeStep, applyAddPlayerCounterStep, applyDoublePlayerCountersStep, applyDrawStep.
 
 import { resolveLifeGainDeltaFromHook } from './lifeGainReplacementHook';
+import { applyBatch105PreConniveDraw } from './batch105ConniveReplacement';
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
@@ -460,6 +461,8 @@ export function applyConniveStep(
 
   const target = battlefield[targetIndex] as any;
   const targetControllerId = String(target?.controller || ctx.controllerId || '').trim();
+  const preConnive = applyBatch105PreConniveDraw(state, target, targetControllerId as PlayerID);
+  state = preConnive.state;
   const player = state.players.find((p: any) => String(p?.id || '').trim() === targetControllerId) as any;
   if (!player) {
     return {

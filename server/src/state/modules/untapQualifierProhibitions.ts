@@ -7,6 +7,7 @@
 import { permanentHasKeywordAbility } from "../../../../rules-engine/src/permanentKeywordAbilities.js";
 import { getEffectivePower } from "../../socket/util-handlers/getEffectivePowerToughness.js";
 import { untapTypeChoiceSource } from "./untapTypeChoiceRestriction.js"; // B48
+import { batch109SnowUntapProhibition } from "./batch109Apply.js";
 
 const QUAL_RE = /\bcreatures with (?:(flying|reach|defender|horsemanship|shadow|haste|trample)|power (\d+) or (greater|less)) don't untap during their controllers' untap steps/;
 // B36: "Nonbasic lands don't untap during their controllers' untap steps." (Back to Basics)
@@ -66,6 +67,8 @@ function cantBecomeUntappedSource(list: readonly any[], permanent: any): string 
 
 export function qualifiedUntapProhibitionSource(battlefield: readonly any[] | undefined, permanent: any, state?: any): string | null {
   const list = Array.isArray(battlefield) ? battlefield : [];
+  const snow = batch109SnowUntapProhibition(list, permanent, state);
+  if (snow) return snow;
   const b53CantBecome = cantBecomeUntappedSource(list, permanent); // B53
   if (b53CantBecome) return b53CantBecome;
   const b48Matrix = untapTypeChoiceSource(list, permanent, state); // B48
@@ -89,6 +92,11 @@ export function qualifiedUntapProhibitionSource(battlefield: readonly any[] | un
     const power = Number(getEffectivePower(permanent)) || 0;
     const n = Number(m[2]);
     if (m[3] === 'greater' ? power >= n : power <= n) return String(src?.card?.name || 'A permanent');
+  }
+  const WITHOUT_FLYING_RE = /\bcreatures without flying don't untap during their controllers' untap steps/;
+  if (!permanentHasKeywordAbility(permanent, 'flying', list as any[])) {
+    const src = list.find((p) => p && !p.phasedOut && WITHOUT_FLYING_RE.test(oracleText(p)));
+    if (src) return String(src?.card?.name || 'A permanent');
   }
   return null;
 }

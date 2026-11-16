@@ -16,6 +16,7 @@
  */
 
 import { debug } from "../../utils/debug.js";
+import { opponentsCantPlayLandCardsFromGraveyards } from './batch100CombatAndKeywords.js';
 import {
   buildDurableLandPlayPermission,
   clearDurableLandPlayPermissionsForPlayer,
@@ -137,6 +138,9 @@ export function updateLandPlayPermissions(game: any, playerId: string) {
         debug(3, `[updateLandPlayPermissions] ${card.name} grants exile land permission to ${playerId}`);
       }
     }
+  }
+  if (opponentsCantPlayLandCardsFromGraveyards(game.state, playerId)) {
+    game.state.landPlayPermissions[playerId] = (game.state.landPlayPermissions[playerId] || []).filter((zone: string) => zone !== 'graveyard');
   }
 }
 

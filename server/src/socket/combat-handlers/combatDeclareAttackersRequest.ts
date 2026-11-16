@@ -7,6 +7,7 @@ import type { Server, Socket } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { getAttackProhibitionSourceForPlayer } from "../../../../rules-engine/src/attackRestrictionText.js";
+import { attackTargetPermanentIsIllegal } from "../../state/modules/batch93CantBeAttacked.js";
 import { playerIsLegalAttackTarget } from "../../../../rules-engine/src/playerInGameStatus.js";
 import { processEquippedAttackRevealUntilLandPumps, emitEquippedAttackRevealPumpMessages } from "../../state/modules/equippedAttackRevealPump.js";
 import { permanentHasKeyword, permanentHasSummoningSickness } from "../game-actions.js";
@@ -279,6 +280,15 @@ export async function handleDeclareAttackers(
         socket.emit('error', {
           code: 'ATTACK_PROHIBITED',
           message: `Creatures you control can't attack that ${attacker.targetPermanentId ? 'permanent' : 'player'} this turn (${thisTurnProhibition}).`,
+        });
+        return;
+      }
+
+      const cantBeAttacked = attackTargetPermanentIsIllegal(game.state, attacker.targetPermanentId);
+      if (cantBeAttacked.illegal) {
+        socket.emit('error', {
+          code: 'ATTACK_PROHIBITED',
+          message: cantBeAttacked.reason || 'That permanent can\'t be attacked.',
         });
         return;
       }

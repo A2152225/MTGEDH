@@ -15,6 +15,7 @@
  */
 
 import { handleEquipDiscardCostStage } from "./targetSelectionEquipDiscardCost.js"; // B37
+import { stampEquipOnceEachTurnFromStep } from "../../state/modules/equipOnceEachTurn.js";
 import { energyCostError, payEnergyCost } from "../../state/modules/equipNonManaCosts.js"; // B41
 import { handleEquipAlternativeCostStage } from "./targetSelectionEquipAlternativeCost.js"; // B39
 import { equipLifeCostError, payEquipLifeCost } from "../../state/modules/equipNonManaCosts.js";
@@ -249,6 +250,8 @@ export async function handleBattlefieldAbilityTargetSelection(
       equipmentName: cardName,
       targetCreatureName: String(targetCreature?.card?.name || 'Creature'),
     };
+    const sourcePermanent = battlefield.find((perm: any) => perm && String(perm.id) === String(permanentId));
+    stampEquipOnceEachTurnFromStep(stackItem, sourcePermanent, stepAny);
   } else if (battlefieldAbilityType === 'fortify') {
     const targetLandId = String(selectedTargetIds[0] || '');
     const targetLand = battlefield.find((perm: any) => perm && String(perm.id) === targetLandId);

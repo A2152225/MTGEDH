@@ -3,23 +3,21 @@
  * getPermanentWardCost checks the face-down grant and explicit ward grants before the card's oracle text.
  */
 import { getWardCost } from './stack-mechanics.js';
+import { findAnyGrantedWardCost } from './grantedWardCostFromBattlefield.js';
+import { batch105GrantedWardCost } from './batch105Apply.js';
 
 export const DISGUISE_WARD_COST = '{2}';
 
-export function getGrantedWardCost(perm: any): string | null {
+export function getGrantedWardCost(perm: any, state?: any): string | null {
   if (!perm) return null;
   if (perm.isFaceDown === true && String(perm.faceDownType || '').toLowerCase() === 'disguise') return DISGUISE_WARD_COST;
-  if (typeof perm.wardCost === 'string' && perm.wardCost) return perm.wardCost;
-  // Static grants ("Each creature you control with a counter on it has ward {1}") keep their cost.
-  for (const a of Array.isArray(perm.continuousAbilities) ? perm.continuousAbilities : []) {
-    const m = /^ward\s*((?:\{[^}]+\})+)$/i.exec(String(a || '').trim());
-    if (m) return m[1].toUpperCase();
-  }
-  return null;
+  const b105Ward = batch105GrantedWardCost(perm);
+  if (b105Ward) return b105Ward;
+  return findAnyGrantedWardCost(perm, state);
 }
 
-export function getPermanentWardCost(perm: any): string | null {
-  const granted = getGrantedWardCost(perm);
+export function getPermanentWardCost(perm: any, state?: any): string | null {
+  const granted = getGrantedWardCost(perm, state);
   if (granted) return granted;
   if (perm?.isFaceDown === true) return null;
   return getWardCost(perm?.card);

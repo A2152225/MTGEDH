@@ -163,7 +163,7 @@ export function applyDealCombatDamageTriggerQueue(
                 subjectPermanent: attackerPerm,
                 subjectControllerId: String(attackerPerm.controller || ''),
                 sourcePermanent: watcher,
-                matchContext: { damagedPlayerId: String(defendingPlayerId) },
+                matchContext: { damagedPlayerId: String(defendingPlayerId), damageRecipientPlayerId: String(defendingPlayerId), causeControllerId: String(attackerPerm.controller || '') },
               })) {
                 // Batched "one or more" wordings fire once from the batched pass, not per attacker.
                 if (line.condition?.quantity === 'one_or_more') continue;
@@ -189,6 +189,39 @@ export function applyDealCombatDamageTriggerQueue(
                     interveningIfSubjectPermanentId: String(attackerPerm.id),
                   } as any,
                   reason: 'combat damage watcher',
+                });
+              }
+              for (let line of collectMatchingParsedEventLines({
+                ctx,
+                oracleText: String(watcher.card.oracle_text || ''),
+                event: 'deals_damage',
+                subjectPermanent: attackerPerm,
+                subjectControllerId: String(attackerPerm.controller || ''),
+                sourcePermanent: watcher,
+                damageKind: 'combat',
+                matchContext: { damagedPlayerId: String(defendingPlayerId), damageRecipientPlayerId: String(defendingPlayerId), damageKind: 'combat', causeControllerId: String(attackerPerm.controller || '') },
+              })) {
+                if (line.condition?.quantity === 'one_or_more') continue;
+                if (pendingCombatDamageTriggerEntries.some((entry) => String(entry.stackItem?.source || '') === String(watcher.id || '') && parsedEffectDuplicates([entry.stackItem?.effect, entry.stackItem?.description], line))) continue;
+                pendingCombatDamageTriggerEntries.push({
+                  stackItem: {
+                    id: uid('trigger'),
+                    type: 'triggered_ability',
+                    controller: watcher.controller,
+                    source: watcher.id,
+                    permanentId: watcher.id,
+                    sourceName: watcher.card?.name,
+                    description: line.effect,
+                    effect: line.effect,
+                    triggerType: 'deals_damage',
+                    mandatory: !/\byou may\b(?! (?:play|cast)\b)/i.test(line.effect),
+                    targetPlayer: String(defendingPlayerId),
+                    damagedPlayerId: String(defendingPlayerId),
+                    damageAmount: watcherDamage,
+                    card: watcher.card,
+                    interveningIfSubjectPermanentId: String(attackerPerm.id),
+                  } as any,
+                  reason: 'combat damage deals_damage watcher',
                 });
               }
             }

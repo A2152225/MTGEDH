@@ -7,6 +7,8 @@ export interface PermanentTargetingSourceInfo {
   readonly controllerId?: string;
   readonly colors?: readonly string[];
   readonly objectType?: 'spell' | 'ability';
+  readonly oracleText?: string;
+  readonly card?: { readonly oracle_text?: string; readonly oracleText?: string };
 }
 
 export interface PermanentTargetingResult {
@@ -192,7 +194,34 @@ function collectStateTargetProtectionTexts(
     texts.push(sourceText);
   }
 
+  for (const source of Array.isArray(state.battlefield) ? state.battlefield : []) {
+    if (!source || (source as any).phasedOut === true) continue;
+    const attachedTo = String((source as any).attachedTo || (source as any).attachedToId || '').trim();
+    if (b37PermId && attachedTo === b37PermId) {
+      const chosen = String((source as any).lastChosenColor || '').trim().toLowerCase();
+      const srcText = getCombinedPermanentText(source);
+      if (chosen && /protection from the last chosen color/i.test(srcText)) {
+        texts.push('Equipped creature has protection from ' + chosen);
+      }
+    }
+  }
+  const selfText = getCombinedPermanentText(permanent);
+  if (/has hexproof unless (?:it\'s|it is) attacking/i.test(selfText)) {
+    const attacking = (permanent as any)?.attacking === true || (permanent as any)?.isAttacking === true || Boolean((permanent as any)?.attackingPlayerId);
+    if (!attacking) texts.push('hexproof');
+  }
+
   return texts;
+}
+
+function sourceCannotChooseUntappedAsCast(
+  sourceInfo: PermanentTargetingSourceInfo,
+  target: BattlefieldPermanent | any,
+): boolean {
+  const text = String(sourceInfo?.oracleText || sourceInfo?.card?.oracle_text || sourceInfo?.card?.oracleText || '');
+  if (!/you can't choose an untapped permanent as this spell's target as you cast it/i.test(text.replace(/\u2019/g, "'"))) return false;
+  if (!target) return false;
+  return target.tapped !== true && (target as any).isTapped !== true;
 }
 
 export function canTargetPermanent(
@@ -200,14 +229,37 @@ export function canTargetPermanent(
   sourceInfo: PermanentTargetingSourceInfo,
   state?: GameState,
 ): PermanentTargetingResult {
+  if (sourceCannotChooseUntappedAsCast(sourceInfo, permanent)) {
+    return { canTarget: false, reason: "can't choose an untapped permanent as this spell's target" };
+  }
   if (!permanent) {
     return { canTarget: true };
   }
 
+  if (state) {
+    const targetTypeLine = String((permanent as any)?.card?.type_line || (permanent as any)?.type_line || '');
+    if (/\bland\b/i.test(targetTypeLine)) {
+      const tomikRe = /lands on the battlefield and land cards in graveyards can't be the targets of spells or abilities your opponents control/i;
+      const targetingId = String(sourceInfo.controllerId || '');
+      for (const source of Array.isArray((state as any).battlefield) ? (state as any).battlefield : []) {
+        if (!source || source.phasedOut === true) continue;
+        if (String(source.controller || '') === targetingId) continue;
+        const sourceText = String(source.card?.oracle_text || source.oracle_text || '');
+        if (tomikRe.test(sourceText)) {
+          return { canTarget: false, reason: 'battlefield lands cannot be targeted by opponents (Tomik)' };
+        }
+      }
+    }
+  }
+
   const extraProtectionTexts = collectStateTargetProtectionTexts(state, permanent);
-  const combinedText = normalizeText(
+  let combinedText = normalizeText(
     [getCombinedPermanentText(permanent), ...extraProtectionTexts].filter(Boolean).join('\n')
   );
+  const isAttacking = (permanent as any)?.attacking === true || (permanent as any)?.isAttacking === true || Boolean((permanent as any)?.attackingPlayerId);
+  if (isAttacking) {
+    combinedText = combinedText.replace(/\bhexproof unless (?:it's|it is) attacking\b/gi, '');
+  }
   if (!combinedText) {
     return { canTarget: true };
   }

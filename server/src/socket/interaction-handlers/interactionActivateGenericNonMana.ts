@@ -14,6 +14,7 @@ import { movePermanentToGraveyard } from "../../state/modules/counters_tokens.js
 import { markExhaustAbilityActivated } from "../../state/modules/keywordActivationState.js";
 import { markPowerUpAbilityUsed } from "../../state/modules/marvelMechanicsHelpers.js";
 import { isOnceDuringEachOfYourTurnActivatedEffect } from "../../../../rules-engine/src/stationPermanentUtils.js";
+import { abilityTextIsOnceEachTurn, stampEquipOnceEachTurnOnStackItem } from "../../state/modules/equipOnceEachTurn.js";
 import { triggerAbilityActivatedTriggers } from "../../state/modules/triggers/ability-activated.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { cardManaValue, parsePT, parseWordNumber } from "../../state/utils";
@@ -827,13 +828,16 @@ export async function tryHandleActivateGenericNonMana(
       xValue: selectedXValue,
       activatedAbilityIndex: selectedAbilityIndex,
       ...(autoSelectedPlayerTargetIds?.length ? { targets: autoSelectedPlayerTargetIds } : {}),
-      ...(isOnceDuringEachOfYourTurnActivatedEffect(oncePerTurnActivatedEffect)
+      ...(isOnceDuringEachOfYourTurnActivatedEffect(oncePerTurnActivatedEffect) || abilityTextIsOnceEachTurn(oncePerTurnActivatedEffect)
         ? { oncePerTurnActivated: true }
         : null),
       ...(isExhaustActivation ? { exhaustAbility: true } : null),
     } as any;
     
     game.state.stack = game.state.stack || [];
+    if (abilityTextIsOnceEachTurn(oncePerTurnActivatedEffect) || isOnceDuringEachOfYourTurnActivatedEffect(oncePerTurnActivatedEffect)) {
+      stampEquipOnceEachTurnOnStackItem(stackItem, permanent, selectedAbilityIndex, true);
+    }
     game.state.stack.push(stackItem);
     persistedStackItemId = String(stackItem.id || '').trim() || undefined;
     if (isExhaustActivation) {

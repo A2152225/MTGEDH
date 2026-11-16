@@ -49,6 +49,8 @@ const IR_EMITTED = new Set([
   'exiled','returned_to_hand','gains_control','loses_control','spell_countered','counters_spell',
   'unlocks_door','tapped_for_mana','controls_none','last_counter_removed','attacks_alone','attacks_in_group',
   'each_of_your_main_phases','put_into_library','phases_in','reflexive_do',
+  'cast_self',
+  'fights',
 ]);
 
 type Face = { name?: string; oracle_text?: string; type_line?: string };

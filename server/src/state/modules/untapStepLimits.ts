@@ -7,10 +7,10 @@
 // (no choice prompt yet).
 // Public entry symbols: getUntapStepLimits, UntapStepLimit, untapLimitAllows.
 
-export type UntapStepLimit = { kind: 'artifact' | 'land' | 'creature' | 'permanent'; max: number; sourceId: string };
+export type UntapStepLimit = { kind: 'artifact' | 'land' | 'creature' | 'permanent' | 'nonbasic land'; max: number; sourceId: string };
 
 const WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
-const LIMIT_RE = /(?:^|[\n.]\s*)(as long as (?:~|this [a-z]+) is untapped, )?(players|your opponents|each player) can(?:'t|not) untap more than (one|two|three|four|five|\d+) (artifact|land|creature|permanent)s? during their untap steps?\b/gi;
+const LIMIT_RE = /(?:^|[\n.]\s*)(as long as (?:~|this [a-z]+) is untapped, )?(players|your opponents|each player) can(?:'t|not) untap more than (one|two|three|four|five|\d+) (nonbasic land|artifact|land|creature|permanent)s? during their untap steps?\b/gi;
 
 export function getUntapStepLimits(state: any, untappingPlayerId: string): UntapStepLimit[] {
   const out: UntapStepLimit[] = [];
@@ -34,7 +34,9 @@ export function getUntapStepLimits(state: any, untappingPlayerId: string): Untap
 
 function matchesKind(perm: any, kind: UntapStepLimit['kind']): boolean {
   if (kind === 'permanent') return true;
-  return new RegExp('\\b' + kind + '\\b').test(String(perm?.card?.type_line || perm?.type_line || '').toLowerCase());
+  const tl = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+  if (kind === 'nonbasic land') return /\bland\b/.test(tl) && !/\bbasic\b/.test(tl);
+  return new RegExp('\\b' + kind + '\\b').test(tl);
 }
 
 /** True when perm may still untap; records the untap against every matching limit when allowed. */

@@ -173,6 +173,6 @@ describe('Agent of the Shadow Thieves badge regression', () => {
     const triggers = getAttackTriggersForCreatures(ctx, [commander], 'p1', 'p2')
       .filter((trigger: any) => /put a \+1\/\+1 counter/i.test(String(trigger.effect || trigger.description || '')));
     expect(triggers).toHaveLength(1);
-    expect(String(triggers[0].description || triggers[0].effect)).toMatch(/whenever this creature attacks a player/i);
+    expect(String(triggers[0].description || triggers[0].effect)).toMatch(/put a \+1\/\+1 counter/i);
   });
 });

@@ -5,6 +5,7 @@
  */
 
 import { hasChangeling } from '../../../../../rules-engine/src/tribalSupport.js';
+import { getGoadedBy } from '../../../../../rules-engine/src/actions/combat-handlers/combatGoadHelpers.js';
 import { oracleTextHasOwnKeyword } from '../../../../../rules-engine/src/oracleOwnKeywordText.js';
 import { permanentHasKeywordAbility } from '../../../../../rules-engine/src/permanentKeywordAbilities.js';
 import { stripReminderParentheticals } from '../../../../../rules-engine/src/oracleReminderText.js';
@@ -24,6 +25,7 @@ import { permanentHasTriggeredAbilities, type TriggerEventKind } from './trigger
 import { resolveEnchantedControllerId, resolveEnchantedPlayerId } from './phaseWhoseTurn.js';
 import { getPermanentPowerMaybe, getPermanentToughnessMaybe } from './intervening-if-permanent-and-player.js';
 import { getEffectiveColors } from '../effectiveColors.js';
+import { oracleTextWithGrantedTriggers } from './grantedOracleTriggerScan.js';
 
 /**
  * Keywords the object has right now. With a battlefield, continuous grants (lords, auras,
@@ -84,12 +86,16 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string, s
     hasAllCreatureTypes: hasChangeling(oracleText, typeLine),
     counters: permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : undefined,
     faceDown: Boolean(permanent?.faceDown || permanent?.isFaceDown || permanent?.card?.faceDown),
-    goaded: permanent?.goaded === true,
+    tapped: permanent?.tapped === true,
+    // Goad is tracked as goadedBy (goader ids, with expiry) or granted statically (Baeloth); the legacy boolean is kept for older fixtures.
+    goaded: permanent?.goaded === true || getGoadedBy(permanent, state?.turn, state?.battlefield).length > 0,
     attackingOrBlocking: permanentIsAttackingOrBlocking(permanent),
     attacking: permanentIsAttacking(permanent),
     blocking: permanentIsBlocking(permanent),
     isCommander: Boolean(permanent?.isCommander || permanent?.commander || permanent?.card?.isCommander),
     ownerId: String(permanent?.owner || permanent?.card?.owner || '').trim() || undefined,
+    saddled: Boolean(permanent?.saddled),
+    enteredThisTurn: permanent?.enteredThisTurn === true,
     colors: state
       ? colorLetters(getEffectiveColors(permanent?.card || permanent, state))
       : colorLetters(permanent?.card?.colors || permanent?.colors),
@@ -126,6 +132,16 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string, s
     return Boolean(id) && field.some((p: any) => String(p?.attachedTo || '') === id && (
       /\bequipment\b/i.test(String(p?.card?.type_line || ''))
       || (/\baura\b/i.test(String(p?.card?.type_line || '')) && String(p?.controller || '') === ctl)));
+  });
+  defineLazy(match, 'isEnchanted', () => {
+    const id = String(permanent?.id || '');
+    const field = Array.isArray(state?.battlefield) ? state.battlefield : [];
+    return Boolean(id) && field.some((p: any) => String(p?.attachedTo || '') === id && /\baura\b/i.test(String(p?.card?.type_line || '')));
+  });
+  defineLazy(match, 'baseToughness', () => {
+    const raw = permanent?.baseToughness ?? permanent?.card?.toughness ?? permanent?.toughness;
+    const value = Number(raw);
+    return raw === undefined || raw === null || raw === '' || !Number.isFinite(value) ? undefined : value;
   });
   defineLazy(match, 'basePower', () => {
     const raw = permanent?.basePower ?? permanent?.card?.power ?? permanent?.power;
@@ -381,7 +397,8 @@ export function spellCastConditionMatches(options: {
 }
 
 function normalizeEffectForDedupe(text: unknown): string {
-  return String(text || '').toLowerCase().replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
+  // Sentence punctuation is not significant: a legacy detector may glue "copy that spell You may ..." where the parsed line keeps "copy that spell. you may ...".
+  return String(text || '').toLowerCase().replace(/[.;]+(?=\s)/g, '').replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
 }
 
 /**
@@ -442,7 +459,7 @@ function parsedTriggerSentencesFor(oracleText: string, cardName?: string): reado
   // follow-ups ("If you do, ...", "You may choose new targets ...") stay with their trigger.
   const out = text
     .split(/\n+/)
-    .flatMap((line) => line.split(/(?<=\.)\s+(?=(?:when|whenever|at)\b)/i))
+    .flatMap((line) => line.split(/(?<=\.)\s+(?=(?:when(?! you do\b)|whenever|at)\b)/i))
     .map((sentence) => ({ sentence, parsed: parseTriggerClause(sentence, cardName) }));
   if (PARSED_TRIGGER_SENTENCE_CACHE.size >= PARSED_TRIGGER_SENTENCE_CACHE_MAX) PARSED_TRIGGER_SENTENCE_CACHE.clear();
   PARSED_TRIGGER_SENTENCE_CACHE.set(cacheKey, out);
@@ -515,7 +532,8 @@ export function collectMatchingParsedEventLines(options: {
 }): Array<{ effect: string; interveningIf?: string; condition?: import('../../../../../rules-engine/src/triggerCondition/index.js').TriggerConditionIR; reflexive?: { actor: 'you' | 'they'; effect: string; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }> {
   const effects = [];
   const sourceCardName = String(options.sourcePermanent?.card?.name || options.sourcePermanent?.name || '').trim() || undefined;
-  const sentences = parsedTriggerSentencesFor(String(options.oracleText || ''), sourceCardName);
+  const oracleText = oracleTextWithGrantedTriggers(String(options.oracleText || ''), options.sourcePermanent, options.ctx?.state);
+  const sentences = parsedTriggerSentencesFor(oracleText, sourceCardName);
   // No sentence for this event: nothing can match, so skip the (board-wide) ability-loss gate.
   if (!sentences.some(({ parsed }) => parsed?.effect
     && (parsed.condition.event === options.event || parsed.condition.pairedEvent === options.event))) return [];
@@ -525,12 +543,15 @@ export function collectMatchingParsedEventLines(options: {
   const seen = new Set<string>();
   for (const { sentence, parsed } of sentences) {
     if (!parsed || !parsed.effect) continue;
-    const eventMatches = parsed.condition.event === options.event || parsed.condition.pairedEvent === options.event;
+    const orEvents = (parsed.condition as any).orEvents as Array<{ event?: string; action?: string }> | undefined;
+    const eventMatches = parsed.condition.event === options.event || parsed.condition.pairedEvent === options.event
+      || (Array.isArray(orEvents) && orEvents.some((entry) => entry && entry.event === options.event));
     const pairedFromZone = (parsed.condition as any).pairedFromZone;
     if (eventMatches && parsed.condition.event !== options.event && pairedFromZone && String((options as any).fromZone || '').toLowerCase() !== pairedFromZone) continue;
     if (!eventMatches) continue;
     if (options.action && parsed.condition.action !== options.action
-      && !String(parsed.condition.action || '').split('|').includes(options.action)) continue;
+      && !String(parsed.condition.action || '').split('|').includes(options.action)
+      && !(Array.isArray(orEvents) && orEvents.some((entry) => entry && entry.event === options.event && entry.action === options.action))) continue;
     if (parsed.interveningIf && options.ctx) {
       // Evaluate the printed sentence so the clause keeps its own header, and bind
       // "that player" / "their turn" to the active player for beginning-of-phase events
@@ -561,8 +582,13 @@ export function collectMatchingParsedEventLines(options: {
     }
     const key = effectKey(parsed.effect);
     if (!key || seen.has(key)) continue;
+    const matchCondition = parsed.condition.pairedEvent === options.event
+      && parsed.condition.event !== options.event
+      && (parsed.condition as any).pairedCondition
+      ? (parsed.condition as any).pairedCondition
+      : parsed.condition;
     const matched = triggerConditionMatches(
-      parsed.condition,
+      matchCondition,
       permanentToTriggerMatch(options.subjectPermanent, options.subjectControllerId, options.ctx?.state),
       {
         id: String(options.sourcePermanent?.id || '').trim(),
@@ -573,7 +599,10 @@ export function collectMatchingParsedEventLines(options: {
         chosenCardName: String(options.sourcePermanent?.chosenCardName || options.sourcePermanent?.card?.chosenCardName || options.sourcePermanent?.chosenName || '').trim() || undefined,
         saddled: Boolean(options.sourcePermanent?.saddled),
         tapped: options.sourcePermanent?.tapped === true,
-      },
+        counters: options.sourcePermanent?.counters,
+        power: Number(options.sourcePermanent?.power ?? options.sourcePermanent?.card?.power),
+        zone: options.sourcePermanent?.zone,
+      } as any,
       {
         activePlayerId: options.activePlayerId ?? (String(options.ctx?.state?.turnPlayer || '').trim() || undefined),
         enchantedPlayerId: resolveEnchantedPlayerId(options.sourcePermanent, options.ctx?.state),

@@ -9,6 +9,8 @@ import { debug } from "../../../utils/debug.js";
 import { scopedMemo } from "../../../../../rules-engine/src/readOnlyQueryScope.js";
 import { getAvailableMana } from "./manaCheckAvailableMana.js";
 import { canPayManaCost } from "./manaCheckCanPayManaCost.js";
+import { getBatch106ManaSpendAsThoughRules } from "../batch106ManaSpendAsThough.js";
+import { canPayManaCostWithSnowAsAny, draugrSnowSpendApplies, estimateSnowManaFromExactSources } from "../draugrExileSnowSpend.js";
 import {
   EXACT_MANA_SEARCH_NODE_BUDGET,
   normalizePoolSignature,
@@ -153,20 +155,32 @@ export function canPayManaCostWithAvailableSources(
   const effectiveLifeAvailable = Number.isFinite(Number(lifeAvailable))
     ? Number(lifeAvailable)
     : getPlayerLifeTotal(state, playerId);
-  const rawFloatingPool = getManaPoolFromState(state, playerId);
   const restrictedSpendPurpose = options?.restrictedSpendPurpose;
+  const activatingCreatureAbility = restrictedSpendPurpose?.isCreature === true
+    && (restrictedSpendPurpose?.isActivatedAbility === true || restrictedSpendPurpose?.isAbility === true);
+  const spendRules = getBatch106ManaSpendAsThoughRules(state, String(playerId), { activatingCreatureAbility });
+  const spendContext = { state, playerId: String(playerId), activatingCreatureAbility };
+  const rawFloatingPool = getManaPoolFromState(state, playerId);
   const floatingPool = withMatchingRestrictedFloatingMana(
     createSimpleManaPool(rawFloatingPool),
     rawFloatingPool,
     restrictedSpendPurpose,
   );
-  if (canPayManaCost(floatingPool, parsedCost, effectiveLifeAvailable)) {
+  if (canPayManaCost(floatingPool, parsedCost, effectiveLifeAvailable, spendRules, spendContext)) {
     return true;
   }
 
   // Inside a read-only scope (one playable-ids pass / broadcast) the sorted source list,
   // candidates and available-mana summary are computed once per player, not per card.
   const sources = [...scopedMemo(state, `canPay:sources:${playerId}`, () => buildSortedExactManaSources(state, playerId))];
+  const spellCard = restrictedSpendPurpose?.spellCard;
+  if (spellCard && draugrSnowSpendApplies(state, playerId, spellCard)) {
+    const snowPool = estimateSnowManaFromExactSources(state, sources);
+    const availableForSnow = withMatchingRestrictedFloatingMana(getScopedAvailableMana(state, playerId), rawFloatingPool, restrictedSpendPurpose);
+    if (canPayManaCostWithSnowAsAny(availableForSnow, parsedCost, snowPool)) {
+      return true;
+    }
+  }
   const battlefieldCandidates = [...scopedMemo(state, `canPay:sacrifice:${playerId}`, () => buildExactSacrificeCandidates(state, playerId))];
   const excludedHandCardIds = new Set(
     (Array.isArray(options?.excludedHandCardIds) ? options?.excludedHandCardIds : [])
@@ -216,6 +230,8 @@ export function canPayManaCostWithAvailableSources(
       withMatchingRestrictedFloatingMana(getScopedAvailableMana(state, playerId), rawFloatingPool, restrictedSpendPurpose),
       parsedCost,
       effectiveLifeAvailable,
+      spendRules,
+      spendContext,
     );
   }
 
@@ -243,7 +259,7 @@ export function canPayManaCostWithAvailableSources(
       return false;
     }
 
-    if (canPayManaCost(pool, parsedCost, life)) {
+    if (canPayManaCost(pool, parsedCost, life, spendRules, spendContext)) {
       return true;
     }
 
@@ -475,6 +491,8 @@ export function canPayManaCostWithAvailableSources(
       withMatchingRestrictedFloatingMana(getScopedAvailableMana(state, playerId), rawFloatingPool, restrictedSpendPurpose),
       parsedCost,
       effectiveLifeAvailable,
+      spendRules,
+      spendContext,
     );
   }
 

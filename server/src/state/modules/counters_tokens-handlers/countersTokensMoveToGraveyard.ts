@@ -1,4 +1,5 @@
 import { recordFaceDownReveal } from '../faceDownRevealLog.js';
+import { maybeQueueRecoverChoices } from '../batch101LandRecoverSurveil.js';
 // server/src/state/modules/counters_tokens-handlers/countersTokensMoveToGraveyard.ts
 // Origin parent: server/src/state/modules/counters_tokens.ts
 // Cluster moved: movePermanentToGraveyard.
@@ -29,6 +30,7 @@ import {
 } from "./countersTokensDeathTriggerKeywords.js";
 import { getCountersTokensHandlerDeps } from "./countersTokensHandlerDeps.js";
 import { isOneOrMoreBatchDuplicate } from '../triggers/simultaneousEntryBatch.js';
+import { applyVoidMawExileInstead } from '../batch102Apply.js';
 
 function runSBA(ctx: GameContext): void {
   getCountersTokensHandlerDeps().runSBA(ctx);
@@ -79,6 +81,16 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
   const isCreature = (card?.type_line || '').toLowerCase().includes('creature');
 
   clearPreparedStateOnBattlefieldExit(state, perm);
+  if (isCreature) {
+    try {
+      if (applyVoidMawExileInstead(ctx, perm)) {
+        if (typeof bumpSeq === 'function') bumpSeq();
+        return true;
+      }
+    } catch {
+      // fall through to the graveyard path
+    }
+  }
 
   // Per-turn tracking for morbid/revolt-style conditions
   try {
@@ -236,7 +248,7 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
       
       const deathTriggers = mergeDeathTriggers(
         getDeathTriggers(ctx, perm, controller),
-        getKeywordDeathTriggersForPermanent(perm, controller),
+        getKeywordDeathTriggersForPermanent(perm, controller, (ctx as any)?.state),
       ).filter((trigger: any) => {
         // "Whenever one or more ... die" fires once per simultaneous event (board wipe).
         const sourceId = String(trigger?.source?.permanentId || '');
@@ -492,6 +504,12 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
       }
     }
   }
+
+  try {
+    if (isCreature) {
+      maybeQueueRecoverChoices(ctx, String(owner || ''), String((zoneCard && zoneCard.id) || (perm as any)?.id || ''));
+    }
+  } catch {}
 
   if (
     (perm as any).drawsCardOnBlitzDeath === true

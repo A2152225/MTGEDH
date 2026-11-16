@@ -13,6 +13,9 @@ import {
   parseManaCost,
   type ParsedManaCost,
 } from "../../state/modules/mana-check.js";
+import { withReadOnlyQueryScope } from "../../../../rules-engine/src/readOnlyQueryScope.js";
+import { getAvailableManaCached, getOrComputeSeqSeatModeCached } from "./aiDecisionCache.js";
+import { allowMainPhaseSpellScan } from "./aiMainPhaseActionBudget.js";
 import {
   chooseMultikickerTimesForChargeInvest,
   expandManaCostWithMultikicker,
@@ -70,9 +73,34 @@ export function findCastableSpells(
   playerId: PlayerID,
   options?: { responseOnly?: boolean },
 ): AICastableSpellCandidate[] {
+  const mode = options?.responseOnly === true ? 'response' : 'main';
+  // Activate scopedMemo for static effects / mana sources for this pure scan
+  // (same pattern as canPlay — avoid recomputing per-card inside the filters).
+  // Same seat+seq+mode: reuse the prior list (priority wakes with no mutation).
+  return getOrComputeSeqSeatModeCached(
+    game,
+    '_aiCastableSpellsCache',
+    String(playerId),
+    mode,
+    () => withReadOnlyQueryScope(() => findCastableSpellsUncached(game, playerId, options)),
+  );
+}
+
+function findCastableSpellsUncached(
+  game: any,
+  playerId: PlayerID,
+  options?: { responseOnly?: boolean },
+): AICastableSpellCandidate[] {
   const ctx = getAIActionContext(game);
   const responseOnly = options?.responseOnly === true;
-  const manaPool = getAvailableMana(game.state, playerId);
+  // Main-phase large boards: skip the full canPlay walk (see allowMainPhaseSpellScan).
+  // Response/flash paths still scan — stack answers must stay available.
+  // No discard exception: overflowing-hand scans were still burning 180s MAIN1 ticks.
+  if (!responseOnly && !allowMainPhaseSpellScan(game)) {
+    debug(1, '[AI] findCastableSpells: skipping main-phase hand scan on large board');
+    return [];
+  }
+  const manaPool = getAvailableManaCached(game, playerId, () => getAvailableMana(game.state, playerId));
   const totalMana = getTotalManaFromPool(manaPool);
   debug(1, '[AI] Available mana pool:', {
     total: totalMana,

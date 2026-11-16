@@ -17,6 +17,8 @@ const ALL_GRAVEYARDS = /cards in graveyards can't be the targets of spells or ab
 const YOUR_GRAVEYARD_OPPONENTS = /cards in your graveyard can't be the targets of spells or abilities your opponents control/;
 const YOUR_GRAVEYARD_ANY = /cards in your graveyard can't be the targets of spells or abilities(?! your opponents)/;
 
+import { isLandCard, landCardsInGraveyardsAreUntargetableByOpponent } from './batch100CombatAndKeywords.js';
+
 /** True when cards in ownerId's graveyard can't be targeted by spells/abilities controlled by targetingPlayerId. */
 export function graveyardCardsAreUntargetable(state: any, targetingPlayerId?: string, graveyardOwnerId?: string): boolean {
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
@@ -34,5 +36,9 @@ export function graveyardCardsAreUntargetable(state: any, targetingPlayerId?: st
 }
 
 export function filterTargetableGraveyardCards<T>(state: any, targetingPlayerId: string, graveyardOwnerId: string, cards: T[]): T[] {
-  return graveyardCardsAreUntargetable(state, targetingPlayerId, graveyardOwnerId) ? [] : cards;
+  if (graveyardCardsAreUntargetable(state, targetingPlayerId, graveyardOwnerId)) return [];
+  if (landCardsInGraveyardsAreUntargetableByOpponent(state, targetingPlayerId)) {
+    return cards.filter((card) => !isLandCard(card));
+  }
+  return cards;
 }

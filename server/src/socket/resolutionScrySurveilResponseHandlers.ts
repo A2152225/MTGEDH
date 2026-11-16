@@ -27,6 +27,7 @@ import { debug, debugWarn } from "../utils/debug.js";
 import { appendQueuedResolutionPromptEvent } from "./resolutionCloneQueuedPromptUtils.js";
 import { oracleIrTopLibraryChoiceResumeApplied } from "./resolutionLibrarySearchOracleIrResumeUtils.js";
 import { broadcastGame, getPlayerName } from "./util.js";
+import { resumeExploreAfterPreScry } from "../state/modules/preExploreScryPrompt.js";
 
 /**
  * Handle Scry resolution response
@@ -272,6 +273,10 @@ export function handleScryResponse(
         ts: Date.now(),
       });
     }
+  }
+
+  if (String(stepData?.scryFollowupKind || '') === 'explore') {
+    resumeExploreAfterPreScry({ game, gameId, step: stepData });
   }
   
   if (typeof game.bumpSeq === "function") {

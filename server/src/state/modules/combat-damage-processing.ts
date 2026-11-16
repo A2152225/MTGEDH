@@ -18,14 +18,21 @@ import {
   detectAnotherCreaturePreventDamagePlusOneReplacement,
 } from './game-state-effects.js';
 import { protectionPreventsSource } from './combat-mechanics.js';
+import { applyBatch107PlayerCounterPlusOne } from './batch107Apply.js';
+import { batch108PermanentHasKeyword } from './batch108Apply.js';
 import { permanentHasIndestructible } from '../../rules-engine/index.js';
 import { processPlayerDealtDamageTriggers } from './triggers/dealt-damage-watchers.js';
 import { evaluateLifeLossReplacementEvent } from './replacement-effects.js';
+import { applyEnduringAngelLifeFloorOrQueueOrder } from './lifeFloorReplacementOrder.js';
 import { getCurrentPowerToughness } from './currentPowerToughness.js';
 import { emitNoncombatDamageEvent } from './triggers/noncombat-deals-damage.js';
+import { emitFightsTriggers } from './triggers/fight-triggers.js';
 import { recordCreatureCombatDamageDealer } from './turn-handlers/turnCombatDamageRecipientVariantTriggers.js';
 import { markPermanentDealtDamage } from './damageDealtFlag.js';
 import { recordPermanentDamageEvent } from './damageEventSources.js';
+import { damageToPlayerIsDealtAsInfect } from './replacementBatch93DamageReplacements.js';
+import { applyMeliraPoisonReplacement } from './replacementBatch95CounterReplacements.js';
+import { applyGrantedCombatDamageDraw } from './batch102Apply.js';
 
 export function applyPoisonCountersToPlayer(ctx: GameContext, playerId: string, amount: number): void {
   const normalized = Math.max(0, Number(amount || 0));
@@ -40,15 +47,18 @@ export function applyPoisonCountersToPlayer(ctx: GameContext, playerId: string, 
     return /you can(?:not|'t) get poison counters/.test(text);
   });
   if (locked) return;
+  const adjusted = applyMeliraPoisonReplacement(ctxAny.state || ctxAny, playerId, normalized);
+  if (adjusted <= 0) return;
 
+  const plusAdjusted = applyBatch107PlayerCounterPlusOne(ctxAny.state || ctxAny, playerId, adjusted);
   ctxAny.poison = ctxAny.poison || {};
-  ctxAny.poison[playerId] = (ctxAny.poison[playerId] || 0) + normalized;
+  ctxAny.poison[playerId] = (ctxAny.poison[playerId] || 0) + plusAdjusted;
 
   const state = ctxAny.state;
   if (!state) return;
 
   state.poisonCounters = state.poisonCounters || {};
-  state.poisonCounters[playerId] = (state.poisonCounters[playerId] || 0) + normalized;
+  state.poisonCounters[playerId] = (state.poisonCounters[playerId] || 0) + plusAdjusted;
 
   const player = (state.players || []).find((entry: any) => entry?.id === playerId);
   if (player) {
@@ -67,10 +77,14 @@ export function getCombatDamageSourceCharacteristics(
     ...getCounterGrantedAbilities(state, sourcePermanent),
     ...getContinuousGrantedAbilitiesForPermanent(sourcePermanent, state),
   ];
-  if (!extraTexts.length) return base;
-
-  const grantedData = parseDamageAbilities(extraTexts.join(' '), sourcePermanent?.card?.type_line);
-  return mergeDamageCharacteristics(base, grantedData);
+  const grantedData = extraTexts.length
+    ? parseDamageAbilities(extraTexts.join(' '), sourcePermanent?.card?.type_line)
+    : {};
+  const merged = extraTexts.length ? mergeDamageCharacteristics(base, grantedData) : base;
+  if (batch108PermanentHasKeyword(sourcePermanent, state, 'lifelink')) {
+    return { ...merged, hasLifelink: true };
+  }
+  return merged;
 }
 
 function mergeDamageCharacteristics(
@@ -190,6 +204,9 @@ export function resolvePlayerDamage(
   const characteristics = options.sourcePermanent
     ? getCombatDamageSourceCharacteristics(options.sourcePermanent, (ctx as any).state)
     : getDamageSourceCharacteristicsFromCard(options.sourceCard, (ctx as any).state, options.sourcePermanent);
+  if (damageToPlayerIsDealtAsInfect((ctx as any).state, targetPlayerId)) {
+    (characteristics as any).hasInfect = true;
+  }
 
   const processed = processDamageToPlayer({
     sourceId: String(options.sourcePermanent?.id || characteristics.sourceId || ''),
@@ -217,11 +234,19 @@ export function resolvePlayerDamage(
     const life = state.life = state.life || {};
     (ctx as any).life = (ctx as any).life || life;
     const currentLife = life[targetPlayerId] ?? (ctx as any).life?.[targetPlayerId] ?? startingLife;
-    const nextLife = currentLife - lifeLost;
-    life[targetPlayerId] = nextLife;
-    (ctx as any).life[targetPlayerId] = nextLife;
-    const player = (state.players || []).find((entry: any) => entry?.id === targetPlayerId);
-    if (player) player.life = nextLife;
+    const floor = applyEnduringAngelLifeFloorOrQueueOrder(ctx, targetPlayerId, currentLife, lifeLost);
+    if (floor.queued) {
+      // Hold the lethal life reduction until the player orders the floors (CR 616.1).
+    } else if (floor.applied) {
+      lifeLost = Math.max(0, currentLife - floor.nextLife);
+      (ctx as any).life[targetPlayerId] = floor.nextLife;
+    } else {
+      const nextLife = currentLife - lifeLost;
+      life[targetPlayerId] = nextLife;
+      (ctx as any).life[targetPlayerId] = nextLife;
+      const player = (state.players || []).find((entry: any) => entry?.id === targetPlayerId);
+      if (player) player.life = nextLife;
+    }
   }
 
   if (processed.poisonCounters > 0) {
@@ -236,6 +261,11 @@ export function resolvePlayerDamage(
       sourcePermanent: options.sourcePermanent,
       sourceControllerId: String(options.sourcePermanent?.controller || ''),
     });
+    try {
+      applyGrantedCombatDamageDraw(ctx, options.sourcePermanent, options.isCombatDamage === true, damageDealt);
+    } catch {
+      // best-effort grant draw
+    }
   }
 
   return {
@@ -299,8 +329,8 @@ export function applyCreatureDamageFromSource(
 
   const sourceCard = sourcePermanent?.card || {};
   const sourceId = String(sourcePermanent?.id || '');
-  const normalizedAmount = options?.skipAmountReplacements
-    ? incomingAmount
+  const modifiedDamage = options?.skipAmountReplacements
+    ? { amount: incomingAmount, modifiers: [] as string[] }
     : calculateModifiedDamage(
       ctx,
       incomingAmount,
@@ -309,9 +339,10 @@ export function applyCreatureDamageFromSource(
       sourceId || undefined,
       options?.isCombatDamage,
       String(targetPermanent?.id || '') || undefined,
-    ).amount;
+    );
+  const normalizedAmount = modifiedDamage.amount;
   if (normalizedAmount <= 0) {
-    return { prevented: true, appliedAmount: 0, usedMinusCounters: false };
+    return { prevented: true, appliedAmount: 0, usedMinusCounters: false, damageReplaced: modifiedDamage.modifiers.length > 0 };
   }
 
   if (protectionPreventsSource(targetPermanent, sourcePermanent, (ctx as any).state)) {
@@ -374,6 +405,7 @@ export function applyFightDamageBetweenCreatures(
   damageBToA: number,
   damageField: 'damage' | 'markedDamage' | 'damageMarked' = 'damageMarked',
 ): void {
+  emitFightsTriggers(ctx, creatureA, creatureB);
   // Fight damage is noncombat: each creature's damage is its own deals_damage event.
   if (creatureA && creatureB && damageAToB > 0) {
     const dealt = applyCreatureDamageFromSource(ctx, creatureA, creatureB, damageAToB, damageField);

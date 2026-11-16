@@ -38,6 +38,7 @@ import {
 import { updateCounters } from "./counters_tokens.js";
 import { revertCopyPermanentToOriginal } from "./permanent-copy.js";
 import { repairAllDualZoneGhosts } from "./stackReplayUtils.js";
+import { notePlayerSurveilledThisTurn } from './batch101LandRecoverSurveil.js';
 
 import { clearPreparedStateOnBattlefieldExit } from "./zones-handlers/zonesClearPreparedOnBattlefieldExit.js";
 
@@ -603,6 +604,9 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
   (z as any).libraryCount = lib.length;
   ctx.libraries.set(playerId, lib);
   ctx.bumpSeq();
+  try {
+    notePlayerSurveilledThisTurn((ctx as any).state, String(playerId));
+  } catch {}
   queueParsedKeywordAction(ctx, String(playerId), 'surveil');
 }
 

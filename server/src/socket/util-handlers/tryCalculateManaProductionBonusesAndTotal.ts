@@ -7,7 +7,7 @@
 
 import type { ManaProductionInfo } from "./manaProductionTypes.js";
 import { getEffectiveBasicLandTypes } from "../../../../shared/src/landTypes.js";
-import { resolvePermanentChosenColorSymbol } from "../../state/modules/mana-abilities.js";
+import { getManaMultiplier, resolvePermanentChosenColorSymbol } from "../../state/modules/mana-abilities.js";
 
 export type CalculateManaProductionBonusesAndTotalArgs = {
   result: ManaProductionInfo;
@@ -161,15 +161,7 @@ export function tryCalculateManaProductionBonusesAndTotal(
       result.bonusMana.push({ color: producedColor, amount: 1 });
     }
     
-    // Mana Reflection - "If you tap a permanent for mana, it produces double"
-    if (permName.includes('mana reflection') && isOurs) {
-      result.multiplier *= 2;
-    }
-    
-    // Nyxbloom Ancient - "If you tap a permanent for mana, it produces three times as much"
-    if (permName.includes('nyxbloom ancient') && isOurs) {
-      result.multiplier *= 3;
-    }
+    // B90: Mana Reflection / Nyxbloom / Virtue of Strength are applied once via getManaMultiplier after this loop.
     
     // Mana Flare - "Whenever a player taps a land for mana, that land produces an additional mana"
     if (permName.includes('mana flare') && isLand) {
@@ -196,6 +188,8 @@ export function tryCalculateManaProductionBonusesAndTotal(
     }
   }
   
+  result.multiplier *= Math.max(1, Number(getManaMultiplier({ battlefield }, permanent, playerId) || 1));
+
   // ===== STEP 5: Calculate total mana =====
   
   // Base amount * multiplier

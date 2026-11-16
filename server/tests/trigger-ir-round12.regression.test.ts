@@ -116,9 +116,10 @@ describe('round 12 parses', () => {
   it('power-N attacks keeps an intervening-if', () => {
     expect(parseTriggerClause('Whenever this creature attacks while you control a creature with power 4 or greater, draw a card.')?.interveningIf).toBe('you control a creature with power 4 or greater');
   });
-  it('legacy-runtime-only wordings never match through IR', () => {
+  // Round 12 ordinal wording is now real IR (counterOrdinal); only the fourth plan counter reaching four counters matches.
+  it('ordinal counter wording matches through IR once the counter count reaches the ordinal', () => {
     const oracle = 'When the fourth plan counter is put on this enchantment, draw a card.';
     const ench = perm('e', 'p1', 'Plan', oracle, 'Enchantment', { counters: { plan: 4 } });
-    expect(collectMatchingParsedEventLines({ ctx: ctxOf([ench]), oracleText: oracle, event: 'counter_placed' as any, subjectPermanent: ench, subjectControllerId: 'p1', sourcePermanent: ench } as any).length).toBe(0);
+    expect(collectMatchingParsedEventLines({ ctx: ctxOf([ench]), oracleText: oracle, event: 'counter_placed' as any, subjectPermanent: ench, subjectControllerId: 'p1', sourcePermanent: ench } as any).length).toBe(1);
   });
 });

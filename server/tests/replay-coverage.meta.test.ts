@@ -73,6 +73,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'discardEffect',
   'divineReckoningBatchResolve',
   'divineReckoningChoiceResolve',
+  'dieRollNudgeResolve',
   'dredgeDrawReplacementResolve',
   'zursWeirdingDrawReplacementResolve',
   'skipDrawReplacementResolve',
@@ -184,6 +185,17 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'voteSubmit',
   'exchangeTextBoxes',
   'assignTriggeredAbilityTargets',
+  'archmageAscensionSearchInsteadResolve',
+  'jinnieFayTokenChoiceResolve',
+  'libraryOfLengDiscardChoiceResolve',
+  'outOfTheTombsDrawResolve',
+  'payLifeReplacementOrderResolve',
+  'pursuitDrawReplacementResolve',
+  'replacementOrderChoiceResolve',
+  'specialCombatDamageAssignmentResolve',
+  'tomorrowLookPutDrawResolve',
+  'transformAttachToPlayerResolve',
+  'transformChooseOpponentResolve',
 ]);
 
 const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
@@ -241,6 +253,7 @@ const PROMPT_RESPONSE_CLEANUP_EVENT_TYPES = [
   'copyRetargetChoiceResolve',
   'crewVehicle',
   'delayedDrawUpToResolve',
+  'dieRollNudgeResolve',
   'dredgeDrawReplacementResolve',
   'zursWeirdingDrawReplacementResolve',
   'skipDrawReplacementResolve',
@@ -319,6 +332,17 @@ const PROMPT_RESPONSE_CLEANUP_EVENT_TYPES = [
   'ventureChooseRoomResolve',
   'voteSubmit',
   'wardPaymentResolve',
+  'archmageAscensionSearchInsteadResolve',
+  'jinnieFayTokenChoiceResolve',
+  'libraryOfLengDiscardChoiceResolve',
+  'outOfTheTombsDrawResolve',
+  'payLifeReplacementOrderResolve',
+  'pursuitDrawReplacementResolve',
+  'replacementOrderChoiceResolve',
+  'specialCombatDamageAssignmentResolve',
+  'tomorrowLookPutDrawResolve',
+  'transformAttachToPlayerResolve',
+  'transformChooseOpponentResolve',
 ];
 
 const PROMPT_LIKE_REPLAY_EVENT_EXEMPTIONS: Record<string, string> = {

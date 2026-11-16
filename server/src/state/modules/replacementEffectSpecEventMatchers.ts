@@ -24,6 +24,7 @@ import type {
 } from './replacementEffectSpec-handlers/replacementEffectSpecTypes.js';
 import { normalizeOraclePatternText, readCardOracleText } from './replacementEffectSpec-handlers/replacementEffectSpecOracleTextUtils.js';
 import { inferLeaveBattlefieldExileReplacement } from './leaveBattlefieldReplacementStamp.js';
+import { overlaySpecsMatchCounterCause } from './batch93CounterCause.js';
 import { collectOraclePatternLifeGainReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeGainOracleTemplates.js';
 import { overlaySpecsMatchLifeGain, matchesLifeGainSpec } from './replacementEffectSpec-handlers/replacementEffectSpecLifeGainMatch.js';
 import { collectOraclePatternLifeLossReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecLifeLossOracleTemplates.js';
@@ -61,6 +62,14 @@ export function matchesDrawSpec(spec: ReplacementEffectSpec, event: CardDrawRepl
     && String(event.playerId || '') === String(spec.sourceController || '')) {
     return false;
   }
+  if ((match as any).drawingPlayerIsSourceController === true
+    && String(event.playerId || '') !== String(spec.sourceController || '')) {
+    return false;
+  }
+  if ((match as any).exactDrawCount !== undefined) {
+    const count = Math.max(0, Math.floor(Number(event.count || 0)));
+    if (count !== Math.max(0, Math.floor(Number((match as any).exactDrawCount)))) return false;
+  }
 
   if (match.drawingPlayerIsSourceController === true
     && String(event.playerId || '') !== String(spec.sourceController || '')) {
@@ -86,6 +95,23 @@ export const NONCREATURE_TOKEN_NAMES = new Set([
   'powerstone',
   'shard',
 ]);
+
+const ARTIFACT_TOKEN_NAMES = new Set([
+  'treasure', 'food', 'clue', 'blood', 'gold', 'map', 'junk', 'powerstone', 'shard',
+]);
+
+export function tokenCreationEventLooksLikeArtifact(event: TokenCreationReplacementEvent): boolean {
+  const typeLine = String(
+    event.tokenTypeLine
+    || event.metadata?.typeLine
+    || event.metadata?.type_line
+    || '',
+  ).toLowerCase();
+  if (typeLine.includes('artifact')) return true;
+  if (typeLine) return false;
+  const name = String(event.tokenName || '').trim().toLowerCase();
+  return ARTIFACT_TOKEN_NAMES.has(name);
+}
 
 export function tokenCreationEventLooksLikeCreature(event: TokenCreationReplacementEvent): boolean {
   const typeLine = String(
@@ -117,10 +143,14 @@ export function matchesTokenSpec(spec: ReplacementEffectSpec, event: TokenCreati
     return false;
   }
 
-  const nameIs = String(spec.metadata?.tokenNameIs || '').toLowerCase();
+  if (match.tokenIsArtifact === true && !tokenCreationEventLooksLikeArtifact(event)) {
+    return false;
+  }
+
+  const nameIs = String((match as any).tokenNameIs || spec.metadata?.tokenNameIs || '').trim().toLowerCase();
   if (nameIs) {
-    const hay = `${event.tokenName || ''} ${event.tokenTypeLine || ''}`.toLowerCase();
-    if (!hay.includes(nameIs)) return false;
+    const have = String(event.tokenName || event.metadata?.tokenName || '').trim().toLowerCase();
+    if (have !== nameIs) return false;
   }
 
   return true;
@@ -301,9 +331,10 @@ export function overlaySpecsMatchMill(
 
 export function overlaySpecsMatchCounterPlacement(
   spec: ReplacementEffectSpec,
-  input: { counterType: string; targetController: string; targetTypeLine?: string },
+  input: { counterType: string; targetController: string; targetTypeLine?: string; cause?: unknown; isModularTriggeredAbility?: boolean },
 ): boolean {
   const match = spec.match;
+  if (!overlaySpecsMatchCounterCause(spec, input)) return false;
   if (!match) return true;
   if ((match as any).targetTypeIncludes
     && !String(input.targetTypeLine || '').toLowerCase().includes(String((match as any).targetTypeIncludes))) {

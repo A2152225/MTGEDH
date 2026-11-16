@@ -11,7 +11,8 @@
  * decisions, declare-blockers, pending prompts or casts) returns false and keeps the delay.
  *
  * Public entry symbols: aiPriorityWillPass, consumeAIFastPassDecision,
- * setAIFastPassPrecheckForTests, clearAIFastPassDecisionsForTests.
+ * setAIFastPassPrecheckForTests, clearAIFastPassDecisionsForTests,
+ * clearAIFastPassDecisionsForGame.
  */
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { canRespond } from "../../state/modules/can-respond.js";
@@ -127,4 +128,12 @@ export function setAIFastPassPrecheckForTests(
 
 export function clearAIFastPassDecisionsForTests(): void {
   fastPassDecisions.clear();
+}
+
+/** Drop fast-pass verdicts for one game (harness / production delete teardown). */
+export function clearAIFastPassDecisionsForGame(gameId: string): void {
+  const prefix = `${String(gameId)}:`;
+  for (const key of [...fastPassDecisions.keys()]) {
+    if (key.startsWith(prefix)) fastPassDecisions.delete(key);
+  }
 }

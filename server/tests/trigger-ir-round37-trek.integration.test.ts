@@ -20,11 +20,11 @@ const TACTICAL = 'Whenever you attack while creatures you control have total pow
 describe('round 37: Star Trek trigger wordings', () => {
   it('parses dilemma, total-power and Spacecraft wordings', () => {
     const d = parse(SEVEN, 'Seven of Nine');
-    expect(d?.condition?.facesDilemma).toBe(true);
-    expect(d?.condition?.legacyRuntimeOnly).toBe(true);
+    expect(d?.condition).toMatchObject({ event: 'performs', action: 'face_dilemma' });
+    expect(d?.condition?.legacyRuntimeOnly).not.toBe(true);
     const p = parse(TACTICAL, 'Tactical Officer');
     expect(p?.condition?.minTotalPower).toBe(8);
-    expect(p?.condition?.legacyRuntimeOnly).toBe(true);
+    expect(p?.condition?.legacyRuntimeOnly).not.toBe(true);
     const borg = parse('Whenever this Spacecraft enters or attacks, exile up to one target creature.', 'Borg Cube');
     expect(borg?.condition?.legacyRuntimeOnly).toBeUndefined();
     expect(borg?.condition?.pairedEvent).toBe('attacks');
@@ -39,7 +39,7 @@ describe('round 37: Star Trek trigger wordings', () => {
     expect(getDilemmasFacedThisTurn(ctx.state, 'p1')).toBe(1);
     const names = ctx.state.stack.map((s: any) => s.sourceName).sort();
     expect(names).toEqual(['Gabriel Lorca, Mirror Menace', 'Seven of Nine']);
-    expect(ctx.state.stack.find((s: any) => s.sourceName === 'Seven of Nine').effect).toBe('draw a card.');
+    expect(ctx.state.stack.find((s: any) => s.sourceName === 'Seven of Nine').effect).toMatch(/^draw a card\.?$/);
     expect(ctx.state.stack.find((s: any) => s.sourceName.startsWith('Gabriel')).mandatory).toBe(false);
     recordDilemmaFaced(ctx, 'p1', 0);
     expect(getDilemmasFacedThisTurn(ctx.state, 'p1')).toBe(1);

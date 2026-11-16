@@ -15,7 +15,7 @@ import type {
 
 /** Declarative replacement spec (Phase 5.1). See docs/oracle-ir-phase5-continuous-effects-design.md */
 export type ReplacementEffectSpecEvent = ReplacementEvent['type'] | 'lose-game'
-  | 'damage-redirect' | 'damage-prevention-cost' | 'life-gain-draw';
+  | 'damage-redirect' | 'damage-prevention-cost' | 'life-gain-draw' | 'mana-production' | 'proliferate' | 'scry';
 
 export type ReplacementModifyMode = 'double' | 'triple' | 'add_flat' | 'halve' | 'cap';
 
@@ -107,6 +107,16 @@ export interface ReplacementTokenMatch {
   creatingPlayerIsSourceController?: boolean;
   /** Token being created must be a creature (Ojer Taq). */
   tokenIsCreature?: boolean;
+  /** B90: token being created must be an artifact (Stridehangar / Worldwalker Helm). */
+  tokenIsArtifact?: boolean;
+  /** B91: token being created must have this name (Fisher's Talent). */
+  tokenNameIs?: string;
+  /** B90: mana-production — tapping player is the spec source controller. */
+  tappingPlayerIsSourceController?: boolean;
+  /** B90: mana-production — tapped permanent is a land. */
+  tappedIsLand?: boolean;
+  /** B90: mana-production — tapped permanent is a basic land. */
+  tappedIsBasicLand?: boolean;
 }
 
 export interface ReplacementDamageMatch {
@@ -162,6 +172,18 @@ export interface ReplacementDamageMatch {
   damageSourceHasCreatureType?: string;
   /** B65: damage source permanent has any counter (Raphael). */
   damageSourceHasAnyCounter?: boolean;
+  /** B89: Obosh - source has an odd mana value. */
+  damageSourceHasOddManaValue?: boolean;
+  /** B89: Disciples of the Inferno - noncreature source. */
+  damageSourceIsNoncreature?: boolean;
+  /** B89: type lists - any of these creature types. */
+  damageSourceHasCreatureTypeIn?: readonly string[];
+  /** B89: Inquisitor's Flail - source is the creature this Equipment is attached to. */
+  damageSourceIsEquippedBySource?: boolean;
+  /** B89: Inquisitor's Flail - receiver is the equipped creature. */
+  receivingPermanentIsEquippedBySource?: boolean;
+  /** B89: Disciples of the Inferno - receiver is a creature, a battle, or an opponent. */
+  receivingIsCreatureBattleOrOpponent?: boolean;
 }
 
 export interface ReplacementLoseGameMatch {
@@ -188,6 +210,8 @@ export interface ReplacementLoseGameInstead {
   onlyZeroOrLessLife?: boolean;
   /** Mine, Mine, Mine! family — only empty-library draw loss. */
   onlyEmptyLibrary?: boolean;
+  /** B91: Exquisite Archangel — exile the source and reset life to starting. */
+  exileSourceAndResetLifeToStarting?: boolean;
 }
 
 export interface ReplacementEffectSpec {

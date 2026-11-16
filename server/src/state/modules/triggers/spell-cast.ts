@@ -265,7 +265,7 @@ export function opponentCastSourceZoneMatches(
 
 export function spellOrdinalForCaster(state: any, casterId: string, spellCard: any): number {
   const spells = Array.isArray(state?.spellsCastThisTurn) ? state.spellsCastThisTurn : [];
-  const mine = spells.filter((entry: any) => String(entry?.casterId || '') === String(casterId || ''));
+  const mine = spells.filter((entry: any) => String(entry?.casterId || entry?.controller || entry?.controllerId || entry?.playerId || '') === String(casterId || ''));
   const spellId = String(spellCard?.id || '').trim();
   const includesThis = Boolean(spellId) && mine.some((entry: any) => String(entry?.id || entry?.card?.id || '') === spellId);
   return includesThis ? Math.max(1, mine.length) : mine.length + 1;

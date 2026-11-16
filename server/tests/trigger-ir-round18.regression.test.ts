@@ -11,7 +11,9 @@ function mkCtx(battlefield: any[], extra: any = {}) {
   const state: any = { battlefield, stack: [], players: [{ id: 'p1' }, { id: 'p2' }], turnPlayer: 'p1', activePlayer: 'p1', phase: 'main1', step: 'main', zones: { p1: { hand: [], graveyard: [], handCount: 0, graveyardCount: 0, libraryCount: 0 } }, ...extra };
   return { state, libraries: new Map<string, any[]>(), bumpSeq() {}, isReplaying: false } as any;
 }
-const ofType = (ctx: any, t: string) => ctx.state.stack.filter((s: any) => s.triggerType === t);
+// IR owns these printed lines, so the emitters queue them as parsed_* items; the legacy trigger names stay accepted.
+const PARSED_TYPE: Record<string, string> = { opponent_caused_self_discard: 'parsed_self_discard', self_discard: 'parsed_self_discard', die_roll_single_result: 'parsed_die_roll', creature_explores: 'parsed_creature_explores', crew_vehicle: 'parsed_crew_vehicle' };
+const ofType = (ctx: any, t: string) => ctx.state.stack.filter((s: any) => s.triggerType === t || (PARSED_TYPE[t] && s.triggerType === PARSED_TYPE[t]));
 
 const SAND_GOLEM = { id: 'sg', name: 'Sand Golem', type_line: 'Artifact Creature - Golem', oracle_text: 'When a spell or ability an opponent controls causes you to discard this card, return this card from your graveyard to the battlefield with a +1/+1 counter on it at the beginning of the next end step.' };
 const TITANBONES = { id: 'tb', name: 'Titanbones, Towering Heart', type_line: 'Legendary Creature - Skeleton Giant', oracle_text: 'Trample\nWhen you discard this card, you gain 3 life.' };
@@ -36,7 +38,9 @@ describe('round 18 (1): self-discard family', () => {
     queueDiscardTriggeredAbilities(ctx, 'p1', [TITANBONES, COW, EDGAR], { fromCycling: true });
     const items = ofType(ctx, 'self_discard');
     expect(items.map((i: any) => i.sourceName).sort()).toEqual(["Bartered Cow", "Edgar's Awakening", 'Titanbones, Towering Heart']);
-    expect(items.find((i: any) => i.source === 'ea').effect).toMatch(/When you do, return target creature card/);
+    const edgar = items.find((i: any) => i.source === 'ea');
+    // The IR item keeps the optional payment as the effect and the "when you do" rider as reflexiveWhenYouDo.
+    expect(`${edgar.effect} ${JSON.stringify(edgar.reflexiveWhenYouDo || '')}`).toMatch(/return target creature card/i);
   });
   it('resolves the cause controller from the step source', () => {
     const state = { battlefield: [perm('mind', 'p2', { name: 'Liliana' })], stack: [] };

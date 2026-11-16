@@ -32,6 +32,7 @@ export interface ZoneCardContextMenuProps {
   onCast?: (cardId: string) => void;
   onPlayLand?: (cardId: string) => void;
   onDiscard?: (cardId: string) => void;
+  onSpecialDiscard?: (cardId: string) => void;
   onActivateAbility?: (cardId: string, abilityId: string) => void;
   onCycle?: (cardId: string) => void;
   // Ignore for playability checks
@@ -42,6 +43,7 @@ export interface ZoneCardContextMenuProps {
   canCast?: boolean;
   canPlayLand?: boolean;
   canDiscard?: boolean;
+  canSpecialDiscard?: boolean;
   canCycle?: boolean;
   reasonCannotCast?: string | null;
   reasonCannotPlayLand?: string | null;
@@ -241,6 +243,7 @@ export function ZoneCardContextMenu({
   onCast,
   onPlayLand,
   onDiscard,
+  onSpecialDiscard,
   onActivateAbility,
   onIgnoreForPlayability,
   onUnignoreForPlayability,
@@ -248,6 +251,7 @@ export function ZoneCardContextMenu({
   canCast = true,
   canPlayLand = true,
   canDiscard = true,
+  canSpecialDiscard = false,
   reasonCannotCast,
   reasonCannotPlayLand,
   costAdjustment,
@@ -480,13 +484,18 @@ export function ZoneCardContextMenu({
         )}
 
         {/* Discard (for hand cards) */}
-        {zone === 'hand' && canDiscard && onDiscard && (
+        {zone === 'hand' && ((canSpecialDiscard && onSpecialDiscard) || (canDiscard && onDiscard)) && (
           <>
             <div style={{ height: 1, backgroundColor: '#444', margin: '4px 0' }} />
             <div
-              style={menuItemStyle}
+              style={canSpecialDiscard
+                ? { ...menuItemStyle, border: '1px solid #fbbf24', background: 'rgba(251,191,36,0.15)', color: '#fbbf24', borderRadius: 4 }
+                : menuItemStyle}
+              title={canSpecialDiscard ? 'Discard this card any time you could cast an instant' : undefined}
+              data-testid={canSpecialDiscard ? 'circling-vultures-discard-action' : undefined}
               onClick={() => {
-                onDiscard(card.id);
+                if (canSpecialDiscard && onSpecialDiscard) onSpecialDiscard(card.id);
+                else if (onDiscard) onDiscard(card.id);
                 onClose();
               }}
               onMouseEnter={(e) => handleHover(e, true)}

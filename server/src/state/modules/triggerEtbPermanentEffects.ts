@@ -36,6 +36,7 @@ import { filterOneOrMoreEntryDuplicates } from './triggers/simultaneousEntryBatc
 import { syncClassLevelGating } from './classLevelGating.js';
 import { permanentHasTriggeredAbilities } from './triggers/triggeredAbilitySuppression.js';
 import { stampWatcherEtbTriggerTargetMetadata } from './triggerEtbTargetMetadataStamp.js';
+import { appendGraveyardSourceEtbParsedLines } from './etbGraveyardSourceIr.js';
 
 function pushPendingEtbTriggerIfNotAutoDeclined(
   state: any,
@@ -759,6 +760,15 @@ export function triggerETBEffectsForPermanent(
       } as any);
     }
   }
+
+  appendGraveyardSourceEtbParsedLines({
+    ctx,
+    state,
+    enteringPermanent: permanent,
+    enteringController: String(controller),
+    pending: pendingExternalEtbTriggers,
+    pushPending: pushPendingEtbTriggerIfNotAutoDeclined,
+  });
 
   const orderedExternalEtbTriggers = orderTriggersByAPNAP(
     ctx as any,

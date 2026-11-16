@@ -24,6 +24,8 @@ export function nonTypeCreaturesCantAttackReason(creature: any, battlefield: rea
 const ANOTHER_RE = /can't attack unless you control another (artifact|creature|enchantment|land|planeswalker)\b/;
 const MORE_ATTACK_RE = /can't attack unless you control more creatures than defending player\b/;
 const MORE_BLOCK_RE = /can't block unless you control more creatures than attacking player\b/;
+const MORE_LANDS_ATTACK_RE = /can't attack unless you control more lands than defending player\b/;
+const MORE_LANDS_BLOCK_RE = /can't block unless you control more lands than attacking player\b/;
 
 function lowerText(perm: any): string {
   return String(perm?.card?.oracle_text || perm?.oracle_text || '').replace(/\u2019/g, "'").toLowerCase();
@@ -34,6 +36,9 @@ function isType(perm: any, type: string): boolean {
 function creatureCount(battlefield: readonly any[], controller: string): number {
   return battlefield.filter((p: any) => String(p?.controller || '') === controller && isType(p, 'creature')).length;
 }
+function landCount(battlefield: readonly any[], controller: string): number {
+  return battlefield.filter((p: any) => String(p?.controller || '') === controller && isType(p, 'land')).length;
+}
 
 export function controlCountAttackRestrictionReason(creature: any, defendingPlayerId: string | undefined, battlefield: readonly any[] | undefined): string | null {
   const text = lowerText(creature);
@@ -42,6 +47,9 @@ export function controlCountAttackRestrictionReason(creature: any, defendingPlay
   const another = text.match(ANOTHER_RE);
   if (another && !bf.some((p: any) => p !== creature && String(p?.id) !== String(creature?.id) && String(p?.controller || '') === controller && isType(p, another[1]))) {
     return `can't attack unless you control another ${another[1]}`;
+  }
+  if (MORE_LANDS_ATTACK_RE.test(text) && defendingPlayerId && landCount(bf, controller) <= landCount(bf, String(defendingPlayerId))) {
+    return "can't attack unless you control more lands than defending player";
   }
   if (MORE_ATTACK_RE.test(text) && defendingPlayerId && creatureCount(bf, controller) <= creatureCount(bf, String(defendingPlayerId))) {
     return "can't attack unless you control more creatures than defending player";
@@ -55,4 +63,12 @@ export function moreCreaturesBlockRestrictionReason(blocker: any, attacker: any,
   return creatureCount(bf, String(blocker?.controller || '')) > creatureCount(bf, String(attacker?.controller || ''))
     ? null
     : "can't block unless you control more creatures than attacking player";
+}
+
+export function moreLandsBlockRestrictionReason(blocker: any, attacker: any, battlefield: readonly any[] | undefined): string | null {
+  if (!MORE_LANDS_BLOCK_RE.test(lowerText(blocker))) return null;
+  const bf = Array.isArray(battlefield) ? battlefield : [];
+  return landCount(bf, String(blocker?.controller || '')) > landCount(bf, String(attacker?.controller || ''))
+    ? null
+    : "can't block unless you control more lands than attacking player";
 }

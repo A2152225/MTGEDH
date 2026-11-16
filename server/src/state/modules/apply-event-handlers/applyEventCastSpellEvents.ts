@@ -582,6 +582,16 @@ export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
                 applyToStackItem('teamworkResolved', true);
               }
             }
+            const rawCasualtyPaid = (e as any).casualtyPaid ?? (e as any).card?.casualtyPaid ?? (e as any).card?.card?.casualtyPaid;
+            if (typeof rawCasualtyPaid === 'boolean') {
+              applyToStackItem('casualtyPaid', rawCasualtyPaid);
+              applyToStackItem('casualtyResolved', true);
+            }
+            const rawConspirePaid = (e as any).conspirePaid ?? (e as any).card?.conspirePaid ?? (e as any).card?.card?.conspirePaid;
+            if (typeof rawConspirePaid === 'boolean') {
+              applyToStackItem('conspirePaid', rawConspirePaid);
+              applyToStackItem('conspireResolved', true);
+            }
             stampReplayedGraveyardCastStackFlags(topStackItem, e);
           } else {
             const existingStackItem = findReplayedStackItemForCastCard(

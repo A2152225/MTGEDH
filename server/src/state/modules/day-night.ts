@@ -1,12 +1,14 @@
 import { debugWarn } from "../../utils/debug.js";
 import type { GameContext } from "../context.js";
 import { processTransformTriggers } from "./triggerEmissionFamilyUtils.js";
-import { uid } from "../utils.js";
-import { asTransformsAbilityAppliesWhileChangingFaces } from '../../../../rules-engine/src/keywordActions/transform.js';
 import {
   resolveAndApplyEnterFace,
   type EnterTransformedOrConvertedDecision,
 } from './enterBattlefieldFaceApplication.js';
+import { applyTransformAttachToPlayer } from './batch94TransformAttach.js';
+import { applyAsTransformsEvents, queuePendingTransformChooseOpponentChoices } from './batch99TransformEvents.js';
+import { maybeQueueTransformAttachPlayerChoice, queuePendingTransformAttachPlayerChoices } from './transformAttachPlayerChoice.js';
+import { applyPendingCraftLinkage } from './batch102CraftLinkage.js';
 
 export type DayNight = 'day' | 'night';
 
@@ -23,27 +25,7 @@ function createEmblemFromTransformIntoFace(
   permanent: any,
   newFace: any,
 ): void {
-  if (!ctx?.state || !newFace) return;
-  if (!asTransformsAbilityAppliesWhileChangingFaces()) return;
-  const oracle = String(newFace.oracle_text || '');
-  const match = oracle.match(
-    /as this creature transforms into .+?,\s*you get an emblem with\s*["\u201C]([^"\u201D]+)["\u201D]/i,
-  );
-  if (!match) return;
-
-  const effect = String(match[1] || '').trim();
-  if (!effect) return;
-
-  const stateAny = ctx.state as any;
-  stateAny.emblems = Array.isArray(stateAny.emblems) ? stateAny.emblems : [];
-  const controller = String(permanent?.controller || '').trim();
-  const sourceName = String(newFace.name || permanent?.card?.name || 'Emblem').trim() || 'Emblem';
-  stateAny.emblems.push({
-    id: uid('emblem'),
-    controller,
-    sourceName,
-    effect,
-  });
+  applyAsTransformsEvents(ctx, permanent, newFace);
 }
 
 export function transformPermanentToFace(
@@ -70,18 +52,36 @@ export function transformPermanentToFace(
   if (newFace.image_uris) card.image_uris = newFace.image_uris;
   if ('loyalty' in newFace) card.loyalty = newFace.loyalty;
 
-  if (ctx && previousTransformed !== nextTransformed) {
-    try {
-      // Super Nova / similar: emblem is created as the permanent transforms into that face.
-      createEmblemFromTransformIntoFace(ctx, permanent, newFace);
-    } catch (err) {
-      debugWarn(1, '[day-night] createEmblemFromTransformIntoFace failed:', err);
+  if (previousTransformed !== nextTransformed) {
+    if (ctx) {
+      try {
+        // Super Nova / similar: emblem is created as the permanent transforms into that face.
+        createEmblemFromTransformIntoFace(ctx, permanent, newFace);
+      } catch (err) {
+        debugWarn(1, '[day-night] createEmblemFromTransformIntoFace failed:', err);
+      }
     }
     try {
-      processTransformTriggers(ctx, permanent);
+      const attach = applyTransformAttachToPlayer(permanent, (permanent as any).transformAttachPlayerId || (permanent as any).chosenPlayerId);
+      if (attach.needsPlayerChoice) {
+        if (ctx) maybeQueueTransformAttachPlayerChoice(ctx, permanent);
+        else (permanent as any).pendingTransformAttachPlayerChoice = true;
+      }
     } catch (err) {
-      debugWarn(1, '[day-night] processTransformTriggers failed:', err);
+      debugWarn(1, '[day-night] applyTransformAttachToPlayer failed:', err);
     }
+    if (ctx) {
+      try {
+        processTransformTriggers(ctx, permanent);
+      } catch (err) {
+        debugWarn(1, '[day-night] processTransformTriggers failed:', err);
+      }
+    }
+  }
+  try {
+    applyPendingCraftLinkage(permanent, (ctx as any)?.state);
+  } catch (err) {
+    debugWarn(1, '[day-night] applyPendingCraftLinkage failed:', err);
   }
 }
 
@@ -96,7 +96,7 @@ export function enterPermanentTransformed(
 ): EnterTransformedOrConvertedDecision {
   return resolveAndApplyEnterFace(permanent, { sourceZone, intent: 'transformed' });
 }
-export function applyDayNightTransforms(state: any): void {
+export function applyDayNightTransforms(state: any, ctx?: GameContext): void {
   if (!state?.battlefield) return;
   const dn: unknown = state.dayNight;
   if (!isDayNight(dn)) return;
@@ -118,13 +118,13 @@ export function applyDayNightTransforms(state: any): void {
 
       // Daybound (front face) transforms as it becomes night.
       if (dn === 'night' && isFrontFaceUp && oracle.includes('daybound')) {
-        transformPermanentToFace(perm, 1);
+        transformPermanentToFace(perm, 1, ctx);
         continue;
       }
 
       // Nightbound (back face) transforms as it becomes day.
       if (dn === 'day' && isBackFaceUp && oracle.includes('nightbound')) {
-        transformPermanentToFace(perm, 0);
+        transformPermanentToFace(perm, 0, ctx);
         continue;
       }
     }
@@ -133,7 +133,7 @@ export function applyDayNightTransforms(state: any): void {
   }
 }
 
-export function setDayNightState(state: any, next: DayNight): boolean {
+export function setDayNightState(state: any, next: DayNight, ctx?: GameContext): boolean {
   if (!state) return false;
   const prev = state.dayNight;
   if (prev === next) return false;
@@ -154,7 +154,9 @@ export function setDayNightState(state: any, next: DayNight): boolean {
   state.dayNightChangedFrom = prev;
   state.dayNightChangedTo = next;
 
-  applyDayNightTransforms(state);
+  applyDayNightTransforms(state, ctx);
+  if (ctx) queuePendingTransformAttachPlayerChoices(ctx);
+  if (ctx) queuePendingTransformChooseOpponentChoices(ctx);
   return true;
 }
 

@@ -47,7 +47,10 @@ export function parsedTriggerLinesForEffect(
     const paired = parsed.condition.pairedEvent;
     if (!events.includes(event) && !(paired && events.includes(paired))) continue;
     if (!parsedEffectDuplicates([...texts], parsed)) continue;
-    lines.push({ condition: parsed.condition, effect: parsed.effect });
+    // A paired sentence ("When this enters and whenever you cast ...") matches the second event with its own subject.
+    const pairedCondition = (parsed.condition as any).pairedCondition as typeof parsed.condition | undefined;
+    const useCondition = !events.includes(event) && paired && events.includes(paired) && pairedCondition ? pairedCondition : parsed.condition;
+    lines.push({ condition: useCondition, effect: parsed.effect });
   }
   return lines;
 }

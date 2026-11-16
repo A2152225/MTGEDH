@@ -690,6 +690,28 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     }
   }
 
+  // Sink into Stupor: "target spell or nonland permanent an opponent controls".
+  // Must run before the generic "target spell" matcher, which would drop the permanent.
+  const spellOrNonlandPermanentMatch = t.match(
+    /target\s+spell\s+or\s+nonland\s+permanent(?:\s+(an\s+opponent\s+controls|you\s+control))?/i,
+  );
+  if (spellOrNonlandPermanentMatch) {
+    minTargets = 1;
+    maxTargets = 1;
+    targetTypes.push('spell', 'nonland permanent');
+    const scope = String(spellOrNonlandPermanentMatch[1] || '').trim().toLowerCase();
+    targetDescription = `target spell or nonland permanent${scope ? ` ${scope}` : ''}`;
+    return finish({
+      needsTargets: true,
+      targetTypes,
+      minTargets,
+      maxTargets,
+      targetDescription,
+      ...(scope === 'you control' ? { targetControllerConstraint: 'you' as const } : {}),
+      ...(scope === 'an opponent controls' ? { targetControllerConstraint: 'opponent' as const } : {}),
+    });
+  }
+
   // Bolt Bend: "target spell or ability" is both stack kinds, not just "spell".
   const spellOrAbilityMatch = t.match(/target\s+spell or ability(?:\s+with a single target)?/i);
   if (spellOrAbilityMatch) {

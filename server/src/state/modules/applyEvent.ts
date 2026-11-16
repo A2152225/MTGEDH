@@ -61,6 +61,10 @@ import { applyCastSpellEvents } from "./apply-event-handlers/applyEventCastSpell
 import { applyStackPromptEvents } from "./apply-event-handlers/applyEventStackPromptEvents.js";
 import { applyReflexivePromptEvents } from "./apply-event-handlers/applyEventReflexivePromptEvents.js";
 import { applyCopyRetargetEvents } from "./apply-event-handlers/applyEventCopyRetargetEvents.js";
+import { applyOnCastKeywordAndPlotEvents } from "./apply-event-handlers/applyEventOnCastKeywordAndPlotReplay.js";
+import { applyPursuitDrawReplacementEvents } from "./apply-event-handlers/applyEventPursuitDrawReplacementReplay.js";
+import { applyPayLifeReplacementOrderEvents } from "./apply-event-handlers/applyEventPayLifeReplacementOrderReplay.js";
+import { applyCirclingVulturesDiscardEvents } from "./apply-event-handlers/applyEventCirclingVulturesDiscardReplay.js";
 import { applyPermanentKeywordEvents } from "./apply-event-handlers/applyEventPermanentKeywordEvents.js";
 import { applyTurnPhaseTopLibraryEvents } from "./apply-event-handlers/applyEventTurnPhaseTopLibraryEvents.js";
 import { applyLibraryGambleChoiceEvents } from "./apply-event-handlers/applyEventLibraryGambleChoiceEvents.js";
@@ -108,6 +112,10 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     if (applyStackPromptEvents(ctx, e)) return;
     if (applyReflexivePromptEvents(ctx, e)) return;
     if (applyCopyRetargetEvents(ctx, e)) return;
+    if (applyOnCastKeywordAndPlotEvents(ctx, e)) return;
+    if (applyPursuitDrawReplacementEvents(ctx, e)) return;
+    if (applyPayLifeReplacementOrderEvents(ctx, e)) return;
+    if (applyCirclingVulturesDiscardEvents(ctx, e)) return;
     if (applyPermanentKeywordEvents(ctx, e)) return;
     if (applyTurnPhaseTopLibraryEvents(ctx, e)) return;
     if (applyLibraryGambleChoiceEvents(ctx, e)) return;

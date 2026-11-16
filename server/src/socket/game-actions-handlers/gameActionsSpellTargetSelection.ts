@@ -261,10 +261,12 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
 
     // Stack spells must be checked before battlefield "noncreature"/"nonland" substring matches.
     if (isRequirementStackSpellTargetType(targetTypeLower) || targetTypeLower === 'spell') {
-      const stackItems = (game.state.stack || []).filter((entry: any) =>
-        stackItemMatchesSpellTargetType(entry, targetTypeLower, targetReqs)
-        && stackItemMeetsSingleTargetRequirement(entry, targetReqs, game.state)
-      );
+      const stackItems = (game.state.stack || []).filter((entry: any) => {
+        if (targetControllerConstraint === 'you' && String(entry?.controller || '') !== String(playerId)) return false;
+        if (targetControllerConstraint === 'opponent' && String(entry?.controller || '') === String(playerId)) return false;
+        return stackItemMatchesSpellTargetType(entry, targetTypeLower, targetReqs)
+          && stackItemMeetsSingleTargetRequirement(entry, targetReqs, game.state);
+      });
       for (const item of stackItems) {
         validTargetList.push({
           id: item.id,

@@ -19,7 +19,10 @@ import { resetSpeedIncreasedThisTurn } from '../statefulPaperKeywords.js';
 import { recordTurnStartedForPlayer } from '../firstTurnsCastRestriction.js';
 import { snapshotLastTurnCountersAndResetDraws } from './turnStartLastTurnSnapshots.js';
 import { queueOptionalDrawStepSkipPrompt } from '../optionalDrawStepSkip.js';
+import { clearCantPlayUntilOwnersNextTurnForPlayer } from '../batch93CastRestrictions.js';
+import { rotateAttackedLastTurnForController } from '../batch93AttackRestrictions.js';
 import { debug, debugWarn } from "../../../utils/debug.js";
+import { snapshotArboriaLastTurnTracking } from '../batch102Apply.js';
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -321,6 +324,11 @@ export function runNextTurnStartOfTurn(
         stateAny.manaSpentToCastSpellsThisTurn = {};
         debug(2, `${ts()} [nextTurn] Cleared spellsCastThisTurn for new turn`);
       }
+    } catch {
+      // best-effort only
+    }
+    try {
+      snapshotArboriaLastTurnTracking((ctx as any).state);
     } catch {
       // best-effort only
     }
@@ -662,7 +670,7 @@ export function runNextTurnStartOfTurn(
         if (dn === 'day' && spellsLastTurn === 0) nextDn = 'night';
         if (dn === 'night' && spellsLastTurn >= 2) nextDn = 'day';
         if (nextDn && nextDn !== dn) {
-          setDayNightState((ctx as any).state, nextDn);
+          setDayNightState((ctx as any).state, nextDn, ctx);
           const turnPlayer = String((ctx as any).state?.turnPlayer || (ctx as any).state?.activePlayer || '').trim();
           if (turnPlayer) queueParsedKeywordAction(ctx, turnPlayer, 'day_night');
         }
@@ -693,6 +701,8 @@ export function runNextTurnStartOfTurn(
     (ctx as any).state.doThisOnlyOnceEachTurnUsedThisTurn = {};
     (ctx as any).state.oncePerTurnTriggersFiredThisTurn = {};
     resetExhaustAbilityActivations((ctx as any).state);
+    clearCantPlayUntilOwnersNextTurnForPlayer((ctx as any).state, String(next));
+    rotateAttackedLastTurnForController((ctx as any).state, String(next));
     try { recordTurnStartedForPlayer(ctx.state); } catch {}
     try { queueOptionalDrawStepSkipPrompt(ctx, String(next)); } catch {}
     resetSpeedIncreasedThisTurn((ctx as any).state);
@@ -746,6 +756,11 @@ export function runNextTurnStartOfTurn(
 
     // Reset morbid/revolt-style per-turn flags
     (ctx as any).state.creatureDiedThisTurn = false;
+    delete (ctx as any).state.surveilledThisTurnByPlayer;
+    delete (ctx as any).state.creatureCardsPutIntoGraveyardsThisTurn;
+    delete (ctx as any).state.venturedThisTurnByPlayer;
+    delete (ctx as any).state.esixFirstTokensUsedThisTurn;
+    delete (ctx as any).state.twelfthDoctorDemonstrateUsedThisTurn;
     (ctx as any).state.creaturesDiedThisTurnByController = {};
     (ctx as any).state.creaturesDiedThisTurnByControllerSubtype = {};
     // Legacy alias map used by some death-count templates.

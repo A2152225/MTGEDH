@@ -110,6 +110,21 @@ export function tryCounterByWard(game: any, gameId: string, triggeredBy: string,
   return { countered: false, targetName, reason: 'Stack item not found' };
 }
 
+export function applyWardCounter(
+  io: Server,
+  game: any,
+  gameId: string,
+  triggeredBy: string,
+  wardController: string,
+  wardName: string,
+  playerId: string,
+  failureText: string,
+): { countered: boolean; targetName: string; reason?: string } {
+  const outcome = tryCounterByWard(game, gameId, triggeredBy, wardController);
+  emitWardCounterOutcome(io, game, gameId, wardName, playerId, outcome, failureText);
+  return outcome;
+}
+
 export function emitWardCounterOutcome(
   io: Server,
   game: any,

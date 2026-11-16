@@ -11,6 +11,7 @@ import { normalizeOraclePatternText, readCardOracleText } from './replacementEff
 import { parseBatch18PreventAllSentence, matchesBatch18PreventAll } from '../replacementBatch18PreventAll.js';
 import { parseBatch19PreventAllSentence, matchesBatch19PreventAll } from '../replacementBatch19PreventAll.js';
 import { parseBatch63DamagePreventionSentence } from '../replacementBatch63DamageReplacements.js';
+import { collectBatch108DamagePreventionSpecsFromState } from '../replacementBatch108Collect.js';
 
 type SpecBody = Omit<ReplacementEffectSpec, 'id' | 'sourcePermanentId' | 'sourceController' | 'sourceName'>;
 
@@ -107,20 +108,21 @@ export function parseDamagePreventionSentence(sentence: string, next: string | u
     if (m[2] !== 'by') out.push(prevent(`prevent-${m[1] ? 'combat-' : ''}damage-to-enchanted`, { receivingPermanentIsEnchantedBySource: true, ...combat }));
     return out;
   }
-  m = s.match(/^if an? (?:(white|blue|black|red|green) )?source (an opponent controls )?would deal damage to you, prevent (\d+|[a-z]+) of that damage$/);
+  m = s.match(/^if an? (?:(white|blue|black|red|green) )?(source|creature) (an opponent controls )?would deal damage to you, prevent (\d+|[a-z]+) of that damage$/);
   if (m) {
-    const amount = readAmount(m[3]);
-    if (amount == null || (!m[1] && !m[2])) return [];
+    const amount = readAmount(m[4]);
+    if (amount == null) return [];
     return [{
       event: 'damage',
       match: {
         receivingIsPlayerOnly: true,
         receivingPlayerIsSourceController: true,
         ...(m[1] ? { damageSourceColorIncludes: COLOR_LETTERS[m[1]] } : {}),
-        ...(m[2] ? { damageSourceControllerIsOpponentOfSource: true } : {}),
+        ...(m[2] === 'creature' ? { damageSourceIsCreature: true } : {}),
+        ...(m[3] ? { damageSourceControllerIsOpponentOfSource: true } : {}),
       },
       instead: { modify: 'add_flat', value: -amount },
-      effectId: `prevent-${amount}-damage-to-you${m[1] ? '-from-' + m[1] : ''}${m[2] ? '-from-opponent' : ''}`,
+      effectId: `prevent-${amount}-damage-to-you${m[1] ? '-from-' + m[1] : ''}${m[2] === 'creature' ? '-from-creature' : ''}${m[3] ? '-from-opponent' : ''}`,
       reason: 'prevent_n_damage_to_you',
     }];
   }
@@ -149,6 +151,7 @@ export function collectOraclePatternDamagePreventionSpecsFromState(state: unknow
       }
     });
   }
+  specs.push(...collectBatch108DamagePreventionSpecsFromState(state));
   return specs;
 }
 
@@ -207,6 +210,14 @@ export function matchesDamagePreventionExtras(
   if ((spec.metadata as any)?.requiresSourceUntapped === true) {
     const self = findPermanent(state, sourceId);
     if (!self || self.tapped) return false;
+  }
+  if ((match as any).damageSourceIsRedOrArtifact === true) {
+    const dmgSource = findPermanent(state, String(input.damageSourcePermanentId || '').trim());
+    if (!dmgSource) return false;
+    const tl = String(dmgSource.card?.type_line || dmgSource.type_line || '').toLowerCase();
+    const isArtifact = /\bartifact\b/.test(tl);
+    const isRed = readColors(dmgSource).includes('R');
+    if (!isArtifact && !isRed) return false;
   }
   if (!matchesBatch18PreventAll(spec, input, state)) return false;
   if (!matchesBatch19PreventAll(spec, input, state)) return false;

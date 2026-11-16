@@ -24,6 +24,8 @@ import {
   isCurrentlyCreature,
 } from "./combatLegalityGates.js";
 import { findMustBeBlockedIfAbleViolation } from "./combatMustBeBlockedIfAble.js";
+import { batch109BlockGroupRestrictionReason } from "../../state/modules/batch109Apply.js";
+import { collectEnchantedCreatureBlockPayment } from "../../state/modules/enchantedBlockPaymentTax.js";
 import { findBlockerCapacityViolation } from "./combatBlockerCapacity.js";
 import { findMinimumBlockersViolation } from "./combatMinimumBlockers.js";
 import { findMaximumBlockersViolation } from "./combatBatch30BlockLimits.js"; // B30
@@ -35,6 +37,7 @@ import {
 import { collectBlockerSelfTax } from "../../../../shared/src/combatAttackerSelfTax.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { enqueueBlockTapCreatureCostIfNeeded } from "./attackCostPermanentPaymentEnqueue.js";
+import { batch104TappedCreaturesCanBlockAsThoughUntapped } from "../../state/modules/batch104Apply.js";
 
 export function lookupBattlefieldPermanentName(battlefield: any[], permanentId: string): string {
   const perm = battlefield.find((entry: any) => entry?.id === permanentId);
@@ -520,6 +523,15 @@ export async function handleDeclareBlockers(
       return;
     }
 
+    const companionBlock = batch109BlockGroupRestrictionReason(resolvedBlockers, (game.state as any)?.battlefield || []);
+    if (companionBlock) {
+      socket.emit("error", {
+        code: "CANT_BLOCK",
+        message: companionBlock,
+      });
+      return;
+    }
+
     // Validate assignments before charging block tax.
     for (const blocker of resolvedBlockers) {
       // Find the blocker creature
@@ -548,7 +560,7 @@ export async function handleDeclareBlockers(
       }
 
       // Check if blocker is tapped
-      if ((blockerCreature as any).tapped) {
+      if ((blockerCreature as any).tapped && !batch104TappedCreaturesCanBlockAsThoughUntapped(blockerCreature, battlefield)) {
         socket.emit("error", {
           code: "BLOCKER_TAPPED",
           message: `${(blockerCreature as any).card?.name || "Creature"} is tapped and cannot block`,
@@ -673,7 +685,8 @@ export async function handleDeclareBlockers(
         if (!selfTaxSources.includes(source)) selfTaxSources.push(source);
       }
     }
-    const totalBlockCostRequired = perBlockerTax.cost * uniqueBlockerIds.size + selfTaxTotal;
+    const enchantedBlockTax = collectEnchantedCreatureBlockPayment(game.state, playerId, resolvedBlockers);
+    const totalBlockCostRequired = perBlockerTax.cost * uniqueBlockerIds.size + selfTaxTotal + enchantedBlockTax.cost;
     const attackerById = new Map(
       battlefield.map((perm: any) => [String(perm?.id || ''), perm]),
     );
@@ -689,7 +702,7 @@ export async function handleDeclareBlockers(
       },
     });
     const totalBlockLifeRequired = lifeTax.cost;
-    const blockSources = [...perBlockerTax.sources, ...selfTaxSources, ...lifeTax.sources];
+    const blockSources = [...perBlockerTax.sources, ...selfTaxSources, ...enchantedBlockTax.sources, ...lifeTax.sources];
     if (totalBlockCostRequired > 0 || totalBlockLifeRequired > 0) {
       const totalAvailable = getMaxGenericManaAvailable(game.state, playerId, {
         excludedPermanentIds: [...uniqueBlockerIds],

@@ -9,6 +9,7 @@ import { quantityToNumber, resolvePlayers } from './oracleIRExecutorPlayerUtils'
 import { resolveOracleQuantity } from './oracleIRExecutorResolveQuantity';
 import { createTokensByName } from './tokenCreation';
 import { getProliferateActionCount } from './keywordActionRepetition';
+import { resolvePlayerCounterGainFromHook } from './playerCounterGainHook';
 
 type StepApplyResult = {
   readonly applied: true;
@@ -692,7 +693,8 @@ function proliferatePlayerState(state: GameState, playerId: PlayerID): GameState
   let nextState: any = { ...(state as any) };
 
   for (const counter of Object.keys(snapshot.counters)) {
-    const nextValue = Number(snapshot.counters[counter] || 0) + 1;
+    const plus = resolvePlayerCounterGainFromHook(state, playerId, counter, 1);
+    const nextValue = Number(snapshot.counters[counter] || 0) + plus;
     if (counter === 'poison') {
       nextPlayer.poisonCounters = nextValue;
       nextCounters.poison = nextValue;

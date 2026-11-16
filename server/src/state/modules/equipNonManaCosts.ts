@@ -5,6 +5,8 @@
 // Public entry symbols: parseEquipLifeCost, equipLifeCostError, payEquipLifeCost,
 //   parseEquipSacrificeCost, equipSacrificeCandidates (UI34 "Equip\u2014Sacrifice a creature").
 
+import { canPayLifeAmount, payLifeAmount } from './batch97PayLife.js';
+
 export function parseEquipLifeCost(cost: unknown): number | null {
   const m = String(cost || '').trim().match(/^pay (\d+) life$/i);
   return m ? Number(m[1]) : null;
@@ -21,25 +23,22 @@ function currentLife(state: any, playerId: string): number {
 export function equipLifeCostError(state: any, playerId: string, cost: unknown): string | null {
   const amount = parseEquipLifeCost(cost);
   if (amount === null) return null;
-  return currentLife(state, playerId) >= amount ? null : `You can't pay ${amount} life.`;
+  return canPayLifeAmount(state, playerId, amount) ? null : `You can't pay ${amount} life.`;
 }
 
 /** Pays the life cost; returns true when the cost was a life cost and was paid. */
 export function payEquipLifeCost(state: any, playerId: string, cost: unknown): boolean {
   const amount = parseEquipLifeCost(cost);
   if (amount === null || !state) return false;
-  const next = currentLife(state, playerId) - amount;
-  if (!state.life || typeof state.life !== 'object') state.life = {};
-  state.life[playerId] = next;
-  const player = (Array.isArray(state.players) ? state.players : []).find((p: any) => String(p?.id) === playerId);
-  if (player) player.life = next;
-  return true;
+  return payLifeAmount(state, playerId, amount).paid;
 }
 
 /** UI34: "Sacrifice a creature" style equip cost; returns the permanent type word, else null. */
 export function parseEquipSacrificeCost(cost: unknown): string | null {
-  const m = String(cost || '').trim().match(/^sacrifice an? (creature|artifact|enchantment|land)$/i);
-  return m ? m[1].toLowerCase() : null;
+  const m = String(cost || '').trim().match(/^sacrifice(?:\s+another)?(?:\s+an?)?\s+(creature|artifact|enchantment|land|nonland permanent)$/i);
+  if (!m) return null;
+  const type = String(m[1] || '').toLowerCase();
+  return type === 'nonland permanent' ? 'nonland_permanent' : type;
 }
 
 /** Permanents playerId controls that can be sacrificed for the cost (excluding the equipment / equip target). */
@@ -47,10 +46,12 @@ export function equipSacrificeCandidates(state: any, playerId: string, cost: unk
   const type = parseEquipSacrificeCost(cost);
   if (!type) return [];
   const exclude = new Set(excludeIds.map(String));
-  return (Array.isArray(state?.battlefield) ? state.battlefield : []).filter((p: any) => p
-    && String(p.controller || '') === String(playerId)
-    && !exclude.has(String(p.id))
-    && new RegExp('\\b' + type + '\\b').test(String(p?.card?.type_line || '').toLowerCase()));
+  return (Array.isArray(state?.battlefield) ? state.battlefield : []).filter((p: any) => {
+    if (!p || String(p.controller || '') !== String(playerId) || exclude.has(String(p.id))) return false;
+    const typeLine = String(p?.card?.type_line || '').toLowerCase();
+    if (type === 'nonland_permanent') return !/\bland\b/.test(typeLine);
+    return new RegExp('\\b' + type + '\\b').test(typeLine);
+  });
 }
 
 /** B37: "Equip\u2014Discard a card." Returns true for a single-card discard equip cost. */

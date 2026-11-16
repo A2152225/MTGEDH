@@ -26,6 +26,7 @@ import {
   deathTriggerClauseMatchesDyingCreature,
   dyingCreatureIsEnchanted,
   getPermanentRulesTextFragments,
+  printedDeathLineIsIrOwned,
 } from "./death-emission-helpers.js";
 import { collectDelayedDiesWatcherTriggers } from "./delayed-dies-watchers.js";
 import { stampPermanentEntryTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
@@ -325,7 +326,8 @@ export function getDeathTriggers(
       if (
         genericDiesMatch &&
         deathTriggerClauseMatchesDyingCreature(ctx, genericDiesMatch[1], permanent, dyingCreature, dyingCreatureController) &&
-        !results.some(r => r.source.permanentId === permanent.id)
+        !results.some(r => r.source.permanentId === permanent.id) &&
+        !printedDeathLineIsIrOwned(permanent)
       ) {
         const effect = collectDeathTriggerEffectText(ownOracleText, genericDiesMatch, 2);
         const returnsUnderControl = effect.toLowerCase().includes('return') &&

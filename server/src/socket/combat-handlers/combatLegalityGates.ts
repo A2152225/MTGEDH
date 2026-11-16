@@ -13,6 +13,7 @@
 
 import { globalFlyingBlockOnlyFlyingReason } from "./combatBatch36Restrictions.js"; // B36
 import { moreCreaturesBlockRestrictionReason } from "./combatBatch33AttackRestrictions.js"; // B33
+import { moreLandsBlockRestrictionReason } from "./combatBatch33AttackRestrictions.js"; // B100
 import { artifactOrColorBlockOnlyReason } from "./combatBatch31BlockRestrictions.js"; // B31
 import {
   isStationPermanentCreatureNow,
@@ -38,6 +39,10 @@ import { getEffectivePower, getEffectiveToughness } from "../util.js";
 import { getColorBlockRestrictionReason } from "./combatColorBlockRestriction.js";
 import { getExceptColorBlockRestrictionReason } from './combatExceptColorBlockRestriction.js';
 import { getQualifierBlockRestrictionReason } from "./combatQualifierBlockRestriction.js";
+import { batch104BlockRestrictionReason } from "../../state/modules/batch104Apply.js";
+import { batch108CannotBlockReason, getBatch108BlockRestrictionReason } from "../../state/modules/batch108Apply.js";
+import { getBatch109BlockRestrictionReason } from "../../state/modules/batch109Apply.js";
+import { batch105BlockRestrictionReason } from '../../state/modules/batch105Apply.js';
 import { getNoAbilitiesBlockRestrictionReason } from "../../../../shared/src/combatNoAbilitiesBlockRestriction.js";
 import { staticGrantBlockRestrictionReason } from "./combatR35StaticBlockRestrictions.js"; // R35
 import { getBatch25BlockRestrictionReason } from "./combatBatch25BlockRestrictions.js";
@@ -525,6 +530,16 @@ export function canBlockAttacker(
   }
   const cowardReason = cowardsCantBlockWarriorsReason(blocker, attacker, battlefield);
   if (cowardReason) return { canBlock: false, reason: cowardReason };
+  const b104Reason = batch104BlockRestrictionReason(blocker, attacker, battlefield, blockerControllerId, gameState);
+  if (b104Reason) return { canBlock: false, reason: b104Reason };
+  const b105Reason = batch105BlockRestrictionReason(blocker, attacker, battlefield, blockerControllerId, gameState);
+  if (b105Reason) return { canBlock: false, reason: b105Reason };
+  const b108CannotBlock = batch108CannotBlockReason(blocker);
+  if (b108CannotBlock) return { canBlock: false, reason: b108CannotBlock };
+  const b108Reason = getBatch108BlockRestrictionReason(attacker, blocker, battlefield, blockerControllerId, gameState);
+  if (b108Reason) return { canBlock: false, reason: b108Reason };
+  const b109Reason = getBatch109BlockRestrictionReason(attacker, blocker, battlefield);
+  if (b109Reason) return { canBlock: false, reason: b109Reason };
 
   // Check for counters that prevent blocking (e.g., bribery counters with Gwafa Hazid)
   // Uses scalable pattern matching instead of hardcoded card checks
@@ -585,6 +600,8 @@ export function canBlockAttacker(
   if (b31ExceptReason) return { canBlock: false, reason: b31ExceptReason };
   const b33BlockCount = moreCreaturesBlockRestrictionReason(blocker, attacker, battlefield); // B33
   if (b33BlockCount) return { canBlock: false, reason: b33BlockCount };
+  const b100LandBlock = moreLandsBlockRestrictionReason(blocker, attacker, battlefield); // B100
+  if (b100LandBlock) return { canBlock: false, reason: b100LandBlock };
   const b36FlyOnly = globalFlyingBlockOnlyFlyingReason(blocker, attacker, battlefield); // B36
   if (b36FlyOnly) return { canBlock: false, reason: b36FlyOnly };
 

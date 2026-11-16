@@ -13,6 +13,7 @@ import {
 import { debug } from "../../../utils/debug.js";
 import { getCurrentPowerToughnessForRules } from "../currentPowerToughness.js";
 import type { CombatTriggeredAbility } from "./combat-triggered-ability.js";
+import { controllerHasEnduringStory, parseSourceTypeTemplateDoubler } from "./trigger-doubler-source-templates.js";
 
 // ============================================================================
 // Trigger Doubling (Roaming Throne, Isshin, Teysa Karlov, etc.)
@@ -39,6 +40,7 @@ type TriggerDoublerCause =
   | 'instant_sorcery_cast_or_copy'
   | 'damage_to_your_creature'
   | 'etb_or_ltb'
+  | 'life_gain'
   | 'any';
 
 interface TriggerDoubler {
@@ -50,6 +52,10 @@ interface TriggerDoubler {
   sourceCreatureTypes?: string[];
   /** Harmonic Prodigy: Wizard matches only as "another" (exclude self). */
   sourceCreatureTypesExcludeSelf?: string[];
+  /** Source matches by card type (Chief of the Wilds: "another Wolf or battle"); ORs with sourceCreatureTypes. */
+  sourceCardTypes?: string[];
+  /** Bifur, Melodic Rider: only while the controller has an enduring story (Storied). */
+  requiresEnduringStory?: boolean;
   sourceLegendaryCreatureOnly?: boolean;
   sourceAnyCreatureOnly?: boolean;
   sourceMaxPower?: number;
@@ -68,6 +74,8 @@ interface TriggerDoubler {
    */
   ownedEmblemAlso?: boolean;
   colorlessSourceOnly?: boolean;
+  /** Jabs: only triggered abilities of permanents you control but do not own. */
+  sourceControlledButNotOwned?: boolean;
   /** Cloud: only while this permanent is equipped; doubles self or attached Equipment triggers. */
   selfOrAttachedEquipmentOnly?: boolean;
   requiresSelfEquipped?: boolean;
@@ -216,6 +224,7 @@ function inferTriggerCauseFromStackItem(stackItem: any): TriggerDoublerCause {
   }
   if (raw.includes('leaves') || raw.includes('ltb') || raw.includes('leaving')) return 'etb_or_ltb';
   if (raw.includes('etb') || raw.includes('enter')) return 'etb';
+  if (raw.includes('gain life') || raw.includes('gaining life') || raw.includes('lifegain') || raw.includes('life_gain')) return 'life_gain';
   return 'any';
 }
 
@@ -531,6 +540,31 @@ export function detectTriggerDoublers(
       continue;
     }
 
+    // B93: Dr. Beverly Crusher — life-gain cause doubler.
+    if (/if you gaining life causes a triggered ability of a permanent you control to trigger/i.test(patternOracle)) {
+      push({
+        triggerTypeFilter: 'any',
+        causeFilters: ['life_gain'],
+      });
+      continue;
+    }
+
+    // B98: Jabs, Mistress of Mockery — permanents you control but don't own.
+    if (/if a triggered ability of a permanent you control but don'?t own triggers/i.test(patternOracle)) {
+      push({
+        triggerTypeFilter: 'any',
+        sourceControlledButNotOwned: true,
+      });
+      continue;
+    }
+
+    // Tribal / card-type source templates (Bifur, Chief of the Wilds, ...), generic over the type list.
+    const sourceTypeTemplate = parseSourceTypeTemplateDoubler(patternOracle);
+    if (sourceTypeTemplate) {
+      push({ triggerTypeFilter: 'any', ...sourceTypeTemplate });
+      continue;
+    }
+
     // Generic fallback: still register so corpus audits don't miss the card.
     push({
       triggerTypeFilter: 'any',
@@ -619,6 +653,10 @@ export function applyTriggerDoublers(
         if (!controllerHasFullParty(bf, doubler.controller)) continue;
       }
 
+      if (doubler.requiresEnduringStory) {
+        if (!controllerHasEnduringStory(eventContext?.gameState, bf, doubler.controller)) continue;
+      }
+
       // Equipment grants: equipped creature's triggers, and optionally owned emblems (Masamune)
       if (doubler.equippedCreatureOnly || doubler.ownedEmblemAlso) {
         const equipment = bf.find((p: any) => String(p?.id || '') === String(doubler.permanentId || ''));
@@ -663,6 +701,14 @@ export function applyTriggerDoublers(
         }
       }
 
+      if (doubler.sourceControlledButNotOwned) {
+        const controller = String(source?.controller || trigger.controllerId || '');
+        const owner = String(source?.owner || source?.card?.owner || '');
+        if (!source || !controller || !owner || controller === owner || controller !== String(doubler.controller)) {
+          continue;
+        }
+      }
+
       if (doubler.sourceAnyCreatureOnly) {
         if (!String(source?.card?.type_line || '').toLowerCase().includes('creature')) continue;
       }
@@ -689,7 +735,16 @@ export function applyTriggerDoublers(
         }
       }
 
-      if (Array.isArray(doubler.sourceCreatureTypes) && doubler.sourceCreatureTypes.length > 0) {
+      const sourceTypeLine = String(source?.card?.type_line || '').toLowerCase();
+      const sourceCardTypeMatch = Array.isArray(doubler.sourceCardTypes)
+        && doubler.sourceCardTypes.some((t) => sourceTypeLine.includes(t));
+      if (Array.isArray(doubler.sourceCardTypes) && doubler.sourceCardTypes.length > 0 && !sourceCardTypeMatch) {
+        const creatureTypeMatch = Array.isArray(doubler.sourceCreatureTypes)
+          && doubler.sourceCreatureTypes.some((t) => permanentHasCreatureType(source, t));
+        if (!creatureTypeMatch) continue;
+      }
+
+      if (!sourceCardTypeMatch && Array.isArray(doubler.sourceCreatureTypes) && doubler.sourceCreatureTypes.length > 0) {
         const matchesInclude = doubler.sourceCreatureTypes.some((t) => permanentHasCreatureType(source, t));
         const matchesExcludeSelf = Array.isArray(doubler.sourceCreatureTypesExcludeSelf)
           && doubler.sourceCreatureTypesExcludeSelf.some((t) =>

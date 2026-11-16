@@ -10,8 +10,11 @@ import type { PlayerID } from "../../../../shared/src/types.js";
 import { AIDecisionType, type AIDecisionContext } from "../../../../rules-engine/src/AIEngine.js";
 import { hydrateGameStateOracleText } from "../../state/modules/cardOracleHydration.js";
 import { canAct, canPlayLand } from "../../state/modules/can-respond.js";
-import { runSBA } from "../../state/modules/counters_tokens.js";
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
+import {
+  runDeclareAttackersSba,
+  shouldBailDeclareAttackersAfterSba,
+} from "./aiDeclareAttackersSba.js";
 import { isPlayerCompletingSpellCast } from "../game-actions.js";
 import { isGameReplayLocked } from "../../gameRestoreState.js";
 import { noteGameStallAiFailure } from "../../state/modules/gameStall/gameStallDetector.js";
@@ -46,6 +49,14 @@ import {
 import { listAttackersAgainstDefender } from "../combat-handlers/combatMustBeBlockedIfAble.js";
 import { rememberAIFailedSpellCast } from "./aiLandAuraCommander.js";
 import {
+  allowMainPhaseActivation,
+  allowMainPhaseSpellScan,
+  noteMainPhaseAction,
+  noteMainPhaseActivation,
+  noteMainPhasePriorityVisit,
+  shouldForceMainPhasePass,
+} from "./aiMainPhaseActionBudget.js";
+import {
   aiEngine,
   getAIPendingSpellCastStatus,
   runExclusiveAIAction,
@@ -65,7 +76,10 @@ import {
   recordDecision,
   traceContextFromGame,
 } from "./aiDecisionTrace.js";
-import { takeShadow } from "./aiBrain.js";
+import { getSeatBrain, takeShadow } from "./aiBrain.js";
+import { applyTurnPlanToMainCandidates } from "./aiTurnPlanHook.js";
+import { getLegalAttackers, getGoadedAttackers } from "../../../../rules-engine/src/actions/combat.js";
+import { planAttacks } from "../../../../rules-engine/src/ai/attackPlanner.js";
 
 async function tryAIResponseActions(io: Server, gameId: string, playerId: PlayerID, game: any): Promise<boolean> {
   return getAIHandlerDeps().tryAIResponseActions(io, gameId, playerId, game);
@@ -166,8 +180,14 @@ export async function handleAIPriority(
   gameId: string,
   playerId: PlayerID
 ): Promise<void> {
-  return runExclusiveAIAction(io, gameId, playerId, 'priority', async () => {
+  return runExclusiveAIAction(io, gameId, playerId, 'priority', async (exclusive) => {
   const stage = (label: string) => setAIActionDebugStage(gameId, playerId, `priority:${label}`);
+  const bailIfSuperseded = (label: string): boolean => {
+    if (exclusive.isCurrent()) return false;
+    stage(`superseded:${label}`);
+    debug(2, '[AI] priority exclusive superseded after timeout; bailing', { gameId, playerId, label });
+    return true;
+  };
   stage('enter');
   if (!isAIPlayer(gameId, playerId)) {
     return;
@@ -419,6 +439,12 @@ export async function handleAIPriority(
               attackers: attackingCreatures,
             },
           };
+
+          const seatBrain = getSeatBrain(game, playerId);
+          const existingCfg = aiEngine.getAIConfig(playerId);
+          if (existingCfg) {
+            aiEngine.registerAI({ ...existingCfg, brain: seatBrain });
+          }
           
           const decision = await aiEngine.makeDecision(context);
           
@@ -452,8 +478,11 @@ export async function handleAIPriority(
       if (opponentMain && stackEmpty && await tryAITapManaRocksOtherPlayersWillUntap(io, gameId, playerId, game)) {
         return;
       }
-      // Empty-stack beginning/ending: do not activate "responses" off-turn. That churn
-      // prevented all-pass on END (seq tens of thousands, no turn advance).
+      // Empty-stack off-turn: do not run full response enumeration. That churn
+      // prevented all-pass on END (seq tens of thousands, no turn advance) and also
+      // burned exclusive-AI wall time on opponent MAIN1 (bf≈40 × every priority seat
+      // re-scanned abilities/spells inside one harness tick → 180s tick-timeout).
+      // Flash/instant on empty-stack opponent main is skipped here; pass is correct.
       const quietEmptyStackPhase =
         stackEmpty
         && (
@@ -461,6 +490,8 @@ export async function handleAIPriority(
           || phase === 'end'
           || phase === 'beginning'
           || phase.includes('begin')
+          || phase.includes('main')
+          || step.includes('main')
         );
       if (
         !quietEmptyStackPhase
@@ -497,6 +528,19 @@ export async function handleAIPriority(
     const isMainPhase = phase.includes('main') || step.includes('main');
     
     if (isMainPhase) {
+      // Cap visits/actions/wall-clock BEFORE land/mana-rock/retention taps. Those paths
+      // used to note actions and reschedule without ever hitting shouldForceMainPhasePass,
+      // so late-game MAIN1 could burn a full 180s harness tick (seq↑, turn stuck).
+      noteMainPhasePriorityVisit(game, playerId);
+      if (shouldForceMainPhasePass(game, playerId)) {
+        debug(1, '[AI] Main-phase action/visit budget exhausted; passing priority');
+        await executePassPriority(io, gameId, playerId, {
+          allowActiveMainPhaseAutoAdvance: true,
+        });
+        return;
+      }
+      if (bailIfSuperseded('main-enter')) return;
+
       // Check if AI will need to discard at end of turn (hand size > 7)
       // If so, be more aggressive about casting spells
       const zones = game.state?.zones?.[playerId];
@@ -509,10 +553,19 @@ export async function handleAIPriority(
       }
       
       const mainPhaseActionContext = getAIActionContext(game);
+      // Re-check wall before land enum — large boards can burn the exclusive budget
+      // inside a single enumerate call if we only gate at visit entry.
+      if (shouldForceMainPhasePass(game, playerId)) {
+        await executePassPriority(io, gameId, playerId, {
+          allowActiveMainPhaseAutoAdvance: true,
+        });
+        return;
+      }
       const landCandidates = await enumerateAIActionCandidates(game, playerId, {
         mode: 'main',
         kinds: ['play_land'],
       });
+      if (bailIfSuperseded('after-land-enum')) return;
 
       if (landCandidates.length > 0) {
         for (const candidate of landCandidates) {
@@ -529,6 +582,7 @@ export async function handleAIPriority(
             landCandidate.selectedFaceIndex,
           );
           if (playedLand) {
+            noteMainPhaseAction(game, playerId);
             // After playing land, continue with more actions
             scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
@@ -545,6 +599,7 @@ export async function handleAIPriority(
       // A doesn't-untap rock that Unwinding Clock (or similar) will untap on other
       // players' turns is tapped for mana every turn, including this one.
       if (stackEmpty && await tryAITapManaRocksOtherPlayersWillUntap(io, gameId, playerId, game)) {
+        noteMainPhaseAction(game, playerId);
         return;
       }
 
@@ -557,6 +612,7 @@ export async function handleAIPriority(
         debug(1, `[AI] Tapping lands for mana retention before combat (${shouldTapLands.reason})`);
         const didTap = await executeAITapLandsForMana(io, gameId, playerId);
         if (didTap) {
+          noteMainPhaseAction(game, playerId);
           // After tapping lands, continue with more actions (in case we can now cast something)
           scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
           return;
@@ -570,35 +626,44 @@ export async function handleAIPriority(
         return;
       }
 
-      // Cap own-turn main-phase ability activations per step. Unbounded activate→schedule
-      // loops froze MAIN1 with seq in the thousands (selfplay-1000-11-3).
-      const mainActivationWindowKey = `${playerId}:${Number((game.state as any).turnNumber || 0)}:${String((game.state as any).step || '')}`;
-      const mainActivationCounts = ((game.state as any)._aiMainPhaseActivationCount ||= {}) as Record<string, number>;
-      const mainActivationsTaken = Number(mainActivationCounts[mainActivationWindowKey] || 0);
-      const maxMainActivations = 6;
-      const allowMainActivations = mainActivationsTaken < maxMainActivations;
-      
-      const primaryActionKinds: AIActionCandidate['kind'][] = willNeedToDiscard
-        ? ['cast_commander', 'cast_spell']
-        : allowMainActivations
-          ? ['activate_ability', 'cast_commander', 'cast_spell']
-          : ['cast_commander', 'cast_spell'];
+      const allowMainActivations = allowMainPhaseActivation(game, playerId);
+      const allowSpellScan = allowMainPhaseSpellScan(game);
 
-      const actionCandidates = await enumerateAIActionCandidates(game, playerId, {
+      const primaryActionKinds: AIActionCandidate['kind'][] = [];
+      if (allowMainActivations && !willNeedToDiscard) primaryActionKinds.push('activate_ability');
+      primaryActionKinds.push('cast_commander');
+      if (allowSpellScan) primaryActionKinds.push('cast_spell');
+
+      if (shouldForceMainPhasePass(game, playerId) || bailIfSuperseded('before-action-enum')) {
+        if (!exclusive.isCurrent()) return;
+        await executePassPriority(io, gameId, playerId, {
+          allowActiveMainPhaseAutoAdvance: true,
+        });
+        return;
+      }
+      let actionCandidates = await enumerateAIActionCandidates(game, playerId, {
         mode: 'main',
         kinds: primaryActionKinds,
         willNeedToDiscard,
       });
+      if (bailIfSuperseded('after-action-enum')) return;
+      const turnPlanHook = applyTurnPlanToMainCandidates(game, playerId, actionCandidates);
+      actionCandidates = turnPlanHook.candidates;
       const priorityTraceCandidates = candidatesFromAIActionList(actionCandidates);
       const priorityShadow = takeShadow(actionCandidates);
       const recordPriorityChoice = (chosen: number | null, note?: string) => {
+        const planNote =
+          turnPlanHook.plan
+            ? `plan=${turnPlanHook.plan.plays.map((p) => p.id).join('>') || 'none'};${turnPlanHook.reason}`
+            : turnPlanHook.reason;
         recordDecision({
           ...traceContextFromGame(game, gameId, playerId),
           kind: 'priority',
           candidates: priorityTraceCandidates,
           chosen,
-          note,
+          note: note ? `${note};${planNote}` : planNote,
           shadow: priorityShadow,
+          ms: turnPlanHook.ms || undefined,
         });
       };
 
@@ -612,7 +677,7 @@ export async function handleAIPriority(
             debug(1, '[AI] Activating ability:', candidate.ability.action.cardName, '-', candidate.ability.reasoning);
           }
           if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
-            mainActivationCounts[mainActivationWindowKey] = mainActivationsTaken + 1;
+            noteMainPhaseActivation(game, playerId);
             recordPriorityChoice(candidateIndex);
             scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
@@ -632,6 +697,7 @@ export async function handleAIPriority(
           const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
           const castProgressed = await executeAICastCommander(io, gameId, playerId, candidate.commander);
           if (castProgressed) {
+            noteMainPhaseAction(game, playerId);
             recordPriorityChoice(candidateIndex);
             scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
@@ -641,7 +707,12 @@ export async function handleAIPriority(
             card: candidate.commander.card,
             sourceZone: 'command',
           }, beforeCast)) {
+            // Mirror response-window path: count toward MAIN1 budget and reschedule.
+            // Untallied control-flow casts (target/modal/pending) never hit MAX_MAIN_ACTIONS
+            // and v2 turn-plan reorder made that loop common enough to stall ~23% of games.
+            noteMainPhaseAction(game, playerId);
             recordPriorityChoice(candidateIndex, 'control-flow-changed');
+            scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
         }
@@ -661,13 +732,16 @@ export async function handleAIPriority(
           const beforeCast = captureAICastControlFlowSnapshot(gameId, game, playerId);
           const castProgressed = await executeAICastSpell(io, gameId, playerId, candidateSpell);
           if (castProgressed) {
+            noteMainPhaseAction(game, playerId);
             recordPriorityChoice(candidateIndex);
             scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
 
           if (didAICastAttemptChangeControlFlow(gameId, game, playerId, candidateSpell, beforeCast)) {
+            noteMainPhaseAction(game, playerId);
             recordPriorityChoice(candidateIndex, 'control-flow-changed');
+            scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
           }
         }
@@ -685,7 +759,7 @@ export async function handleAIPriority(
 
           debug(1, '[AI] Activating ability (after spell-priority ordering):', candidate.ability.action.cardName);
           if (await executeAIActivateAbility(io, gameId, playerId, candidate.ability.action)) {
-            mainActivationCounts[mainActivationWindowKey] = mainActivationsTaken + 1;
+            noteMainPhaseActivation(game, playerId);
             recordPriorityChoice(null, 'fallback-ability');
             scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
             return;
@@ -718,6 +792,15 @@ export async function handleAIPriority(
     // COMBAT PHASES: Handle attack/block declarations
     if (phase === 'combat') {
       if (step.includes('attackers') || step === 'declare_attackers') {
+        // Always SBA first — the already-declared pass loop never reached SBA, so
+        // 0-life seats stayed "alive" and combat priority ping-ponged with stagnant seq.
+        runDeclareAttackersSba(game, gameId);
+        if (shouldBailDeclareAttackersAfterSba(game, playerId)) {
+          debug(1, '[AI] Post-SBA seat/game over during declare attackers; passing');
+          await executePassPriority(io, gameId, playerId);
+          return;
+        }
+
         const state = game.state as any;
         const attackersDeclaredBy: string[] = Array.isArray(state.attackersDeclaredBy) ? state.attackersDeclaredBy : [];
         if (attackersDeclaredBy.includes(playerId)) {
@@ -730,36 +813,9 @@ export async function handleAIPriority(
           return;
         }
 
-        // Check if attackers have already been declared this step
-        // by looking for any creatures marked as attacking
-        const battlefield = game.state?.battlefield || [];
-        const alreadyDeclaredAttackers = battlefield.some((perm: any) => 
-          perm.controller === playerId && perm.attacking
-        );
-        
-        if (alreadyDeclaredAttackers) {
-          // Attackers already declared, try response actions before passing priority.
-          if (await tryAIResponseActions(io, gameId, playerId, game)) {
-            return;
-          }
-
-          // Attackers already declared, just pass priority to allow responses
-          debug(1, '[AI] Attackers already declared, passing priority for responses');
-          await executePassPriority(io, gameId, playerId);
-          return;
-        }
-        
-        // CRITICAL: Run state-based actions before AI makes attack decisions
-        // This ensures Gods with insufficient devotion have notCreature flag set
-        // and other SBA-affected permanents are updated (Rule 704.5n)
-        const sbaCtx = { 
-          state: game.state, 
-          bumpSeq: () => { if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq(); },
-          gameId 
-        } as any;
-        runSBA(sbaCtx);
-        
-        hydrateGameStateOracleText(game.state, (game as any).libraries);
+        // Only trust attackersDeclaredBy — leftover permanent.attacking flags from a
+        // prior combat made the AI pass forever without recording this step's
+        // declaration, freezing DECLARE_ATTACKERS with a stagnant seq.
 
         // Determine what type of decision is needed
         const context: AIDecisionContext = {
@@ -768,9 +824,46 @@ export async function handleAIPriority(
           decisionType: AIDecisionType.DECLARE_ATTACKERS,
           options: [],
         };
+
+        // Sync seat brain onto the rules-engine config (v2 enables attack planner).
+        const seatBrain = getSeatBrain(game, playerId);
+        const existingCfg = aiEngine.getAIConfig(playerId);
+        if (existingCfg) {
+          aiEngine.registerAI({ ...existingCfg, brain: seatBrain });
+        }
         
         const decision = await aiEngine.makeDecision(context);
         const attackList = Array.isArray(decision.action?.attackers) ? decision.action.attackers : [];
+        let attackMs: number | undefined;
+        let shadowNote = '';
+        if (seatBrain === 'shadow') {
+          try {
+            const legal = getLegalAttackers(game.state as any, playerId);
+            const goadedIds = getGoadedAttackers(game.state as any, playerId);
+            const fallbackTarget = String(
+              (game.state as any).players?.find((p: any) => p.id !== playerId)?.id || '',
+            );
+            const planned = planAttacks({
+              gameState: game.state,
+              playerId,
+              legalAttackerIds: legal,
+              goaded: goadedIds.map((id: string) => ({
+                creatureId: id,
+                defendingPlayerId:
+                  attackList.find((a: any) => a.creatureId === id)?.defendingPlayerId
+                  || fallbackTarget,
+              })),
+            });
+            attackMs = planned.ms;
+            const keys = planned.attackers
+              .map((a) => `${a.creatureId}->${a.defendingPlayerId}`)
+              .sort()
+              .join(',');
+            shadowNote = `; shadow-v2=${keys || 'none'}`;
+          } catch {
+            // Shadow planner is best-effort.
+          }
+        }
         recordDecision({
           ...traceContextFromGame(game, gameId, playerId),
           kind: 'attack',
@@ -780,9 +873,11 @@ export async function handleAIPriority(
             score: 1,
           })),
           chosen: attackList.length > 0 ? 0 : null,
-          note: attackList.length > 0
-            ? `attackers=${attackList.length}`
-            : 'no-attackers',
+          note:
+            (attackList.length > 0
+              ? `attackers=${attackList.length}`
+              : 'no-attackers') + shadowNote,
+          ms: attackMs,
         });
         
         if (attackList.length > 0) {
@@ -843,6 +938,12 @@ export async function handleAIPriority(
             attackers: attackingCreatures,
           },
         };
+
+        const seatBrain = getSeatBrain(game, playerId);
+        const existingCfg = aiEngine.getAIConfig(playerId);
+        if (existingCfg) {
+          aiEngine.registerAI({ ...existingCfg, brain: seatBrain });
+        }
         
         const decision = await aiEngine.makeDecision(context);
         const blockList = Array.isArray(decision.action?.blockers) ? decision.action.blockers : [];

@@ -110,6 +110,19 @@ function getCyclingDefinitions(oracleTextRaw: string): CyclingActivationDefiniti
       continue;
     }
 
+    const payLifeCyclingMatch = line.match(/^cycling\s*[\u2014\u2013-]\s*(pay\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+life)\b/i);
+    if (payLifeCyclingMatch) {
+      const rawCost = String(payLifeCyclingMatch[1] || '').trim();
+      const pretty = rawCost.replace(/^pay/i, 'Pay');
+      definitions.push({
+        kind: 'cycling',
+        keywordLabel: 'Cycling',
+        cost: pretty,
+        stackDescription: 'Draw a card',
+      });
+      continue;
+    }
+
     const typeCyclingMatch = line.match(/^(.+?)cycling\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);
     if (!typeCyclingMatch) {
       continue;

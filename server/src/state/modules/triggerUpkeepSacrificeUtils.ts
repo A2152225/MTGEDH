@@ -24,12 +24,13 @@ export function queueUpkeepSacrificeCreatureOrSelfFromTrigger(
     desc.includes('sacrifice a creature')
     && (desc.includes('or sacrifice') || desc.includes("if you can't") || desc.includes('if you cannot'))
   );
+  const isPlainSacrificeCreature = /^sacrifice a creature\.?$/.test(desc);
 
-  if (!isMetadataUpkeepSacrifice && !isDescUpkeepSacrifice) {
+  if (!isMetadataUpkeepSacrifice && !isDescUpkeepSacrifice && !isPlainSacrificeCreature) {
     return false;
   }
 
-  if (!isMetadataUpkeepSacrifice && skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
+  if (!isMetadataUpkeepSacrifice && !isPlainSacrificeCreature && skipRetiredTriggerLegacyHandler(params.description, params.sourceName)) {
     return false;
   }
 
@@ -57,11 +58,19 @@ export function queueUpkeepSacrificeCreatureOrSelfFromTrigger(
     alternativeSacrificeType = 'this enchantment';
   }
 
+  if (isPlainSacrificeCreature && controllerCreatures.length === 0) {
+    debug(2, `[executeTriggerEffect] ${params.sourceName}: Sacrifice a creature, but none are available`);
+    return true;
+  }
+
   const stepConfig = {
     type: ResolutionStepType.UPKEEP_SACRIFICE,
     playerId: params.controller,
-    description: `${params.sourceName}: Sacrifice a creature${controllerCreatures.length === 0 ? ` (you must sacrifice ${alternativeSacrificeType})` : ` or sacrifice ${alternativeSacrificeType}`}`,
+    description: isPlainSacrificeCreature
+      ? `${params.sourceName}: Sacrifice a creature.`
+      : `${params.sourceName}: Sacrifice a creature${controllerCreatures.length === 0 ? ` (you must sacrifice ${alternativeSacrificeType})` : ` or sacrifice ${alternativeSacrificeType}`}`,
     mandatory: true,
+    allowSourceSacrifice: !isPlainSacrificeCreature,
     sourceId,
     sourceName: params.sourceName,
     sourceImage: sourcePermanent?.card?.image_uris?.small || params.triggerItem?.card?.image_uris?.small,

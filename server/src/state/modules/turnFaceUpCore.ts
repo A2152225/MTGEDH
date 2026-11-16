@@ -5,6 +5,7 @@
  * Manifested / cloaked creature cards turn face up for their mana cost (CR 701.34b / 701.58c).
  */
 import { parseTurnFaceUpCost, revealCandidatesForTurnFaceUp, type TurnFaceUpCost } from './faceDownCasting.js';
+import { faceUpBlockedByOpponentsLock } from './batch98CombatAndKeywords.js';
 
 export interface TurnFaceUpValidation {
   ok: boolean;
@@ -40,6 +41,8 @@ export function getTurnFaceUpCostForPermanent(perm: any): TurnFaceUpCost | null 
 export function validateTurnFaceUp(state: any, playerId: string, permanentId: string): TurnFaceUpValidation {
   const perm = (Array.isArray(state?.battlefield) ? state.battlefield : []).find((p: any) => p && String(p.id) === String(permanentId));
   if (!perm) return { ok: false, code: 'NOT_FOUND', error: 'Permanent not found.' };
+  const lock = faceUpBlockedByOpponentsLock(state, playerId);
+  if (lock.blocked) return { ok: false, code: 'OPPONENTS_CANT_TURN_FACE_UP', error: "Permanents can't be turned face up during the Watchdog controller's turn." };
   if (perm.isFaceDown !== true) return { ok: false, code: 'NOT_FACE_DOWN', error: 'That permanent is not face down.' };
   if (String(perm.controller || '') !== String(playerId)) return { ok: false, code: 'NOT_CONTROLLER', error: 'You can only turn face up permanents you control.' };
   const priority = state?.priority;

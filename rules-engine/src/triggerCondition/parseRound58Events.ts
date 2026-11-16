@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Round 58 final sweep: Arcee dual target, Paradox first upkeep, Deep Gnome unplayed
  * lands, Volo no-shared-type, Thought Prison shares color/MV with exiled, Circle
  * same-name-as-exiled Vampire, Sacred Ground opp-caused land-to-GY, Diabolic linked
@@ -10,6 +10,7 @@
  */
 
 import type { TriggerConditionIR } from './types.js';
+import { parseRound60TriggerSentence } from './parseRound60Events.js';
 
 type Parsed = { condition: TriggerConditionIR; effect: string };
 type Reparse = (sentence: string) => Parsed | null;
@@ -28,6 +29,8 @@ function stampSubject(base: Parsed | null, patch: Record<string, unknown>): Pars
 }
 
 export function parseRound58TriggerSentence(text: string, reparse: Reparse): Parsed | null {
+  const round60 = parseRound60TriggerSentence(text, reparse);
+  if (round60) return round60;
   // Arcee: cast spell that targets creatures or Vehicles you control
   const arcee = /^(?:whenever|when)\s+you cast a spell that targets one or more creatures or vehicles you control,\s*(.+)$/.exec(text);
   if (arcee) {

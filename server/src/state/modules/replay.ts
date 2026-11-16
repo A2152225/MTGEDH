@@ -26,6 +26,7 @@ import {
 } from "./zones.js";
 import { setCommander, castCommander, moveCommanderToCZ } from "./commander.js";
 import { movePermanentToGraveyard } from "./counters_tokens.js";
+import { notePlayerSurveilledThisTurn } from './batch101LandRecoverSurveil.js';
 
 function resolveReplayCommanderId(ctx: any, event: any): string {
   const explicitCommanderId = String(event?.commanderId || '').trim();
@@ -652,4 +653,8 @@ export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: 
   (z as any).libraryCount = lib.length;
   ctx.libraries.set(playerId, lib);
   ctx.bumpSeq();
+  try {
+    notePlayerSurveilledThisTurn((ctx as any).state, String(playerId));
+  } catch {}
+
 }

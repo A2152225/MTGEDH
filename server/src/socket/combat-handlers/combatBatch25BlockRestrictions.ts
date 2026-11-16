@@ -8,6 +8,10 @@
 // lines are not self restrictions and are skipped by the self prefix.
 // Public entry symbols: getBatch25BlockRestrictionReason, isAttackingAlone.
 
+import { getBatch107BlockRestrictionReason } from '../../state/modules/batch107Apply.js';
+import { getBatch108BlockRestrictionReason } from '../../state/modules/batch108Apply.js';
+import { getBatch109BlockRestrictionReason } from '../../state/modules/batch109Apply.js';
+
 const SELF = "(?:^|[\\n.]\\s*)(?:(?:this creature|this permanent|it|~)\\s+)?can(?:'t|not) be blocked ";
 const EXCEPT_KEYWORD_RE = new RegExp(SELF + 'except by creatures with (flying|reach)(?:,?\\s+(?:and\\/or|or|and)\\s+(flying|reach))?\\b', 'i');
 // B78: Prowler's Helm — "can't be blocked except by Walls."
@@ -63,6 +67,12 @@ export function getBatch25BlockRestrictionReason(
   blockerHas: (permanent: any, keyword: string) => boolean,
   defendingPlayerId?: string,
 ): string | null {
+  const batch107Reason = getBatch107BlockRestrictionReason(attacker, blocker, battlefield);
+  if (batch107Reason) return batch107Reason;
+  const batch108Reason = getBatch108BlockRestrictionReason(attacker, blocker, battlefield);
+  if (batch108Reason) return batch108Reason;
+  const batch109Reason = getBatch109BlockRestrictionReason(attacker, blocker, battlefield);
+  if (batch109Reason) return batch109Reason;
   const texts = selfTexts(attacker, attackerTexts);
   for (const text of texts) {
     const m = text.match(EXCEPT_KEYWORD_RE);

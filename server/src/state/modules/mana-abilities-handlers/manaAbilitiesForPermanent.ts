@@ -28,6 +28,7 @@ import {
   resolvePowerThresholdInsteadManaAbility,
 } from "./manaAbilityColorRestrictionUtils.js";
 import { manaAbilitiesFromContinuousTapGrants } from "./manaAbilityContinuousTapGrants.js";
+import { quotedAbilityForChosenNameLand } from "../batch98CombatAndKeywords.js";
 import { manaAbilitiesFromQuotedTapGrants } from "./manaAbilityQuotedTapGrants.js";
 import { appendTapAddMultiManaAbility } from "./manaAbilitySelfDamage.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "../staticEffectSpec.js";
@@ -741,6 +742,10 @@ export function getManaAbilitiesForPermanent(
   const continuousGrants = getContinuousGrantedAbilitiesForPermanent(permanent, gameState);
   abilities.push(...manaAbilitiesFromContinuousTapGrants(continuousGrants, String(permanent?.id || '')));
   abilities.push(...manaAbilitiesFromQuotedTapGrants(continuousGrants, String(permanent?.id || ''), parseManaSpendRestrictionFromOracle));
+  const chosenNameQuoted = quotedAbilityForChosenNameLand(permanent, gameState);
+  if (chosenNameQuoted) {
+    abilities.push(...manaAbilitiesFromQuotedTapGrants([chosenNameQuoted], String(permanent?.id || ''), parseManaSpendRestrictionFromOracle));
+  }
 
   // Apply granted abilities from modifiers
   for (const modifier of modifiers) {

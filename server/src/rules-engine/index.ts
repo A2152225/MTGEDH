@@ -15,6 +15,7 @@ import { sumLongDurationPtModifiers } from '../state/modules/longDurationPtModif
 import { applyLayer7bSetBasePowerToughness } from '../state/modules/setBasePtTimestampResolution.js';
 import { stripCreateTokenGrantedAbilities } from '../../../rules-engine/src/oracleReminderText.js';
 import { getContinuousGrantedAbilitiesForPermanent } from '../state/modules/staticEffectSpec.js';
+import { shouldSkipLethalDestroyUnlessSingleSource } from '../state/modules/batch98CombatAndKeywords.js';
 
 /**
  * Parse power/toughness value from string or number
@@ -359,6 +360,7 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
 
     if (hasLethalMarkedDamage) {
       // Check for indestructible
+      if (shouldSkipLethalDestroyUnlessSingleSource(perm, totalToughness)) continue;
       const shieldCounters = getCounterValue(perm, 'shield');
       if (shieldCounters > 0) {
         const nextCounters = normalizeCounters({
@@ -441,6 +443,9 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
   }
 
   // CR 704.5a: If a player has 0 or less life, that player loses the game.
+  // Prefer the lower of state.life[id] and player.life — self-play stalls at
+  // DECLARE_ATTACKERS when player.life hit 0 but the life map was still >0 (or
+  // the reverse), so SBA never marked hasLost and combat could not advance.
   const playersLost: string[] = [];
   const life = (state as any).life || {};
   const players = Array.isArray((state as any).players) 
@@ -451,8 +456,14 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     if (!player || !player.id) continue;
     if (player.hasLost || player.eliminated || player.conceded) continue;
     
-    const playerLife = life[player.id];
-    if (typeof playerLife === 'number' && playerLife <= 0) {
+    const fromMap = life[player.id];
+    const fromPlayer = player.life;
+    const values = [fromMap, fromPlayer].filter(
+      (v): v is number => typeof v === 'number' && Number.isFinite(v),
+    );
+    if (values.length === 0) continue;
+    const playerLife = Math.min(...values);
+    if (playerLife <= 0) {
       playersLost.push(player.id);
     }
   }

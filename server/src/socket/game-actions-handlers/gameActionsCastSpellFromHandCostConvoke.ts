@@ -19,6 +19,7 @@ import {
   parseWarpCost,
   parseImpendingInfo,
 } from "../../state/modules/alternate-costs.js";
+import { resolveGrantedKeywordAlternateCost } from "../../state/modules/batch96GrantedKeywordHooks.js";
 import { consumeAssistCredit } from "../assistPaymentFlow.js";
 import { spellHasConvokeForCast } from "../../state/modules/casting-modifiers.js";
 import {
@@ -85,6 +86,7 @@ import {
   snapshotCastSpellManaPool,
 } from "./gameActionsCastSpellPaymentSources.js";
 import { appendManaCost } from "./gameActionsModalCastModeCosts.js";
+import { applyMinManaCostFloorToParsedCost } from "../../state/modules/batch94CastCost.js";
 import { rememberCastSpellPaymentFailure } from "./castSpellPaymentFailure.js";
 
 export type CastSpellCostConvokeFromHandArgs = {
@@ -188,7 +190,7 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
         : null;
       const resolvedImpendingCost = resolvedImpendingInfo?.cost || '';
       const resolvedKeywordAlternateCost = (!resolvedWarpCost && !resolvedImpendingCost && alternateCostId && alternateCostId !== 'normal' && alternateCostId !== 'alternate')
-        ? (faceDownCastManaCostOverride(alternateCostId) || parseKeywordAlternateManaCost(String(cardInHand.oracle_text || ''), alternateCostId) || '')
+        ? (faceDownCastManaCostOverride(alternateCostId) || parseKeywordAlternateManaCost(String(cardInHand.oracle_text || ''), alternateCostId) || resolveGrantedKeywordAlternateCost((game as any)?.state, playerId, cardInHand, alternateCostId, { fromZone: 'hand' }) || '')
         : '';
       const resolvedRatherThanPayCost = alternateCostId === 'alternate'
         ? (getSelfRatherThanPayAlternateManaCost(game as any, playerId, cardInHand) || '')
@@ -374,9 +376,10 @@ export function tryAssembleCastSpellCostAndConvokeFromHand(
       }
       
       // Apply cost reduction
-      const reducedCost = castSourceZone === 'command'
+      const reducedCostRaw = castSourceZone === 'command'
         ? parsedCost
         : applyCostAdjustment(parsedCost, costReduction, genericCostTax);
+      const reducedCost = applyMinManaCostFloorToParsedCost(game.state, reducedCostRaw);
       const payableCost = cardCanSpendManaAsAnyType(cardInHand)
         ? normalizeParsedSpellCostForAnyTypeManaSpending(reducedCost)
         : reducedCost;

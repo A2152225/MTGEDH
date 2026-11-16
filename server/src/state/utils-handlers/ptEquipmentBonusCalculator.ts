@@ -10,6 +10,7 @@ import {
   resolveAttachedPTBonusFromOracle,
 } from './ptAttachedBonusParseHelpers.js';
 import { EQUIPMENT_BONUSES, AURA_BONUSES } from './ptAttachedBonusNameTables.js';
+import { permanentIsEquipmentNow, equipmentOracleTextWithGrants } from '../modules/batch97GrantedEquipmentAbilities.js';
 
 /**
  * Calculate total equipment/aura bonus for a creature
@@ -40,7 +41,7 @@ export function calculateEquipmentBonus(
     if (!perm || !perm.card) continue;
     
     const typeLine = (perm.card.type_line || '').toLowerCase();
-    const isEquipment = typeLine.includes('equipment');
+    const isEquipment = typeLine.includes('equipment') || permanentIsEquipmentNow(perm, gameState || { battlefield });
     const isAura = typeLine.includes('aura') && typeLine.includes('enchantment');
     
     if (!isEquipment && !isAura) continue;
@@ -53,7 +54,7 @@ export function calculateEquipmentBonus(
     if (!isAttached) continue;
     
     const cardName = (perm.card.name || '').toLowerCase();
-    const oracleText = (perm.card.oracle_text || '').toLowerCase();
+    const oracleText = equipmentOracleTextWithGrants(perm, gameState || { battlefield }).toLowerCase();
 
     const variableBonus = resolveAttachedPTBonusFromOracle(
       oracleText,

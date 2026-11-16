@@ -13,6 +13,7 @@ import { appendEvent } from "../../db";
 import { adjustActivationManaCostForPayment } from "../../state/modules/ability-cost-adjustments.js";
 import { countArtifacts, hasMetalcraft } from "../../state/modules/game-state-effects";
 import { cheaperEquipCost, getGrantedEquipmentEquipCost } from "../../state/modules/equipmentEquipCostGrants.js";
+import { equipAbilityIsOnceEachTurn, stampEquipOnceEachTurnFromStep } from "../../state/modules/equipOnceEachTurn.js";
 import { serializeAbilityActivatedTriggeredStackItem, triggerAbilityActivatedTriggers } from "../../state/modules/triggers/ability-activated.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
@@ -284,6 +285,7 @@ export async function handleEquipAbilityRequest(
     } as any;
 
     game.state.stack = game.state.stack || [];
+    stampEquipOnceEachTurnFromStep(stackItem, equipment, { abilityId: 'equip', equipOnceEachTurn: equipAbilityIsOnceEachTurn(equipment), equipAbilityIndex: 0 });
     game.state.stack.push(stackItem);
 
     try {

@@ -4,15 +4,16 @@
 // Public entry symbols: getKeywordDeathTriggersForPermanent, mergeDeathTriggers.
 
 import { detectKeywords } from "../keyword-detection.js";
+import { appendGrantedAfterlifeDeathTriggers } from "../batch106Apply.js";
 
-function getKeywordDeathTriggersForPermanent(permanent: any, controllerId: string): any[] {
+function getKeywordDeathTriggersForPermanent(permanent: any, controllerId: string, state?: any): any[] {
   const card = permanent?.card;
   if (!card) {
     return [];
   }
 
   const detection = detectKeywords(String(card?.oracle_text || ''), String(card?.name || ''));
-  return detection.keywords
+  const baseTriggers = detection.keywords
     .filter((keyword) => keyword.timing === 'dies' && (keyword.category === 'triggered' || keyword.category === 'replacement'))
     .map((keyword) => ({
       source: {
@@ -28,6 +29,7 @@ function getKeywordDeathTriggersForPermanent(permanent: any, controllerId: strin
       value: keyword.value,
     }))
     .filter((trigger) => trigger.source.permanentId && trigger.effect);
+  return appendGrantedAfterlifeDeathTriggers(permanent, controllerId, baseTriggers, state);
 }
 
 function mergeDeathTriggers(baseTriggers: any[], keywordTriggers: any[]): any[] {

@@ -15,14 +15,14 @@ import {
 import { createInitialGameState } from '../src/state/index.js';
 
 describe('keyword trigger event wiring', () => {
-  it('tracks Exhaust independently by ability and resets it each turn', () => {
+  it('tracks Exhaust independently by ability and keeps it for the game (once per game)', () => {
     const state: any = {};
     expect(isExhaustAbilityText('Exhaust — {2}, {T}: Draw a card. Activate only once.')).toBe(true);
     markExhaustAbilityActivated(state, 'source', 0);
     expect(hasActivatedExhaustAbility(state, 'source', 0)).toBe(true);
     expect(hasActivatedExhaustAbility(state, 'source', 1)).toBe(false);
     resetExhaustAbilityActivations(state);
-    expect(hasActivatedExhaustAbility(state, 'source', 0)).toBe(false);
+    expect(hasActivatedExhaustAbility(state, 'source', 0)).toBe(true); // per-turn reset does not clear the once-per-game flag
   });
 
   it('restores an Exhaust activation from its persisted ability index', () => {
@@ -47,7 +47,7 @@ describe('keyword trigger event wiring', () => {
     expect(hasActivatedExhaustAbility(game.state, 'exhaust-source', 0)).toBe(true);
   });
 
-  it('reset+replay restores Exhaust ability-index identity and turn reset clears it', () => {
+  it('reset+replay restores Exhaust ability-index identity and a new turn keeps it (once per game)', () => {
     const game = createInitialGameState('keyword-exhaust-reset-replay');
     const activateEvent = {
       type: 'activateBattlefieldAbility',
@@ -84,7 +84,7 @@ describe('keyword trigger event wiring', () => {
     expect(hasActivatedExhaustAbility(game.state, 'exhaust-source', 1)).toBe(false);
 
     game.applyEvent({ type: 'nextTurn' } as any);
-    expect(hasActivatedExhaustAbility(game.state, 'exhaust-source', 0)).toBe(false);
+    expect(hasActivatedExhaustAbility(game.state, 'exhaust-source', 0)).toBe(true);
   });
 
   it('reset+replay preserves Increment intervening-if manaSpentTotal on the cast spell', () => {

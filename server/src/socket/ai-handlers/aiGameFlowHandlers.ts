@@ -41,7 +41,7 @@ export async function handleAIGameFlow(
     handleAIResolutionStep,
     isAIPlayer,
   } = getAIHandlerDeps();
-  return runExclusiveAIAction(io, gameId, playerId, 'gameFlow', async () => {
+  return runExclusiveAIAction(io, gameId, playerId, 'gameFlow', async (_exclusive) => {
   if (!isAIPlayer(gameId, playerId)) {
     return;
   }

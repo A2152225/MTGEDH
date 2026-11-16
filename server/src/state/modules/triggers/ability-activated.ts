@@ -5,6 +5,8 @@ import { debug } from "../../../utils/debug.js";
 import { isInterveningIfSatisfied } from './intervening-if.js';
 import { orderTriggersByAPNAP } from './ordering.js';
 import { processDetectedAbilityActivatedTriggers } from '../triggerEmissionFamilyUtils.js';
+import { collectMatchingParsedEventLines } from './triggerConditionFamilyMatch.js';
+import { inferGenericTriggeredAbilityTargetMetadata } from './target-metadata.js';
 
 export type AbilityActivatedEvent = {
   activatedBy: PlayerID;
@@ -18,6 +20,10 @@ export type AbilityActivatedEvent = {
   manaFromTreasureSpent?: boolean;
   /** True when the activation used the Exhaust keyword action. */
   isExhaustAbility?: boolean;
+  /** Set once a mana ability has resolved ("whenever a mana ability of this creature resolves"). */
+  manaAbilityResolved?: boolean;
+  /** Total mana the resolved mana ability produced. */
+  manaProduced?: number;
 };
 
 export type AbilityActivatedTriggeredStackItem = {
@@ -42,6 +48,26 @@ export type AbilityActivatedTriggeredStackItem = {
   needsTargetSelection?: boolean;
   targetType?: 'player' | 'creature' | 'permanent';
 };
+
+/**
+ * Stacked description for an IR-owned line: the effect plus its reflexive "if you do" clause, so the
+ * payment prompt and the copy clause both survive. Also stamps requiresTarget/targetType when the
+ * (combined) effect targets.
+ */
+function irLineStackFields(line: { effect: string; reflexive?: { effect?: string } }): { description: string; extra: Partial<AbilityActivatedTriggeredStackItem> } {
+  const effect = String(line.effect || '').trim();
+  const reflexiveEffect = String(line.reflexive?.effect || '').trim();
+  const description = reflexiveEffect ? `${effect.replace(/[.\s]+$/, '')}. If you do, ${reflexiveEffect}` : effect;
+  const targeting = inferGenericTriggeredAbilityTargetMetadata(description);
+  return {
+    description,
+    extra: {
+      mandatory: !/\byou may\b/i.test(description),
+      ...(targeting.requiresTarget ? { requiresTarget: true, needsTargetSelection: true } : {}),
+      ...(targeting.requiresTarget && targeting.targetType ? { targetType: targeting.targetType as 'player' | 'creature' | 'permanent' } : {}),
+    },
+  };
+}
 
 function isOpponent(ctx: GameContext, a: PlayerID, b: PlayerID): boolean {
   if (!a || !b) return false;
@@ -157,8 +183,113 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
 
   if (!sourcePermanent) return createdTriggers;
 
+  const abilityText = String(e.abilityText || '');
+  const isBoast = Boolean((e as any).isBoastAbility)
+    || /\bboast\b/i.test(abilityText);
+  const irOwnedIds = new Set<string>();
+  if (isBoast) {
+    for (const permanent of battlefield) {
+      if (!permanent?.card) continue;
+      const lines = collectMatchingParsedEventLines({
+        ctx,
+        oracleText: String(permanent.card.oracle_text || ''),
+        event: 'performs',
+        action: 'boast',
+        subjectPermanent: sourcePermanent,
+        subjectControllerId: String(e.activatedBy),
+        sourcePermanent: permanent,
+        matchContext: { abilityWord: 'boast' },
+      });
+      if (lines.length === 0) continue;
+      irOwnedIds.add(String(permanent.id || ''));
+      for (const line of lines) {
+        const stacked = irLineStackFields(line);
+        createdTriggers.push(buildTriggeredAbility(
+          ctx,
+          permanent,
+          permanent.controller as PlayerID,
+          stacked.description,
+          String(permanent.card.oracle_text || ''),
+          e,
+          stacked.extra,
+        ));
+      }
+    }
+  }
+
+  for (const permanent of battlefield) {
+    if (!permanent?.card) continue;
+    const lines = collectMatchingParsedEventLines({
+      ctx,
+      oracleText: String(permanent.card.oracle_text || ''),
+      event: 'performs',
+      action: 'activate_ability',
+      subjectPermanent: sourcePermanent,
+      subjectControllerId: String(e.activatedBy),
+      sourcePermanent: permanent,
+      matchContext: { isManaAbility: e.isManaAbility === true },
+    });
+    if (lines.length === 0) continue;
+    irOwnedIds.add(String(permanent.id || ''));
+    for (const line of lines) {
+      const stacked = irLineStackFields(line);
+      createdTriggers.push(buildTriggeredAbility(
+        ctx,
+        permanent,
+        permanent.controller as PlayerID,
+        stacked.description,
+        String(permanent.card.oracle_text || ''),
+        e,
+        stacked.extra,
+      ));
+    }
+  }
+
+  if (e.isManaAbility && e.manaAbilityResolved) {
+    const produced = Math.max(0, Math.floor(Number(e.manaProduced) || 0));
+    const turnKey = String(state.turnNumber ?? state.turn ?? 0);
+    for (const permanent of battlefield) {
+      if (!permanent?.card) continue;
+      const lines = collectMatchingParsedEventLines({
+        ctx,
+        oracleText: String(permanent.card.oracle_text || ''),
+        event: 'performs',
+        action: 'mana_ability_resolve',
+        subjectPermanent: sourcePermanent,
+        subjectControllerId: String(e.activatedBy),
+        sourcePermanent: permanent,
+      });
+      for (const line of lines) {
+        if ((line as any).condition?.onceEachTurn) {
+          if (permanent.manaAbilityResolveTriggerTurn === turnKey) continue;
+          permanent.manaAbilityResolveTriggerTurn = turnKey;
+        }
+        // "a number of <counters> on it equal to the amount of mana this creature produced" is bound at trigger time.
+        const bound = {
+          ...line,
+          effect: String(line.effect || '').replace(
+            /\ba number of (.+?) on it equal to the amount of mana (?:this creature|this permanent|it) produced\b/i,
+            (_m, what: string) => `${produced} ${what} on it`,
+          ),
+        };
+        const stacked = irLineStackFields(bound);
+        // A granted line is not in the recipient's printed oracle, so the bound clause is also the stacked effect.
+        createdTriggers.push(buildTriggeredAbility(
+          ctx,
+          permanent,
+          permanent.controller as PlayerID,
+          stacked.description,
+          stacked.description,
+          e,
+          stacked.extra,
+        ));
+      }
+    }
+  }
+
   for (const permanent of battlefield) {
     if (!permanent?.card?.name) continue;
+    if (irOwnedIds.has(String(permanent.id || ''))) continue;
 
     const nameLower = String(permanent.card.name).toLowerCase();
     const controller = permanent.controller as PlayerID;

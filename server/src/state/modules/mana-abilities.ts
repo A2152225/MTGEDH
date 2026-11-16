@@ -43,6 +43,11 @@ import {
   getEffectiveToughnessForMana,
   resolvePermanentChosenColorSymbol,
 } from "./mana-abilities-handlers/manaAbilityColorRestrictionUtils.js";
+import {
+  getOracleManaProductionMultiplier,
+  manaMultiplierAffectsTappedPermanent,
+  nameTableManaMultiplierAlreadyCoveredByOracle,
+} from "./replacementBatch90ManaProductionReplacements.js";
 
 export {
   getCommanderColorIdentity,
@@ -73,15 +78,21 @@ export function getManaMultiplier(
   permanent: any,
   playerId: string
 ): number {
+  // B90: generic oracle hook first (Mana Reflection / Nyxbloom / Virtue of Strength).
+  let multiplier = getOracleManaProductionMultiplier(gameState, playerId, permanent);
+
   const modifiers = detectManaModifiers(gameState, playerId);
-  let multiplier = 1;
-  
   for (const modifier of modifiers) {
-    if (modifier.type === 'mana_multiplier' && modifier.multiplier) {
-      multiplier *= modifier.multiplier;
-    }
+    if (modifier.type !== 'mana_multiplier' || !modifier.multiplier) continue;
+    const source = (Array.isArray(gameState?.battlefield) ? gameState.battlefield : [])
+      .find((perm: any) => String(perm?.id || '') === String(modifier.permanentId || ''));
+    const oracle = String(source?.card?.oracle_text || source?.card?.oracleText || '');
+    // Do not stack the name table on top of an already-parsed oracle multiplier.
+    if (nameTableManaMultiplierAlreadyCoveredByOracle(oracle)) continue;
+    if (!manaMultiplierAffectsTappedPermanent(permanent, modifier.affects)) continue;
+    multiplier *= modifier.multiplier;
   }
-  
+
   return multiplier;
 }
 

@@ -59,6 +59,7 @@ import type {
   SharedCommanderAvailabilityCandidate,
   SharedCommanderCastCandidate,
 } from "./can-respond-handlers/canRespondTypes.js";
+import { equipmentOracleTextWithGrants } from './batch97GrantedEquipmentAbilities.js';
 export type {
   SharedSpellSourceZone,
   SharedSpellCandidateMode,
@@ -754,7 +755,13 @@ function canActivateSorcerySpeedAbility(ctx: GameContext, playerId: PlayerID): b
       if (!permanent || !permanent.card) continue;
       if (permanent.controller !== playerId) continue;
       
-      const oracleText = permanent.card.oracle_text || "";
+      const oracleText = ((): string => {
+        try {
+          return equipmentOracleTextWithGrants(permanent, state) || permanent.card.oracle_text || "";
+        } catch {
+          return permanent.card.oracle_text || "";
+        }
+      })();
       const effectLower = oracleText.toLowerCase();
       
       // Check for equip ability: "Equip {cost}" or "{cost}: Equip"

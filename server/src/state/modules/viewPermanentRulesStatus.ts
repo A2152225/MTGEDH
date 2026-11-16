@@ -13,7 +13,7 @@ import { pushConditionalAttachedPTSpecs } from './staticEffectSpec-handlers/stat
 import { specMatchesStaticCondition } from './staticEffectSpecConditionEval.js';
 import { parseAttachedTypeSettingFromOracle } from './attachedTypeSettingStamp.js';
 import { computePtBreakdown, type PtBreakdownLine } from './viewPermanentPtBreakdown.js';
-import { computeGrantedCrew, type GrantedCrewInfo } from './viewPermanentCharacteristics.js';
+import { computeGrantedCrew, computeGrantedSaddle, type GrantedCrewInfo, type GrantedSaddleInfo } from './viewPermanentCharacteristics.js';
 import { computeCopyInfo, computeEffectiveLandTypeLine, computeConditionalStatics, type CopyInfo, type ConditionalStaticLine } from './viewPermanentCharacteristics.js';
 
 export interface PermanentRulesStatus {
@@ -38,6 +38,7 @@ export interface PermanentRulesStatus {
   conditionalStatics?: ConditionalStaticLine[];
   /** Crew granted by another permanent ("Vehicles you control have crew N"). */
   grantedCrew?: GrantedCrewInfo;
+  grantedSaddle?: GrantedSaddleInfo;
 }
 
 function conditionalBonuses(perm: any, state: any, battlefield: any[]): PermanentRulesStatus['conditionalPtBonuses'] {
@@ -129,5 +130,6 @@ export function computePermanentRulesStatus(perm: any, state: any): PermanentRul
   try { const l = computeEffectiveLandTypeLine(perm, state); if (l) out.effectiveLandTypeLine = l; } catch { /* best-effort */ }
   try { const s = computeConditionalStatics(perm, state); if (s) out.conditionalStatics = s; } catch { /* best-effort */ }
   try { const g = computeGrantedCrew(perm, state); if (g) out.grantedCrew = g; } catch { /* best-effort */ }
+  try { const s = computeGrantedSaddle(perm, state); if (s) out.grantedSaddle = s; } catch { /* best-effort */ }
   return Object.keys(out).length > 0 ? out : undefined;
 }

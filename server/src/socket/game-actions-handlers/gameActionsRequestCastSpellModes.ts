@@ -12,6 +12,7 @@ import { isCastingLimitedToSorceryTiming } from "../../state/modules/opponentSor
 import type { Socket } from "socket.io";
 import { extractAdditionalCostModesFromOracleText } from "../../state/modules/additionalCostModeOracleText.js";
 import { parseKeywordAlternateManaCost, parseMadnessCost, parseMutateCost } from "../../state/modules/alternate-costs.js";
+import { stampGrantedCastKeywords } from "../../state/modules/batch96GrantedKeywordHooks.js";
 import { spellOracleUsesTeamworkChooseBoth } from "../../state/modules/marvelMechanicsHelpers.js";
 import {
   expandManaCostWithMultikicker,
@@ -43,6 +44,8 @@ import {
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
 import { computeSpellCastXUpperBound } from "./spellCastXUpperBound.js";
 import { queueReplicateCastCountPrompt } from "./replicateCastPrompt.js";
+import { queueOffspringCastPrompt } from "./offspringCastPrompt.js";
+import { offspringCostForSpell, stampOffspringPaid } from "../../state/modules/offspringCast.js";
 import {
   expandManaCostWithReplicate,
   parseReplicateManaCost,
@@ -584,6 +587,11 @@ export function tryPromptRequestCastSpellModes(
     }
 
     stampGrantedReplicateCost(game.state, playerId, [cardInHand, cardForCast], String(cardInHand?.oracle_text || oracleTextRaw || ''));
+    try {
+      stampGrantedCastKeywords(game.state, playerId, [cardInHand, cardForCast], 'hand');
+    } catch {
+      /* hook optional */
+    }
     const replicateCost = readReplicateManaCost(cardInHand, String(cardInHand?.oracle_text || oracleTextRaw || ''));
     const chosenReplicateCount = Number.isFinite(options?.replicateCount)
       ? Math.max(0, Math.floor(Number(options?.replicateCount)))
@@ -626,6 +634,35 @@ export function tryPromptRequestCastSpellModes(
       stampReplicateCount(cardForCast, chosenReplicateCount);
     }
 
+    const offspringCost = offspringCostForSpell(game.state, playerId, cardForCast, effectiveTypeLine);
+    const offspringChoiceMade = options != null && Object.prototype.hasOwnProperty.call(options, 'offspringPaid');
+    if (offspringCost && !offspringChoiceMade) {
+      queueOffspringCastPrompt({
+        game,
+        gameId,
+        playerId,
+        cardId,
+        cardName,
+        cardForCast,
+        cardInHand,
+        offspringCost,
+        selectedFaceIndex,
+        castSourceZone,
+        isFreeCast,
+        bypassExilePermissionCheck,
+        ignoreTimingRestrictions,
+        forcedAlternateCostId: options?.forcedAlternateCostId,
+        chosenXValue,
+        chosenTimesKicked,
+        chosenReplicateCount,
+      });
+      return;
+    }
+    if (offspringCost && options?.offspringPaid === true) {
+      stampOffspringPaid(game.state, cardInHand, cardId);
+      stampOffspringPaid(game.state, cardForCast, cardId);
+    }
+
     const resolvedManaCost = appendManaCost(
       expandManaCostWithReplicate(
         replicateBaseManaCost,
@@ -633,6 +670,7 @@ export function tryPromptRequestCastSpellModes(
         chosenReplicateCount ?? 0,
       ),
       getSquadAdditionalManaCost(String(cardInHand?.oracle_text || oracleTextRaw || ''), getRecordedSquadTimesPaid(cardInHand)),
+      offspringChoiceMade && options?.offspringPaid === true ? offspringCost || undefined : undefined,
     );
 
   return {

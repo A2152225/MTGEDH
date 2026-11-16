@@ -15,7 +15,7 @@
 
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
-import { parseMadnessCost } from "../../state/modules/alternate-costs.js";
+import { buildMadnessOptionChoiceStep, parseMadnessOffer } from "../madnessCastOffer.js";
 import { updateCounters } from "../../state/modules/counters_tokens.js";
 import { applyDeferredGraveyardEntryTriggers, pushCardToPlayerGraveyardWithReplacements } from "../../state/modules/graveyardEntryUtils.js";
 import {
@@ -25,12 +25,16 @@ import {
   type ResolutionStepResponse,
 } from "../../state/resolution/index.js";
 import { requestCastSpellForSocket } from "../game-actions.js";
+import { tryHandlePayLifeAdditionalCostPayment } from "./payLifeAdditionalCostPaymentHandler.js";
 import { appendQueuedResolutionPromptEvent } from "../resolutionCloneQueuedPromptUtils.js";
 import {
   appendCastSpellContinuationEvent,
   createForwardingGameActionSocket,
+  resumePlayerCastSpellFromHand,
 } from "../resolutionSyntheticCastSocketUtils.js";
 import { broadcastGame, emitToPlayer, getEffectivePower, getPlayerName } from "../util.js";
+import { movePermanentToHand } from "../../state/modules/zones.js";
+import { resolveCasualtyPaymentFlags, stampOnCastKeywordFlags } from "../../state/modules/onCastKeywordPrompts.js";
 import {
   validateCounterRemovalPaymentSelection,
   type NormalizedCounterRemovalPayment,
@@ -44,6 +48,7 @@ export async function handleAdditionalCostPaymentResponse(
   step: ResolutionStep,
   response: ResolutionStepResponse,
 ): Promise<void> {
+  if (await tryHandlePayLifeAdditionalCostPayment(io, game, gameId, step, response)) return;
   const pid = response.playerId;
   const stepData = step as any;
   const mandatory = Boolean(stepData.mandatory);
@@ -51,9 +56,11 @@ export async function handleAdditionalCostPaymentResponse(
   const castArgs = stepData.castSpellFromHandArgs as any;
   const cardId = String(stepData.cardId || stepData.sourceId || castArgs?.cardId || '');
   const cardName = String(stepData.cardName || stepData.sourceName || 'Spell');
-  const costType = String(stepData.costType || 'discard') as 'discard' | 'sacrifice' | 'remove_counters' | 'reveal' | 'behold' | 'teamwork';
+  const costType = String(stepData.costType || 'discard') as 'discard' | 'sacrifice' | 'return' | 'remove_counters' | 'reveal' | 'behold' | 'teamwork' | 'conspire';
   const additionalCostKeyword = String(stepData.additionalCostKeyword || '').toLowerCase().trim();
   const isBargain = additionalCostKeyword === 'bargain';
+  const isCasualty = additionalCostKeyword === 'casualty';
+  const isConspire = additionalCostKeyword === 'conspire' || costType === 'conspire';
 
   const zones = (game.state as any)?.zones?.[pid];
   if (!zones || !Array.isArray(zones.hand)) {
@@ -192,14 +199,33 @@ export async function handleAdditionalCostPaymentResponse(
       return;
     }
 
-    if (!isBargain) return;
+    if (isConspire) {
+      (spellCard as any).conspireResolved = true;
+      (spellCard as any).conspirePaid = false;
+      (spellCard as any).additionalCostPaid = true;
+      (spellCard as any).additionalCostMethod = 'conspire';
+      if (requestCastPending) {
+        requestCastPending.conspireResolved = true;
+        requestCastPending.conspirePaid = false;
+        requestCastPending.additionalCostPaid = true;
+        requestCastPending.additionalCostMethod = 'conspire';
+      }
+    } else if (isCasualty) {
+      (spellCard as any).casualtyResolved = true;
+      (spellCard as any).casualtyPaid = false;
+      if (requestCastPending) {
+        requestCastPending.casualtyResolved = true;
+        requestCastPending.casualtyPaid = false;
+      }
+    } else if (!isBargain) return;
     // Mark Bargain as resolved (declined).
-    (spellCard as any).bargainResolved = true;
-    (spellCard as any).wasBargained = false;
-
-    if (requestCastPending) {
-      requestCastPending.bargainResolved = true;
-      requestCastPending.wasBargained = false;
+    if (isBargain) {
+      (spellCard as any).bargainResolved = true;
+      (spellCard as any).wasBargained = false;
+      if (requestCastPending) {
+        requestCastPending.bargainResolved = true;
+        requestCastPending.wasBargained = false;
+      }
     }
 
     const continuationPayload: Record<string, unknown> = {
@@ -209,7 +235,11 @@ export async function handleAdditionalCostPaymentResponse(
       cardId,
       ...(spellSourceZone === 'hand'
         ? {
-            cardUpdates: {
+            cardUpdates: isConspire
+              ? { conspireResolved: true, conspirePaid: false, additionalCostPaid: true }
+              : isCasualty
+              ? { casualtyResolved: true, casualtyPaid: false }
+              : {
               bargainResolved: true,
               wasBargained: false,
             },
@@ -289,39 +319,19 @@ export async function handleAdditionalCostPaymentResponse(
       const discarded = (zones.hand as any[]).splice(idx, 1)[0];
       discardedNames.push(String(discarded?.name || 'Unknown'));
 
-      const madnessCost = parseMadnessCost(String(discarded?.oracle_text || ''));
-      if (madnessCost) {
+      const madnessOffer = parseMadnessOffer(String(discarded?.oracle_text || ''));
+      if (madnessOffer) {
         const exiledCard = {
           ...discarded,
           zone: 'exile',
         };
         (zones.exile as any[]).push(exiledCard);
         movedDiscardedCardsToExile.push(exiledCard);
-        deferredMadnessPrompts.push({
-          type: ResolutionStepType.OPTION_CHOICE,
-          playerId: pid as any,
-          sourceId: String(exiledCard.id || discarded?.id || ''),
-          sourceName: 'Madness',
-          sourceImage: exiledCard.image_uris?.small || exiledCard.image_uris?.normal || discarded?.image_uris?.small || discarded?.image_uris?.normal,
-          description: `Madness: You may cast ${discarded?.name || 'that card'} for ${madnessCost}.`,
-          mandatory: false,
-          options: [
-            { id: 'cast', label: `Cast for Madness (${madnessCost})` },
-            { id: 'decline', label: 'Decline' },
-          ],
-          minSelections: 1,
-          maxSelections: 1,
-          madnessPrompt: true,
-          madnessCardId: String(exiledCard.id || discarded?.id || ''),
-          madnessCost,
-          castFromExileCardId: String(exiledCard.id || discarded?.id || ''),
-          castFromExileCard: { ...exiledCard },
-          castFromExileDeclineDestination: 'graveyard',
-          castFromExileForcedAlternateCostId: 'madness',
-          castFromExileCastWithoutPayingManaCost: false,
-          castFromExileBypassExilePermissionCheck: true,
-          castFromExileIgnoreTimingRestrictions: true,
-        });
+        deferredMadnessPrompts.push(buildMadnessOptionChoiceStep({
+          playerId: String(pid),
+          exiledCard,
+          discarded,
+        }));
         continue;
       }
 
@@ -386,6 +396,47 @@ export async function handleAdditionalCostPaymentResponse(
       gameId,
       from: 'system',
       message: `${getPlayerName(game, pid)} chooses to sacrifice ${sacrificedNames.join(', ')} as an additional cost to cast ${cardName}.`,
+      ts: Date.now(),
+    });
+  } else if (costType === 'return') {
+    const battlefield = Array.isArray((game.state as any).battlefield) ? (game.state as any).battlefield : [];
+    const returnedNames: string[] = [];
+    const bouncedIds: string[] = [];
+    const filter = String(stepData.filter || 'creature').toLowerCase();
+    for (const permId of selectedIds) {
+      const perm = battlefield.find((entry: any) => entry && String(entry.id || '') === String(permId));
+      if (!perm) continue;
+      if (String(perm?.controller || '') !== String(pid)) continue;
+      const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+      if (filter && !typeLine.includes(filter)) continue;
+      if (!movePermanentToHand(game as any, String(permId))) continue;
+      bouncedIds.push(String(permId));
+      returnedNames.push(String(perm?.card?.name || 'Unknown'));
+    }
+    if (bouncedIds.length === 0) {
+      emitToPlayer(io, pid as any, 'error', {
+        code: 'INVALID_SELECTION',
+        message: 'Selected permanent(s) to return are no longer available.',
+      });
+      return;
+    }
+    selectedIds = bouncedIds;
+    const isKickerReturn = String(castArgs?.alternateCostId || requestCastPending?.forcedAlternateCostId || '').toLowerCase() === 'kicker'
+      || stepData.kickerReturnCreature === true
+      || (spellCard as any).castWithKicker === true;
+    if (isKickerReturn) {
+      (spellCard as any).wasKicked = true;
+      (spellCard as any).castWithKicker = true;
+      if (requestCastPending) {
+        requestCastPending.wasKicked = true;
+        requestCastPending.forcedAlternateCostId = requestCastPending.forcedAlternateCostId || 'kicker';
+      }
+    }
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: `${getPlayerName(game, pid)} returns ${returnedNames.join(', ')} to its owner's hand as an additional cost to ${isKickerReturn ? 'kick' : 'cast'} ${cardName}.`,
       ts: Date.now(),
     });
   } else if (costType === 'remove_counters') {
@@ -474,6 +525,31 @@ export async function handleAdditionalCostPaymentResponse(
         requestCastPending.chosenCreatureType = chosenType;
       }
     }
+  } else if (costType === 'conspire' || isConspire) {
+    const battlefield = Array.isArray((game.state as any).battlefield) ? (game.state as any).battlefield : [];
+    const tappedNames: string[] = [];
+    for (const permId of selectedIds) {
+      const permanent = battlefield.find((entry: any) => entry && String(entry.id || '') === String(permId));
+      if (!permanent) continue;
+      (permanent as any).tapped = true;
+      tappedNames.push(String(permanent?.card?.name || 'Creature'));
+    }
+    const paid = selectedIds.length === 2;
+    (spellCard as any).conspireResolved = true;
+    (spellCard as any).conspirePaid = paid;
+    if (requestCastPending) {
+      requestCastPending.conspireResolved = true;
+      requestCastPending.conspirePaid = paid;
+    }
+    io.to(gameId).emit('chat', {
+      id: `m_${Date.now()}`,
+      gameId,
+      from: 'system',
+      message: paid
+        ? `${getPlayerName(game, pid)} conspires, tapping ${tappedNames.join(', ')} to copy ${cardName}.`
+        : `${getPlayerName(game, pid)} declines conspire for ${cardName}.`,
+      ts: Date.now(),
+    });
   } else if (costType === 'teamwork') {
     const minPower = Math.max(0, Number(stepData.teamworkMinPower || 0));
     const battlefield = Array.isArray((game.state as any).battlefield) ? (game.state as any).battlefield : [];
@@ -518,6 +594,25 @@ export async function handleAdditionalCostPaymentResponse(
     if (requestCastPending) {
       requestCastPending.bargainResolved = true;
       requestCastPending.wasBargained = true;
+    }
+  } else if (isCasualty) {
+    const casualtyFlags = resolveCasualtyPaymentFlags({
+      step: stepData,
+      spellCard,
+      selectedIds,
+      battlefield: Array.isArray((game.state as any).battlefield) ? (game.state as any).battlefield : [],
+      powerOf: (perm: any) => {
+        try { return getEffectivePower(perm, game.state); } catch { return Number(perm?.power || perm?.card?.power || 0) || 0; }
+      },
+    });
+    stampOnCastKeywordFlags(spellCard, casualtyFlags);
+    if (requestCastPending) {
+      requestCastPending.casualtyResolved = true;
+      requestCastPending.casualtyPaid = true;
+      if (casualtyFlags.casualtyValue != null) requestCastPending.casualtyValue = casualtyFlags.casualtyValue;
+      if (casualtyFlags.casualtyX) requestCastPending.casualtyX = true;
+      if (casualtyFlags.casualtyCopyIsntLegendary) requestCastPending.casualtyCopyIsntLegendary = true;
+      if (casualtyFlags.casualtyStartingLoyalty != null) requestCastPending.casualtyStartingLoyalty = casualtyFlags.casualtyStartingLoyalty;
     }
   } else if (costType !== 'behold') {
     // Mark as paid on the card, and resume the cast with an explicit payment marker to avoid re-prompt loops.
@@ -570,7 +665,14 @@ export async function handleAdditionalCostPaymentResponse(
     revealedCardIdsForCost: costType === 'reveal' ? selectedIds : [],
     ...(spellSourceZone === 'hand'
       ? {
-          cardUpdates: isBargain
+          cardUpdates: isCasualty
+            ? {
+                casualtyResolved: true,
+                casualtyPaid: true,
+                ...((spellCard as any).casualtyValue != null ? { casualtyValue: (spellCard as any).casualtyValue } : {}),
+                ...((spellCard as any).casualtyX === true ? { casualtyX: true, casualtyCopyIsntLegendary: true, casualtyStartingLoyalty: (spellCard as any).casualtyStartingLoyalty } : {}),
+              }
+            : isBargain
             ? {
                 bargainResolved: true,
                 wasBargained: true,
@@ -597,6 +699,11 @@ export async function handleAdditionalCostPaymentResponse(
                   ...(costType === 'sacrifice'
                     ? { pendingAdditionalCostSacrificeIds: selectedIds.slice() }
                     : {}),
+                  ...(costType === 'return' && (
+                    String(castArgs?.alternateCostId || requestCastPending?.forcedAlternateCostId || '').toLowerCase() === 'kicker'
+                    || stepData.kickerReturnCreature === true
+                    || (spellCard as any).wasKicked === true
+                  ) ? { wasKicked: true, castWithKicker: true } : {}),
                 },
         }
       : {}),
@@ -611,6 +718,26 @@ export async function handleAdditionalCostPaymentResponse(
   };
 
   appendCastSpellContinuationEvent(gameId, game, continuationPayload);
+
+  if (costType === 'return') {
+    if (requestCastPending && requestCastEffectId) {
+      delete (game.state as any).pendingSpellCasts[requestCastEffectId];
+    }
+    await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
+      cardId,
+      targets: {
+        additionalCostPaid: true,
+        additionalCostMethod: 'return',
+        ...((spellCard as any).wasKicked === true ? { wasKicked: true, castWithKicker: true } : {}),
+      },
+      payment: Array.isArray(castArgs?.payment) ? castArgs.payment : undefined,
+      xValue: Number.isFinite(castArgs?.xValue) ? Number(castArgs.xValue) : undefined,
+      alternateCostId: String(castArgs?.alternateCostId || requestCastPending?.forcedAlternateCostId || ((spellCard as any).wasKicked === true ? 'kicker' : '')).trim() || undefined,
+      convokeTappedCreatures: castArgs?.convokeTappedCreatures,
+    });
+    broadcastGame(io, game, gameId);
+    return;
+  }
 
   if (requestCastPending && requestCastEffectId) {
     delete (game.state as any).pendingSpellCasts[requestCastEffectId];

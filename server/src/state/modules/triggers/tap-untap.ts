@@ -451,6 +451,7 @@ function appendParsedTapLines(
   triggers: TapTrigger[],
   subjectPermanent: any,
   event: 'becomes_tapped' | 'becomes_untapped',
+  causeControllerId?: string,
 ): void {
   const battlefield = ctx.state?.battlefield || [];
   for (const permanent of battlefield) {
@@ -462,6 +463,7 @@ function appendParsedTapLines(
       subjectPermanent,
       subjectControllerId: String(subjectPermanent?.controller || ''),
       sourcePermanent: permanent,
+      matchContext: { causeControllerId: String(causeControllerId || '') },
     });
     for (const line of lines) {
       const effect = line.effect.toLowerCase();
@@ -548,7 +550,7 @@ export function getTapTriggers(
     }
   }
 
-  appendParsedTapLines(ctx, triggers, tappedPermanent, 'becomes_tapped');
+  appendParsedTapLines(ctx, triggers, tappedPermanent, 'becomes_tapped', tappedByPlayerId);
   return triggers;
 }
 

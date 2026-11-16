@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { movePermanentToHand } from './zones.js';
+import { nonlandHasGrantedMayhem } from './batch101LongTailApply.js';
 
 const MANA_COST_PATTERN = '(\\{[^}]+\\}(?:\\s*\\{[^}]+\\})*)';
 
@@ -9,7 +10,14 @@ export function parseMayhemCost(oracleText: unknown): string | undefined {
 }
 
 export function cardMayBeCastWithMayhem(state: any, playerId: PlayerID, card: any): boolean {
-  const cost = parseMayhemCost(card?.oracle_text || card?.oracleText);
+  let cost = parseMayhemCost(card?.oracle_text || card?.oracleText);
+  if (!cost) {
+    try {
+      if (nonlandHasGrantedMayhem(state, card, playerId)) {
+        cost = String(card?.mana_cost || card?.manaCost || '').trim() || 'granted-mayhem';
+      }
+    } catch {}
+  }
   const currentTurn = Number(state?.turnNumber ?? state?.turn ?? 0) || 0;
   return Boolean(
     cost

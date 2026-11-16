@@ -3,7 +3,7 @@
 // sacrifice-a-land-per-color-creature; Hollow Warrior tap-another-creature). Parse + collect + pay;
 // the declare-attackers / declare-blockers paths enqueue TARGET_SELECTION that reuses TargetSelectionModal.
 // Leaf: no resolution.ts import.
-// Public: SELF_RETURN_ATTACK_COST_RE, COLOR_SACRIFICE_LAND_ATTACK_COST_RE,
+// Public: SELF_RETURN_ATTACK_COST_RE, SELF_SACRIFICE_ATTACK_COST_RE, COLOR_SACRIFICE_LAND_ATTACK_COST_RE,
 //   collectAttackPermanentCosts, collectBlockTapCreatureCosts,
 //   buildAttackCostPermanentValidTargets, buildAttackCostTapValidTargets,
 //   payAttackCostPermanentSelections, describeAttackPermanentCost.
@@ -29,6 +29,28 @@ export interface AttackPermanentCostRequirement {
 
 export const SELF_RETURN_ATTACK_COST_RE =
   /can(?:not|'t)\s+attack\s+unless\s+you\s+return\s+an?\s+([a-z]+)\s+you\s+control\s+to\s+its\s+owner(?:'|'s|\u2019s)?\s+hand/i;
+
+const SACRIFICE_COUNT_WORDS: Record<string, number> = {
+  a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
+  six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+};
+
+export const SELF_SACRIFICE_ATTACK_COST_RE =
+  /can(?:not|'t)\s+attack\s+unless\s+you\s+sacrifice\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+((?:nonland\s+)?[a-z]+)/i;
+
+function sacrificeAttackCount(raw: string): number {
+  const key = String(raw || '').toLowerCase();
+  if (key in SACRIFICE_COUNT_WORDS) return SACRIFICE_COUNT_WORDS[key];
+  const n = parseInt(key, 10);
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+function sacrificeAttackType(raw: string): string {
+  const text = String(raw || '').toLowerCase().trim();
+  const singular = (word: string) => (word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word);
+  if (text.startsWith('nonland ')) return `nonland ${singular(text.slice('nonland '.length))}`;
+  return singular(text);
+}
 
 export const COLOR_SACRIFICE_LAND_ATTACK_COST_RE =
   /(white|blue|black|red|green)\s+creatures?\s+can(?:not|'t)\s+attack\s+unless\s+(?:their\s+controller\s+)?sacrifices\s+a\s+land(?:\s+of\s+their\s+choice)?(?:\s+for\s+each(?:\s+\1)?(?:\s+creature)?)?/i;
@@ -90,6 +112,22 @@ export function collectAttackPermanentCosts(
       kind: 'return_to_hand',
       permanentType: String(m[1] || 'enchantment').toLowerCase(),
       count: 1,
+      sources: [nameOf(creature)],
+      attackerIds: [id],
+    });
+  }
+
+  for (const entry of attackers) {
+    const id = String(entry?.creatureId || '').trim();
+    if (!id) continue;
+    const creature = byId.get(id);
+    if (!creature || String((creature as any).controller || '') !== String(attackingPlayerId)) continue;
+    const sac = oracleOf(creature).match(SELF_SACRIFICE_ATTACK_COST_RE);
+    if (!sac) continue;
+    mergeRequirement(out, {
+      kind: 'sacrifice',
+      permanentType: sacrificeAttackType(sac[2] || 'land'),
+      count: sacrificeAttackCount(sac[1]),
       sources: [nameOf(creature)],
       attackerIds: [id],
     });

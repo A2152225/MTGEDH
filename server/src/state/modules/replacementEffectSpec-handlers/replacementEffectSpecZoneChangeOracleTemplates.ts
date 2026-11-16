@@ -8,6 +8,8 @@
 import type { ReplacementEffectSpec } from './replacementEffectSpecTypes.js';
 import { normalizeOraclePatternText, readCardOracleText } from './replacementEffectSpecOracleTextUtils.js';
 import { collectDiesExileReplacementSpecsFromState } from './replacementEffectSpecZoneChangeDiesExileTemplates.js';
+import { collectBatch107ZoneChangeReplacementSpecsFromState } from '../replacementBatch107Collect.js';
+import { collectBatch108ZoneChangeReplacementSpecsFromState } from '../replacementBatch108Collect.js';
 
 interface OracleZoneChangeReplacementTemplate {
   templateId: string;
@@ -109,5 +111,7 @@ export function collectOraclePatternZoneChangeReplacementSpecsFromState(state: u
   }
 
   specs.push(...collectDiesExileReplacementSpecsFromState(state));
+  specs.push(...collectBatch107ZoneChangeReplacementSpecsFromState(state));
+  specs.push(...collectBatch108ZoneChangeReplacementSpecsFromState(state));
   return specs;
 }

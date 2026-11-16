@@ -747,7 +747,7 @@ function buildInlineManaSourcesForPermanent(
       ? ability.lifeCost
       : undefined;
     const payLifeLabel = lifeCost
-      ? `${ability.label || 'Add mana'} (pay ${lifeCost} life)`
+      ? `${ability.label || 'Add mana'} (plus ${lifeCost} life)`
       : ability.label;
 
     sources.push({

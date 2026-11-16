@@ -25,6 +25,7 @@ import { modifyCombatDamageToPermanentAmount, applyCombatDamageToPlaneswalker } 
 import { queueDamageReceivedTrigger, runWithCombatDamageReceivedBatch } from "./turnCombatDamageReceivedQueue.js";
 import { trackCommanderDamage, trackCreatureDamageToPlayer } from "./turnCombatDamageTracking.js";
 import { assignsCombatDamageAsThoughUnblocked } from "./combatAssignAsThoughUnblocked.js";
+import { maybeQueueSpecialCombatDamageAssignments, applyResolvedSpecialCombatDamageAssignment, specialRedirectTargetId } from "./combatSpecialDamageAssignment.js";
 import { applyBlockersCombatDamageToAttacker } from "./turnCombatDamageBlockersToAttacker.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -72,6 +73,11 @@ function dealCombatDamageAttackerLoopUnbatched(
   result: DealCombatDamageResult,
   isFirstStrikePhase?: boolean,
 ): void {
+    if (maybeQueueSpecialCombatDamageAssignments(ctx, attackers, battlefield)) {
+      (ctx as any)._combatDamageAssignmentPending = true;
+      (ctx as any)._pendingCombatDamageFirstStrike = isFirstStrikePhase;
+      return;
+    }
     for (const attacker of attackers) {
       debug(2, `${ts()} [COMBAT_DAMAGE] Processing attacker: ${attacker.card?.name || attacker.id}`);
       
@@ -135,10 +141,17 @@ function dealCombatDamageAttackerLoopUnbatched(
       // If isFirstStrikePhase is undefined, this is a normal combat with no first strikers, all creatures deal damage
       
       // Check if this attacker is blocked
-      const blockedBy = attacker.blockedBy || [];
+      let blockedBy = attacker.blockedBy || [];
       const attackerCanAssignDamage = attackerDealsDamageThisPhase && attackerPower > 0;
-      const asThoughUnblocked = blockedBy.length > 0 && attackerCanAssignDamage && assignsCombatDamageAsThoughUnblocked(attacker, battlefield);
+      const redirectTargetId = specialRedirectTargetId(attacker);
+      if (redirectTargetId) blockedBy = [redirectTargetId];
+      const asThoughUnblocked = blockedBy.length > 0 && attackerCanAssignDamage && !redirectTargetId && assignsCombatDamageAsThoughUnblocked(attacker, battlefield);
       const isBlocked = blockedBy.length > 0 && !asThoughUnblocked;
+      if (applyResolvedSpecialCombatDamageAssignment(ctx, {
+        attacker, battlefield, state, life, startingLife, result, keywords,
+        attackerPower, attackerController, attackerCanAssignDamage,
+        defendingTarget: String(defendingTarget || ''),
+      }) === 'applied') continue;
       
       if (!isBlocked) {
         if (!attackerCanAssignDamage) {

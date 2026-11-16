@@ -62,6 +62,8 @@ export interface DamageAssignmentModalProps {
   hasTrample: boolean;
   defendingPlayerId?: string;
   defendingPlayerName?: string;
+  assignmentMode?: 'blockers' | 'free-division';
+  requireLethalOrder?: boolean;
   onConfirm: (assignments: DamageAssignment[], trampleDamage: number) => void;
   onCancel?: () => void;
 }
@@ -73,20 +75,48 @@ export function DamageAssignmentModal({
   hasTrample,
   defendingPlayerId,
   defendingPlayerName = 'Opponent',
+  assignmentMode = 'blockers',
+  requireLethalOrder = true,
   onConfirm,
   onCancel,
 }: DamageAssignmentModalProps) {
   const attackerInfo = useMemo(() => extractCreatureInfo(attacker), [attacker]);
   const blockersInfo = useMemo(() => blockers.map(extractCreatureInfo), [blockers]);
+  const isFreeDivision = assignmentMode === 'free-division';
+  const playerRecipientId = defendingPlayerId ? `player:${defendingPlayerId}` : 'player:defender';
+  const recipientsInfo = useMemo(() => {
+    if (!isFreeDivision) return blockersInfo;
+    return [
+      {
+        id: playerRecipientId,
+        name: defendingPlayerName || 'Defending player',
+        power: 0,
+        toughness: 0,
+        damage: 0,
+        keywords: [],
+      },
+      ...blockersInfo,
+    ];
+  }, [isFreeDivision, blockersInfo, playerRecipientId, defendingPlayerName]);
   
   const [assignments, setAssignments] = useState<Record<string, number>>({});
   const [blockerOrder, setBlockerOrder] = useState<string[]>([]);
   
   const hasDeathtouch = attackerInfo.keywords.includes('Deathtouch');
   
-  // Initialize blocker order
+  // Initialize recipient order. Free-division prefills the defending player so the
+  // total equals power immediately; blockers mode still auto-assigns lethal in order.
   useEffect(() => {
     if (open) {
+      if (isFreeDivision) {
+        const ids = recipientsInfo.map(recipient => recipient.id);
+        setBlockerOrder(ids);
+        const initial: Record<string, number> = {};
+        for (const id of ids) initial[id] = 0;
+        if (ids[0]) initial[ids[0]] = attackerInfo.power;
+        setAssignments(initial);
+        return;
+      }
       setBlockerOrder(blockersInfo.map(b => b.id));
       // Auto-assign lethal damage initially
       const initial: Record<string, number> = {};
@@ -101,15 +131,25 @@ export function DamageAssignmentModal({
       }
       setAssignments(initial);
     }
-  }, [open, blockersInfo, attackerInfo.power, hasDeathtouch]);
+  }, [open, blockersInfo, recipientsInfo, isFreeDivision, attackerInfo.power, hasDeathtouch]);
   
   // Calculate totals
   const totalAssigned = Object.values(assignments).reduce((sum, d) => sum + d, 0);
-  const trampleDamage = hasTrample ? Math.max(0, attackerInfo.power - totalAssigned) : 0;
+  const trampleDamage = (!isFreeDivision && hasTrample) ? Math.max(0, attackerInfo.power - totalAssigned) : 0;
   const remainingToAssign = attackerInfo.power - totalAssigned - trampleDamage;
   
   // Check if assignments are valid (lethal to each before moving to next in order)
   const isValidAssignment = useMemo(() => {
+    if (isFreeDivision) return true;
+    if (!requireLethalOrder) {
+      if (hasTrample && trampleDamage > 0) {
+        return blockersInfo.every((blocker) => {
+          const lethal = hasDeathtouch ? 1 : blocker.toughness - blocker.damage;
+          return (assignments[blocker.id] || 0) >= lethal;
+        });
+      }
+      return true;
+    }
     let reachedNonLethal = false;
     
     for (const blockerId of blockerOrder) {
@@ -136,7 +176,7 @@ export function DamageAssignmentModal({
     }
     
     return true;
-  }, [assignments, blockerOrder, blockersInfo, hasDeathtouch]);
+  }, [assignments, blockerOrder, blockersInfo, hasDeathtouch, isFreeDivision, requireLethalOrder, trampleDamage]);
   
   const handleAdjustDamage = (blockerId: string, delta: number) => {
     setAssignments(prev => {
@@ -256,26 +296,32 @@ export function DamageAssignmentModal({
           backgroundColor: 'rgba(255,255,255,0.05)',
           borderRadius: 6,
         }}>
-          {hasDeathtouch 
+          {isFreeDivision
+            ? "Divide this creature's combat damage among the defending player and/or any number of creatures they control. You may assign any amount, including zero, to each recipient. The total must equal the attacker's power."
+            : (hasDeathtouch 
             ? 'With deathtouch, 1 damage is lethal. Assign at least 1 damage to each blocker before moving to the next.'
-            : 'Assign lethal damage to blockers in order. You must assign lethal damage to a blocker before assigning damage to the next one.'}
-          {hasTrample && ' Excess damage goes to the defending player.'}
+            : 'Assign lethal damage to blockers in order. You must assign lethal damage to a blocker before assigning damage to the next one.')}
+          {!isFreeDivision && hasTrample && ' Excess damage goes to the defending player.'}
         </div>
 
         {/* Blockers */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-            🛡️ Blocking Creatures (damage order: top to bottom)
+            {isFreeDivision
+              ? 'Recipients (defending player and their creatures)'
+              : '🛡️ Blocking Creatures (damage order: top to bottom)'}
           </div>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {blockerOrder.map((blockerId, orderIdx) => {
-              const blocker = blockersInfo.find(b => b.id === blockerId);
+              const rowInfo = isFreeDivision ? recipientsInfo : blockersInfo;
+              const blocker = rowInfo.find(b => b.id === blockerId);
               if (!blocker) return null;
+              const isPlayerRecipient = String(blocker.id).startsWith('player:');
               
               const assigned = assignments[blockerId] || 0;
               const lethalDamage = hasDeathtouch ? 1 : blocker.toughness - blocker.damage;
-              const isLethal = assigned >= lethalDamage;
+              const isLethal = !isFreeDivision && !isPlayerRecipient && assigned >= lethalDamage;
               
               return (
                 <div
@@ -294,8 +340,8 @@ export function DamageAssignmentModal({
                       : '1px solid #4a4a6a',
                   }}
                 >
-                  {/* Order controls */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {/* Order controls (blockers mode only) */}
+                  {!isFreeDivision && <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <button
                       onClick={() => handleMoveBlocker(blockerId, 'up')}
                       disabled={orderIdx === 0}
@@ -328,7 +374,7 @@ export function DamageAssignmentModal({
                     >
                       ▼
                     </button>
-                  </div>
+                  </div>}
 
                   {/* Blocker image */}
                   {blocker.imageUrl && (
@@ -344,13 +390,17 @@ export function DamageAssignmentModal({
                     <div style={{ fontSize: 14, fontWeight: 600 }}>
                       {blocker.name}
                     </div>
+                    {!isPlayerRecipient && (
                     <div style={{ fontSize: 12, color: '#aaa' }}>
                       {blocker.power}/{blocker.toughness}
                       {blocker.damage > 0 && ` (${blocker.damage} damage marked)`}
                     </div>
+                    )}
+                    {!isFreeDivision && (
                     <div style={{ fontSize: 11, color: '#888' }}>
                       Lethal: {lethalDamage} damage
                     </div>
+                    )}
                   </div>
 
                   {/* Damage controls */}
@@ -417,7 +467,7 @@ export function DamageAssignmentModal({
         </div>
 
         {/* Trample damage */}
-        {hasTrample && (
+        {!isFreeDivision && hasTrample && (
           <div style={{
             padding: 12,
             backgroundColor: 'rgba(16,185,129,0.1)',
@@ -443,10 +493,12 @@ export function DamageAssignmentModal({
           fontWeight: 600,
         }}>
           {canConfirm
-            ? `✓ Damage assignment complete (${totalAssigned} to blockers${trampleDamage > 0 ? `, ${trampleDamage} trample` : ''})`
+            ? (isFreeDivision
+              ? `✓ Damage assignment complete (${totalAssigned} of ${attackerInfo.power})`
+              : `✓ Damage assignment complete (${totalAssigned} to blockers${trampleDamage > 0 ? `, ${trampleDamage} trample` : ''})`)
             : remainingToAssign > 0
               ? `Assign ${remainingToAssign} more damage`
-              : 'Invalid assignment - must assign lethal damage in order'
+              : (isFreeDivision ? 'Assign all combat damage (total must equal power)' : 'Invalid assignment - must assign lethal damage in order')
           }
         </div>
 

@@ -31,6 +31,7 @@ import { registerTemporaryStaticAbilityGrant } from './oracleIRExecutorBattlefie
 import { applyTemporaryEffectToPermanents } from './oracleIRExecutorBattlefieldTemporaryEffects';
 import { permanentMatchesSelector, permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
 import { isExecutorCreature } from './oracleIRExecutorPermanentUtils';
+import { tryApplyAdditionalLandsThisTurnGrant } from './oracleIRExecutorAdditionalLandsThisTurn';
 
 export function applyGrantTemporaryAbilityStep(
   state: GameState,
@@ -38,6 +39,9 @@ export function applyGrantTemporaryAbilityStep(
   ctx: OracleIRExecutionContext,
   runtime?: RecentBattlefieldRuntime
 ): BattlefieldStepHandlerResult {
+  const additionalLands = tryApplyAdditionalLandsThisTurnGrant(state, step, ctx);
+  if (additionalLands) return additionalLands;
+
   const stackSpellGrant = tryApplyGrantKeywordsToStackSpell(state, step, ctx);
   if (stackSpellGrant) return stackSpellGrant;
 

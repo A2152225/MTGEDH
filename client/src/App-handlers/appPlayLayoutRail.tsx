@@ -16,6 +16,7 @@ import { LoopShortcutPanel } from "../components/LoopShortcutPanel";
 import { ManualModeControl } from "../components/ManualModeControl";
 import { clampLoopShortcutIterations } from "../utils/loopShortcuts";
 import { getMobilePrimaryActionMode } from "../utils/mobilePlayActions";
+import { findSerumPowderCardsInHand } from "../utils/serumPowderCard";
 
 export function renderAppPlayLayoutRail(p: Record<string, any>) {
   const {
@@ -131,6 +132,12 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
   const emitRandomizeStart = () => {
     if (!safeView?.id) return;
     socket.emit("randomizeStartingPlayer", { gameId: safeView.id });
+  };
+
+  const canUseSerumPowder = !!canMulligan && findSerumPowderCardsInHand(yourHandCards || []).length > 0;
+  const onSerumPowder = () => {
+    if (!safeView?.id) return;
+    socket.emit("serumPowderHandRestart", { gameId: safeView.id });
   };
 
   const handleUnignoreCard = (cardId: string) => {
@@ -395,6 +402,8 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
             mulligansTaken={mulligansTaken}
             onKeepHand={emitKeepHand}
             onMulligan={emitMulligan}
+            canUseSerumPowder={canUseSerumPowder}
+            onSerumPowder={onSerumPowder}
             onUnkeepHand={emitUnkeepHand}
           />
           <MobilePlaySheets
@@ -468,6 +477,8 @@ export function renderAppPlayLayoutRail(p: Record<string, any>) {
             mulligansTaken={mulligansTaken}
             onKeepHand={emitKeepHand}
             onMulligan={emitMulligan}
+            canUseSerumPowder={canUseSerumPowder}
+            onSerumPowder={onSerumPowder}
             onUnkeepHand={emitUnkeepHand}
             onRandomizeStart={emitRandomizeStart}
             isPreGame={isPreGame}

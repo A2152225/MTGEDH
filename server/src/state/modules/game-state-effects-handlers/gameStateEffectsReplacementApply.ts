@@ -27,6 +27,8 @@ import {
   overlaySpecsMatchCounterPlacement,
   overlaySpecsMatchMill,
 } from "../replacementEffectSpec.js";
+import { collectBatch103DamageModifyEffects } from "../batch103Apply.js";
+import { collectBatch109DamageAdjustments } from "../batch109Apply.js";
 import {
   collectOraclePatternLifeLossReplacementSpecsFromState,
   overlaySpecsMatchLifeLoss,
@@ -63,7 +65,8 @@ export type ReplacementEffectType =
   | 'halve'         // /2 (rounded down)
   | 'halve_round_up' // /2 (rounded up, like Gisela's prevention)
   | 'prevent'       // Set to 0
-  | 'cap';          // Prevent all but N (Temple Altisaur family)
+  | 'cap'          // Prevent all but N (Temple Altisaur family)
+  | 'floor';        // Raise damage to at least N (Ojer Axonil)
 
 export interface ReplacementEffect {
   type: ReplacementEffectType;
@@ -147,12 +150,13 @@ export function applyBeneficialReplacements(
   const sortedEffects = [...effects].sort((a, b) => {
     const order: Record<ReplacementEffectType, number> = {
       'cap': 0,            // Cap first so remaining N can still be doubled
-      'add_flat': 1,
-      'double': 2,
-      'triple': 3,
-      'halve_round_up': 4,
-      'halve': 5,
-      'prevent': 6,
+      'floor': 1,          // Raise before flat adds and multipliers
+      'add_flat': 2,
+      'double': 3,
+      'triple': 4,
+      'halve_round_up': 5,
+      'halve': 6,
+      'prevent': 7,
     };
     return (order[a.type] || 99) - (order[b.type] || 99);
   });
@@ -188,6 +192,12 @@ export function applyBeneficialReplacements(
         const cap = Math.max(0, Number(effect.value ?? 1));
         amount = Math.min(amount, cap);
         appliedEffects.push(`${effect.source}: prevent all but ${cap} (${before} -> ${amount})`);
+        break;
+      }
+      case 'floor': {
+        const floor = Math.max(0, Number(effect.value ?? 0));
+        amount = Math.max(amount, floor);
+        appliedEffects.push(`${effect.source}: raised to ${floor} (${before} -> ${amount})`);
         break;
       }
     }
@@ -242,8 +252,9 @@ export function applyDamageReplacementsMinimized(
       'halve': 2,          // Standard halving
       'double': 3,         // Doublers apply to halved amount
       'triple': 4,         // Triplers apply to halved amount
-      'add_flat': 5,       // Add last so it's not multiplied
-      'cap': 6,            // Cap last so doubled damage still becomes N
+      'floor': 5,          // Raise after multipliers so a double can clear the floor
+      'add_flat': 6,       // Add last so it's not multiplied
+      'cap': 7,            // Cap last so doubled damage still becomes N
     };
     return (order[a.type] || 99) - (order[b.type] || 99);
   });
@@ -278,6 +289,12 @@ export function applyDamageReplacementsMinimized(
         const cap = Math.max(0, Number(effect.value ?? 1));
         amount = Math.min(amount, cap);
         appliedEffects.push(`${effect.source}: prevent all but ${cap} (${before} -> ${amount})`);
+        break;
+      }
+      case 'floor': {
+        const floor = Math.max(0, Number(effect.value ?? 0));
+        amount = Math.max(amount, floor);
+        appliedEffects.push(`${effect.source}: raised to ${floor} (${before} -> ${amount})`);
         break;
       }
     }
@@ -357,6 +374,12 @@ export function applyReplacementsCustomOrder(
         const cap = Math.max(0, Number(effect.value ?? 1));
         amount = Math.min(amount, cap);
         appliedEffects.push(`${effect.source}: prevent all but ${cap} (${before} -> ${amount})`);
+        break;
+      }
+      case 'floor': {
+        const floor = Math.max(0, Number(effect.value ?? 0));
+        amount = Math.max(amount, floor);
+        appliedEffects.push(`${effect.source}: raised to ${floor} (${before} -> ${amount})`);
         break;
       }
     }
@@ -461,7 +484,15 @@ export function detectDamageReplacementEffects(
     effects.push(overlayReplacementSpecToEffect(spec));
   }
 
+  for (const effect of collectBatch103DamageModifyEffects(state, { damageDealer, damageReceiver, damageSourcePermanentId, isCombatDamage, targetPermanentId })) {
+    effects.push(effect);
+  }
+  for (const effect of collectBatch109DamageAdjustments(state, { damageDealer, damageReceiver, damageSourcePermanentId, isCombatDamage, targetPermanentId })) {
+    effects.push(effect);
+  }
+
   if (isCombatDamage && isToOpponent && damageSourcePermanentId) {
+
     const battlefield = Array.isArray((state as { battlefield?: unknown })?.battlefield)
       ? (state as { battlefield: any[] }).battlefield
       : [];

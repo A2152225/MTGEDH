@@ -1,3 +1,4 @@
+import { parseCantPayLifeToCastOrActivateNonMana } from '../karnsSylexPayLifeRestriction.js';
 // Origin parent: server/src/state/modules/game-state-effects-handlers/gameStateEffectsWinLose.ts
 // Cluster moved: LIFE_MODIFIERS card-name table → generic oracle-pattern
 //   restrictions + ReplacementEffectSpec life-gain collect/apply.
@@ -8,6 +9,7 @@
 import { registerLifeGainAmountResolver } from "../../../../../rules-engine/src/lifeGainReplacementHook.js";
 import type { GameContext } from "../../context.js";
 import { evaluateLifeGainReplacementEvent, evaluateLifeLossReplacementEvent } from "../replacement-effects.js";
+import { applyEnduringAngelLifeFloorOrQueueOrder } from "../lifeFloorReplacementOrder.js";
 import {
   collectOraclePatternLifeGainReplacementSpecsFromState,
   overlaySpecsMatchLifeGain,
@@ -66,6 +68,10 @@ function classifyLifeTotalCantChange(oracle: string): { affectsController: boole
 }
 
 function classifyCantPayLife(oracle: string): { affectsController: boolean; affectsOpponents: boolean } | null {
+  // Karn's Sylex is purpose-scoped (cast / non-mana activations only), not a global ban.
+  if (parseCantPayLifeToCastOrActivateNonMana(oracle) && !/can't pay life or /.test(oracle)) {
+    return null;
+  }
   const playersCantPay = oracle.includes("players can't pay life");
   const opponentsCantPay = oracle.includes("your opponents") && oracle.includes("can't pay life");
   const youCantPayExceptZero = oracle.includes("you can't pay any amount of life");
@@ -254,6 +260,20 @@ export function processLifeChange(
   const state = stateFromCtx(ctx);
 
   if (!isGain) {
+    const lifeState = state as { life?: Record<string, number>; players?: Array<{ id?: string; life?: number }>; startingLife?: number };
+    const currentLife = Number(
+      lifeState?.life?.[playerId]
+      ?? (Array.isArray(lifeState?.players) ? lifeState.players.find((entry) => String(entry?.id || '') === String(playerId))?.life : undefined)
+      ?? lifeState?.startingLife
+      ?? 40,
+    );
+    const floor = applyEnduringAngelLifeFloorOrQueueOrder(ctx, playerId, currentLife, amount);
+    if (floor.queued) {
+      return { finalAmount: 0, prevented: true, reason: 'life_floor_order_pending' };
+    }
+    if (floor.applied) {
+      return { finalAmount: 0, prevented: true, reason: 'life_floor_transform' };
+    }
     const replacement = evaluateLifeLossReplacementEvent({
       state,
       playerId,

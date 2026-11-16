@@ -24,8 +24,9 @@ import {
   applyTriggerDoublers,
   detectTriggerDoublers,
 } from "./trigger-doublers.js";
-import { collectMatchingParsedEventLines, parsedEffectDuplicates } from "./triggerConditionFamilyMatch.js";
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, parsedEventLinesFor } from "./triggerConditionFamilyMatch.js";
 import { dropTriggersFromAbilitylessSources } from './triggeredAbilitySuppression.js';
+import { oracleTextWithGrantedTriggers } from './grantedOracleTriggerScan.js';
 import { applyParsedGroupAttackTriggers } from './attack-group-ir.js';
 
 // ============================================================================
@@ -256,12 +257,33 @@ export function getAttackTriggersForCreatures(
         subjectPermanent: attacker,
         subjectControllerId: String(attacker?.controller || ''),
         sourcePermanent: permanent,
+        // "that player" in an intervening-if ("if no opponent has more life than that player") is the attacked player.
+        thatPlayerId: resolveAttackedPlayerId(attacker) || undefined,
         // "whenever you attack with two or more creatures" (minOtherAttackers).
         matchContext: {
           attackerCount: attackingCreatures.length,
           attackedPlayerId: resolveAttackedPlayerId(attacker),
           // "attacks you" means the player: a string target must be a player id; no per-creature target means the defending player.
           attackedTargetIsPlayer: typeof attacker?.attacking === 'string' ? playerIds.includes(String(attacker.attacking)) : Boolean(defendingPlayer),
+          attackedTargetIsBattle: (() => {
+            const target = typeof attacker?.attacking === 'string' ? String(attacker.attacking) : '';
+            if (!target || playerIds.includes(target)) return false;
+            const perm = battlefield.find((p: any) => String(p?.id || '') === target);
+            return /\bbattle\b/i.test(String(perm?.card?.type_line || perm?.type_line || ''));
+          })(),
+          attackedTargetIsPlaneswalker: (() => {
+            const target = typeof attacker?.attacking === 'string' ? String(attacker.attacking) : '';
+            if (!target || playerIds.includes(target)) return false;
+            const perm = battlefield.find((p: any) => String(p?.id || '') === target);
+            return /\bplaneswalker\b/i.test(String(perm?.card?.type_line || perm?.type_line || ''));
+          })(),
+          attackersAtDefender: attackingCreatures.filter((other: any) => String(other?.attacking || '') === String(attacker?.attacking || '')).length,
+          monarchPlayerId: String((ctx.state as any)?.monarch || (ctx.state as any)?.monarchPlayerId || ''),
+          initiativePlayerId: String((ctx.state as any)?.initiativePlayerId || (ctx.state as any)?.initiative || ''),
+          controlledMaxPower: battlefield.filter((p: any) => String(p?.controller || '') === String(permanent.controller || '')).reduce((max: number, p: any) => Math.max(max, Number(p?.power ?? p?.card?.power) || 0), 0),
+          playerLives: Array.isArray((ctx.state as any)?.players)
+            ? (ctx.state as any).players.map((p: any) => ({ id: String(p?.id || ''), life: Number(p?.life) }))
+            : [],
           attackerEquipped: Boolean(
             attacker?.isEquipped === true
             || (Array.isArray(attacker?.attachedEquipment) && attacker.attachedEquipment.length > 0)
@@ -278,30 +300,47 @@ export function getAttackTriggersForCreatures(
         // IR owns matching printed lines; legacy duplicates are retired after this loop.
         // (Do not skip IR when a legacy detector already queued the same effect.)
         seenParsedAttacks.add(key);
+        // "you may pay {1}{G}. If you do, transform her." keeps the declare-attackers payment prompt: the cost moves to
+        // manaCost/energyCost and the effect is the clause after "If you do" (same shape the legacy detector queued).
+        const payCost = !line.delayed && (line.reflexive as any)?.actor === 'you' && !(line.reflexive as any)?.delayed
+          ? /^you may pay ((?:\{[^}]+\})+)\.?$/i.exec(effect.trim())?.[1]?.toUpperCase()
+          : undefined;
+        const payment = payCost
+          ? {
+            ...((payCost.match(/\{E\}/g) || []).length > 0 ? { energyCost: (payCost.match(/\{E\}/g) || []).length } : { manaCost: payCost }),
+          }
+          : undefined;
         triggers.push({
           permanentId: String(permanent.id || ''),
           cardName: String(permanent.card?.name || 'Unknown'),
           controllerId: String(permanent.controller || ''),
           triggerType: 'parsed_attacks',
-          description: effect,
-          effect,
-          mandatory: !/\byou may\b/i.test(effect),
-          ...(line.reflexive ? { reflexiveWhenYouDo: line.reflexive } : {}),
+          description: payment ? `${effect.replace(/[.\s]+$/, '').replace(/\{[^}]+\}/g, (s) => s.toUpperCase())}. If you do, ${line.reflexive!.effect}` : effect,
+          effect: payment ? String(line.reflexive!.effect) : effect,
+          // "it" / "that creature" in the effect resolves against the attacker (not for batched lines).
+          ...(batched ? {} : { value: { attackingCreatureId: String(attacker?.id || '') } }),
+          mandatory: payment ? false : !/\byou may\b/i.test(effect),
+          ...(payment || {}),
+          ...(line.reflexive && !payment ? { reflexiveWhenYouDo: line.reflexive } : {}),
           ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
-        });
+        } as any);
       }
     }
   }
 
-  // Prefer IR when a printed attacks line matched: drop legacy entries with the same effect text.
+  // IR owns printed attacks lines even when this event does not match (most life, monarch).
+  // Retire leftover detectors that would otherwise fire the qualifier as the effect.
   {
     const irBySource = new Map<string, Array<{ effect: string }>>();
-    for (const trigger of triggers) {
-      if (String(trigger?.triggerType || '') !== 'parsed_attacks') continue;
-      const pid = String(trigger.permanentId || '');
-      const list = irBySource.get(pid) || [];
-      list.push({ effect: String(trigger.effect || trigger.description || '') });
-      irBySource.set(pid, list);
+    for (const permanent of battlefield) {
+      if (!permanent?.card) continue;
+      // Granted quoted lines (Backgrounds, Kosei) are IR-owned on the recipient too, so their legacy grant entries retire.
+      const lines = parsedEventLinesFor(
+        oracleTextWithGrantedTriggers(String(permanent.card.oracle_text || ''), permanent, ctx.state),
+        ['attacks'],
+        String(permanent.card.name || '') || undefined,
+      ).filter((line) => !line.condition?.legacyRuntimeOnly && !line.condition?.delayedRider && !line.condition?.thisWay);
+      if (lines.length > 0) irBySource.set(String(permanent.id || ''), lines);
     }
     if (irBySource.size > 0) {
       const kept = triggers.filter((trigger) => {

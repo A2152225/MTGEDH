@@ -35,7 +35,7 @@ import { matchOpponentsControlLandsETB, isPayLifeOrEnterTapped } from '../../../
  * @property costPerTarget - For strive: indicates this cost is per additional target beyond the first
  */
 export interface AdditionalCostResult {
-  type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'reveal' | 'squad' | 'strive' | 'blight' | 'collect_evidence' | 'behold_chosen_type' | 'teamwork';
+  type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'reveal' | 'squad' | 'strive' | 'blight' | 'collect_evidence' | 'behold_chosen_type' | 'teamwork' | 'return';
   amount: number;
   filter?: string;
   counterType?: string;

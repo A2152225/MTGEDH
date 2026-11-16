@@ -5,6 +5,7 @@
  */
 
 import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser.js';
+import { mergeOptionalEntersAsCopyFallback } from './asEntersOptionalCopyFallback.js';
 
 export type MagicColorName = 'white' | 'blue' | 'black' | 'red' | 'green';
 
@@ -17,6 +18,8 @@ export type AsEntersChoiceKind =
   | 'opponent'
   | 'copy_permanent';
 
+export type AsEntersCopyType = 'land' | 'creature' | 'permanent' | 'artifact' | 'enchantment' | 'artifact-or-enchantment';
+
 export interface AsEntersChoiceRequirement {
   kind: AsEntersChoiceKind;
   mandatory: boolean;
@@ -24,7 +27,9 @@ export interface AsEntersChoiceRequirement {
   colors?: MagicColorName[];
   excludedColors?: MagicColorName[];
   excludedCreatureTypes?: string[];
-  copyType?: 'land' | 'creature' | 'permanent';
+  copyType?: AsEntersCopyType;
+  copyTypes?: string[];
+  controllerOnly?: boolean;
   enterTappedIfCopied?: boolean;
   /** Permanent enters under the chosen opponent's control (Xantcha-style replacement). */
   appliesControlChange?: boolean;
@@ -209,7 +214,7 @@ export function getAsEntersChoiceRequirements(card: any): AsEntersChoiceRequirem
   const key = `${cardName}\u0000${oracleText}`;
   let cached = AS_ENTERS_CHOICE_CACHE.get(key);
   if (!cached) {
-    cached = collectIrAsEntersChoices(oracleText, cardName);
+    cached = mergeOptionalEntersAsCopyFallback(oracleText, collectIrAsEntersChoices(oracleText, cardName));
     if (AS_ENTERS_CHOICE_CACHE.size >= AS_ENTERS_CHOICE_CACHE_MAX) AS_ENTERS_CHOICE_CACHE.clear();
     AS_ENTERS_CHOICE_CACHE.set(key, cached);
   }
@@ -225,6 +230,7 @@ function cloneRequirement(req: AsEntersChoiceRequirement): AsEntersChoiceRequire
     ...(req.colors ? { colors: [...req.colors] } : {}),
     ...(req.excludedColors ? { excludedColors: [...req.excludedColors] } : {}),
     ...(req.excludedCreatureTypes ? { excludedCreatureTypes: [...req.excludedCreatureTypes] } : {}),
+    ...(req.copyTypes ? { copyTypes: [...req.copyTypes] } : {}),
   };
 }
 

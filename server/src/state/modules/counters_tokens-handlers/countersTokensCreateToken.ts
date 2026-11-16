@@ -10,6 +10,7 @@ import type { GameContext } from "../../context.js";
 import { uid, parsePT } from "../../utils.js";
 import { appendEvent } from "../../../db/index.js";
 import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../../rules-engine/src/permanentTimestamps.js';
+import { maybeQueueEsixFirstTokensChoice, applyEssenceEnterAsCopy } from '../batch101EnterCopyAndTokens.js';
 
 import { debug, debugWarn } from "../../../utils/debug.js";
 import {
@@ -31,14 +32,13 @@ export { MAX_TOKENS_PER_CREATION_EVENT };
 import { triggerETBEffectsForPermanent } from "../triggerEtbPermanentEffects.js";
 import { queueTokenCreatedTriggers } from "../triggers/tokens.js";
 import { hydrateCardOracleInPlace } from "../cardOracleHydration.js";
-import { ResolutionQueueManager } from "../../resolution/index.js";
-import { ResolutionStepType } from "../../resolution/types.js";
 import {
   applyCopyTokenOverrides,
   type CopyTokenOverrides,
 } from "../../../../../shared/src/copyTokenOverrides.js";
 import { copyAsEntersCopiableChoicesFromSource } from "../../../../../shared/src/copyTokenUtils.js";
 import { getCountersTokensHandlerDeps } from "./countersTokensHandlerDeps.js";
+import { applyChoiceBearingTokenReplacements } from "../replacementOrderChoice.js";
 import { applyGraveyardTypeEntryCounterGrants } from "../graveyardTypeEntryCounterBonus.js";
 import { applyBattlefieldTypeEntryCounterGrants } from "../battlefieldTypeEntryCounterBonus.js";
 import { runWithSimultaneousEntryBatch } from '../triggers/simultaneousEntryBatch.js';
@@ -69,6 +69,10 @@ export type CreateTokenOptions = {
   withCounters?: Record<string, number>;
   /** When true, do not append executeEffect/createToken to the event log (replay/applyEvent paths). */
   skipEventPersistence?: boolean;
+  /** B90: additional different-type tokens are already part of a resolved replacement event. */
+  skipTokenReplacements?: boolean;
+  /** B93: Jinnie Fay already offered or applied; do not re-prompt. */
+  skipJinnieFayReplacement?: boolean;
 };
 
 function readGrantedAbilityTexts(permanent: any): string[] {
@@ -216,20 +220,42 @@ function createTokenUnbatched(
 
   const createdPermanentIds: string[] = [];
   
-  // Apply token doubling effects (Anointed Procession, Doubling Season, Elspeth, etc.)
+  // Apply token doubling / extra-different-type / identity replacements.
   let tokensToCreate = count;
+  let tokenName = name;
+  let tokenPower = basePower;
+  let tokenToughness = baseToughness;
+  let tokenOptions = options;
+  let additionalTokens: Array<{ name: string; count: number; typeLine?: string; power?: number; toughness?: number; colors?: string[]; abilities?: string[] }> = [];
   try {
-    const replacement = evaluateTokenCreationReplacementEvent({
-      state,
-      controllerId: String(controller),
-      count,
-      tokenName: name,
-      tokenTypeLine: options?.typeLine,
-    });
-    const multiplier = Number((replacement.metadata as any)?.multiplier || 1);
-    tokensToCreate = Math.floor(Number(replacement.replacementAmount ?? count));
-    if (multiplier > 1) {
-      debug(2, `[createToken] Token doubling: creating ${tokensToCreate} tokens (base: ${count}, multiplier: ${multiplier})`);
+    if (!options?.skipTokenReplacements) {
+      const replacement = evaluateTokenCreationReplacementEvent({
+        state,
+        controllerId: String(controller),
+        count,
+        tokenName: name,
+        tokenTypeLine: options?.typeLine,
+      });
+      const multiplier = Number((replacement.metadata as any)?.multiplier || 1);
+      tokensToCreate = Math.floor(Number(replacement.replacementAmount ?? count));
+      if (multiplier > 1) {
+        debug(2, `[createToken] Token doubling: creating ${tokensToCreate} tokens (base: ${count}, multiplier: ${multiplier})`);
+      }
+      const replaced = (replacement.metadata as any)?.replaceCreatedToken;
+      if (replaced && replaced.name) {
+        tokenName = String(replaced.name);
+        tokenPower = replaced.power != null ? Number(replaced.power) : tokenPower;
+        tokenToughness = replaced.toughness != null ? Number(replaced.toughness) : tokenToughness;
+        tokenOptions = {
+          ...(options || {}),
+          typeLine: replaced.typeLine || options?.typeLine,
+          colors: replaced.colors || options?.colors,
+          abilities: replaced.abilities || options?.abilities,
+        };
+      }
+      if (Array.isArray((replacement.metadata as any)?.additionalTokens)) {
+        additionalTokens = (replacement.metadata as any).additionalTokens;
+      }
     }
   } catch (err) {
     debugWarn(1, "[createToken] Error calculating token doubling, using base count:", err);
@@ -237,121 +263,67 @@ function createTokenUnbatched(
   // Rules-correct doubling is 2^N for N doublers, which overflows any real board quickly
   // (e.g. 197 copy-token doublers => 2^197). Clamp one creation event to a sane ceiling.
   if (!Number.isFinite(tokensToCreate) || tokensToCreate > MAX_TOKENS_PER_CREATION_EVENT) {
-    debugWarn(1, `[createToken] Clamping ${tokensToCreate} tokens of ${name} to ${MAX_TOKENS_PER_CREATION_EVENT}`);
+    debugWarn(1, `[createToken] Clamping ${tokensToCreate} tokens of ${tokenName} to ${MAX_TOKENS_PER_CREATION_EVENT}`);
     tokensToCreate = MAX_TOKENS_PER_CREATION_EVENT;
   }
 
-  // Mirrormind Crown (replacement effect):
-  // "As long as this Equipment is attached to a creature, the first time you would create one or more tokens each turn,
-  // you may instead create that many tokens that are copies of equipped creature."
-  //
-  // We model this as a Resolution Queue OPTION_CHOICE prompt.
-  // - We only offer it when the controller of the token creation controls an attached Mirrormind Crown.
-  // - We track usage per equipment permanent id for the current turn.
-  // - On replays/unknown gameId, we skip prompting.
-  try {
-    const gameId = String((ctx as any).gameId || '');
-    const isReplaying = Boolean((ctx as any).isReplaying);
-    const battlefield = state.battlefield || [];
-
-    if (!skipMirrormindReplacement && !isReplaying && gameId && gameId !== 'unknown' && tokensToCreate > 0) {
-      (state as any).mirrormindCrownUsedThisTurn = (state as any).mirrormindCrownUsedThisTurn || {};
-      const used: Record<string, boolean> = (state as any).mirrormindCrownUsedThisTurn;
-
-      const crowns = battlefield.filter((p: any) => {
-        const nm = String(p?.card?.name || '').toLowerCase();
-        const tl = String(p?.card?.type_line || '').toLowerCase();
-        return p && p.controller === controller && nm === 'mirrormind crown' && tl.includes('equipment');
-      });
-
-      const crown = crowns.find((eq: any) => {
-        const eqId = String(eq?.id || '');
-        if (!eqId || used[eqId]) return false;
-        const attachedTo = String((eq as any)?.attachedTo || '').trim();
-        if (!attachedTo) return false;
-        const creature = battlefield.find((bp: any) => String(bp?.id || '') === attachedTo);
-        if (!creature) return false;
-        const creatureTL = String(creature?.card?.type_line || '').toLowerCase();
-        return creatureTL.includes('creature');
-      });
-
-      if (crown) {
-        const eqId = String(crown.id);
-        const attachedTo = String((crown as any).attachedTo);
-        const equippedCreature = battlefield.find((bp: any) => String(bp?.id || '') === attachedTo);
-
-        if (equippedCreature?.card) {
-          // Mark used immediately: if the player declines, it still counts as the first time.
-          used[eqId] = true;
-
-          const equippedCardSnapshot = JSON.parse(JSON.stringify(equippedCreature.card));
-
-          const optionReplace = {
-            id: 'replace',
-            label: `Replace with ${tokensToCreate} token(s) copying ${String(equippedCreature.card?.name || 'equipped creature')}`,
-          };
-          const optionNormal = {
-            id: 'normal',
-            label: `Create the normal ${tokensToCreate} token(s) (${name})`,
-          };
-
-          ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.OPTION_CHOICE,
-            playerId: controller,
-            description: `Mirrormind Crown: The first time you would create token(s) this turn, you may instead create that many copies of the equipped creature.`,
-            mandatory: true,
-            sourceId: eqId,
-            sourceName: 'Mirrormind Crown',
-            mirrormindCrownTokenReplacementChoice: true,
-            mirrormindCrownEquipmentId: eqId,
-            mirrormindCrownEquippedCreatureId: String(equippedCreature.id),
-            mirrormindCrownEquippedCreatureCard: equippedCardSnapshot,
-            mirrormindCrownOriginalTokenCreate: {
-              controller,
-              name,
-              count: tokensToCreate,
-              basePower,
-              baseToughness,
-              options,
-            },
-            options: [optionReplace, optionNormal],
-          } as any);
-
-          // Defer token creation until the step response.
-          return [];
-        }
-      }
-    }
-  } catch (err) {
-    debugWarn(1, '[createToken] Mirrormind Crown replacement check failed (continuing normally):', err);
+  if (applyChoiceBearingTokenReplacements(ctx, controller, {
+    name,
+    count,
+    basePower,
+    baseToughness,
+    options,
+    skipMirrormindReplacement,
+    tokensToCreate,
+    tokenName,
+    tokenPower,
+    tokenToughness,
+    tokenOptions,
+    additionalTokens,
+  })) {
+    return [];
   }
-  
-  // Build type line based on options
-  let typeLine = options?.typeLine || 'Token Creature';
-  if (!options?.typeLine) {
+  if (!skipMirrormindReplacement) {
+    try {
+      if (maybeQueueEsixFirstTokensChoice(ctx, controller, {
+        name: tokenName,
+        count: tokensToCreate,
+        basePower: tokenPower,
+        baseToughness: tokenToughness,
+        options: tokenOptions,
+      })) {
+        return [];
+      }
+    } catch {}
+  }
+
+
+  // Build type line based on options (after identity substitution).
+  let typeLine = tokenOptions?.typeLine || 'Token Creature';
+  if (!tokenOptions?.typeLine) {
     // Auto-generate type line if not provided
     const parts = ['Token'];
-    if (options?.isArtifact) parts.push('Artifact');
+    if (tokenOptions?.isArtifact) parts.push('Artifact');
     parts.push('Creature');
-    if (name) parts.push(`— ${name}`);
+    if (tokenName) parts.push(`— ${tokenName}`);
     typeLine = parts.join(' ');
   }
 
-  const tokenAbilities = resolveCreateTokenAbilities(name, options, basePower, baseToughness);
+  const tokenAbilities = resolveCreateTokenAbilities(tokenName, tokenOptions, tokenPower, tokenToughness);
   const tokenIsCreature = String(typeLine || '').toLowerCase().includes('creature');
   const tokenHasHaste = tokenAbilities.some((ability) => /\bhaste\b/i.test(String(ability || '')));
   
   // Get token image URLs from the token service (pass abilities for exact matching)
   const tokenSpec = buildTokenImageSpec({
-    name,
-    power: basePower,
-    toughness: baseToughness,
-    colors: options?.colors,
+    name: tokenName,
+    power: tokenPower,
+    toughness: tokenToughness,
+    colors: tokenOptions?.colors,
     abilities: tokenAbilities,
     typeLine,
-    isArtifact: options?.isArtifact,
+    isArtifact: tokenOptions?.isArtifact,
   });
-  const imageUrls = getTokenImageUrls(name, basePower, baseToughness, options?.colors, tokenAbilities, options?.isArtifact);
+  const imageUrls = getTokenImageUrls(tokenName, tokenPower, tokenToughness, tokenOptions?.colors, tokenAbilities, tokenOptions?.isArtifact);
   const syncExactPrinting = lookupExactTokenPrinting(tokenSpec);
   
   const entersTapped = !!options?.entersTapped;
@@ -384,21 +356,21 @@ function createTokenUnbatched(
       owner: controller,
       tapped: entersTapped,
       counters: Object.keys(initialCounters).length ? { ...initialCounters } : {},
-      basePower,
-      baseToughness,
+      basePower: tokenPower,
+      baseToughness: tokenToughness,
       summoningSickness: tokenIsCreature && !tokenHasHaste,
       isToken: true,
       card: { 
         id: uid("card"), 
-        name, 
+        name: tokenName, 
         type_line: typeLine, 
         zone: "battlefield",
-        colors: options?.colors || [],
+        colors: tokenOptions?.colors || [],
         image_uris: syncExactPrinting?.image_uris || imageUrls,
         oracle_text: tokenAbilities.join('\n') || '',
         keywords: [...tokenAbilities],
-        power: String(basePower),
-        toughness: String(baseToughness),
+        power: String(tokenPower),
+        toughness: String(tokenToughness),
       } as any  // Cast to any to allow keywords field
     };
     if (syncExactPrinting) {
@@ -410,6 +382,9 @@ function createTokenUnbatched(
     }
     state.battlefield.push(tokenPerm);
     stampPermanentEntryTimestamp(state, tokenPerm);
+    try {
+      applyEssenceEnterAsCopy(state, tokenPerm);
+    } catch {}
     applyBattlefieldTypeEntryCounterGrants(state, tokenPerm, String(controller));
   applyGraveyardTypeEntryCounterGrants(state, tokenPerm, String(controller));
 
@@ -446,9 +421,33 @@ function createTokenUnbatched(
   }
 
   queueTokenCreatedTriggers(ctx, String(controller), createdPermanentIds, {
-    name,
+    name: tokenName,
     typeLine,
   });
+
+  if (additionalTokens.length > 0) {
+    for (const extra of additionalTokens) {
+      const extraCount = Math.max(0, Math.floor(Number(extra.count || 0)));
+      if (extraCount <= 0 || !extra.name) continue;
+      const extraIds = createTokenUnbatched(
+        ctx,
+        controller,
+        String(extra.name),
+        extraCount,
+        extra.power,
+        extra.toughness,
+        {
+          colors: extra.colors,
+          typeLine: extra.typeLine,
+          abilities: extra.abilities,
+          skipEventPersistence: true,
+          skipTokenReplacements: true,
+        },
+        true,
+      );
+      createdPermanentIds.push(...extraIds);
+    }
+  }
 
   if (!options?.skipEventPersistence) {
     persistCreateTokenEvents(ctx, controller, createdPermanentIds);
@@ -566,6 +565,9 @@ export function createCopyTokensOfCard(
 
     state.battlefield.push(tokenPerm);
     stampPermanentEntryTimestamp(state, tokenPerm);
+    try {
+      applyEssenceEnterAsCopy(state, tokenPerm);
+    } catch {}
     applyBattlefieldTypeEntryCounterGrants(state, tokenPerm, String(controller));
   applyGraveyardTypeEntryCounterGrants(state, tokenPerm, String(controller));
 

@@ -2,7 +2,6 @@
  * P0-5 main-phase / response / targeting puzzles that exercise server AI helpers.
  */
 
-import { vi } from 'vitest';
 import type { PlayerID, TargetRef } from '../../../shared/src/types.js';
 import type { SpellSpec } from '../../src/rules-engine/targeting.js';
 import { createGameIfNotExists, deleteGame } from '../../src/db/index.js';
@@ -12,23 +11,8 @@ import { chooseAITargetsForSpell } from '../../src/socket/ai-handlers/aiTargetCh
 import { ResolutionQueueManager } from '../../src/state/resolution/index.js';
 import { games } from '../../src/socket/socket.js';
 import { ensureGame } from '../../src/socket/util.js';
-import type { Puzzle } from './puzzleHarness.js';
-
-const { requestCastSpellForSocket, handlePlayLandRequest } = vi.hoisted(() => ({
-  requestCastSpellForSocket: vi.fn(),
-  handlePlayLandRequest: vi.fn(),
-}));
-
-vi.mock('../../src/socket/game-actions.js', async () => {
-  const actual = await vi.importActual<typeof import('../../src/socket/game-actions.js')>(
-    '../../src/socket/game-actions.js',
-  );
-  return {
-    ...actual,
-    requestCastSpellForSocket,
-    handlePlayLandRequest,
-  };
-});
+import type { Puzzle, PuzzleResult } from './puzzleHarness.js';
+import { handlePlayLandRequest, requestCastSpellForSocket } from './puzzleGameActionMocks.js';
 
 function createNoopIo() {
   return {
@@ -115,8 +99,8 @@ export const priorityPuzzles: Puzzle[] = [
           turnPlayer: playerId,
           activePlayer: playerId,
           priority: playerId,
-          phase: 'main',
-          step: 'precombat_main',
+          phase: 'precombatMain',
+          step: 'MAIN1',
           turnNumber: 3,
           stack: [],
           landsPlayedThisTurn: { [playerId]: 0 },
@@ -215,8 +199,8 @@ export const priorityPuzzles: Puzzle[] = [
           turnPlayer: 'opp1',
           activePlayer: 'opp1',
           priority: playerId,
-          phase: 'main',
-          step: 'precombat_main',
+          phase: 'precombatMain',
+          step: 'MAIN1',
           turnNumber: 8,
           stack: [
             {
@@ -316,8 +300,8 @@ export const priorityPuzzles: Puzzle[] = [
           turnPlayer: playerId,
           activePlayer: playerId,
           priority: playerId,
-          phase: 'main',
-          step: 'precombat_main',
+          phase: 'precombatMain',
+          step: 'MAIN1',
           turnNumber: 10,
           stack: [],
           landsPlayedThisTurn: { [playerId]: 1 },
@@ -427,8 +411,8 @@ export const priorityPuzzles: Puzzle[] = [
           turnPlayer: playerId,
           activePlayer: playerId,
           priority: playerId,
-          phase: 'main',
-          step: 'precombat_main',
+          phase: 'precombatMain',
+          step: 'MAIN1',
           turnNumber: 5,
           stack: [],
           manaPool: { [playerId]: { ...emptyMana(), black: 2 }, opp1: emptyMana() },

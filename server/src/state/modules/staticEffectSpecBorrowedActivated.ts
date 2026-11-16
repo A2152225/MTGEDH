@@ -9,7 +9,7 @@ import type { StaticEffectSpec } from './staticEffectSpec.js';
 import { buildSpec, type StaticEffectSpecSource } from './staticEffectSpec-handlers/staticEffectSpecOracleParseHelpers.js';
 
 export type BorrowedActivatedSpec = {
-  zone: 'exiled_with' | 'exile' | 'graveyard' | 'battlefield';
+  zone: 'exiled_with' | 'exile' | 'graveyard' | 'battlefield' | 'top_library' | 'the_exiled_card';
   owner: 'you' | 'opponents' | 'all';
   typeWords: string[];
   counterType?: string;
@@ -25,7 +25,7 @@ function typeWordsOf(phrase: string): string[] | null {
 }
 
 export function parseBorrowedActivatedClause(clauseRaw: string): BorrowedActivatedSpec | null {
-  let clause = String(clauseRaw || '').trim().toLowerCase().replace(/\.$/, '');
+  let clause = String(clauseRaw || '').trim().toLowerCase().replace(/\s*\([^)]*\)\s*$/, '').replace(/\.$/, '');
   let excludeMana = false;
   if (/,?\s*except mana abilities$/.test(clause)) { excludeMana = true; clause = clause.replace(/,?\s*except mana abilities$/, ''); }
   let m: RegExpMatchArray | null;
@@ -49,6 +49,12 @@ export function parseBorrowedActivatedClause(clauseRaw: string): BorrowedActivat
   if (/ that don(?:'|\u2019)t have the same name as (?:~|it|this [a-z]+)$/.test(clause)) {
     excludeSameName = true; clause = clause.replace(/ that don(?:'|\u2019)t have the same name as (?:~|it|this [a-z]+)$/, '');
   }
+  if (clause === 'the top card of your library') {
+    return { zone: 'top_library', owner: 'you', typeWords: [] };
+  }
+  if (clause === 'the exiled card') {
+    return { zone: 'the_exiled_card', owner: 'all', typeWords: [] };
+  }
   if ((m = clause.match(/^(?:all )?((?:[a-z-]+ )*?[a-z-]+) (you control|your opponents control|on the battlefield)$/))) {
     const typeWords = typeWordsOf(m[1]); if (!typeWords || typeWords.length === 0) return null;
     const owner = m[2] === 'you control' ? 'you' : m[2] === 'your opponents control' ? 'opponents' : 'all';
@@ -57,7 +63,7 @@ export function parseBorrowedActivatedClause(clauseRaw: string): BorrowedActivat
   return null;
 }
 
-const SELF_RE = /(?:^|[.\n;])\s*(?:as long as [^,.\n]+ is on the battlefield, )?(?:~|it|this [a-z]+) has all activated abilities of ([^.\n]+)/gi;
+const SELF_RE = /(?:^|[.\n;])\s*(?:as long as [^,.\n]+, )?(?:~|it|this [a-z]+) has all activated(?: and triggered(?= abilities of the exiled card))? abilities of (the exiled card|[^.\n]+)/gi;
 
 export function pushBorrowedActivatedSelfSpecs(
   specs: StaticEffectSpec[],
@@ -74,7 +80,11 @@ export function pushBorrowedActivatedSelfSpecs(
   }
   let i = 0;
   for (const match of text.matchAll(SELF_RE)) {
-    const parsed = parseBorrowedActivatedClause(match[1] || '');
+    const clause = match[1] || '';
+    let parsed = parseBorrowedActivatedClause(clause);
+    if (!parsed && /^that card$/i.test(String(clause).trim()) && /as long as the top card of your library/i.test(String(match[0] || ''))) {
+      parsed = { zone: 'top_library', owner: 'you', typeWords: [] };
+    }
     if (!parsed) continue;
     specs.push(buildSpec(source, `borrow-activated-${i++}`, { kind: 'self' } as any, { borrowActivated: parsed } as any));
   }
@@ -125,7 +135,19 @@ export function collectBorrowedActivatedAbilities(state: unknown, sourcePermanen
   const controller = String(source.controller || '');
   const ownerOk = (pid: string) => spec.owner === 'all' || (spec.owner === 'you' ? pid === controller : pid !== controller);
   let entries: any[] = [];
-  if (spec.zone === 'battlefield') {
+  if (spec.zone === 'top_library') {
+    const lib = st.zones?.[controller]?.library || st.libraries?.[controller] || [];
+    const top = Array.isArray(lib) && lib.length > 0 ? lib[0] : null;
+    const tl = String(top?.type_line || top?.card?.type_line || '').toLowerCase();
+    if (top && (/\bartifact\b/.test(tl) || /\bcreature\b/.test(tl))) entries = [top];
+  } else if (spec.zone === 'the_exiled_card') {
+    if (Array.isArray(source.exiledCards) && source.exiledCards.length > 0) {
+      entries = [source.exiledCards[source.exiledCards.length - 1]];
+    } else {
+      const allExile = zoneCards(st, 'exile', () => true);
+      entries = allExile.filter((c) => String(c?.exiledWithSourceId || c?.card?.exiledWithSourceId || c?.exiledWith || '') === sourceId);
+    }
+  } else if (spec.zone === 'battlefield') {
     const srcName = String(faceOf(source)?.name || '').toLowerCase();
     entries = battlefield.filter((p) => String(p?.id || '') !== sourceId && ownerOk(String(p?.controller || ''))
       && (!spec.excludeSameName || String(faceOf(p)?.name || '').toLowerCase() !== srcName));

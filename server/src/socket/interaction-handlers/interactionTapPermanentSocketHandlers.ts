@@ -194,24 +194,7 @@ export async function handleTapPermanentRequest(
   // Calculate mana multiplier from effects like Mana Reflection, Nyxbloom Ancient
   // ========================================================================
   const manaMultiplier = getManaMultiplier(game.state, permanent, pid);
-  
-  // Check for Virtue of Strength (only affects basic lands)
-  let effectiveMultiplier = manaMultiplier;
-  if (manaMultiplier > 1 && !isBasic) {
-    // Check if Virtue of Strength is the source of the multiplier
-    const modifiers = detectManaModifiers(game.state, pid);
-    const virtueModifier = modifiers.find(m => 
-      m.cardName.toLowerCase().includes('virtue of strength') && 
-      m.type === 'mana_multiplier'
-    );
-    if (virtueModifier) {
-      // Virtue only affects basic lands - recalculate without it
-      const otherMultiplier = modifiers
-        .filter(m => m.type === 'mana_multiplier' && m.cardName !== virtueModifier.cardName)
-        .reduce((acc, m) => acc * (m.multiplier || 1), 1);
-      effectiveMultiplier = isBasic ? manaMultiplier : otherMultiplier;
-    }
-  }
+  const effectiveMultiplier = manaMultiplier;
   
   if (manaAbilities.length > 0 || devotionMana || creatureCountMana) {
     // Permanent has mana abilities - add mana to the pool

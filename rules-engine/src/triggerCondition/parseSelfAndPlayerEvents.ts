@@ -258,14 +258,14 @@ export function parseSelfAndPlayerTriggerSentence(text: string): SelfAndPlayerTr
     if (!base) return null;
     return { condition: { ...base, requireAttackerName: namedAttacks[1] } as any, effect: namedAttacks[2].trim() };
   }
-  const youAttackExactly = /^whenever you attack with exactly (one|two|three|four|five|six|seven|eight|nine|ten) creatures?,\s*(.+)$/.exec(text);
+  const youAttackExactly = /^(?:whenever|when) you attack with exactly (one|two|three|four|five|six|seven|eight|nine|ten) creatures?,\s*(.+)$/.exec(text);
   if (youAttackExactly) {
     const count = ({ one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 } as Record<string, number>)[youAttackExactly[1]];
     const base = parseSubjectPhrase('one or more creatures you control', 'attacks');
     if (!base || !count) return null;
     return { condition: { ...base, minOtherAttackers: Math.max(0, count - 1), exactAttackers: count } as any, effect: youAttackExactly[2].trim() };
   }
-  const youAttackTyped = /^whenever you attack with (one|two|three|four|five|six|seven|eight|nine|ten) or more (legendary )?creatures,\s*(.+)$/.exec(text);
+  const youAttackTyped = /^(?:whenever|when) you attack with (one|two|three|four|five|six|seven|eight|nine|ten) or more (legendary )?creatures,\s*(.+)$/.exec(text);
   if (youAttackTyped) {
     const count = ({ one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 } as Record<string, number>)[youAttackTyped[1]];
     const subject = youAttackTyped[2] ? 'one or more legendary creatures you control' : 'one or more creatures you control';
@@ -274,7 +274,7 @@ export function parseSelfAndPlayerTriggerSentence(text: string): SelfAndPlayerTr
     const condition = count > 1 ? { ...base, minOtherAttackers: count - 1 } : base;
     return { condition, effect: youAttackTyped[3].trim() };
   }
-  const youAttackWith = /^whenever you attack with (one|two|three|four|five|six|seven|eight|nine|ten) or more creatures,\s*(.+)$/.exec(text);
+  const youAttackWith = /^(?:whenever|when) you attack with (one|two|three|four|five|six|seven|eight|nine|ten) or more creatures,\s*(.+)$/.exec(text);
   if (youAttackWith) {
     const count = ({ one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 } as Record<string, number>)[youAttackWith[1]];
     const base = parseSubjectPhrase('one or more creatures you control', 'attacks');

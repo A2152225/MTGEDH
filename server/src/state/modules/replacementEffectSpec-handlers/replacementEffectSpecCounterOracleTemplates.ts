@@ -5,6 +5,7 @@
 // Leaf must not import replacementEffectSpec.ts or replacementEffectSpec-handlers/index.ts.
 
 import type { ReplacementEffectSpec } from './replacementEffectSpecTypes.js';
+import { collectBatch107ReplacementSpecsFromState } from '../replacementBatch107Collect.js';
 import { normalizeOraclePatternText, readCardOracleText } from './replacementEffectSpecOracleTextUtils.js';
 
 interface OracleCounterReplacementTemplate {
@@ -197,5 +198,6 @@ export function collectOraclePatternCounterReplacementSpecsFromState(state: unkn
     }
   }
 
+  specs.push(...collectBatch107ReplacementSpecsFromState(state).filter((spec) => spec.effectId === 'player-counters-plus-one-each-kind'));
   return specs;
 }

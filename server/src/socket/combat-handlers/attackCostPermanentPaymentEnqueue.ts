@@ -21,6 +21,7 @@ import {
   type AttackPermanentCostRequirement,
 } from './attackCostPermanentPayment.js';
 import { collectAttackerSelfAttackTax, collectBlockerSelfTax } from '../../../../shared/src/combatAttackerSelfTax.js';
+import { collectEnchantedCreatureBlockPayment } from '../../state/modules/enchantedBlockPaymentTax.js';
 import {
   collectAttackYouTaxForDefender,
   collectBlockLifeTax,
@@ -326,7 +327,8 @@ export async function resumeDeclareBlockersAfterTapCost(
     selfTaxTotal += selfTax.cost;
     for (const source of selfTax.sources) if (!selfTaxSources.includes(source)) selfTaxSources.push(source);
   }
-  const totalBlockCostRequired = perBlockerTax.cost * uniqueBlockerIds.size + selfTaxTotal;
+  const enchantedBlockTax = collectEnchantedCreatureBlockPayment(game.state, playerId, blockers);
+  const totalBlockCostRequired = perBlockerTax.cost * uniqueBlockerIds.size + selfTaxTotal + enchantedBlockTax.cost;
   const attackerById = new Map(battlefield.map((perm: any) => [String(perm?.id || ''), perm]));
   const lifeTax = collectBlockLifeTax(game.state, {
     uniqueBlockerIds,
@@ -340,7 +342,7 @@ export async function resumeDeclareBlockersAfterTapCost(
     },
   });
   const totalBlockLifeRequired = lifeTax.cost;
-  const blockSources = [...perBlockerTax.sources, ...selfTaxSources, ...lifeTax.sources];
+  const blockSources = [...perBlockerTax.sources, ...selfTaxSources, ...enchantedBlockTax.sources, ...lifeTax.sources];
 
   if (totalBlockCostRequired > 0 || totalBlockLifeRequired > 0) {
     const totalAvailable = getMaxGenericManaAvailable(game.state, playerId, {

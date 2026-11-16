@@ -44,6 +44,8 @@ export function isControllerOptionalTriggeredAbilityEffectText(effectText: strin
   // Strip event prefixes so "Whenever …, you may …" still counts as fully optional.
   const withoutEventPrefix = lower
     .replace(/^(?:whenever|when|at the beginning of)[\s\S]*?,\s*/i, '')
+    // Leading intervening-if ("if this card is in your graveyard and it's your turn, you may cast it ...").
+    .replace(/^if\b[^,]*,\s*(?=you may\b)/i, '')
     .trim();
   return /^you may\b/.test(withoutEventPrefix);
 }

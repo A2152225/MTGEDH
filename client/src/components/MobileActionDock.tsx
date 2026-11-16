@@ -53,6 +53,8 @@ export interface MobileActionDockProps {
   mulligansTaken?: number;
   onKeepHand?: () => void;
   onMulligan?: () => void;
+  canUseSerumPowder?: boolean;
+  onSerumPowder?: () => void;
   onUnkeepHand?: () => void;
 }
 
@@ -141,6 +143,8 @@ export const MobileActionDock: React.FC<MobileActionDockProps> = ({
   mulligansTaken,
   onKeepHand,
   onMulligan,
+  canUseSerumPowder,
+  onSerumPowder,
   onUnkeepHand,
 }) => {
   const mulliganMode = primaryMode === 'mulligan' || primaryMode === 'unkeep';
@@ -188,6 +192,8 @@ export const MobileActionDock: React.FC<MobileActionDockProps> = ({
           mulligansTaken={mulligansTaken}
           onKeepHand={onKeepHand}
           onMulligan={onMulligan}
+      canUseSerumPowder={canUseSerumPowder}
+      onSerumPowder={onSerumPowder}
           onUnkeepHand={onUnkeepHand}
           fill
         />

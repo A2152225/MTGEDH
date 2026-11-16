@@ -25,6 +25,7 @@ import {
 } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { debugWarn } from "../../../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
+import { applyDieRollNudgeToState } from "../dieRollNudgePrompt.js";
 
 export function applyTapSacrificeCounterEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -607,6 +608,36 @@ export function applyTapSacrificeCounterEvents(ctx: GameContext, e: GameEvent): 
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(counterPlacementResolve): failed', err);
+        }
+        break;
+      }
+
+      case "dieRollNudgeResolve": {
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        const playerId = String((e as any).playerId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step.dieRollNudge === true && (!playerId || String(step.playerId || '') === playerId);
+            });
+          }
+          if ((e as any).declined !== true) {
+            applyDieRollNudgeToState(ctx.state as any, {
+              playerId,
+              permanentId: String((e as any).permanentId || ''),
+              kind: String((e as any).kind || ''),
+              life: Math.abs(Math.floor(Number((e as any).lifeDelta || 0))),
+              delta: Math.floor(Number((e as any).resultDelta || 0)),
+              oncePerTurn: (e as any).oncePerTurn === true,
+            });
+          }
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(dieRollNudgeResolve): failed', err);
         }
         break;
       }

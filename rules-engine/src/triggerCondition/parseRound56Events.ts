@@ -28,10 +28,19 @@ export function parseRound56TriggerSentence(text: string, reparse: Reparse): Par
   // --- Ability resolves -------------------------------------------------
   const manaAbilityResolves = /^(?:whenever|when)\s+a mana ability of (this creature|this permanent|~) resolves,\s*(.+)$/.exec(text);
   if (manaAbilityResolves) {
-    return withFields(reparse('whenever you activate an ability, ' + manaAbilityResolves[2]), {
+    // "This ability triggers only once each turn." is a rider, not part of the effect. The ability is the
+    // source's own (granted or printed), so only its own mana abilities match.
+    const onceRider = /[.\s]*this ability triggers only once each turn\.?$/;
+    const once = onceRider.test(manaAbilityResolves[2]);
+    const base = reparse('whenever you activate an ability, ' + manaAbilityResolves[2].replace(onceRider, ''));
+    const selfBound = base && Array.isArray((base.condition as any).alternatives)
+      ? { ...base, condition: { ...base.condition, alternatives: (base.condition as any).alternatives.map((alt: any) => ({ ...alt, source: 'self' })) } as TriggerConditionIR }
+      : base;
+    return withFields(selfBound, {
       action: 'mana_ability_resolve',
       abilityResolves: true,
-    } as any);
+      ...(once ? { onceEachTurn: true } : {}),
+    });
   }
   const abilityResolvesNth = /^(?:whenever|when)\s+this ability resolves for the (first|second|third|fourth|fifth|\d+)(?:st|nd|rd|th)? time this turn,\s*(.+)$/.exec(text);
   if (abilityResolvesNth) {

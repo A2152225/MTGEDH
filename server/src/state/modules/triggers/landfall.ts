@@ -14,7 +14,7 @@
 
 import type { GameContext } from "../../context.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
-import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, parsedEventLinesFor, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 import { triggerSubjectIRVerdict } from './triggerIRVerdict.js';
 import { dropTriggersFromAbilitylessSources, permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 
@@ -117,6 +117,21 @@ function stripZoneFromSourceSnapshot(card: any): any {
   if (!card || typeof card !== 'object') return card;
   const { zone, ...rest } = card as any;
   return rest;
+}
+
+/**
+ * A printed "enters" line is landfall-scope when its subject is a land ("a land you control", "a nonbasic land an
+ * opponent controls") or a bare land subtype ("a Forest"). Creature / permanent ETB lines stay with the ETB pass.
+ */
+function isLandfallScopeLine(line: { condition?: any }): boolean {
+  const condition = line.condition;
+  if (!condition) return false;
+  if (condition.event === 'plays_land') return true;
+  return (condition.alternatives || []).some((alt: any) => {
+    const types = ((alt?.subject?.typeGroups || []) as string[][]).flat();
+    const subtypes = ((alt?.subject?.subtypeGroups || []) as string[][]).flat();
+    return types.includes('land') || (types.length === 0 && subtypes.length > 0);
+  });
 }
 
 function canLandfallTriggerFromGraveyard(card: any): boolean {
@@ -566,6 +581,8 @@ export function getLandfallTriggers(
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
 
+    // Legacy landfall entries stay (they carry requiredLandType / trigger-type metadata); landfallIRVerdict narrows
+    // them by the printed subject, and the IR loop below only adds lines no legacy entry covers.
     const permTriggers = detectLandfallTriggers(permanent.card, permanent, (ctx as any)?.state);
     for (const trigger of permTriggers) {
       const triggerType = String((trigger as any).triggerType || '');
@@ -654,14 +671,16 @@ export function getLandfallTriggers(
 
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
-    for (const line of collectMatchingParsedEventLines({
+    // Printed "whenever a land enters" lines are event 'enters'; "plays a land" lines are 'plays_land'.
+    const landfallIrLines = (['plays_land', 'enters'] as const).flatMap((event) => (event === 'enters' && !enteringLand ? [] : collectMatchingParsedEventLines({
       ctx,
       oracleText: String(permanent.card.oracle_text || ''),
-      event: 'plays_land',
+      event,
       subjectPermanent: enteringLand || { id: '', controller: landController, card: { type_line: 'Land' } },
-      subjectControllerId: landController,
+      subjectControllerId: String(enteringLand?.controller || landController || ''),
       sourcePermanent: permanent,
-    })) {
+    }).filter((line) => event === 'plays_land' || isLandfallScopeLine(line))));
+    for (const line of landfallIrLines) {
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
         sameTriggerSource(existing, permanent)

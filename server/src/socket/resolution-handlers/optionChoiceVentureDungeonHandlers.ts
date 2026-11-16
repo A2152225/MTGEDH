@@ -45,6 +45,7 @@ import { debugWarn } from "../../utils/debug.js";
 import { appendQueuedResolutionPromptEvent } from "../resolutionCloneQueuedPromptUtils.js";
 import { getPlayerName } from "../util.js";
 import { extractOptionChoiceSelectionId } from "./resolutionOptionChoiceSelectionIds.js";
+import { opponentVentureBlockedThisTurn, notePlayerVenturedThisTurn } from '../../state/modules/batch101LongTailApply.js';
 
 function appendDungeonRoomExecuteEffectEvents(
   game: any,
@@ -147,6 +148,13 @@ export function handleVentureIntoDungeonChoice(
 ): void {
   const stepData = step as any;
   const playerId = response.playerId;
+  try {
+    if (opponentVentureBlockedThisTurn(game.state, String(playerId))) {
+      return;
+    }
+    notePlayerVenturedThisTurn(game.state, String(playerId));
+  } catch {}
+
 
   const stateAny = game.state as any;
   stateAny.dungeonProgress = stateAny.dungeonProgress || {};

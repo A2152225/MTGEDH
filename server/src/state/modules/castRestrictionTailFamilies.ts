@@ -108,6 +108,22 @@ export function castRestrictionTailViolation(state: any, playerId: string, spell
     if (/players can(?:not|'t) cast spells from graveyards/.test(oracle) && zone === 'graveyard') {
       return src + ' prevents casting spells from graveyards.';
     }
+    // B89: Drannith Magistrate - opponents can't cast from anywhere but hand
+    if (isOpponent && /your opponents can(?:not|'t) cast spells from anywhere other than their hands/.test(oracle)
+      && zone !== 'hand') {
+      return src + ' prevents opponents from casting spells from anywhere other than their hands.';
+    }
+    // B89: Brisela - opponents can't cast spells with mana value N or less
+    if (isOpponent) {
+      const brisela = oracle.match(/your opponents can(?:not|'t) cast spells with mana value (\d+) or less/);
+      if (brisela) {
+        const cap = Number(brisela[1]);
+        const mv = spellManaValue(spell);
+        if (Number.isFinite(cap) && Number.isFinite(mv) && mv <= cap) {
+          return src + ' prevents opponents from casting spells with mana value ' + cap + ' or less.';
+        }
+      }
+    }
     // B84: Sanctum Prelate — noncreature spells with MV equal to the chosen number
     if (/noncreature spells with mana value equal to the chosen number can(?:not|'t) be cast/.test(oracle)
       && !isCreatureSpell(spell)) {

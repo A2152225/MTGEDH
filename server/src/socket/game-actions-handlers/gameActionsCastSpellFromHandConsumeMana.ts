@@ -24,6 +24,7 @@ import {
   consumeExplicitSelectedCastSpellMana,
   resolveSpellPaymentPermanentId,
 } from "./gameActionsCastSpellPaymentSources.js";
+import { draugrSnowSpendApplies, recolorSnowPoolToMeetCost } from "../../state/modules/draugrExileSnowSpend.js";
 
 export type CastSpellConsumeManaFromHandArgs = {
   game: any;
@@ -101,6 +102,13 @@ export function tryConsumeCastSpellManaFromHand(
         && Number(entry.amount || 0) > 0
         && canUseRestrictedMana(entry, restrictedManaPurpose)
       ));
+      if (draugrSnowSpendApplies(game.state, playerId, cardInHand) && producedSnowByColor) {
+        const remapped = recolorSnowPoolToMeetCost(pool as unknown as Record<string, number>, { colors: totalColored, generic: totalGeneric }, producedSnowByColor);
+        for (const key of Object.keys(remapped)) {
+          (pool as any)[key] = remapped[key];
+        }
+      }
+
       const manaConsumption = isForceAltCostPaid
         ? { consumed: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 } }
         : explicitPaymentSelected

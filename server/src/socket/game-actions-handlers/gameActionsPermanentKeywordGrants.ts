@@ -22,6 +22,9 @@ import { getContinuousGrantedAbilitiesForPermanent } from "../../state/modules/s
 import { extractCreatureTypes } from "./gameActionsCastCostReduction.js";
 import { permanentHasKeywordAbility, permanentLosesKeyword } from "../../../../rules-engine/src/permanentKeywordAbilities.js";
 import { isReadOnlyQueryScopeActive, scopedMemo } from "../../../../rules-engine/src/readOnlyQueryScope.js";
+import { attachedLetsAttackAsThoughHaste } from '../../state/modules/batch97GrantedEquipmentAbilities.js';
+import { batch104CreatureHasChosenQualityHaste } from '../../state/modules/batch104Apply.js';
+import { batch105CreatureHasHasteFromWasCast } from '../../state/modules/batch105Apply.js';
 
 function cardListsKeyword(card: any, keyword: string): boolean {
   const keywords = Array.isArray(card?.keywords) ? card.keywords : [];
@@ -151,6 +154,9 @@ function creatureHasHasteUncached(permanent: any, battlefield: any[], controller
       && permanent?.enteredThisTurn !== true) {
       return true;
     }
+    try {
+      if (attachedLetsAttackAsThoughHaste(permanent, battlefield)) return true;
+    } catch { /* hook optional */ }
     
     const otherHasteLord = oracleTextGrantsKeywordOnlyToOthers(permOracleText, 'haste');
 
@@ -320,6 +326,8 @@ function creatureHasHasteUncached(permanent: any, battlefield: any[], controller
       }
     }
     
+    if (batch104CreatureHasChosenQualityHaste(permanent, battlefield)) return true;
+    if (batch105CreatureHasHasteFromWasCast(permanent)) return true;
     return false;
   } catch (err) {
     debugWarn(1, '[creatureHasHaste] Error checking haste:', err);

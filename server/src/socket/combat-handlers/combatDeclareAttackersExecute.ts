@@ -38,6 +38,8 @@ import {
   collectMaxAttackersEachCombat,
 } from "../../state/modules/staticEffectSpecAttackYouTax.js";
 import { collectThisTurnAttackProhibition } from "../../state/modules/attackProhibitedThisTurn.js";
+import { attackTargetPermanentIsIllegal } from "../../state/modules/batch93CantBeAttacked.js";
+import { rememberAttackersThisTurn } from "../../state/modules/batch93AttackRestrictions.js";
 
 export async function executeDeclareAttackers(
   io: Server,
@@ -239,6 +241,14 @@ export async function executeDeclareAttackers(
     if (thisTurnProhibition) {
       throw Object.assign(
         new Error(`Creatures you control can't attack that ${attacker.targetPermanentId ? 'permanent' : 'player'} this turn (${thisTurnProhibition})`),
+        { code: 'ATTACK_PROHIBITED' },
+      );
+    }
+
+    const cantBeAttacked = attackTargetPermanentIsIllegal(game.state, attacker.targetPermanentId);
+    if (cantBeAttacked.illegal) {
+      throw Object.assign(
+        new Error(cantBeAttacked.reason || 'That permanent can\'t be attacked.'),
         { code: 'ATTACK_PROHIBITED' },
       );
     }
@@ -478,6 +488,7 @@ export async function executeDeclareAttackers(
     debugWarn(1, '[combat] Failed to enqueue enlist choice steps:', e);
   }
 
+  rememberAttackersThisTurn(game.state, attackerIds);
   processAttackTriggersAfterDeclaration(io, game, gameId, playerId, attackerIds, resolvedAttackers);
 
   emitDeclareAttackersChat(io, gameId, game, playerId, resolvedAttackers);

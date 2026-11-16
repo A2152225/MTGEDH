@@ -58,6 +58,7 @@ import {
   traceContextFromGame,
 } from "./aiDecisionTrace.js";
 import { applyBrain, takeShadow } from "./aiBrain.js";
+import { getOrComputeSeqSeatModeCached } from "./aiDecisionCache.js";
 
 function getAIActionContext(game: any): any {
   return getAIHandlerDeps().getAIActionContext(game);
@@ -320,6 +321,23 @@ async function getAIActivatedAbilityCandidate(
   playerId: PlayerID,
   willNeedToDiscard: boolean,
   queryMode: 'main' | 'response' = 'main',
+): Promise<AIActivatedAbilityCandidate | null> {
+  // Same seat+seq+mode: reuse prior activate scan (priority wakes with no mutation).
+  const mode = `${queryMode}:${willNeedToDiscard ? 'discard' : 'norm'}`;
+  return getOrComputeSeqSeatModeCached(
+    game,
+    '_aiActivatedAbilityCache',
+    String(playerId),
+    mode,
+    () => getAIActivatedAbilityCandidateUncached(game, playerId, willNeedToDiscard, queryMode),
+  );
+}
+
+async function getAIActivatedAbilityCandidateUncached(
+  game: any,
+  playerId: PlayerID,
+  willNeedToDiscard: boolean,
+  queryMode: 'main' | 'response',
 ): Promise<AIActivatedAbilityCandidate | null> {
   const abilityDecision = await aiEngine.makeDecision({
     gameState: game.state as any,
@@ -586,12 +604,25 @@ type ResponseActionsTakenWindow = {
 /** Successful response actions per seat per phase/step/stack window (caps END/MAIN churn). */
 const responseActionsTakenWindows = new Map<string, ResponseActionsTakenWindow>();
 
+/** Drop per-seat response-window memory for a deleted game (test/harness teardown). */
+export function clearAIResponseWindowsForGame(gameId: string): void {
+  const prefix = `${String(gameId)}:`;
+  for (const key of [...responseActionsTakenWindows.keys()]) {
+    if (key.startsWith(prefix)) responseActionsTakenWindows.delete(key);
+  }
+  for (const key of [...failedResponseAbilityWindows.keys()]) {
+    if (key.startsWith(prefix)) failedResponseAbilityWindows.delete(key);
+  }
+}
+
 function getAIResponseAbilityWindowFingerprint(game: any): string {
+  // Omit stack length: storm resolves (290→289→…) used to mint a fresh per-seat
+  // response window each depth and burn wall-clock without turn advance.
   return [
     String(game?.state?.phase || ''),
     String(game?.state?.step || ''),
+    String(game?.state?.turnNumber || game?.state?.turn || ''),
     String(game?.state?.turnPlayer || ''),
-    String(Array.isArray(game?.state?.stack) ? game.state.stack.length : 0),
   ].join('|');
 }
 
@@ -615,8 +646,8 @@ function noteAIResponseActionTaken(gameId: string, playerId: string, game: any):
 function maxAIResponseActionsForWindow(game: any): number {
   const stackLen = Array.isArray(game?.state?.stack) ? game.state.stack.length : 0;
   // Empty stack: at most one "response" activate/cast per seat per step, then pass.
-  // Non-empty: allow a few answers before forcing pass so the stack can resolve.
-  return stackLen === 0 ? 1 : 4;
+  // Non-empty: two answers max per seat per step/turn (was 4; storms × seats churned).
+  return stackLen === 0 ? 1 : 2;
 }
 
 function rememberFailedAIResponseAbility(
@@ -675,9 +706,16 @@ export async function tryAIResponseActions(
   }
 
   stage('enumerate');
+  // Empty stack: instants/flash only — skip ability scan (findBestActivatedAbility on
+  // large boards dominates exclusive-AI wall time during priority ping-pong).
+  const stackLen = Array.isArray(game?.state?.stack) ? game.state.stack.length : 0;
+  const responseKinds: AIActionCandidate['kind'][] = stackLen === 0
+    ? ['cast_commander', 'cast_spell']
+    : ['activate_ability', 'cast_commander', 'cast_spell'];
   const responseCandidates = await enumerateAIActionCandidates(game, playerId, {
     mode: 'response',
     gameId,
+    kinds: responseKinds,
   } as any);
   stage(`enumerate-done:${responseCandidates.length}`);
   const responseTraceCandidates = candidatesFromAIActionList(responseCandidates);

@@ -8,6 +8,9 @@ import { readDerivedContinuousEffects } from './staticEffectSpec.js';
 import { typeSetOverrideIsColorless } from './attachedTypeSettingStamp.js';
 import { COLOR_SET_PREFIX, resolveColorsWithSetting } from './colorSettingMarker.js';
 import { readGlobalColorSetting } from './globalColorSetting.js';
+import { readBatch103ColorSetting } from './batch103ColorSetting.js';
+import { readBatch107ColorSetting } from './batch107Apply.js';
+import { readBatch108ColorSetting } from './batch108Apply.js';
 
 const COLOR_WORD_TO_SYMBOL: Record<string, string> = {
   white: 'W',
@@ -106,6 +109,15 @@ export function getEffectiveColors(
     const g = readGlobalColorSetting(state, object);
     for (const c of g.set) setters.push(COLOR_SET_PREFIX + c);
     if (g.colorless && g.set.length === 0) return resolveColorsWithSetting([], additions);
+  }
+  if (state) {
+    const b103c = readBatch103ColorSetting(state, object);
+    for (const c of b103c.set) setters.push(COLOR_SET_PREFIX + c);
+    if (b103c.colorless && b103c.set.length === 0) return resolveColorsWithSetting([], additions);
+    const b107c = readBatch107ColorSetting(state, object);
+    if (b107c.colorless && b107c.set.length === 0) return resolveColorsWithSetting([], additions);
+    const b108c = readBatch108ColorSetting(state, object);
+    for (const c of b108c.set) setters.push(COLOR_SET_PREFIX + c);
   }
   // Layer 5 colour setting (Frogify): SET: entries replace the printed / CDA colours.
   return resolveColorsWithSetting(base, [...setters, ...additions]);

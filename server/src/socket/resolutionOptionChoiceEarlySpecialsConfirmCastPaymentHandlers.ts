@@ -60,6 +60,9 @@ import {
   validateAndConsumeManaCostFromPool,
 } from "./util.js";
 import { stampPermanentEntryTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
+import { handleJinnieFayTokenChoiceResponse } from "./resolutionArchmageJinnieResponseHandlers.js";
+import { handleReplacementOrderChoiceResponse } from "./resolutionReplacementOrderResponseHandlers.js";
+import { handleLibraryOfLengDiscardChoiceResponse } from "./resolutionLibraryOfLengResponseHandlers.js";
 
 function extractId(sel: any): string | null {
   if (typeof sel === 'string') return sel;
@@ -82,6 +85,9 @@ export async function tryHandleOptionChoiceEarlySpecialsConfirmCastPayment(
   const selectedOption = response.selections;
   const stepData = step as any;
   const playerId = response.playerId;
+  if (await handleJinnieFayTokenChoiceResponse(io, game, gameId, step, response)) return true;
+  if (await handleReplacementOrderChoiceResponse(io, game, gameId, step, response)) return true;
+  if (await handleLibraryOfLengDiscardChoiceResponse(io, game, gameId, step, response)) return true;
 // ===== DECK IMPORT WIPE CONFIRM =====
   if (stepData?.importWipeConfirm === true) {
     const choiceId = extractId(selectedOption) || (response.cancelled ? 'decline' : null) || 'decline';

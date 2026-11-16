@@ -143,6 +143,7 @@ import { tryApplyMoveZoneEarlyGuardSteps } from './oracleIRExecutorMoveZoneEarly
 import { tryApplyMoveZoneSeventhFromTop } from './oracleIRExecutorMoveZoneSeventhFromTop';
 import { tryApplyMoveZoneBeneathTopX } from './oracleIRExecutorMoveZoneBeneathTopX';
 import { tryApplyMoveZoneStackSpellToExile } from './oracleIRExecutorMoveZoneStackSpellToExile';
+import { tryApplyMoveZoneStackSpellToHand } from './oracleIRExecutorMoveZoneStackSpellToHand';
 
 export function applyMoveZoneStep(
   state: GameState,
@@ -173,6 +174,9 @@ export function applyMoveZoneStep(
 
   const stackSpellToExileResult = tryApplyMoveZoneStackSpellToExile(state, step, ctx);
   if (stackSpellToExileResult) return stackSpellToExileResult;
+
+  const stackSpellToHandResult = tryApplyMoveZoneStackSpellToHand(state, step, ctx);
+  if (stackSpellToHandResult) return stackSpellToHandResult;
 
   let nextState = state;
   const log: string[] = [];

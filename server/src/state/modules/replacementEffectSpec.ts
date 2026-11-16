@@ -44,6 +44,32 @@ import { collectOraclePatternLibrarySearchReplacementSpecsFromState } from './re
 import { collectOraclePatternDamageReplacementSpecsFromState, overlaySpecsMatchDamage } from './replacementEffectSpec-handlers/replacementEffectSpecDamageOracleTemplates.js';
 import { collectOraclePatternDrawReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecDrawOracleTemplates.js';
 import { collectOraclePatternTokenReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecTokenOracleTemplates.js';
+import { collectBatch90ManaProductionReplacementSpecsFromState } from './replacementBatch90ManaProductionReplacements.js';
+import {
+  additionalTokenFromSpecMetadata,
+  replacedTokenFromSpecMetadata,
+} from './replacementBatch90ExtraDifferentTypeTokens.js';
+import { collectBatch91ProliferateReplacementSpecsFromState } from './replacementBatch91ProliferateReplacements.js';
+import { collectBatch91ScryReplacementSpecsFromState } from './replacementBatch91ScryReplacements.js';
+import { collectBatch91LoseGameReplacementSpecsFromState } from './replacementBatch91LoseGameReplacements.js';
+import { collectBatch91DrawReplacementSpecsFromState } from './replacementBatch91DrawReplacements.js';
+import { collectRevealCreaturesDrawSpecsFromState } from './revealCreaturesDrawReplacement.js';
+import { collectBatch91DamageReplacementSpecsFromState } from './replacementBatch91DamageReplacements.js';
+import { collectBatch91NamedTokenReplacementSpecsFromState } from './replacementBatch91NamedTokenReplacements.js';
+import { collectBatch92ReplacementSpecsFromState } from './replacementBatch92Collect.js';
+import { collectBatch93ReplacementSpecsFromState } from './replacementBatch93Collect.js';
+import { collectBatch94ReplacementSpecsFromState } from './replacementBatch94Collect.js';
+import { collectBatch96ReplacementSpecsFromState } from './replacementBatch96Collect.js';
+import { collectBatch97ReplacementSpecsFromState } from './replacementBatch97Collect.js';
+import { collectBatch99ReplacementSpecsFromState } from './replacementBatch99Collect.js';
+import { collectBatch100ReplacementSpecsFromState } from './replacementBatch100Collect.js';
+import { collectBatch101ReplacementSpecsFromState } from './replacementBatch101Collect.js';
+import { collectBatch102ReplacementSpecsFromState } from './replacementBatch102Collect.js';
+import { collectBatch103ReplacementSpecsFromState } from './replacementBatch103Collect.js';
+import { collectBatch104ReplacementSpecsFromState } from './replacementBatch104Collect.js';
+import { collectBatch105ReplacementSpecsFromState } from './replacementBatch105Collect.js';
+import { collectBatch106ReplacementSpecsFromState } from './replacementBatch106Collect.js';
+import { collectBatch95ReplacementSpecsFromState } from './replacementBatch95Collect.js';
 import { collectOraclePatternMillReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecMillOracleTemplates.js';
 import { collectOraclePatternZoneChangeReplacementSpecsFromState } from './replacementEffectSpec-handlers/replacementEffectSpecZoneChangeOracleTemplates.js';
 import { matchesZoneChangeOwnershipExtras } from './replacementEffectSpec-handlers/replacementEffectSpecZoneChangeDiesExileTemplates.js';
@@ -329,6 +355,28 @@ function collectReplacementEffectSpecsFromStateUncached(state: unknown): Replace
   specs.push(...collectOraclePatternLifeGainReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternLifeLossReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternTokenReplacementSpecsFromState(state));
+  specs.push(...collectBatch90ManaProductionReplacementSpecsFromState(state));
+  specs.push(...collectBatch91ProliferateReplacementSpecsFromState(state));
+  specs.push(...collectBatch91ScryReplacementSpecsFromState(state));
+  specs.push(...collectBatch91LoseGameReplacementSpecsFromState(state));
+  specs.push(...collectBatch91DrawReplacementSpecsFromState(state));
+  specs.push(...collectRevealCreaturesDrawSpecsFromState(state));
+  specs.push(...collectBatch91DamageReplacementSpecsFromState(state));
+  specs.push(...collectBatch91NamedTokenReplacementSpecsFromState(state));
+  specs.push(...collectBatch92ReplacementSpecsFromState(state));
+  specs.push(...collectBatch93ReplacementSpecsFromState(state));
+  specs.push(...collectBatch94ReplacementSpecsFromState(state));
+  specs.push(...collectBatch96ReplacementSpecsFromState(state));
+  specs.push(...collectBatch97ReplacementSpecsFromState(state));
+  specs.push(...collectBatch99ReplacementSpecsFromState(state));
+  specs.push(...collectBatch100ReplacementSpecsFromState(state));
+  specs.push(...collectBatch101ReplacementSpecsFromState(state));
+  specs.push(...collectBatch102ReplacementSpecsFromState(state));
+  specs.push(...collectBatch103ReplacementSpecsFromState(state));
+  specs.push(...collectBatch104ReplacementSpecsFromState(state));
+  specs.push(...collectBatch105ReplacementSpecsFromState(state));
+  specs.push(...collectBatch106ReplacementSpecsFromState(state));
+  specs.push(...collectBatch95ReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternZoneChangeReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternCounterReplacementSpecsFromState(state));
   specs.push(...collectOraclePatternDamageReplacementSpecsFromState(state));
@@ -410,6 +458,11 @@ export function summarizeDrawAmountReplacements(
 
   for (const spec of collectReplacementEffectSpecsFromState(state)) {
     if (spec.event !== 'card-draw' || !spec.instead.modify) continue;
+    if (spec.metadata && (spec.metadata as any).firstTimeThisTurnKey) {
+      const usedKey = String((spec.metadata as any).firstTimeThisTurnKey);
+      const usedMap = ((state as any)?.[usedKey] || {}) as Record<string, unknown>;
+      if (usedMap[String(spec.sourcePermanentId || '') + ':' + pid] === true) continue;
+    }
     if (!matchesDrawSpec(spec, event)) continue;
     const sourceName = String(spec.sourceName || '').trim();
     if (spec.instead.modify === 'add_flat') {
@@ -439,7 +492,7 @@ export function summarizeTokenAmountReplacements(
   state: unknown,
   controllerId: string,
   extras?: { tokenName?: string; tokenTypeLine?: string; metadata?: Record<string, unknown> },
-): { extraTokens: number; multiplier: number; extraSources: string[]; doubleSources: string[] } {
+): { extraTokens: number; multiplier: number; extraSources: string[]; doubleSources: string[]; additionalTokens?: NonNullable<ReturnType<typeof additionalTokenFromSpecMetadata>>[]; replaceCreatedToken?: ReturnType<typeof replacedTokenFromSpecMetadata> } {
   const pid = String(controllerId || '').trim();
   const event: TokenCreationReplacementEvent = {
     type: 'token-creation',
@@ -454,11 +507,27 @@ export function summarizeTokenAmountReplacements(
   let multiplier = 1;
   const extraSources: string[] = [];
   const doubleSources: string[] = [];
+  const additionalTokens: NonNullable<ReturnType<typeof additionalTokenFromSpecMetadata>>[] = [];
+  let replaceCreatedToken: ReturnType<typeof replacedTokenFromSpecMetadata> | undefined;
 
   for (const spec of collectReplacementEffectSpecsFromState(state)) {
-    if (spec.event !== 'token-creation' || !spec.instead.modify) continue;
+    if (spec.event !== 'token-creation') continue;
     if (!matchesTokenSpec(spec, event)) continue;
     const sourceName = String(spec.sourceName || '').trim();
+    const identity = replacedTokenFromSpecMetadata(spec.metadata as Record<string, unknown> | undefined);
+    const fromName = String((spec.metadata as any)?.replaceFromTokenNamed || '').trim().toLowerCase();
+    if (identity && fromName) {
+      // Named substitutions are chained after the loop so Fish -> Shark -> Octopus can compose.
+    } else if (identity && !replaceCreatedToken) {
+      replaceCreatedToken = identity;
+    }
+    const additional = additionalTokenFromSpecMetadata(spec.metadata as Record<string, unknown> | undefined, sourceName);
+    if (additional) {
+      additionalTokens.push(additional);
+      if (sourceName) extraSources.push(sourceName);
+      continue;
+    }
+    if (!spec.instead.modify) continue;
     if (spec.instead.modify === 'add_flat') {
       extraTokens += Math.max(0, Math.floor(Number(spec.instead.value || 0)));
       if (sourceName) extraSources.push(sourceName);
@@ -475,7 +544,36 @@ export function summarizeTokenAmountReplacements(
     }
   }
 
-  return { extraTokens, multiplier, extraSources, doubleSources };
+  // Named substitutions (Fisher's Talent) chain: Fish -> Shark -> Octopus.
+  if (!replaceCreatedToken) {
+    const startName = String(extras?.tokenName || '').trim();
+    let currentName = startName;
+    let chained: ReturnType<typeof replacedTokenFromSpecMetadata> | undefined;
+    const namedSpecs = collectReplacementEffectSpecsFromState(state).filter((spec) => {
+      if (spec.event !== 'token-creation') return false;
+      return Boolean((spec.metadata as any)?.replaceFromTokenNamed);
+    });
+    for (let step = 0; step < 8; step++) {
+      const hit = namedSpecs.find((spec) => String((spec.metadata as any)?.replaceFromTokenNamed || '').toLowerCase() === currentName.toLowerCase() && String(spec.sourceController || '') === pid);
+      if (!hit) break;
+      const next = replacedTokenFromSpecMetadata(hit.metadata as Record<string, unknown> | undefined);
+      if (!next) break;
+      chained = next;
+      currentName = String(next.name || '');
+    }
+    if (chained) replaceCreatedToken = chained;
+  }
+
+  // Sane default order: different-type extras are part of the replaced event, then doublers apply.
+  const scaledAdditional = additionalTokens.map((token) => ({ ...token, count: Math.max(0, Number(token.count || 1)) * multiplier }));
+  return {
+    extraTokens,
+    multiplier,
+    extraSources,
+    doubleSources,
+    ...(scaledAdditional.length ? { additionalTokens: scaledAdditional } : {}),
+    ...(replaceCreatedToken ? { replaceCreatedToken } : {}),
+  };
 }
 
 export function evaluateReplacementEffectSpec(
@@ -552,6 +650,7 @@ export function evaluateReplacementEffectSpec(
       metadata: {
         ...(spec.metadata || {}),
         ...(castWithAbility ? { castWithAbility } : {}),
+        ...(spec.sourceController ? { sourceController: spec.sourceController } : {}),
       },
     };
   }

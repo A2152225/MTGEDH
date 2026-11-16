@@ -80,7 +80,7 @@ export async function handlePlayFromGraveyardPromptChoice(
         cardId: graveyardCardId,
         fromZone: 'graveyard',
         bypassGraveyardPermissionCheck: true,
-      });
+      }, { ignoreTimingRestrictions: true });
     } else {
       const fakeSocket: any = {
         data: { playerId, spectator: false },

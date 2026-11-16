@@ -373,6 +373,7 @@ export function resumeOracleIRRemainingStepsFromResolution(
     chosenObjectIds?: readonly string[];
     selectorContext?: Record<string, unknown>;
     xValue?: number;
+    referenceAmount?: number;
     energyPaidThisWay?: number;
     voteChoiceCounts?: Readonly<Record<string, number>>;
     winningVoteChoice?: string | null;
@@ -396,6 +397,7 @@ export function resumeOracleIRRemainingStepsFromResolution(
       }
     : (resumeChosenIds.length > 0 ? { chosenObjectIds: resumeChosenIds } : undefined);
   const xValue = Number(params.xValue);
+  const referenceAmount = Number(params.referenceAmount);
   const chosenNumber = Number((params.selectorContext as { chosenNumber?: number } | undefined)?.chosenNumber);
 
   const irCtx = buildOracleIRExecutionContext(
@@ -408,6 +410,9 @@ export function resumeOracleIRRemainingStepsFromResolution(
       stepLedger: readStepLedgerFromState(state),
       appliedStepKinds: readAppliedStepKindsFromState(state),
       ...(Number.isFinite(xValue) ? { xValue } : {}),
+      ...(Number.isFinite(referenceAmount)
+        ? { referenceAmount: Math.max(0, Math.floor(referenceAmount)) }
+        : {}),
       ...(Number.isFinite(chosenNumber) ? { chosenNumber: Math.floor(chosenNumber) } : {}),
       ...(Number.isFinite(Number(params.energyPaidThisWay))
         ? { energyPaidThisWay: Math.max(0, Math.floor(Number(params.energyPaidThisWay))) }
@@ -423,6 +428,9 @@ export function resumeOracleIRRemainingStepsFromResolution(
       targetPlayerId: params.targetPlayerId,
       targetSpellId: params.targetSpellId,
       ...(resumeChosenIds.length > 0 ? { chosenObjectIds: resumeChosenIds } : {}),
+      ...(Number.isFinite(referenceAmount)
+        ? { referenceAmount: Math.max(0, Math.floor(referenceAmount)) }
+        : {}),
       ...(params.voteChoiceCounts ? { voteChoiceCounts: params.voteChoiceCounts } : {}),
       ...(typeof params.winningVoteChoice !== 'undefined'
         ? { winningVoteChoice: params.winningVoteChoice }

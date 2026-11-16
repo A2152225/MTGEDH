@@ -86,6 +86,16 @@ describe('generic canary-hole follow-ons', () => {
     expect(steps.some((step) => step.kind === 'grant_static_ability')).toBe(true);
   });
 
+  it('keeps Explore this-turn additional land as a grant (not reminder-pruned)', () => {
+    const ir = parseOracleTextToIR(
+      'You may play an additional land this turn.\nDraw a card.',
+      'Explore',
+    );
+    const steps = ir.abilities.flatMap((ability) => ability.steps || []);
+    expect(steps.some((step) => step.kind === 'grant_static_ability')).toBe(true);
+    expect(steps.some((step) => step.kind === 'draw')).toBe(true);
+  });
+
   it('parses typed flash this turn after a Convoke leftover', () => {
     const ir = parseOracleTextToIR(
       'Convoke You may cast sorcery spells this turn as though they had flash.',

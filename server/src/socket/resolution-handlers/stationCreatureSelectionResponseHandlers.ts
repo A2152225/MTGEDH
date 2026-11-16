@@ -14,6 +14,7 @@ import type { GameContext } from "../../state/context.js";
 import { tryApplyStationChargeCountersViaOracleIR } from "../../state/modules/oracleIrAbilityExecution.js";
 import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolution/index.js";
 import { appendGameEvent, broadcastGame, emitToPlayer, getEffectivePower, getPlayerName } from "../util.js";
+import { effectiveCrewStationPower } from "../crewStationUsedPower.js";
 
 /** STATION_CREATURE_SELECTION: tap the chosen creature to add charge counters to the station. */
 export function handleStationCreatureSelectionResponse(
@@ -92,7 +93,7 @@ export function handleStationCreatureSelectionResponse(
     return;
   }
 
-  const creaturePower = getEffectivePower(creature, game.state);
+  const creaturePower = effectiveCrewStationPower(creature, game.state, 'station');
   const countersToAdd = Math.max(0, Number(creaturePower || 0));
   const creatureName = String((creature as any).card?.name || 'creature');
   const counterType = String(stepData?.tapForCountersSource?.counterType || 'charge');

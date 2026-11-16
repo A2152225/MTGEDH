@@ -7,7 +7,8 @@
 // Costs the player pays themself are not affected (they are not caused by an opponent).
 // Public entry symbols: playerProtectedFromOpponentSacrifice, sacrificeShieldedPermanentIds, withSacrificeCauseProtection.
 
-const PROTECT_RE = /spells and abilities your opponents control can't cause you to sacrifice permanents/;
+const PROTECT_RE = /spells and abilities your opponents control can't cause you to (?:discard cards or )?sacrifice permanents/;
+const DISCARD_RE = /spells and abilities your opponents control can't cause you to discard cards/;
 
 function lowerOracle(perm: any): string {
   return String(perm?.card?.oracle_text || perm?.oracle_text || '').replace(/\u2019/g, "'").toLowerCase();
@@ -21,6 +22,16 @@ export function playerProtectedFromOpponentSacrifice(
   if (!sourceControllerId || !playerId || String(sourceControllerId) === String(playerId)) return false;
   const bf = Array.isArray(battlefield) ? battlefield : [];
   return bf.some((p: any) => p && !p.phasedOut && String(p.controller || '') === String(playerId) && PROTECT_RE.test(lowerOracle(p)));
+}
+
+export function playerProtectedFromOpponentDiscard(
+  battlefield: readonly any[] | undefined,
+  playerId: string,
+  sourceControllerId: string | undefined | null,
+): boolean {
+  if (!sourceControllerId || !playerId || String(sourceControllerId) === String(playerId)) return false;
+  const bf = Array.isArray(battlefield) ? battlefield : [];
+  return bf.some((p: any) => p && !p.phasedOut && String(p.controller || '') === String(playerId) && DISCARD_RE.test(lowerOracle(p)));
 }
 
 export function sacrificeShieldedPermanentIds(battlefield: readonly any[] | undefined, sourceControllerId: string | undefined | null): Set<string> {

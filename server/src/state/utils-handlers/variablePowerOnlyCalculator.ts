@@ -4,13 +4,15 @@
 // toughness-only mirror (People of the Woods 1/*, Treefolk Seedlings 2/*, Tymaret's devotion 2/*).
 
 import { countDifferentlyNamedLands, countFederationCreatureTypes } from '../../../../rules-engine/src/trekCountBases.js';
+import { getGreatestNotedManaValueThisTurn } from '../modules/batch95DiscardAndNotes.js';
+
 
 function typeLineOf(obj: any): string {
   return String(obj?.card?.type_line ?? obj?.type_line ?? '').toLowerCase();
 }
 
 /** Count for the "number of ..." phrase, or undefined when the phrase is not recognized. */
-export function countPowerOnlyPhrase(phrase: string, battlefield: any[], zones: any, controllerId: string): number | undefined {
+export function countPowerOnlyPhrase(phrase: string, battlefield: any[], zones: any, controllerId: string, self?: any): number | undefined {
   const p = phrase.toLowerCase().trim();
   const mine = (battlefield || []).filter((perm: any) => perm?.controller === controllerId);
   const graveyard: any[] = zones?.[controllerId]?.graveyard || [];
@@ -183,6 +185,25 @@ export function countPowerOnlyPhrase(phrase: string, battlefield: any[], zones: 
     }
     return count;
   }
+  // B104: Pestilence Rats — "other Rats on the battlefield"
+  m = p.match(/^(other )?([a-z-]+) on the battlefield$/);
+  if (m) {
+    const CARD_TYPES = new Set([
+      'creatures', 'artifacts', 'enchantments', 'lands', 'planeswalkers', 'permanents', 'cards',
+    ]);
+    if (!CARD_TYPES.has(m[2])) {
+      const noun = m[2].endsWith('ies') ? m[2].slice(0, -3) + 'y' : (m[2].endsWith('s') && !m[2].endsWith('ss') ? m[2].slice(0, -1) : m[2]);
+      const isOther = !!m[1];
+      return (battlefield || []).filter((perm: any) => {
+        if (isOther && self) {
+          if (perm === self || perm?.card === self || perm?.card === self?.card) return false;
+          const sid = String(self?.id || self?.card?.id || '');
+          if (sid && (String(perm?.id || '') === sid || String(perm?.card?.id || '') === sid)) return false;
+        }
+        return new RegExp('\\b' + noun + 's?\\b').test(typeLineOf(perm));
+      }).length;
+    }
+  }
   return undefined;
 }
 
@@ -198,7 +219,7 @@ export function devotionTo(color: string, battlefield: any[], controllerId: stri
   }, 0);
 }
 
-function variableSideCount(oracleTextLower: string, side: 'power' | 'toughness', battlefield: any[], zones: any, controllerId: string): number | undefined {
+function variableSideCount(oracleTextLower: string, side: 'power' | 'toughness', battlefield: any[], zones: any, controllerId: string, self?: any): number | undefined {
   // B82: An-Havva Constable — "toughness is equal to 1 plus the number of green creatures on the battlefield"
   const re = new RegExp(
     '(?:^|\\n|\\. )[^.\\n]*?\\b' + side
@@ -214,7 +235,7 @@ function variableSideCount(oracleTextLower: string, side: 'power' | 'toughness',
     : 0;
   if (!Number.isFinite(base)) return undefined;
   if (match[3]) return base + devotionTo(match[3], battlefield, controllerId);
-  const count = countPowerOnlyPhrase(match[2], battlefield, zones, controllerId);
+  const count = countPowerOnlyPhrase(match[2], battlefield, zones, controllerId, self);
   return count === undefined ? undefined : base + count;
 }
 
@@ -223,7 +244,7 @@ export function calculateToughnessOnlyCDA(card: any, oracleTextLower: string, ba
   if (!String(card?.toughness ?? '').includes('*') || String(card?.power ?? '').includes('*')) return undefined;
   const power = Number(card?.power);
   if (!Number.isFinite(power)) return undefined;
-  const count = variableSideCount(oracleTextLower, 'toughness', battlefield, zones, controllerId);
+  const count = variableSideCount(oracleTextLower, 'toughness', battlefield, zones, controllerId, card);
   return count === undefined ? undefined : { power, toughness: count };
 }
 
@@ -235,9 +256,17 @@ export function calculatePowerOnlyCDA(
   controllerId: string,
 ): { power: number; toughness: number } | undefined {
   if (!String(card?.power ?? '').includes('*')) return calculateToughnessOnlyCDA(card, oracleTextLower, battlefield, zones, controllerId);
+  const perm = (battlefield || []).find((p: any) => p && (p.card === card || String(p.id || '') === String(card?.id || '') || String(p.card?.id || '') === String(card?.id || '')));
+  if (perm) {
+    const noted = getGreatestNotedManaValueThisTurn(perm);
+    if (noted != null) {
+      const toughness = Number(card?.toughness);
+      if (Number.isFinite(toughness)) return { power: noted, toughness };
+    }
+  }
   const toughness = Number(card?.toughness);
   if (!Number.isFinite(toughness)) return undefined;
-  const count = variableSideCount(oracleTextLower, 'power', battlefield, zones, controllerId);
+  const count = variableSideCount(oracleTextLower, 'power', battlefield, zones, controllerId, perm || card);
   if (count === undefined) return undefined;
   return { power: count, toughness };
 }

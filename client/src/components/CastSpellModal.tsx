@@ -19,6 +19,7 @@ import { buildSuggestedPaymentItems } from '../utils/manaSourceBuilder';
 import { applyConvokeToCost } from '../utils/convokeCostReduction';
 import { manaPoolToColorRecord, simulateSequentialPaymentPool } from '../utils/manaSuggestedPaymentActivation';
 import { parseAlternateCosts, type AlternateCost } from './CastSpellModal-handlers/castSpellModalParseAlternateCosts';
+import { applySpendAsThoughToSources, canPayCostWithSpendAsThough, canonicalizePaymentItemsToProducedColors, getClientManaSpendAsThoughRules } from '../utils/manaSpendAsThough';
 
 export { parseAlternateCosts, type AlternateCost };
 
@@ -137,6 +138,7 @@ interface CastSpellModalProps {
   typeLine?: string;
   isActivatedAbilityPayment?: boolean;
   oracleText?: string;
+  grantedCasualty?: number | null;
   forcedAlternateCostId?: string;
   preferredAlternateCostId?: string;
   extraAlternateCosts?: AlternateCost[];
@@ -173,6 +175,10 @@ interface CastSpellModalProps {
     messages: string[];
   };
   currentStep?: string;
+  /** Payer's current life; forwarded to PaymentPicker for the Thran auto-pay cap. */
+  currentLife?: number;
+  payerId?: string;
+  manaSpendPermanents?: BattlefieldPermanent[];
   onConfirm: (
     payment: PaymentItem[],
     alternateCostId?: string,
@@ -191,6 +197,7 @@ export function CastSpellModal({
   typeLine,
   isActivatedAbilityPayment = false,
   oracleText,
+  grantedCasualty,
   forcedAlternateCostId,
   preferredAlternateCostId,
   extraAlternateCosts,
@@ -208,6 +215,9 @@ export function CastSpellModal({
   sneakOptions,
   webSlingingOptions,
   currentStep,
+  currentLife,
+  payerId,
+  manaSpendPermanents,
   onConfirm,
   onCancel,
 }: CastSpellModalProps) {
@@ -250,7 +260,7 @@ export function CastSpellModal({
 
   // Parse alternate costs from oracle text
   const alternateCosts = useMemo(() => {
-    let costs = parseAlternateCosts(oracleText || '', manaCost || '', cardName);
+    let costs = parseAlternateCosts(oracleText || '', manaCost || '', cardName, undefined, grantedCasualty);
 
     if (Array.isArray(extraAlternateCosts) && extraAlternateCosts.length > 0) {
       const existingIds = new Set(costs.map(cost => cost.id));
@@ -385,6 +395,11 @@ export function CastSpellModal({
     [availableSources, floatingPaymentSources, manualFloatingManaSelection]
   );
 
+  const spendRules = useMemo(
+    () => getClientManaSpendAsThoughRules(manaSpendPermanents || battlefieldPermanents, payerId),
+    [manaSpendPermanents, battlefieldPermanents, payerId],
+  );
+
   // Selected convoke creatures pay part of the (already reduced, X-applied) cost; only the
   // remainder needs mana sources (issue #55).
   const selectedConvokeDetails = useMemo(
@@ -424,12 +439,16 @@ export function CastSpellModal({
 
   const suggestedPaymentItems = useMemo(() => {
     const colorsToPreserve = computeColorsNeededByOtherCards(otherCardsInHand);
-    return buildSuggestedPaymentItems(
-      spellCostForPayment,
-      effectiveSuggestedSources.filter((source) => !source.sacrificeCost),
-      colorsToPreserve,
-      floatingMana,
-      { includeExplicitPoolItems: manualFloatingManaSelection, purpose: restrictedPurpose },
+    return canonicalizePaymentItemsToProducedColors(
+      buildSuggestedPaymentItems(
+        spellCostForPayment,
+        applySpendAsThoughToSources(effectiveSuggestedSources.filter((source) => !source.sacrificeCost), spendRules),
+        colorsToPreserve,
+        floatingMana,
+        { includeExplicitPoolItems: manualFloatingManaSelection, purpose: restrictedPurpose },
+      ),
+      effectiveSuggestedSources,
+      spendRules,
     );
   }, [
     spellCostForPayment,
@@ -438,6 +457,7 @@ export function CastSpellModal({
     floatingMana,
     manualFloatingManaSelection,
     restrictedPurpose,
+    spendRules,
   ]);
 
   const sequentialSourceById = useMemo(
@@ -455,7 +475,7 @@ export function CastSpellModal({
       manualFloatingManaSelection ? undefined : manaPoolToColorRecord(floatingMana),
     );
     if (simulated.unpaidActivationPips > 0) return false;
-    return canPayCost(spellCostForPayment, simulated.pool);
+    return canPayCostWithSpendAsThough(spellCostForPayment, simulated.pool, spendRules);
   }, [
     skipManaPaymentPicker,
     payment,
@@ -464,6 +484,7 @@ export function CastSpellModal({
     manualFloatingManaSelection,
     floatingMana,
     spellCostForPayment,
+    spendRules,
   ]);
 
   useEffect(() => {
@@ -490,7 +511,7 @@ export function CastSpellModal({
         sequentialSourceById,
         manualFloatingManaSelection ? undefined : manaPoolToColorRecord(floatingMana),
       );
-      if (simulated.unpaidActivationPips > 0 || !canPayCost(spellCostForPayment, simulated.pool)) {
+      if (simulated.unpaidActivationPips > 0 || !canPayCostWithSpendAsThough(spellCostForPayment, simulated.pool, spendRules)) {
         return;
       }
     }
@@ -854,6 +875,9 @@ export function CastSpellModal({
             isActivatedAbilityPayment={isActivatedAbilityPayment}
             manualFloatingManaSelection={manualFloatingManaSelection}
             autoSelectedPayment={suggestedPaymentItems}
+            currentLife={currentLife}
+            payerId={payerId}
+            manaSpendPermanents={manaSpendPermanents || battlefieldPermanents}
           />
         )}
 

@@ -40,6 +40,8 @@ export interface ParsedActivatedAbility {
   isFetchAbility: boolean;
   isMillAbility?: boolean;  // Mill abilities (target player mills cards)
   isCrewAbility?: boolean;  // Crew abilities for vehicles
+  isSaddleAbility?: boolean;  // Saddle abilities for Mounts, including type-granted saddles
+  saddlePower?: number;  // Power required to saddle
   isStationAbility?: boolean;  // Station abilities for spacecraft
   crewPower?: number;  // Power required to crew
   stationThreshold?: number;  // Charge counters needed to become creature

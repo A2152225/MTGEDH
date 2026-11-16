@@ -1,4 +1,5 @@
 import { detectCastTrigger, extractSelfCastEffectClauses } from '../../../../rules-engine/src/cards/castTriggers.js';
+import { grantedRippleOnCastDescriptions } from './rippleTrigger.js';
 
 export type OnCastSpellTriggerDescription = { description: string; effect: string };
 
@@ -33,6 +34,17 @@ function toOnCastDescription(effectClause: string): OnCastSpellTriggerDescriptio
  * multi-sentence "If you do" clauses are preserved.
  */
 export function resolveOnCastSpellTriggerDescriptions(
+  card: any,
+  grantContext?: { state?: any; playerId?: string },
+): OnCastSpellTriggerDescription[] {
+  // Ripple granted by a battlefield source (Thrumming Stone) triggers in addition to printed on-cast triggers.
+  const grantedRipple = grantContext?.state && grantContext.playerId
+    ? grantedRippleOnCastDescriptions(grantContext.state, grantContext.playerId, card)
+    : [];
+  return [...resolvePrintedOnCastSpellTriggerDescriptions(card), ...grantedRipple];
+}
+
+function resolvePrintedOnCastSpellTriggerDescriptions(
   card: any,
 ): OnCastSpellTriggerDescription[] {
   const oracleText = String(card?.oracle_text || '');

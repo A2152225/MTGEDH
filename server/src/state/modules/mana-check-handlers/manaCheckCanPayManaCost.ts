@@ -3,6 +3,9 @@
 // Public entry symbols: getTotalManaFromPool, canPayManaCost, getMaxXValue.
 // Leaf must not import mana-check.ts or mana-check-handlers/index.ts.
 
+import { canPayManaCostWithSpendAsThough, type ManaSpendAsThoughRules } from "../manaSpendAsThough.js";
+import { getBatch106ManaSpendAsThoughRules } from "../batch106ManaSpendAsThough.js";
+
 /**
  * Get total available mana from a mana pool.
  * 
@@ -76,9 +79,19 @@ function applyAnyColorReduction(remainingPool: Record<string, number>, anyColorU
 export function canPayManaCost(
   pool: Record<string, number>,
   parsedCost: { colors: Record<string, number>; generic: number; hasX: boolean; hybrid?: Array<string[]> },
-  lifeAvailable: number = Infinity
+  lifeAvailable: number = Infinity,
+  spendRules?: ManaSpendAsThoughRules,
+  context?: { state?: any; playerId?: string; activatingCreatureAbility?: boolean },
 ): boolean {
   if (!pool) return false;
+  const resolvedSpendRules = (context?.state && context.playerId)
+    ? getBatch106ManaSpendAsThoughRules(context.state, String(context.playerId), {
+        activatingCreatureAbility: context.activatingCreatureAbility === true,
+      })
+    : spendRules;
+  if (resolvedSpendRules && (resolvedSpendRules.anyColor || resolvedSpendRules.colorAsAny || resolvedSpendRules.otherOnlyColorless)) {
+    return canPayManaCostWithSpendAsThough(pool, parsedCost, resolvedSpendRules);
+  }
 
   const manaColorMap: Record<string, string> = {
     W: "white",

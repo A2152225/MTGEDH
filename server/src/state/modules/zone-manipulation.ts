@@ -1,4 +1,5 @@
 import { recordFaceDownReveal } from './faceDownRevealLog.js';
+import { noteManaValueAsExiledForBorca } from './batch95DiscardAndNotes.js';
 /**
  * zone-manipulation.ts
  * 
@@ -25,6 +26,9 @@ import { moveRemovedPermanentToExile } from './zones.js';
 import { debug } from "../../utils/debug.js";
 import { recordCardLeftGraveyardThisTurn } from "./turn-tracking.js";
 import { movePermanentToLibrary } from "./zones.js";
+import { applyBatch92LeaveBattlefieldToHand } from './replacementBatch92DiesReplacements.js';
+import { applyBatch106NamedCountersOnExiled } from './batch106Apply.js';
+import { applyCardToLibraryBottom, applyCardToLibraryTop } from './batch94ZoneChangeApply.js';
 import { triggerLifeGainEffects } from '../utils.js';
 
 /**
@@ -360,6 +364,9 @@ export function shuffleRemovedPermanentIntoOwnerLibrary(
 function exileCardCopyForOwner(ctx: GameContext, card: any, ownerId: string): boolean {
   const owner = String(ownerId || '').trim();
   if (!owner || !card) return false;
+  try {
+    noteManaValueAsExiledForBorca((ctx as any).state, card);
+  } catch { /* hook optional */ }
 
   const state = (ctx as any).state;
   const zones = state.zones || {};
@@ -387,6 +394,7 @@ export interface GraveyardDestinationReplacementOutcome {
   effectId?: string;
   replacementDestination?: ReplacementZone;
   lifeGain?: number;
+  lifeGainPlayerId?: string;
   ceasesToExist?: boolean;
 }
 
@@ -408,10 +416,13 @@ export {
 
 function buildDeclarativeReplacementOutcome(
   result: ReplacementEffectResult,
-): Pick<GraveyardDestinationReplacementOutcome, 'effectId' | 'lifeGain'> {
+): Pick<GraveyardDestinationReplacementOutcome, 'effectId' | 'lifeGain' | 'lifeGainPlayerId'> {
   return {
     effectId: result.effectId,
-    lifeGain: typeof result.lifeGain === 'number' && result.lifeGain > 0 ? result.lifeGain : undefined,
+    lifeGain: (typeof result.lifeGain === 'number' && result.lifeGain > 0)
+      ? result.lifeGain
+      : (Number((result as any)?.metadata?.gainLife) > 0 ? Number((result as any).metadata.gainLife) : undefined),
+    lifeGainPlayerId: String((result as any)?.metadata?.gainLifePlayerId || (result as any)?.metadata?.sourceController || '').trim() || undefined,
   };
 }
 
@@ -453,9 +464,38 @@ function applyDeclarativeZoneChangeReplacementOutcome(
       : { handled: false };
   }
 
+  if (result.replacementDestination === 'library' && (result.metadata as any)?.libraryPosition === 'bottom') {
+    const destPlayer = String((result.metadata as any)?.enchantedPlayerId || owner || '').trim();
+    const moved = applyCardToLibraryBottom((ctx as any).state, zoneCard, destPlayer);
+    return moved
+      ? { handled: true, ...baseOutcome, replacementDestination: result.replacementDestination }
+      : { handled: false };
+  }
+
+  if (result.replacementDestination === 'library' && (result.metadata as any)?.libraryPosition === 'top') {
+    const destPlayer = String((result.metadata as any)?.enchantedPlayerId || owner || '').trim();
+    const moved = applyCardToLibraryTop((ctx as any).state, zoneCard, destPlayer);
+    return moved
+      ? { handled: true, ...baseOutcome, replacementDestination: result.replacementDestination }
+      : { handled: false };
+  }
+
   if (result.replacementDestination === 'exile') {
     if (options.sourceZone === 'battlefield' && options.permanentId) {
       moveRemovedPermanentToExile(ctx, object, options.permanentId);
+      applyBatch106NamedCountersOnExiled(ctx, object, result.metadata);
+      if ((result.metadata as any)?.putP1P1OnSourceEqualToObjectPower === true) {
+        const sourceId = String((result.metadata as any)?.sourcePermanentId || '').trim();
+        const battlefield: any[] = Array.isArray((ctx.state as any)?.battlefield) ? (ctx.state as any).battlefield : [];
+        const source = battlefield.find((p: any) => String(p?.id || '') === sourceId);
+        if (source) {
+          const power = Math.max(0, Math.floor(Number(object?.basePower ?? object?.card?.power ?? object?.power) || 0));
+          if (power > 0) {
+            source.counters = source.counters || {};
+            source.counters['+1/+1'] = (Number(source.counters['+1/+1']) || 0) + power;
+          }
+        }
+      }
       return {
         handled: true,
         ...baseOutcome,
@@ -464,6 +504,17 @@ function applyDeclarativeZoneChangeReplacementOutcome(
     }
     const exiled = exileCardCopyForOwner(ctx, zoneCard, owner);
     return exiled
+      ? {
+          handled: true,
+          ...baseOutcome,
+          replacementDestination: result.replacementDestination,
+        }
+      : { handled: false };
+  }
+
+  if (result.replacementDestination === 'hand') {
+    const moved = applyBatch92LeaveBattlefieldToHand(ctx, object, owner, result.metadata);
+    return moved
       ? {
           handled: true,
           ...baseOutcome,
@@ -515,11 +566,14 @@ export function applyLeaveBattlefieldReplacementLifeGain(
   controllerId: string,
 ): void {
   const amount = Number(outcome.lifeGain || 0);
-  if (amount <= 0 || outcome.effectId !== 'leave-battlefield-exile-instead') {
+  if (amount <= 0) {
+    return;
+  }
+  if (outcome.effectId && outcome.effectId !== 'leave-battlefield-exile-instead' && outcome.effectId !== 'opponent-creature-die-exile-gain-life') {
     return;
   }
 
-  const playerId = String(controllerId || '').trim() as PlayerID;
+  const playerId = String(outcome.lifeGainPlayerId || controllerId || '').trim() as PlayerID;
   if (!playerId) return;
 
   const state = (ctx as any).state;

@@ -13,9 +13,11 @@ import type { Server, Socket } from "socket.io";
 import { GameManager } from "../../GameManager.js";
 import { appendEvent } from "../../db";
 import { getPlayableLandCandidates, type SharedPlayableLandCandidate } from "../../state/modules/can-respond.js";
+import { landPlayTimingBlockReason } from "../../state/modules/can-respond-handlers/canRespondPlayableLands.js";
 import { buildPersistedCastPermissionFields } from "../../state/modules/castIntent.js";
 import { calculateMaxLandsPerTurn, canPlayLandsFromTop } from "../../state/modules/game-state-effects";
 import { landPlaySameNameAsNontokenViolation } from "../../state/modules/landPlaySameNameRestriction.js";
+import { opponentsCantPlayLandCardsFromGraveyards } from "../../state/modules/batch100CombatAndKeywords.js";
 import { getEffectiveBasicLandTypes } from "../../state/modules/mana-abilities.js";
 import {
   cardAllowsPlayerToPlayFromExile,
@@ -38,6 +40,7 @@ import {
 } from "../land-helpers";
 import { queueShockLandPaymentStep } from "../optional-payment-prompts.js";
 import { enterUntappedOverrideSourceName } from "../../state/modules/landsEnterUntappedOverride.js";
+import { maybeQueueLandEquilibriumSacrifice } from "../../state/modules/batch101LandRecoverSurveil.js";
 import {
   LAND_PLAY_AUTOMATION_SUPPRESSION_MS,
   broadcastGame,
@@ -356,6 +359,15 @@ export function finalizePlayedLand(
   checkPlayerSelectionForNewPermanents(io, game, gameId);
   checkEnchantmentETBTriggers(io, game, gameId);
 
+  try {
+    const entered = (Array.isArray(game.state?.battlefield) ? game.state.battlefield : []).find((p) =>
+      p && p.controller === playerId && (p.card?.id === cardId || p.id === createdPermanent?.id)
+    );
+    if (entered?.id) {
+      maybeQueueLandEquilibriumSacrifice({ ...(game as any), state: game.state, gameId } as any, String(playerId), String(entered.id));
+    }
+  } catch {}
+
   broadcastGame(io, game, gameId);
 }
 
@@ -367,7 +379,12 @@ export type PlayLandRequestPayload = {
   bypassGraveyardPermissionCheck?: unknown;
 };
 
-export function handlePlayLandRequest(io: Server, socket: Socket, payload?: PlayLandRequestPayload): void {
+export function handlePlayLandRequest(
+  io: Server,
+  socket: Socket,
+  payload?: PlayLandRequestPayload,
+  options?: { ignoreTimingRestrictions?: boolean },
+): void {
   const gameId = payload?.gameId;
   const cardId = payload?.cardId;
   const selectedFace = payload?.selectedFace;
@@ -431,6 +448,14 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
 
     if (!ensureInGameRoom(gameId)) return;
 
+    if (options?.ignoreTimingRestrictions !== true) {
+      const timingBlock = landPlayTimingBlockReason({ state: game.state } as any, playerId as any);
+      if (timingBlock) {
+        emitPlayLandError({ code: "LAND_TIMING", message: timingBlock });
+        return;
+      }
+    }
+
     const landsPlayed = (game.state?.landsPlayedThisTurn?.[playerId] || 0);
     const maxLands = calculateMaxLandsPerTurn(game as any, playerId);
     debug(2, `[playLand] Player ${playerId} has played ${landsPlayed} lands this turn, max is ${maxLands}`);
@@ -448,6 +473,13 @@ export function handlePlayLandRequest(io: Server, socket: Socket, payload?: Play
     let requestedLandCandidate: SharedPlayableLandCandidate | undefined;
 
     if (sourceZone === 'graveyard') {
+      if (opponentsCantPlayLandCardsFromGraveyards(game.state, String(playerId))) {
+        emitPlayLandError({
+          code: "NO_PERMISSION",
+          message: "You cannot play land cards from graveyards",
+        });
+        return;
+      }
       requestedLandCandidate = getRequestedLandPlayCandidate(game, String(playerId), String(cardId), 'graveyard', selectedFaceIndex);
 
       if (!requestedLandCandidate && !bypassGraveyardPermissionCheck) {

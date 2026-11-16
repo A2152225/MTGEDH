@@ -240,6 +240,7 @@ function permanentHasKeywordFromRuntimeGrants(
 ): boolean {
   if (abilityListIncludesKeyword((permanent as any)?.grantedAbilities, keyword)) return true;
   if (abilityListIncludesKeyword((permanent as any)?.grantedKeywords, keyword)) return true;
+  if (abilityListIncludesKeyword((permanent as any)?.batch107GrantedKeywords, keyword)) return true;
   if (abilityListIncludesKeyword((permanent as any)?.temporaryAbilities, keyword)) return true;
 
   const temporaryEffects = Array.isArray((permanent as any)?.temporaryEffects)

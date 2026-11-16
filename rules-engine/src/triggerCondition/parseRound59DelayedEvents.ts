@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Round 59 / legacy-r2: delayed_rider IR shapes.
  * Standalone "When you/they do", next/that end step, that combat, next EOC,
  * that-creature dies/leaves this turn, next-cast / that-spell already partially
@@ -168,10 +168,20 @@ export function parseRound59DelayedTriggerSentence(text: string, reparse: Repars
   // "At the beginning of the next upkeep, ..."
   const nextUpkeep = /^at the beginning of the next upkeep,\s*(.+)$/i.exec(text);
   if (nextUpkeep) {
-    return withFields(reparse('at the beginning of the upkeep, ' + nextUpkeep[1]), {
-      delayedNextTurn: true,
-      delayedRider: true,
-    } as any);
+    const base = reparse('at the beginning of your upkeep, ' + nextUpkeep[1])
+      || reparse('at the beginning of the upkeep, ' + nextUpkeep[1]);
+    if (base) return withFields(base, { delayedNextTurn: true, delayedRider: true, whoseTurn: 'each_player' } as any);
+    return {
+      condition: {
+        event: 'beginning_of_upkeep',
+        quantity: 'one',
+        alternatives: [],
+        delayedNextTurn: true,
+        delayedRider: true,
+        whoseTurn: 'each_player',
+      } as TriggerConditionIR,
+      effect: nextUpkeep[1].trim(),
+    };
   }
 
   // --- ETB / attack this-turn promotions (legacy-r2) -------------------------
@@ -244,6 +254,14 @@ export function parseRound59DelayedTriggerSentence(text: string, reparse: Repars
       attackedPlayer: 'enchanted',
       quantity: 'one_or_more',
     } as any);
+  }
+
+  // Reflexive "this way" riders scheduled by a parent effect.
+  const thisWay = /^(?:when|whenever) (.+?) this way,\s*(.+)$/i.exec(text);
+  if (thisWay) {
+    const base = reparse('when ' + thisWay[1] + ', ' + thisWay[2])
+      || reparse('whenever ' + thisWay[1] + ', ' + thisWay[2]);
+    if (base) return withFields(base, { thisWay: true, delayedRider: true } as any);
   }
 
   return null;

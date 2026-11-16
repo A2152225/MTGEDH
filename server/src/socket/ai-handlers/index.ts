@@ -56,6 +56,7 @@ export {
   clearScheduledAIActionsForGame,
   getAIActionKey,
   getAIPendingSpellCastStatus,
+  isAIExclusiveGenerationCurrent,
   runExclusiveAIAction,
   resetAIActionLocksForTests,
   getAIActionGenerationForTests,
@@ -345,11 +346,19 @@ export {
   canAIActivateBattlefieldAbilityNow,
   canAIAssembleManaPaymentPlan,
   captureAICastControlFlowSnapshot,
+  clearAIResponseWindowsForGame,
   didAICastAttemptChangeControlFlow,
   enumerateAIActionCandidates,
   tryAIResponseActions,
   waitForAISharedCastToSettle,
 } from "./aiActionCandidateHandlers.js";
+
+export {
+  clearAIFastPassDecisionsForGame,
+  clearAIFastPassDecisionsForTests,
+  consumeAIFastPassDecision,
+  setAIFastPassPrecheckForTests,
+} from "./aiFastPassPrecheck.js";
 
 // Playable-land lookup, aura targeting, findCastableCommander, failed-cast memory.
 export {

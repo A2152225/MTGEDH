@@ -20,7 +20,9 @@
 import { allocateTimestamp, readAttachmentTimestamp, readPermanentTimestamp, TIMESTAMP_BASE } from './permanentTimestamps';
 
 // B78: Steal Enchantment — "You control enchanted enchantment."
-const CONTROL_AURA_RE = /\byou control enchanted (?:creature|permanent|artifact|land|planeswalker|enchantment)\b/i;
+
+import { batch105MonarchControllerForEnchanted } from './batch105MonarchControl';
+const CONTROL_AURA_RE = /\byou control enchanted (?:creature|permanent|artifact|land|planeswalker|enchantment|equipment)\b/i;
 
 export function oracleGrantsAuraControl(oracle: string): boolean {
   return CONTROL_AURA_RE.test(String(oracle || '').replace(/\([^)]*\)/g, ' '));
@@ -150,8 +152,9 @@ export function syncControlFromRegistry(state: any): ControlChange[] {
   for (const aura of battlefield) {
     const hostId = String(aura?.attachedTo || '').trim();
     if (!hostId || !aura?.controller || aura.phasedOut) continue;
-    if (!oracleGrantsAuraControl(String(aura?.card?.oracle_text || ''))) continue;
-    add(hostId, String(aura.controller), readAttachmentTimestamp(aura) ?? readPermanentTimestamp(aura) ?? TIMESTAMP_BASE);
+    const monarchId = batch105MonarchControllerForEnchanted(aura, state);
+    if (!oracleGrantsAuraControl(String(aura?.card?.oracle_text || '')) && !monarchId) continue;
+    add(hostId, monarchId || String(aura.controller), readAttachmentTimestamp(aura) ?? readPermanentTimestamp(aura) ?? TIMESTAMP_BASE);
   }
 
   const changes: ControlChange[] = [];

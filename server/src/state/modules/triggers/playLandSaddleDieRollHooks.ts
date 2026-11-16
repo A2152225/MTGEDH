@@ -10,6 +10,8 @@
 import type { GameContext } from '../../context.js';
 import { queueGenericTriggeredAbility } from '../triggerEmissionFamilyUtils.js';
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
+import { queueParsedActionTriggers, parsedEffectDuplicates } from './queueParsedSpecialRuntimeIr.js';
+import { maybeQueueDiceExchangeFromLastDieRoll } from '../diceExchangeBasePTPrompt.js';
 
 const ABILITY_WORD = /^\s*[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
 
@@ -98,7 +100,7 @@ export function queueSaddleMountTriggers(ctx: GameContext, saddlerIds: readonly 
 
 export interface DieRollTriggerMatch {
   readonly effect: string;
-  readonly accepts: (result: number, rollIndexThisTurn: number) => boolean;
+  readonly accepts: (result: number, rollIndexThisTurn: number, dieSides?: number) => boolean;
 }
 
 /** Recognises a die-roll result trigger sentence; null when it is not one. */
@@ -110,6 +112,8 @@ export function matchDieRollTrigger(sentence: string): DieRollTriggerMatch | nul
   if (m) { const n = Number(m[1]); return { effect: m[2], accepts: (r) => r >= n }; }
   m = /^when(?:ever)? you roll a natural (\d+),\s*(.+)$/i.exec(s);
   if (m) { const n = Number(m[1]); return { effect: m[2], accepts: (r) => r === n }; }
+  m = /^when(?:ever)? you roll a die's highest natural result,\s*(.+)$/i.exec(s);
+  if (m) return { effect: m[1], accepts: (r, _i, sides) => Number(sides) > 0 && r === Number(sides) };
   m = /^whenever you roll your third die each turn,\s*(.+)$/i.exec(s);
   if (m) return { effect: m[1], accepts: (_r, idx) => idx === 3 };
   m = /^when(?:ever)? you roll a (\d+),\s*(.+)$/i.exec(s);
@@ -149,13 +153,27 @@ export function queueFreshDieRollTriggers(ctx: GameContext, onlyPlayerId?: strin
         sources.push({ id: card.id, controller: playerId, owner: playerId, card, fromGraveyard: true });
       }
     }
+    const dieSides = Number(roll.sides || roll.dieSides || roll.faces || 0);
     for (const source of sources) {
+      results.forEach((result: number, i: number) => {
+        queued.push(...queueParsedActionTriggers(ctx, {
+          event: 'performs',
+          action: 'roll_die',
+          subjectPermanent: { id: 'roll:' + playerId, controller: playerId, card: { name: 'Die Roll', type_line: '' } },
+          subjectControllerId: playerId,
+          sources: [source],
+          matchContext: { naturalRoll: result, rollResult: result, dieSides, rollIndexThisTurn: firstIndex + i },
+          triggerType: 'parsed_die_roll',
+          effectData: { playerId, result, amount: result, ...(source.fromGraveyard ? { graveyardCardId: source.id } : {}) },
+        }));
+      });
       for (const sentence of sentencesOf(source.card)) {
         const match = matchDieRollTrigger(sentence);
         if (!match) continue;
         if (!source.fromGraveyard && /natural/i.test(sentence)) continue;
         results.forEach((result: number, i: number) => {
-          if (!match.accepts(result, firstIndex + i)) return;
+          if (!match.accepts(result, firstIndex + i, dieSides)) return;
+          if (queued.some((item) => String(item?.permanentId || '') === String(source.id || '') && parsedEffectDuplicates([item.effect, item.description], match.effect))) return;
           const item = queue(ctx, source, match.effect, 'die_roll_single_result', { playerId, result, amount: result, ...(source.fromGraveyard ? { graveyardCardId: source.id } : {}) });
           if (item) {
             (item as any).xValue = result;
@@ -165,5 +183,6 @@ export function queueFreshDieRollTriggers(ctx: GameContext, onlyPlayerId?: strin
       }
     }
   }
+  try { maybeQueueDiceExchangeFromLastDieRoll(ctx, state); } catch { /* best-effort */ }
   return queued;
 }

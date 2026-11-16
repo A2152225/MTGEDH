@@ -16,6 +16,7 @@ import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import type { DetectedKeyword, KeywordTiming } from "./keyword-detection.js";
 import { detectKeywords, getAttackTriggerKeywords, getETBKeywords, getDeathTriggerKeywords, getCombatDamageTriggerKeywords, getSpellCastTriggerKeywords, battlefieldGrantsRiotToPermanent } from "./keyword-detection.js";
 import { listLegalHauntCreatureTargets } from "./hauntKeywordUtils.js";
+import { getSoulshiftValueForPermanent } from "./batch98CombatAndKeywords.js";
 import type { KeywordTriggerResult, KeywordTriggerContext } from "./keyword-trigger-handlers/keywordTriggerTypes.js";
 import { permanentHasKeyword, getPermanentKeywords } from "./keyword-trigger-handlers/keywordTriggerPermanentLookup.js";
 import { playerCannotReceivePriority } from "./priorityEligibility.js";
@@ -703,7 +704,8 @@ function handleAfterlife(ctx: KeywordTriggerContext, keyword: DetectedKeyword): 
  */
 function handleSoulshift(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Creature';
-  const n = keyword.value || 1;
+  const dynamic = getSoulshiftValueForPermanent(ctx.permanent, ctx.state);
+  const n = dynamic != null ? dynamic : (keyword.value || 1);
   const zones = (ctx.state as any)?.zones || {};
   const controllerZones = zones?.[ctx.controller] || {};
   const graveyard = Array.isArray(controllerZones?.graveyard) ? controllerZones.graveyard : [];

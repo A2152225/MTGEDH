@@ -60,6 +60,7 @@ describe('round 40 batched trigger parse', () => {
     const b: any = parseTriggerClause('Whenever one or more creatures you control deal combat damage to one or more players, proliferate.');
     expect(b?.condition.event).toBe('deals_combat_damage_to_player');
     expect(b?.condition.quantity).toBe('one_or_more');
-    expect(parseTriggerClause('Whenever one or more creatures you control become tapped, draw a card.')).toBeNull();
+    // Round 6x now parses the batched tapped wording.
+    expect((parseTriggerClause('Whenever one or more creatures you control become tapped, draw a card.') as any)?.condition.event).toBe('becomes_tapped');
   });
 });

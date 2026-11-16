@@ -3,10 +3,13 @@
 // Cluster moved: getPlayableLandCandidates, canPlayLand, hasPlayFromZoneEffect,
 // hasPlayFromTopOfLibraryEffect, and land-play timing/face helpers.
 // Public entry symbols: getPlayableLandCandidates, canPlayLand,
-// isCardPlayableAsLandFromHand, getPlayableLandFaceIndex, getHandCastEvaluationCard.
+// isCardPlayableAsLandFromHand, getPlayableLandFaceIndex, getHandCastEvaluationCard,
+// landPlayTimingBlockReason.
 
 import type { GameContext } from '../../context.js';
+import { batch105CannotCastOrPlayForWardOfBones } from '../batch105Apply.js';
 import { landPlaySameNameAsNontokenViolation } from '../landPlaySameNameRestriction.js';
+import { isLandPlayProhibitedByBatch107ChosenNames } from '../batch107Apply.js';
 import type { PlayerID } from '../../../../../shared/src/index.js';
 import { debug, debugWarn } from '../../../utils/debug.js';
 import { calculateMaxLandsPerTurn } from '../game-state-effects.js';
@@ -40,6 +43,17 @@ function isLandPlayTimingWindowOpen(ctx: GameContext, playerId: PlayerID): boole
   const inMainPhase = !hasTimingMarker || isInMainPhase(ctx) || phase.includes('MAIN');
 
   return isTurnPlayer && stackEmpty && inMainPhase;
+}
+
+/** Why a normal land play is illegal right now, or null when the timing window is open. */
+export function landPlayTimingBlockReason(ctx: GameContext, playerId: PlayerID): string | null {
+  if (isLandPlayTimingWindowOpen(ctx, playerId)) return null;
+  const state = ctx?.state as any;
+  const turnPlayer = String(state?.turnPlayer || state?.activePlayer || '').trim();
+  const stackEmpty = !Array.isArray(state?.stack) || state.stack.length === 0;
+  if (turnPlayer && turnPlayer !== String(playerId || '')) return 'Not your turn';
+  if (!stackEmpty) return "You can't play a land while there are spells or abilities on the stack";
+  return 'You can only play a land during your main phase while the stack is empty';
 }
 
 
@@ -148,6 +162,7 @@ export function getPlayableLandCandidates(
       if (!isCardPlayableAsLandFromHand(card)) return;
       // B61: Cornered Market ? nonbasic same-name as nontoken permanent.
       if (landPlaySameNameAsNontokenViolation(state.battlefield, card)) return;
+      if (isLandPlayProhibitedByBatch107ChosenNames(state, String(card?.name || card?.card?.name || ''))) return;
 
       const cardId = String(card?.id || '');
       if (skipBattlefieldDuplicates && cardId && battlefieldCardIds.has(cardId)) {
@@ -221,6 +236,7 @@ export function canPlayLand(ctx: GameContext, playerId: PlayerID): boolean {
       debug(2, `[canPlayLand] ${playerId}: No state`);
       return false;
     }
+    if (batch105CannotCastOrPlayForWardOfBones(state, String(playerId), 'land', 'play')) return false;
     
     const zones = state.zones?.[playerId];
     if (!zones) {

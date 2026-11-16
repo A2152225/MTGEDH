@@ -12,6 +12,8 @@ import { useRandomDeckPicker } from "../hooks/useRandomDeckPicker";
 import { socket } from "../socket";
 import { toast } from "../components/ToastHost";
 import { isLandTypeLine, prettyPhase, prettyStep } from "../utils/gameDisplayHelpers";
+import { handFacePlayModes } from "../utils/handFacePlayModes";
+import { landPlayTimingBlockReason } from "../utils/landPlayTiming";
 import { buildAvailableManaSourcesForPlayer } from "../utils/manaSourceBuilder";
 import { notifyUnfocusedYourTurn } from "../utils/turnAttentionNotify";
 import {
@@ -654,27 +656,18 @@ export function useAppPlayDerivedEffects(p: Record<string, any>) {
     card_faces?: Array<{ type_line?: string | null }> | null;
   }) => {
     if (!safeView || !you) return "No game state";
-    if (!isLandTypeLine(getHandPlayableTypeLine(card))) return "Not a land";
+    const playableAsLand = handFacePlayModes(card).canPlayAsLand
+      || isLandTypeLine(getHandPlayableTypeLine(card));
+    if (!playableAsLand) return "Not a land";
 
-    const turnPlayer = safeView.turnPlayer;
-    const phase = safeView.phase;
-    const landsPlayedThisTurn =
-      (safeView as any).landsPlayedThisTurn?.[you] || 0;
-    // Get max lands per turn from game state, default to 1 if not set
-    const maxLandsPerTurn =
-      (safeView as any).maxLandsPerTurn?.[you] || 1;
-
-    if (turnPlayer == null || turnPlayer !== you) return "Not your turn";
-    if (!phase || !String(phase).toLowerCase().includes("main")) {
-      return "Can only play lands during your main phase";
-    }
-    if (landsPlayedThisTurn >= maxLandsPerTurn) {
-      return maxLandsPerTurn > 1
-        ? `You have already played ${landsPlayedThisTurn} land(s) this turn (max ${maxLandsPerTurn})`
-        : "You have already played a land this turn";
-    }
-
-    return null;
+    return landPlayTimingBlockReason({
+      you,
+      turnPlayer: safeView.turnPlayer,
+      phase: safeView.phase,
+      stackCount: Array.isArray((safeView as any).stack) ? (safeView as any).stack.length : 0,
+      landsPlayedThisTurn: (safeView as any).landsPlayedThisTurn?.[you] || 0,
+      maxLandsPerTurn: (safeView as any).maxLandsPerTurn?.[you] || 1,
+    });
   };
 
   const reasonCannotCast = (card: {

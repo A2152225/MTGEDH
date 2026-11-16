@@ -10,7 +10,7 @@ import type { GameContext } from '../../context.js';
 import { getTurnScopedSpellTriggerSources } from "./turnScopedSpellTriggers.js";
 import { takeRecordedDamageSources } from '../damageEventSources.js';
 import { detectDealtDamageTriggers } from './dealt-damage-detection.js';
-import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggerConditionFamilyMatch.js';
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, parsedEventLinesFor } from './triggerConditionFamilyMatch.js';
 import { mergeDetectorOracleWithContinuousGrants } from './detectorGrantedOracle.js';
 import { parseAnyTargetThatIsntCreatureType } from './damage-redirect-target-type.js';
 import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
@@ -446,6 +446,15 @@ export interface ThatMuchDamageWatcherHit {
  * That-much redirects are returned for the existing DamageTriggerInfo path;
  * other effects are queued as generic triggered abilities.
  */
+function printedDealsDamageIsIrOwned(card: any): boolean {
+  const lines = parsedEventLinesFor(
+    String(card?.oracle_text || card?.oracleText || ''),
+    ['deals_damage', 'deals_combat_damage_to_player', 'dealt_damage'],
+    String(card?.name || '') || undefined,
+  );
+  return lines.some((line) => !line.condition?.legacyRuntimeOnly && !line.condition?.delayedRider && !line.condition?.thisWay);
+}
+
 export function processPermanentDealtDamageWatchers(
   ctx: GameContext,
   damagedPermanent: any,
@@ -469,6 +478,7 @@ export function processPermanentDealtDamageWatchers(
     if (seen.has(key)) continue;
     seen.add(key);
     if (!dealtDamageWatcherAppliesToPermanent(permanent, damagedPermanent)) continue;
+    if (printedDealsDamageIsIrOwned(permanent.card)) continue;
 
     const detected = detectDealtDamageTriggers(permanent.card, permanent, state)
       .filter((trigger) => trigger.triggerType === 'dealt_damage');
@@ -574,6 +584,7 @@ export function processPlayerDealtDamageTriggers(
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
     if (!dealtDamageWatcherAppliesToPlayer(permanent, damagedPlayerId, options)) continue;
+    if (printedDealsDamageIsIrOwned(permanent.card)) continue;
     const detected = detectDealtDamageTriggers(permanent.card, permanent, state)
       .filter((trigger) => trigger.triggerType === 'dealt_damage');
     for (const trigger of detected) {

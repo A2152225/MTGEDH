@@ -9,6 +9,7 @@
 import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
 import { applyDeferredGraveyardEntryTriggers, pushCardToGraveyardFromLibrary, pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
+import { applyLibraryOfLengDiscardChoiceOnContext } from "../libraryOfLengDiscardChoice.js";
 import {
   shuffleLibrary,
   drawCards,
@@ -20,6 +21,11 @@ import {
 } from "../zones";
 import { passPriority } from "../turn";
 import { applyRevealUntilKindDrawChoice } from "../zones-handlers/zonesDrawReplacementRevealUntilKind.js";
+import { applyTomorrowLookPutDrawOnContext } from "../zones-handlers/zonesDrawReplacementTomorrowApply.js";
+import { applyOutOfTheTombsDrawOnContext } from "../zones-handlers/zonesDrawReplacementOutOfTheTombsApply.js";
+import { applyArchmageAscensionSearchOnContext } from "../zones-handlers/zonesDrawReplacementArchmageApply.js";
+import { applySerumPowderHandRestart } from "../batch92SerumPowder.js";
+import { writePlayerLibraryToContext } from "../zones-handlers/zonesDrawReplacementLibrarySync.js";
 import {
   getReplayOpeningHandBattlefieldCounters,
   clearReplayQueuedSteps,
@@ -341,6 +347,31 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
         break;
       }
 
+      case "libraryOfLengDiscardChoiceResolve": {
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.libraryOfLengDiscardChoice === true
+                && String(step?.cardId || step?.sourceId || '').trim() === String((e as any).cardId || '').trim();
+            });
+          }
+          applyLibraryOfLengDiscardChoiceOnContext(ctx as any, {
+            playerId: String((e as any).playerId || '').trim(),
+            cardId: String((e as any).cardId || '').trim(),
+            putOnLibraryTop: (e as any).putOnLibraryTop === true,
+            batchId: String((e as any).batchId || ''),
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(libraryOfLengDiscardChoiceResolve): failed', err);
+        }
+        break;
+      }
+
       case "discardEffect": {
         const pid = String((e as any).playerId || '').trim();
         const cardIds = Array.isArray((e as any).cardIds)
@@ -605,6 +636,103 @@ export function applyPriorityMulliganLifeEvents(ctx: GameContext, e: GameEvent):
           });
         } catch (err) {
           debugWarn(1, 'applyEvent(revealUntilKindDrawReplacementResolve): failed', err);
+        }
+        break;
+      }
+
+      case "tomorrowLookPutDrawResolve": {
+        const playerId = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.tomorrowDrawReplacement === true && (!playerId || String(step?.playerId || '').trim() === playerId);
+            });
+          }
+          (ctx as any)._replayNextEventType = 'tomorrowLookPutDrawResolve';
+          applyTomorrowLookPutDrawOnContext(ctx as any, {
+            playerId,
+            lookCount: Number((e as any).lookCount || 0),
+            chosenCardId: String((e as any).chosenCardId || '').trim() || undefined,
+            bottomOrder: Array.isArray((e as any).bottomOrder) ? (e as any).bottomOrder : [],
+            remainingDrawCountAfterChoice: Number((e as any).remainingDrawCountAfterChoice || 0),
+            resumeRemaining: true,
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(tomorrowLookPutDrawResolve): failed', err);
+        }
+        break;
+      }
+
+      case "outOfTheTombsDrawResolve": {
+        const playerId = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.outOfTheTombsDraw === true && (!playerId || String(step?.playerId || '').trim() === playerId);
+            });
+          }
+          (ctx as any)._replayNextEventType = 'outOfTheTombsDrawResolve';
+          applyOutOfTheTombsDrawOnContext(ctx as any, {
+            playerId,
+            chosenCardId: String((e as any).chosenCardId || '').trim() || undefined,
+            remainingDrawCountAfterChoice: Number((e as any).remainingDrawCountAfterChoice || 0),
+            resumeRemaining: true,
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(outOfTheTombsDrawResolve): failed', err);
+        }
+        break;
+      }
+
+      case "archmageAscensionSearchInsteadResolve": {
+        const playerId = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.archmageAscensionSearchInstead === true && (!playerId || String(step?.playerId || '').trim() === playerId);
+            });
+          }
+          (ctx as any)._replayNextEventType = 'archmageAscensionSearchInsteadResolve';
+          applyArchmageAscensionSearchOnContext(ctx as any, {
+            playerId,
+            chosenCardId: String((e as any).chosenCardId || '').trim() || undefined,
+            declined: (e as any).declined === true,
+            remainingDrawCountAfterChoice: Number((e as any).remainingDrawCountAfterChoice || 0),
+            resumeRemaining: true,
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(archmageAscensionSearchInsteadResolve): failed', err);
+        }
+        break;
+      }
+
+      case "serumPowderHandRestart": {
+        const playerId = String((e as any).playerId || '').trim();
+        try {
+          const result = applySerumPowderHandRestart((ctx as any).state, playerId, String((e as any).sourceId || '').trim() || undefined);
+          if (result.applied) {
+            const nextLib = Array.isArray((ctx as any).state?.zones?.[playerId]?.library)
+              ? (ctx as any).state.zones[playerId].library
+              : [];
+            writePlayerLibraryToContext(ctx as any, playerId, nextLib);
+          }
+        } catch (err) {
+          debugWarn(1, 'applyEvent(serumPowderHandRestart): failed', err);
         }
         break;
       }

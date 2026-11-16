@@ -20,6 +20,8 @@ import {
   type OtherCardInfo,
   type ManaPool,
 } from '../utils/manaUtils';
+import { calculateSuggestedPaymentAccountingForLife } from '../utils/manaAbilityAdditionalLife';
+import { applySpendAsThoughToSources, canPayCostWithSpendAsThough, canonicalizePaymentItemsToProducedColors, getClientManaSpendAsThoughRules, remainingCostAfterSpendAsThough } from '../utils/manaSpendAsThough';
 import { buildSuggestedPaymentItems, createPaymentItemFromSource, getSourcePermanentId } from '../utils/manaSourceBuilder';
 import { manaPoolToColorRecord, simulateSequentialPaymentPool } from '../utils/manaSuggestedPaymentActivation';
 import { SacrificeSelectionModal } from './SacrificeSelectionModal';
@@ -124,6 +126,12 @@ export interface PaymentPickerProps {
   manualFloatingManaSelection?: boolean;
   /** Pre-filled auto-pay selections; highlighted with a green border even when chosen. */
   autoSelectedPayment?: PaymentItem[];
+  /** Payer's current life; caps Thran Portal-style auto-pay life spend. */
+  currentLife?: number;
+  /** Paying player; used for Celestial Dawn-style spend-as-though. */
+  payerId?: string;
+  /** Permanents used to detect spend-as-though rules (may include opponents' Lattice). */
+  manaSpendPermanents?: BattlefieldPermanent[];
 }
 
 export function PaymentPicker(props: PaymentPickerProps) {
@@ -149,9 +157,16 @@ export function PaymentPicker(props: PaymentPickerProps) {
     onClearFloatingMana,
     manualFloatingManaSelection = false,
     autoSelectedPayment = [],
+    currentLife,
+    payerId,
+    manaSpendPermanents,
   } = props;
 
   const parsed = useMemo(() => parseManaCost(manaCost), [manaCost]);
+  const spendRules = useMemo(
+    () => getClientManaSpendAsThoughRules(manaSpendPermanents || battlefieldPermanents, payerId),
+    [manaSpendPermanents, battlefieldPermanents, payerId],
+  );
   // Fold X into generic only while {X} symbols remain. Payment steps often pass an
   // already-expanded cost ({10}{W}{W}) with xValue still set; do not double-count.
   const cost = useMemo(() => applyXValueToParsedCost(parsed, xValue), [parsed, xValue]);
@@ -246,14 +261,14 @@ export function PaymentPicker(props: PaymentPickerProps) {
     [chosen, sourceById],
   );
   const satisfied = useMemo(
-    () => simulatedPayment.unpaidActivationPips === 0 && canPayEnhanced(cost, simulatedPayment.pool),
-    [simulatedPayment, cost],
+    () => simulatedPayment.unpaidActivationPips === 0 && canPayCostWithSpendAsThough(cost, simulatedPayment.pool, spendRules),
+    [simulatedPayment, cost, spendRules],
   );
   const remaining = useMemo(() => {
-    const left = remainingAfter(cost, simulatedPayment.pool);
+    const left = remainingCostAfterSpendAsThough(cost, simulatedPayment.pool, spendRules);
     if (simulatedPayment.unpaidActivationPips <= 0) return left;
     return { ...left, generic: left.generic + simulatedPayment.unpaidActivationPips };
-  }, [cost, simulatedPayment]);
+  }, [cost, simulatedPayment, spendRules]);
 
   const getPaymentItemKey = (item: PaymentItem) => String(item.paymentSourceId || item.permanentId || '');
   const chosenCountBySourceId = useMemo(() => {
@@ -294,9 +309,13 @@ export function PaymentPicker(props: PaymentPickerProps) {
 
   // Calculate colors needed by other cards in hand
   const colorsToPreserve = useMemo(() => computeColorsNeededByOtherCards(otherCardsInHand), [otherCardsInHand]);
-  const sourcesEligibleForSuggestion = useMemo(
+  const sourcesEligibleBase = useMemo(
     () => effectiveSources.filter((source) => !source.sacrificeCost && manaSourceAllowsSpendPurpose(source, restrictedPurpose)),
     [effectiveSources, restrictedPurpose]
+  );
+  const sourcesEligibleForSuggestion = useMemo(
+    () => applySpendAsThoughToSources(sourcesEligibleBase, spendRules),
+    [sourcesEligibleBase, spendRules],
   );
   
   // Calculate suggested payment when no sources have been chosen yet (considers floating mana)
@@ -305,7 +324,7 @@ export function PaymentPicker(props: PaymentPickerProps) {
     const costForSuggestion = manualFloatingManaSelection
       ? calculateRemainingCostAfterFloatingMana(cost, floatingMana, restrictedPurpose)
       : { colors: cost.colors, generic: cost.generic, hybrids: cost.hybrids };
-    return calculateSuggestedPayment(
+    return calculateSuggestedPaymentAccountingForLife(
       {
         colors: costForSuggestion.colors,
         generic: costForSuggestion.generic,
@@ -315,8 +334,9 @@ export function PaymentPicker(props: PaymentPickerProps) {
       colorsToPreserve,
       manualFloatingManaSelection ? undefined : floatingMana,
       restrictedPurpose,
+      currentLife,
     );
-  }, [cost, sourcesEligibleForSuggestion, colorsToPreserve, chosen.length, floatingMana, manualFloatingManaSelection, restrictedPurpose]);
+  }, [cost, sourcesEligibleForSuggestion, colorsToPreserve, chosen.length, floatingMana, manualFloatingManaSelection, restrictedPurpose, currentLife]);
 
   const getConsumableSourcesForIds = (sourceIds: Iterable<string>): ManaPaymentSource[] => {
     const seen = new Set<string>();
@@ -463,10 +483,14 @@ export function PaymentPicker(props: PaymentPickerProps) {
 
   const doAutoSelect = () => {
     onChange(
-      buildSuggestedPaymentItems(cost, sourcesEligibleForSuggestion, colorsToPreserve, floatingMana, {
-        includeExplicitPoolItems: manualFloatingManaSelection,
-        purpose: restrictedPurpose,
-      }),
+      canonicalizePaymentItemsToProducedColors(
+        buildSuggestedPaymentItems(cost, sourcesEligibleForSuggestion, colorsToPreserve, floatingMana, {
+          includeExplicitPoolItems: manualFloatingManaSelection,
+          purpose: restrictedPurpose,
+        }),
+        sourcesEligibleBase,
+        spendRules,
+      ),
     );
   };
 

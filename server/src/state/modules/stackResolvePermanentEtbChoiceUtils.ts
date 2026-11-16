@@ -14,6 +14,7 @@ import { getAsEntersChoiceRequirements } from './asEntersChoiceRequirements.js';
 import { checkAsEntersCopyChoiceForNewPermanents } from './asEntersCopyChoice.js';
 import { hasCommanderPregameColorChoice, isPlayersCommander, applyRememberedCommanderPregameColor } from './commanderPregameColorChoice.js';
 import { hasAsEntersPayAnyLife, getAsEntersPayAnyLifeMax } from './asEntersPayAnyLife.js';
+import { applyAsEntersRandomNumberChoice } from './batch99AsEntersRandom.js';
 
 export function queuePermanentAsEntersBattlefieldChoiceSteps(
   ctx: GameContext,
@@ -33,6 +34,8 @@ export function queuePermanentAsEntersBattlefieldChoiceSteps(
   const isCreature = options.isCreature;
   const oracleText = (effectiveCard.oracle_text || '').toLowerCase();
   const isReplaying = !!(ctx as any).isReplaying;
+
+  applyAsEntersRandomNumberChoice(newPermanent);
 
   if (!isReplaying) {
     // Pregame commander colour (Clara Oswald): reuse the remembered choice, else ask once now.

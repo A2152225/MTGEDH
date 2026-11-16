@@ -11,6 +11,7 @@ import {
   type StaticEffectSpec,
 } from '../../state/modules/staticEffectSpec.js';
 import { protectionKeywordIgnoredForPlayerTargeting } from './targetingProtectionKeywordStaticOverride.js';
+import { playerHasProtectionFromEachOpponent } from '../../state/modules/batch109Apply.js';
 
 type ProtectionKeyword = 'hexproof' | 'shroud';
 
@@ -94,6 +95,13 @@ export function canPlayerBeTargetedByPlayer(
   state: Readonly<GameState> | unknown,
   targetingPlayerId: PlayerID,
 ): boolean {
+  if (
+    playerHasProtectionFromEachOpponent(state, String(targetPlayerId))
+    && String(targetPlayerId) !== String(targetingPlayerId)
+  ) {
+    return false;
+  }
+
   if (
     playerHasProtectionKeyword(targetPlayerId, state, 'shroud')
     && !protectionKeywordIgnoredForPlayerTargeting(targetPlayerId, state, targetingPlayerId, 'shroud')

@@ -6,6 +6,7 @@ import { parseManaCost } from './mana-check.js';
 import { cardHasCreatureType } from '../creatureTypeNow.js';
 import { parseNextChosenTypeSpellFlashGrant } from './chosen-creature-type.js';
 import { getActiveNextSpellCostReduction } from './nextSpellCostReduction.js';
+import { getGrantedSpellOrHandKeyword } from './batch95SpellAndHandKeywordGrants.js';
 
 export type ConvokeGrantScope =
   | 'next_spell_this_turn'
@@ -345,6 +346,15 @@ export function getMiracleCastInfo(
   }
 
   const manaCost = normalizeText(card?.mana_cost || card?.manaCost);
+  {
+    const granted = getGrantedSpellOrHandKeyword(state, playerId, card, 'miracle', { zone: 'hand' });
+    if (granted) {
+      const miracleCost = granted.cost || (granted.costEqualsManaCost ? manaCost : null);
+      if (miracleCost) {
+        return { hasMiracle: true, miracleCost, source: 'granted', sourceName: granted.sourceName };
+      }
+    }
+  }
   for (const grant of getMiracleGrantsFromBattlefield(state, playerId)) {
     const typeLine = getCardTypeLine(card);
     if (!typeLine.includes(grant.typeLineIncludes)) continue;

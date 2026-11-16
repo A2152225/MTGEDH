@@ -1,6 +1,7 @@
 import type { PlayerID } from '../../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { debug } from '../../../utils/debug.js';
+import { queueFreshDieRollTriggers } from './playLandSaddleDieRollHooks.js';
 import {
   getVisitedAttractions,
   isValidVisitRoll,
@@ -101,6 +102,7 @@ export function processAttractionVisitRollAtPrecombatMain(
     ? state.dieRollsThisTurn[playerId]
     : [];
   state.dieRollsThisTurn[playerId].push({ sides: VISIT_DIE_SIDES, result: roll, timestamp });
+  try { queueFreshDieRollTriggers(ctx, String(playerId)); } catch { /* best-effort */ }
 
   state.stack = Array.isArray(state.stack) ? state.stack : [];
   for (const permanent of visitedPermanents) {

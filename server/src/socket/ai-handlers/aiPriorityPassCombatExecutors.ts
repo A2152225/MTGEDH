@@ -186,8 +186,29 @@ export async function executePassPriority(
   }
 }
 
+async function submitAIAttackerDeclarations(
+  io: Server,
+  gameId: string,
+  playerId: PlayerID,
+  attackers: Array<{ creatureId: string; defendingPlayerId: string }>,
+): Promise<void> {
+  await executeCombatDeclareAttackers(
+    io,
+    gameId,
+    playerId,
+    attackers.map((attacker) => ({
+      creatureId: attacker.creatureId,
+      targetPlayerId: attacker.defendingPlayerId,
+    })),
+  );
+  await executePassPriority(io, gameId, playerId);
+}
+
 /**
- * Execute declare attackers for AI
+ * Execute declare attackers for AI.
+ * Always prefer advancing the step: a rejected plan must fall back to forced-only
+ * (goad / must-attack), never silent-return while holding priority (DECLARE_ATTACKERS
+ * seq-freeze stalls under v2's wider attack sets + Crawlspace-style caps).
  */
 export async function executeDeclareAttackers(
   io: Server,
@@ -199,6 +220,7 @@ export async function executeDeclareAttackers(
   if (!game) return;
 
   const forced = resolveForcedAttackerDeclarations(game, playerId);
+  const forcedIds = new Set(forced.map((attacker) => attacker.creatureId));
   const seen = new Set<string>();
   const merged: Array<{ creatureId: string; defendingPlayerId: string }> = [];
   for (const attacker of forced) {
@@ -214,7 +236,10 @@ export async function executeDeclareAttackers(
 
   const battlefield = game.state?.battlefield || [];
   const dropped: string[] = [];
+  // Never drop forced attackers — filtering them out caused GOAD_MUST_ATTACK after
+  // a "safe" empty retry, then a silent return that froze DECLARE_ATTACKERS.
   const legal = merged.filter((attacker) => {
+    if (forcedIds.has(attacker.creatureId)) return true;
     const perm = battlefield.find((entry: any) => entry?.id === attacker.creatureId && entry?.controller === playerId);
     if (perm && isCurrentlyCreature(perm, battlefield, playerId)) return true;
     dropped.push(attacker.creatureId);
@@ -230,44 +255,71 @@ export async function executeDeclareAttackers(
   
   debug(1, '[AI] Declaring attackers:', { gameId, playerId, attackers: legal });
   
-  try {
-    if (legal.length === 0) {
-      await executeCombatDeclareAttackers(io, gameId, playerId, []);
-      await executePassPriority(io, gameId, playerId);
-      return;
-    }
-
-    await executeCombatDeclareAttackers(
-      io,
-      gameId,
-      playerId,
-      legal.map((attacker) => ({
-        creatureId: attacker.creatureId,
-        targetPlayerId: attacker.defendingPlayerId,
-      })),
-    );
-    await executePassPriority(io, gameId, playerId);
-    
-  } catch (error) {
-    debugError(1, '[AI] Error declaring attackers:', error);
-    const code = String((error as any)?.code || '');
-    if (code === 'GOAD_MUST_ATTACK' || code === 'MUST_ATTACK') {
-      debugError(1, '[AI] Forced-attack declaration failed; not passing priority', { gameId, playerId, code });
-      return;
-    }
-    // Passing is illegal until attackersDeclaredBy is recorded, and the pass
-    // handler reschedules this AI, so a rejected declare used to loop forever.
-    debugWarn(1, '[AI] Attack declaration rejected; declaring no attackers so the step can advance', {
-      gameId,
-      playerId,
-      code,
-    });
+  const tryDeclare = async (
+    next: Array<{ creatureId: string; defendingPlayerId: string }>,
+    label: string,
+  ): Promise<boolean> => {
     try {
-      await executeCombatDeclareAttackers(io, gameId, playerId, []);
-      await executePassPriority(io, gameId, playerId);
-    } catch (retryError) {
-      debugError(1, '[AI] Could not declare an empty attack to leave declare attackers', retryError);
+      await submitAIAttackerDeclarations(io, gameId, playerId, next);
+      return true;
+    } catch (err) {
+      debugWarn(1, `[AI] Attack declaration failed (${label})`, {
+        gameId,
+        playerId,
+        code: String((err as any)?.code || ''),
+        count: next.length,
+      });
+      return false;
     }
+  };
+
+  if (await tryDeclare(legal, 'planned')) return;
+
+  // Cap / legality rejects (TOO_MANY_ATTACKERS, bad targets, …): shrink toward forced-only,
+  // then toward empty. Never silent-return — that froze DECLARE_ATTACKERS (seq stagnant).
+  debugWarn(1, '[AI] Attack plan rejected; shrinking toward forced-only/empty', {
+    gameId,
+    playerId,
+    forcedCount: forced.length,
+    plannedCount: legal.length,
+  });
+
+  const candidates: Array<Array<{ creatureId: string; defendingPlayerId: string }>> = [];
+  const plannedIsForcedOnly =
+    legal.length === forced.length
+    && legal.every((a, i) => a.creatureId === forced[i]?.creatureId);
+  if (forced.length > 0 && !plannedIsForcedOnly) candidates.push(forced);
+  for (let n = forced.length - 1; n >= 1; n--) {
+    candidates.push(forced.slice(0, n));
+  }
+  candidates.push([]);
+
+  for (const candidate of candidates) {
+    if (await tryDeclare(candidate, `fallback-${candidate.length}`)) return;
+  }
+
+  // Last resort: mark the seat declared and pass so the combat step can advance.
+  // Prefer a soft rules break over a permanent DECLARE_ATTACKERS soft-lock.
+  debugError(1, '[AI] All attack declare fallbacks failed; force-marking attackersDeclaredBy', {
+    gameId,
+    playerId,
+  });
+  try {
+    const stateAny = game.state as any;
+    stateAny.attackersDeclaredBy = Array.isArray(stateAny.attackersDeclaredBy)
+      ? stateAny.attackersDeclaredBy
+      : [];
+    if (!stateAny.attackersDeclaredBy.includes(playerId)) {
+      stateAny.attackersDeclaredBy.push(playerId);
+    }
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
+    await executePassPriority(io, gameId, playerId);
+  } catch (unstickErr) {
+    debugError(1, '[AI] Force-mark declare attackers unstick failed; rescheduling', unstickErr);
+    scheduleAIPriority(io, gameId, playerId, AI_REACTION_DELAY_MS);
   }
 }
 

@@ -55,6 +55,7 @@ import {
   validateCastSpellPaymentPermanentUsage,
 } from "./gameActionsCastSpellPaymentSources.js";
 import type { CastSpellPaymentCheckpoint } from "./gameActionsCastSpellFromHandCostConvoke.js";
+import { spellPaymentSatisfiesCreatureProducedManaRestrictionWithPool } from "../../state/modules/batch94ManaPayment.js";
 
 export type CastSpellManaPaymentFromHandArgs = {
   socket: Socket;
@@ -109,6 +110,11 @@ export function tryApplyCastSpellManaPaymentFromHand(
     skipPriorityCheck,
     skipInteractivePrompts,
   } = args;
+
+  if (!spellPaymentSatisfiesCreatureProducedManaRestrictionWithPool(cardInHand, payment, game.state, { playerId, existingPool })) {
+    abortCastSpellPayment({ code: 'ILLEGAL_MANA_SOURCE', message: 'That spell can be paid for only with mana produced by creatures.' });
+    return;
+  }
 
 
       // ======================================================================

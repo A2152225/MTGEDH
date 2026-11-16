@@ -23,6 +23,8 @@ import {
   parseManaCost,
 } from "../util";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
+import { findNontokenActivatedAdditionalLandSacrifice } from "./nontokenActivatedAdditionalSacrificeCost.js";
+import { landSacrificeCandidatesForPlayer } from "./additionalLandSacrificeFollowUp.js";
 
 export async function tryHandleActivateSacrificeCostPrompt(
   ctx: ActivateBattlefieldAbilityContext,
@@ -50,6 +52,20 @@ export async function tryHandleActivateSacrificeCostPrompt(
     cardName,
     oracleText,
   } = ctx;
+
+  const additionalLandSacrifice = Boolean(
+    sacrificeType
+    && sacrificeType !== 'land'
+    && sacrificeType !== 'self'
+    && findNontokenActivatedAdditionalLandSacrifice(game.state, permanent)
+  );
+  if (additionalLandSacrifice && landSacrificeCandidatesForPlayer(game.state, String(pid), [String(permanentId)]).length < 1) {
+    socket.emit('error', {
+      code: 'INSUFFICIENT_SACRIFICE_TARGETS',
+      message: "You don't control a land to sacrifice for the additional cost.",
+    });
+    return true;
+  }
 
   // Check if sacrifice is required and we need to prompt for selection
   if (sacrificeType && sacrificeType !== 'self') {
@@ -567,6 +583,7 @@ export async function tryHandleActivateSacrificeCostPrompt(
 
         // Custom payload consumed by socket/resolution.ts
         sacrificeAbilityAsCost: true,
+        ...(additionalLandSacrifice ? { additionalLandSacrifice: true } : {}),
         ...(maxActivations > 1 ? { repeatableSacrificeManaActivation: true } : {}),
         permanentId,
         abilityId,

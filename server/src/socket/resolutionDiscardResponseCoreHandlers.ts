@@ -13,8 +13,9 @@ import {
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
 import { appendEvent } from "../db/index.js";
-import { parseMadnessCost } from "../state/modules/alternate-costs.js";
+import { buildMadnessOptionChoiceStep, parseMadnessOffer } from "./madnessCastOffer.js";
 import { applyDeferredGraveyardEntryTriggers, pushCardToPlayerGraveyardWithReplacements } from "../state/modules/graveyardEntryUtils.js";
+import { isLibraryOfLengEffectDiscardStep, maybeQueueLibraryOfLengDiscardChoices } from "../state/modules/libraryOfLengDiscardChoice.js";
 import { materializeReflexiveSourceText } from "../state/modules/reflexive-triggers.js";
 import { anyDiscardedCardMatchesTypeFilter } from "../state/modules/reflexiveDiscardTypeFilter.js";
 import { resolveOracleIrAnyPlayerMayPaymentSelectionFromResolution, maybeResumeOracleIRStepsAfterResolution } from "../state/modules/oracleIrServerZoneSync.js";
@@ -323,8 +324,8 @@ export async function handleDiscardResponse(
     if (cardIndex !== -1) {
       const [card] = zones.hand.splice(cardIndex, 1);
       movedCards.push(card);
-      const madnessCost = shouldOfferMadnessPrompt ? parseMadnessCost(String(card?.oracle_text || '')) : undefined;
-      if (madnessCost) {
+      const madnessOffer = shouldOfferMadnessPrompt ? parseMadnessOffer(String(card?.oracle_text || '')) : null;
+      if (madnessOffer) {
         const exiledCard = {
           ...card,
           ...(exileTag ? { ...exileTag } : null),
@@ -334,32 +335,12 @@ export async function handleDiscardResponse(
         };
         zones.exile.push(exiledCard);
         movedCardsToExile.push(exiledCard);
-        queuedMadnessPrompts.push({
-          type: ResolutionStepType.OPTION_CHOICE,
-          playerId: pid as any,
-          sourceId: String(exiledCard.id || card.id || ''),
-          sourceName: 'Madness',
-          sourceImage: exiledCard.image_uris?.small || exiledCard.image_uris?.normal || card.image_uris?.small || card.image_uris?.normal,
-          description: `Madness: You may cast ${card.name || 'that card'} for ${madnessCost}.`,
-          mandatory: false,
-          options: [
-            { id: 'cast', label: `Cast for Madness${madnessCost ? ` (${madnessCost})` : ''}`.trim() },
-            { id: 'decline', label: 'Decline' },
-          ],
-          minSelections: 1,
-          maxSelections: 1,
-          madnessPrompt: true,
+        queuedMadnessPrompts.push(buildMadnessOptionChoiceStep({
+          playerId: String(pid),
+          exiledCard,
+          discarded: card,
           resumeCleanupAfterPrompt: isCleanupDiscard || undefined,
-          madnessCardId: String(exiledCard.id || card.id || ''),
-          madnessCost,
-          castFromExileCardId: String(exiledCard.id || card.id || ''),
-          castFromExileCard: { ...exiledCard },
-          castFromExileDeclineDestination: 'graveyard',
-          castFromExileForcedAlternateCostId: 'madness',
-          castFromExileCastWithoutPayingManaCost: false,
-          castFromExileBypassExilePermissionCheck: true,
-          castFromExileIgnoreTimingRestrictions: true,
-        });
+        }));
       } else if (destination === 'exile') {
         const exiledCard = {
           ...card,
@@ -389,7 +370,11 @@ export async function handleDiscardResponse(
   
   // All selected cards are in the graveyard before from-anywhere triggers
   // (Kozilek must shuffle the other cards discarded at the same time).
-  applyDeferredGraveyardEntryTriggers(discardTrackingCtx, deferredGraveyardEntries);
+  const lengQueued = isLibraryOfLengEffectDiscardStep(step)
+    && maybeQueueLibraryOfLengDiscardChoices(discardTrackingCtx, String(pid), movedCardsToGraveyard);
+  if (!lengQueued) {
+    applyDeferredGraveyardEntryTriggers(discardTrackingCtx, deferredGraveyardEntries);
+  }
 
   // Update counts
   zones.handCount = zones.hand.length;

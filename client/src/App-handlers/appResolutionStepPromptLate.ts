@@ -5,6 +5,7 @@
 
 import { getSingleModePromptDescription } from '../utils/resolutionModePromptUi';
 import { getReturnToHandCostPresentation } from '../utils/beamMeUpUi';
+import { toTransformChooseOpponentPlayerPrompt } from '../utils/transformChooseOpponentPrompt';
 import type { CastingMode } from "../components/CastingModeSelectionModal";
 import type { JoinForcesRequest } from "../components/JoinForcesModal";
 import type { SpellMode } from "../components/ModalSpellSelectionModal";
@@ -21,6 +22,7 @@ import {
   takeReusableTriggerTargets,
 } from "../utils/identicalTriggerTargetReuse";
 import { socket } from "../socket";
+import { applyCombatDamageAssignmentPrompt } from "../utils/combatDamageAssignment";
 
 export function handleAppResolutionStepPromptLate(
   step: any,
@@ -280,6 +282,10 @@ export function handleAppResolutionStepPromptLate(
         });
       }
       
+      else if (step.type === 'combat_damage_assignment') {
+        applyCombatDamageAssignmentPrompt(step, safeView, p);
+      }
+
       // Handle Proliferate resolution step
       else if (step.type === 'proliferate') {
         setProliferateData({
@@ -350,9 +356,10 @@ export function handleAppResolutionStepPromptLate(
           cardImageUrl: step.sourceImage,
           cards: step.cards || [],
           variant: step.variant || 'ponder',
-          canShuffle: step.mayShuffleAfter !== false,
+          canShuffle: step.tomorrowDrawReplacement === true ? false : (step.mayShuffleAfter !== false),
           drawAfter: step.drawAfter || false,
-          pickToHand: 0,  // Will be determined by variant
+          pickToHand: (step.tomorrowDrawReplacement === true || step.variant === 'anticipate' || step.variant === 'tomorrow' || step.variant === 'telling_time') ? 1 : 0,
+          canCancel: step.mandatory === false,
           targetPlayerId: step.targetPlayerId || step.playerId,
           targetPlayerName: step.targetPlayerName,
           isOwnLibrary: step.playerId === (step.targetPlayerId || step.playerId),
@@ -541,7 +548,7 @@ export function handleAppResolutionStepPromptLate(
         setAdditionalCostModalData({
           cardId: String(step.cardId || step.sourceId || step.id),
           cardName: String(step.cardName || step.sourceName || 'Spell'),
-          costType: (step.costType === 'remove_counters' ? 'remove_counters' : (step.costType === 'sacrifice' ? 'sacrifice' : 'discard')),
+          costType: (step.costType === 'pay_life' ? 'pay_life' : (step.costType === 'remove_counters' ? 'remove_counters' : (step.costType === 'sacrifice' ? 'sacrifice' : (step.costType === 'conspire' ? 'conspire' : 'discard')))),
           amount: Number(step.amount || 0),
           title: String(step.title || step.description || 'Pay additional cost'),
           description: String(step.description || ''),
@@ -592,6 +599,13 @@ export function handleAppResolutionStepPromptLate(
         });
       }
       // Handle target selection via resolution queue (spell casting, planeswalker abilities, etc.)
+      else if (step.type === 'target_selection' && (step as any).transformChooseOpponent === true) {
+        const prompt = toTransformChooseOpponentPlayerPrompt(step, safeView as any);
+        if (prompt) {
+          setResolutionPlayerChoiceModalData(prompt as any);
+          setResolutionPlayerChoiceModalOpen(true);
+        }
+      }
       else if (step.type === 'target_selection' || step.type === 'mentor_target' || step.type === 'modular_choice' || step.type === 'exploit_choice' || step.type === 'haunt_target') {
         const selectedModeRaw = (step as any).selectedMode as { label?: string; description?: string } | undefined;
         const selectedModeUi = selectedModeRaw ? {

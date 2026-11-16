@@ -13,6 +13,8 @@ import { shouldPreserveInCombat } from './aiEngineValueSupport';
 import { playerIsLegalAttackTarget } from './playerInGameStatus';
 import { planAIBlocks } from './aiEngineBlockPlanning';
 import { aiRandom } from './aiRandom';
+import { planAttacks } from './ai/attackPlanner.js';
+import { planBlocks } from './ai/blockPlanner.js';
 
 type CombatDeckModifiers = { attackBias: number; preserveBias: number };
 type CombatValueEvaluation = { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number };
@@ -281,6 +283,49 @@ export function makeBasicAttackDecision(
     });
   }
 
+  // Phase 2 attack planner (P2-5): only when seat brain is v2.
+  const seatBrain =
+    config.brain
+    || (player as any)?.aiBrain
+    || (typeof process !== 'undefined' ? process.env?.AI_BRAIN : undefined);
+  if (seatBrain === 'v2') {
+    // planAttacks×resolveCombat can hang the exclusive AI action on huge boards
+    // (self-play DECLARE_ATTACKERS soft-locks / multi-GB RSS). Skip before running.
+    const boardSize = Array.isArray(globalBattlefield) ? globalBattlefield.length : 0;
+    const attackPool = legalAttackerIds.length + goadedAttackers.length;
+    if (boardSize > 24 || attackPool > 8) {
+      console.warn(
+        `[ai] v2 attack planner skipped (board=${boardSize}, attackers=${attackPool}); using v0`,
+      );
+    } else {
+      try {
+        const planned = planAttacks({
+          gameState: context.gameState,
+          playerId: context.playerId,
+          legalAttackerIds,
+          goaded: goadedAttackers,
+          battlefield: globalBattlefield,
+        });
+        if (planned.ms > 2_500) {
+          console.warn(
+            `[ai] v2 attack planner too slow (${planned.ms.toFixed(0)}ms); using v0`,
+          );
+        } else {
+          return {
+            type: AIDecisionType.DECLARE_ATTACKERS,
+            playerId: context.playerId,
+            action: { attackers: planned.attackers },
+            reasoning: `v2 attack planner (${planned.reason}, ${planned.ms.toFixed(1)}ms)`,
+            confidence: 0.85,
+          };
+        }
+      } catch (err) {
+        // Fall through to v0 heuristics on planner failure.
+        console.warn('[ai] v2 attack planner failed, using v0', err);
+      }
+    }
+  }
+
   const nonGoadedLegalAttackerIds = legalAttackerIds.filter(id => !goadedSet.has(id));
   const attackerEvaluations = nonGoadedLegalAttackerIds.map(id => {
     const perm = findPermanent(id);
@@ -513,19 +558,33 @@ export function makeBasicBlockDecision(
     };
   });
 
-  const { assignments: blockAssignments, deathTriggerBlocks: blockersWithDeathTriggers } =
-    planAIBlocks(context, attackerCreatures, blockerEvaluations);
+  const seatBrain =
+    config.brain
+    || (context.gameState.players.find((p: any) => p?.id === context.playerId) as any)?.aiBrain
+    || (typeof process !== 'undefined' ? process.env?.AI_BRAIN : undefined);
 
-  let reasoning = `Blocking ${blockAssignments.length}/${attackerCreatures.length} attackers`;
-  if (blockersWithDeathTriggers > 0) {
-    reasoning += ` (${blockersWithDeathTriggers} with beneficial death triggers!)`;
+  const planned =
+    seatBrain === 'v2'
+      ? planBlocks(context, attackerCreatures, blockerEvaluations)
+      : {
+          ...planAIBlocks(context, attackerCreatures, blockerEvaluations),
+          ms: 0,
+          reason: 'v0-planAIBlocks',
+        };
+
+  let reasoning = `Blocking ${planned.assignments.length}/${attackerCreatures.length} attackers`;
+  if (planned.deathTriggerBlocks > 0) {
+    reasoning += ` (${planned.deathTriggerBlocks} with beneficial death triggers!)`;
+  }
+  if (seatBrain === 'v2') {
+    reasoning = `v2 block planner (${planned.reason}, ${planned.ms.toFixed(1)}ms); ${reasoning}`;
   }
 
   return {
     type: AIDecisionType.DECLARE_BLOCKERS,
     playerId: context.playerId,
-    action: { blockers: blockAssignments },
+    action: { blockers: planned.assignments },
     reasoning,
-    confidence: 0.8,
+    confidence: seatBrain === 'v2' ? 0.85 : 0.8,
   };
 }

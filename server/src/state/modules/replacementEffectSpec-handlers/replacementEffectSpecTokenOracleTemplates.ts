@@ -6,6 +6,8 @@
 
 import type { ReplacementEffectSpec } from './replacementEffectSpecTypes.js';
 import { normalizeOraclePatternText, readCardOracleText } from './replacementEffectSpecOracleTextUtils.js';
+import { collectBatch90ExtraDifferentTypeTokenSpecsFromState } from '../replacementBatch90ExtraDifferentTypeTokens.js';
+import { collectBatch109TokenReplacementSpecsFromState } from '../replacementBatch109Collect.js';
 
 interface OracleTokenReplacementTemplate {
   templateId: string;
@@ -164,6 +166,8 @@ export function collectOraclePatternTokenReplacementSpecsFromState(state: unknow
     for (const template of ORACLE_TOKEN_REPLACEMENT_TEMPLATES) {
       if (!template.oracleMustIncludeAll.every((phrase) => oracle.includes(phrase))) continue;
       if (template.oracleMustExcludeAny?.some((phrase) => oracle.includes(phrase))) continue;
+      // B90: different-type extras are collected by the generic parser (avoid double Food/Frog/Mutagen).
+      if ((template.spec as { metadata?: { createAdditionalTokenNamed?: string } }).metadata?.createAdditionalTokenNamed) continue;
       specs.push({
         ...template.spec,
         id: `${sourcePermanentId}:${template.templateId}`,
@@ -172,7 +176,9 @@ export function collectOraclePatternTokenReplacementSpecsFromState(state: unknow
         sourceName,
       });
     }
+    specs.push(...collectBatch90ExtraDifferentTypeTokenSpecsFromState({ battlefield: [perm] }));
   }
 
+  specs.push(...collectBatch109TokenReplacementSpecsFromState(state));
   return specs;
 }

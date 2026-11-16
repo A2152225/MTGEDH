@@ -4,6 +4,8 @@
 // counter placement on the permanent does nothing (removal is still allowed).
 // Public entry symbols: permanentCantHaveCountersPut, filterRestrictedCounterDeltas.
 
+import { opponentsCantGetPlusOneCounters } from './batch102Apply.js';
+
 const SELF_RE = /(?:^|[.\n]\s*)(?:this (?:creature|permanent|artifact|enchantment|land)|~) can't have counters put on it\b/i;
 const ATTACHED_RE = /\b(?:enchanted|equipped) (?:creature|permanent)\b[^.\n]*\bcan't have counters put on it\b/i;
 
@@ -38,6 +40,11 @@ export function bannedCounterKinds(state: any, perm: any): string[] {
       if (m[1] && String(src.id) === String(perm?.id)) continue;
       out.push(m[4] ? m[4].trim() : '*');
     }
+  }
+  try {
+    if (opponentsCantGetPlusOneCounters(state, perm)) out.push('+1/+1');
+  } catch {
+    // best-effort only
   }
   return out;
 }

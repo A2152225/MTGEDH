@@ -33,6 +33,9 @@ import { isInMainPhase } from "./utilMainPhaseCheck.js";
 import { isCastingLimitedToSorceryTiming } from "../../state/modules/opponentSorceryTimingLock.js"; // UI31 Teferi lock
 import { opponentTurnCastProhibitionReason, zoneCastProhibitionReason } from "../../state/modules/batch31CastLocks.js"; // UI32
 import { opponentActivationProhibitionReason } from "../../state/modules/opponentActivationLocks.js"; // UI33
+import { buildLibraryTopPlotActionView, libraryTopPlotPlayableId } from "../../state/modules/libraryTopPlotView.js";
+import { getCirclingVulturesDiscardActions } from "../../state/modules/circlingVulturesDiscardAction.js";
+import { cardHasGraveyardBestow, cardHasGraveyardBlitz } from "../../state/modules/blitzAdditionalCosts.js";
 
 /**
  * Get IDs of cards/permanents that the player can currently play or activate
@@ -127,12 +130,34 @@ function getPlayableCardIdsUncached(game: InMemoryGame, playerId: PlayerID): str
       if (!commanderId || playableIds.includes(commanderId)) continue;
       playableIds.push(commanderId);
     }
+
+    if (isMyTurn && isMainPhase && stackIsEmpty) {
+      const plotView = buildLibraryTopPlotActionView(state, String(playerId));
+      if (plotView) {
+        const cost = String(plotView.cost || '').trim();
+        const canPay = !cost || cost === '{0}' || canPayManaCostWithAvailableSources(state, playerId, parseManaFromString(cost));
+        if (canPay) {
+          const plotId = libraryTopPlotPlayableId(String(playerId));
+          if (!playableIds.includes(plotId)) playableIds.push(plotId);
+        }
+      }
+    }
+
+    for (const action of getCirclingVulturesDiscardActions(state, String(playerId))) {
+      if (!playableIds.includes(action.playableId)) playableIds.push(action.playableId);
+    }
     
     if (Array.isArray(zones.graveyard)) {
       const battlefield = state.battlefield || [];
       for (const card of zones.graveyard) {
         if (!card || typeof card === "string") continue;
         if (!isMyTurn || !isMainPhase || !stackIsEmpty) continue;
+
+        const gyOracle = String((card as any)?.oracle_text || (card as any)?.oracleText || '');
+        if (cardHasGraveyardBlitz(gyOracle) || cardHasGraveyardBestow(gyOracle)) {
+          const gyId = String((card as any)?.id || '');
+          if (gyId && !playableIds.includes(gyId)) playableIds.push(gyId);
+        }
 
         const printedUnearthInfo = getPrintedUnearthInfo(card);
         const grantedUnearthInfo = printedUnearthInfo.hasIt ? { hasIt: false } : getGrantedUnearthInfo({ state } as any, playerId, card);

@@ -4,6 +4,9 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { evaluateLifeGainReplacementEvent } from './modules/replacement-effects.js';
 import { summarizeLifeGainAmountReplacements } from './modules/replacementEffectSpec.js';
 import { canPlayerPayLife } from './modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js';
+import { applyEnergyPlusNReplacement } from './modules/replacementBatch94EnergyReplacements.js';
+import { applyEnergyTwiceReplacement } from './modules/replacementBatch100Collect.js';
+import { applyBatch107PlayerCounterPlusOne } from './modules/batch107Apply.js';
 import { calculateVariablePT } from './utils-handlers/variablePTCalculator.js';
 import { applyLayer7bSetBasePowerToughness } from './modules/setBasePtTimestampResolution.js';
 
@@ -781,6 +784,10 @@ export function addEnergyCounters(
   source?: string
 ): number {
   if (!gameState || !playerId || amount <= 0) return 0;
+  amount = applyEnergyPlusNReplacement(gameState, playerId, amount);
+  amount = applyEnergyTwiceReplacement(gameState, playerId, amount);
+  amount = applyBatch107PlayerCounterPlusOne(gameState, playerId, amount);
+  if (amount <= 0) return gameState.energy?.[playerId] || 0;
   
   // Initialize energy if it doesn't exist
   const energy = gameState.energy = gameState.energy || {};

@@ -682,12 +682,14 @@ export class DecisionManager {
     const colors = this.normalizeSourceColors(getColorsFromObject(sourceObject));
     const objectType = String((sourceObject as any)?.type || '').trim() === 'spell' ? 'spell' : 'ability';
     const typeName = this.getSourceTypeName(sourceObject);
+    const oracleText = String((sourceObject as any)?.card?.oracle_text || (sourceObject as any)?.oracle_text || '').trim();
 
     return {
       controllerId: sourceControllerId,
       ...(colors ? { colors } : {}),
       objectType,
       ...(typeName ? { typeName } : {}),
+      ...(oracleText ? { oracleText } : {}),
     };
   }
   

@@ -70,7 +70,7 @@ function markDamageOnPermanent(
   const battlefield = ((base.battlefield || []) as any[]).map((perm) => {
     if (String(perm?.id || '').trim() !== permanentId) return perm;
     if (hasExecutorClass(perm, 'planeswalker') && !hasExecutorClass(perm, 'creature')) {
-      return removeLoyaltyFromPlaneswalker(perm, dealt);
+      return removeLoyaltyFromPlaneswalker(perm, dealt, state);
     }
     return addDamageToPermanentLikeCreatureFromSource(perm, dealt, sourceId);
   });

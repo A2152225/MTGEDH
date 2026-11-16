@@ -249,6 +249,12 @@ export type StaticEffectCountBasis =
   | 'opponents_untapped_permanents'
   /** B88: Strata Scythe — lands sharing the effect source's exiled card name. */
   | 'lands_matching_effect_source_exiled_name'
+  /** B90: Umbris — cards your opponents own in exile. */
+  | 'opponents_owned_cards_in_exile'
+  /** B90: Greven — life you've lost this turn. */
+  | 'controller_life_lost_this_turn'
+  /** B90: Tangleweave Armor — greatest mana value among your commanders. */
+  | 'greatest_mana_value_among_controller_commanders'
 
 export type StaticEffectLayer = 4 | 5 | 6 | 7;
 export type StaticEffectSublayer = '7a' | '7b' | '7c' | '7d';
@@ -499,7 +505,13 @@ export type StaticEffectConditionKind =
   /** B83: creatures you control that entered this turn. */
   | 'target_entered_this_turn'
   /** B88: hellbent / zone-count gates (e.g. no cards in hand). */
-  | 'zone_count';
+  | 'zone_count'
+  /** B89: Agent Frank Horrigan - as long as it attacked this turn. */
+  | 'target_attacked_this_turn'
+  /** B89: Toby - you control N or more creature tokens. */
+  | 'controller_creature_token_count_at_least'
+  /** B90: Hancock — Zombie or Mutant (any listed creature type). */
+  | 'target_has_any_creature_type';
 
 export interface StaticEffectCondition {
   kind: StaticEffectConditionKind;

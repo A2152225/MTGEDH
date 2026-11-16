@@ -168,6 +168,12 @@ export * from './ai/winProbability';
 export * from './ai/cardProfileTypes';
 export * from './ai/rolePolicies';
 export * from './ai/utilityScorer';
+export * from './ai/combatResolver';
+export * from './ai/lethalCheck';
+export * from './ai/crackBack';
+export * from './ai/attackPlanner';
+export * from './ai/blockPlanner';
+export * from './ai/turnPlanner';
 
 // Seeded AI RNG (Phase 0: self-play reproducibility)
 export { aiRandom, seedAIRandom, getAIRandomSeed } from './aiRandom';

@@ -17,10 +17,10 @@ import type {
 } from './aiActionCandidateTypes.js';
 import { getCardAIProfile } from './aiCardProfile.js';
 
-export type Brain = 'v0' | 'shadow' | 'v1';
+export type Brain = 'v0' | 'shadow' | 'v1' | 'v2';
 
 export interface ShadowRecord {
-  brain: 'shadow' | 'v1';
+  brain: 'shadow' | 'v1' | 'v2';
   winProb: Record<string, number>;
   scores: Array<{
     v0Index: number;
@@ -30,7 +30,8 @@ export interface ShadowRecord {
   }>;
 }
 
-const isBrain = (x: unknown): x is Brain => x === 'v0' || x === 'shadow' || x === 'v1';
+const isBrain = (x: unknown): x is Brain =>
+  x === 'v0' || x === 'shadow' || x === 'v1' || x === 'v2';
 
 const shadowRecords = new WeakMap<object, ShadowRecord>();
 let warnedScorerFailure = false;
@@ -122,9 +123,14 @@ export function applyBrain(
       .filter((r) => !r.dropped)
       .sort((a, b) => b.score - a.score || a.index - b.index);
 
-    const out = brain === 'v1' ? keep.map((r) => sorted[r.index]) : sorted;
-    // For shadow, scores align with v0 order; for v1, align with the returned order.
-    const order = brain === 'v1' ? keep.map((r) => r.index) : sorted.map((_, i) => i);
+    // v2 keeps v1 scoring/drops; turn planner then reorders among survivors.
+    const out = (brain === 'v1' || brain === 'v2')
+      ? keep.map((r) => sorted[r.index])
+      : sorted;
+    // For shadow, scores align with v0 order; for v1/v2, align with the returned order.
+    const order = (brain === 'v1' || brain === 'v2')
+      ? keep.map((r) => r.index)
+      : sorted.map((_, i) => i);
     const rankedByIndex = new Map(ranked.map((r) => [r.index, r]));
     shadowRecords.set(out, {
       brain,

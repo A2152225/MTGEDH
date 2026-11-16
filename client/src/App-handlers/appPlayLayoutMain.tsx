@@ -17,6 +17,7 @@ import { AuthSessionPanel } from "../components/AuthSessionPanel";
 import { SettingsMenu } from "../components/SettingsMenu";
 import { MobilePregameActionBanner } from "../components/MobilePregameActionBanner";
 import { getMobilePrimaryActionMode } from "../utils/mobilePlayActions";
+import { findSerumPowderCardsInHand } from "../utils/serumPowderCard";
 
 export function renderAppPlayLayoutMain(p: Record<string, any>) {
   const {
@@ -141,6 +142,12 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
   const showMobileKeepBanner = Boolean(
     showMobileChrome && (mobilePrimaryMode === 'mulligan' || mobilePrimaryMode === 'unkeep'),
   );
+
+  const canUseSerumPowder = !!canMulligan && findSerumPowderCardsInHand((you && (safeView as any)?.zones?.[you]?.hand) || []).length > 0;
+  const onSerumPowder = () => {
+    if (!safeView?.id) return;
+    socket.emit("serumPowderHandRestart", { gameId: safeView.id });
+  };
   return (
     <>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0, width: "100%", maxWidth: "100%", overflow: "hidden", paddingRight: 8, ...(showMobileChrome ? { flex: "1 1 auto", height: "100%", minHeight: 0, maxHeight: "100%", boxSizing: "border-box", paddingBottom: `calc(${mobilePlayLayout.playAreaBottomInset}px + env(safe-area-inset-bottom, 0px))` } : null) }}>
@@ -469,6 +476,24 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
                     >
                       Mulligan
                     </button>
+                    {canUseSerumPowder && (
+                    <button
+                      onClick={onSerumPowder}
+                      style={{
+                        background: '#6366f1',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '6px 12px',
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                      title="Exile your hand, then draw that many cards. You may still keep or mulligan afterward."
+                    >
+                      Exile hand, draw that many
+                    </button>
+                    )}
                     <button
                       onClick={() => socket.emit("randomizeStartingPlayer", { gameId: safeView.id })}
                       style={{
@@ -644,6 +669,8 @@ export function renderAppPlayLayoutMain(p: Record<string, any>) {
               socket.emit("keepHand", { gameId: safeView?.id });
             }}
             onMulligan={() => socket.emit("mulligan", { gameId: safeView?.id })}
+              canUseSerumPowder={canUseSerumPowder}
+              onSerumPowder={onSerumPowder}
             onUnkeepHand={() => socket.emit("unkeepHand", { gameId: safeView?.id })}
             onRandomizeStart={() => socket.emit("randomizeStartingPlayer", { gameId: safeView?.id })}
           />

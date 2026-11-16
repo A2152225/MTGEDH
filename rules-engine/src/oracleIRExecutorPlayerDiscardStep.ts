@@ -23,9 +23,16 @@ import {
   discardCardsForPlayer,
   discardSpecificCardsForPlayer,
   quantityToNumber,
-  resolvePlayers,
+  resolvePlayers as resolvePlayersUnfiltered,
 } from './oracleIRExecutorPlayerUtils';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { playerProtectedFromOpponentDiscard } from './sacrificeCauseProtection';
+
+function resolvePlayers(state: GameState, who: any, ctx: OracleIRExecutionContext): PlayerID[] {
+  return resolvePlayersUnfiltered(state, who, ctx).filter((id) =>
+    !playerProtectedFromOpponentDiscard((state as any).battlefield, String(id), (ctx as any)?.controllerId),
+  );
+}
 
 export function discardSelectorRequiresPlayerChoice(
   step: Extract<OracleEffectStep, { kind: 'discard' }>,

@@ -10,6 +10,8 @@
 import type { DetectedKeyword } from "../keyword-detection.js";
 import type { KeywordTriggerResult, KeywordTriggerContext } from "./keywordTriggerTypes.js";
 import { permanentHasKeyword } from "./keywordTriggerPermanentLookup.js";
+import { annihilatorValue } from "../batch100CombatAndKeywords.js";
+import { getBatch107BushidoValue } from "../batch107Apply.js";
 
 function numericCombatPower(permanent: any): number {
   const raw = permanent?.effectivePower ?? permanent?.power ?? permanent?.basePower ?? permanent?.card?.power;
@@ -335,7 +337,7 @@ function handleTraining(ctx: KeywordTriggerContext, keyword: DetectedKeyword): K
  */
 function handleAnnihilator(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Creature';
-  const n = keyword.value || 1;
+  const n = annihilatorValue(ctx.permanent, keyword) || 1;
   const defendingPlayer = ctx.defendingPlayer;
   
   if (!defendingPlayer) {
@@ -418,7 +420,11 @@ function handleFlanking(ctx: KeywordTriggerContext, keyword: DetectedKeyword): K
  */
 function handleBushido(ctx: KeywordTriggerContext, keyword: DetectedKeyword): KeywordTriggerResult {
   const cardName = ctx.permanent?.card?.name || 'Creature';
-  const n = keyword.value || 1;
+  const fromValue = Number(keyword.value);
+  const fromState = getBatch107BushidoValue(ctx.permanent, ctx.state || { battlefield: ctx.battlefield });
+  const n = Number.isFinite(fromValue) && fromValue > 0
+    ? fromValue
+    : (typeof fromState === 'number' ? fromState : 1);
   
   return {
     keyword: 'bushido',

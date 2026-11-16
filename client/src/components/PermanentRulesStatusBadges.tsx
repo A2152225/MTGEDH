@@ -22,6 +22,7 @@ export interface PermanentRulesStatusView {
   effectiveLandTypeLine?: string;
   conditionalStatics?: Array<{ sourceName: string; text: string; active: boolean }>;
   grantedCrew?: { value: number; sourceName: string };
+  grantedSaddle?: { value: number; sourceName: string };
 }
 
 const signed = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
@@ -139,6 +140,9 @@ export function getPermanentRulesStatusChips(perm: any, players?: readonly Named
   });
   if (rs.grantedCrew) {
     chips.push({ key: 'grantedcrew', label: `\u2699 Crew ${rs.grantedCrew.value}`, title: `Crew ${rs.grantedCrew.value} granted by ${rs.grantedCrew.sourceName} (tap creatures with total power ${rs.grantedCrew.value}+ to crew).`, background: 'rgba(120,53,15,0.95)' });
+  }
+  if (rs.grantedSaddle) {
+    chips.push({ key: 'grantedsaddle', label: `Saddle ${rs.grantedSaddle.value}`, title: `Saddle ${rs.grantedSaddle.value} granted by ${rs.grantedSaddle.sourceName} (tap other creatures with total power ${rs.grantedSaddle.value}+ to saddle).`, background: 'rgba(161,98,7,0.95)' });
   }
   if (rs.animatedByAttachment) {
     chips.push({ key: 'animated', label: '\u2726 Creature', title: 'An attached Aura makes this a creature in addition to its other types (e.g. Ensoul Artifact).', background: 'rgba(37,99,235,0.95)' });

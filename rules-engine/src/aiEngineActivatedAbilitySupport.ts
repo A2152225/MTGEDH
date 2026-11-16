@@ -813,8 +813,14 @@ export function findBestActivatedAbility(
 
   let bestAbility: ActivatedAbilityChoice | null = null;
   let bestValue = 0;
+  // Cap scored lines so late-game boards (40+ permanents × multi-ability cards) cannot
+  // monopolize the exclusive AI lock for tens of seconds inside one MAIN1 wake.
+  const MAX_SCORED_LINES = 24;
+  const GOOD_ENOUGH_VALUE = 40;
+  let scoredLines = 0;
 
   for (const perm of battlefield) {
+    if (scoredLines >= MAX_SCORED_LINES || bestValue >= GOOD_ENOUGH_VALUE) break;
     const isOwnPermanent = String(perm.controller || '') === String(playerId);
     if (!playerMayActivatePermanent(perm, playerId)) continue;
     if (!canActivateAbilityNow(perm, gameState, playerId, { hasPermanentType: deps.hasPermanentType })) continue;
@@ -830,6 +836,7 @@ export function findBestActivatedAbility(
         })();
 
     for (const candidate of scoredCandidates) {
+      if (scoredLines >= MAX_SCORED_LINES || bestValue >= GOOD_ENOUGH_VALUE) break;
       if (isHandOnlyDiscardThisCardActivatedAbility(candidate.abilityText)) {
         continue;
       }
@@ -842,6 +849,7 @@ export function findBestActivatedAbility(
       if (!isOwnPermanent && !candidateAllowsAnyPlayerActivation(perm, candidate.abilityText)) {
         continue;
       }
+      scoredLines += 1;
       const value = evaluateActivatedAbilityValue(perm, candidate.abilityText, gameState, playerId, config, {
         getPrimaryArchetypes: deps.getPrimaryArchetypes,
         hasPotentialManaSink: deps.hasPotentialManaSink,

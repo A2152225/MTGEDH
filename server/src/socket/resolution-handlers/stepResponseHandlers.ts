@@ -48,11 +48,14 @@ import {
   maybeDrainAutoDeclinedOptionalStackAfterDecline,
 } from "./mayAbilityAndOptionalTriggerHandlers.js";
 import { handleOptionChoiceResponse } from "./optionChoiceResponseHandlers.js";
+import { handleOutOfTheTombsDrawResponse, handleTomorrowDrawReplacementResponse } from "../resolutionTomorrowTombsResponseHandlers.js";
+import { handleArchmageAscensionSearchResponse } from "../resolutionArchmageJinnieResponseHandlers.js";
 import { restoreLibrarySearchStep } from "./panglacialSearchCastUtils.js";
 import { handleRulesChoiceGroupResponse } from "./rulesChoiceGroupResponseHandlers.js";
 import { emitNextPendingResolutionStep } from "./resolutionStepTimeoutAndCancelHandlers.js";
 import { resumePlayerSpellCastAfterPayment } from "./spellCastPaymentResumeHandlers.js";
 import { handleTargetSelectionResponse } from "./targetSelectionResponseHandlers.js";
+import { handleSpecialCombatDamageAssignmentResponse } from "../resolutionSpecialCombatDamageResponseHandlers.js";
 import { processPendingOracleIrCompoundResume } from "../resolutionProcessPendingHandlers.js";
 
 export async function handleStepResponse(
@@ -159,6 +162,8 @@ async function handleStepResponseBody(
       // abort a player-initiated activation.
     } else if (step.type === ResolutionStepType.TARGET_SELECTION) {
       await handleTargetSelectionResponse(io, game, gameId, step, response);
+    } else if (step.type === ResolutionStepType.COMBAT_DAMAGE_ASSIGNMENT) {
+      await handleSpecialCombatDamageAssignmentResponse(io, game, gameId, step, response);
     } else if (step.type === ResolutionStepType.DISCARD_SELECTION) {
       await getResolutionHandlerDeps().handleDiscardResponse(io, game, gameId, step, response);
     } else if (step.type === ResolutionStepType.TAP_UNTAP_TARGET) {
@@ -175,6 +180,8 @@ async function handleStepResponseBody(
       }
     } else if (step.type === ResolutionStepType.OPTION_CHOICE) {
       await handleOptionChoiceResponse(io, game, gameId, step, response);
+    } else if (step.type === ResolutionStepType.LIBRARY_SEARCH) {
+      if (await handleArchmageAscensionSearchResponse(io, game, gameId, step, response)) return;
     }
     if (step.type !== ResolutionStepType.MANA_PAYMENT_CHOICE) return;
   }
@@ -309,6 +316,7 @@ async function handleStepResponseBody(
       return;
 
     case ResolutionStepType.GRAVEYARD_SELECTION:
+      if (await handleOutOfTheTombsDrawResponse(io, game, gameId, step, response)) break;
       await getResolutionHandlerDeps().handleGraveyardSelectionResponse(io, game, gameId, step, response);
       break;
       
@@ -393,6 +401,7 @@ async function handleStepResponseBody(
       break;
       
     case ResolutionStepType.PONDER_EFFECT:
+      if (await handleTomorrowDrawReplacementResponse(io, game, gameId, step, response)) break;
       getResolutionHandlerDeps().handlePonderEffectResponse(io, game, gameId, step, response);
       break;
 
@@ -401,6 +410,7 @@ async function handleStepResponseBody(
       break;
       
     case ResolutionStepType.LIBRARY_SEARCH:
+      if (await handleArchmageAscensionSearchResponse(io, game, gameId, step, response)) break;
       await handleLibrarySearchResponse(io, game, gameId, step, response);
       break;
       
@@ -489,6 +499,10 @@ async function handleStepResponseBody(
       break;
 
     // Add more handlers as needed
+    case ResolutionStepType.COMBAT_DAMAGE_ASSIGNMENT:
+      await handleSpecialCombatDamageAssignmentResponse(io, game, gameId, step, response);
+      return;
+
     default:
       debug(2, `[Resolution] No specific handler for step type: ${step.type}`);
   }

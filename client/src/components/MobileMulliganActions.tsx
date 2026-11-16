@@ -14,6 +14,8 @@ export interface MobileMulliganActionsProps {
   mulligansTaken?: number;
   onKeepHand?: () => void;
   onMulligan?: () => void;
+  onSerumPowder?: () => void;
+  canUseSerumPowder?: boolean;
   onUnkeepHand?: () => void;
   onRandomizeStart?: () => void;
   showRandomStart?: boolean;
@@ -49,6 +51,8 @@ export const MobileMulliganActions: React.FC<MobileMulliganActionsProps> = ({
   mulligansTaken = 0,
   onKeepHand,
   onMulligan,
+  onSerumPowder,
+  canUseSerumPowder,
   onUnkeepHand,
   onRandomizeStart,
   showRandomStart,
@@ -95,6 +99,19 @@ export const MobileMulliganActions: React.FC<MobileMulliganActionsProps> = ({
           >
             Mulligan{mulligansTaken > 0 ? ` (${mulligansTaken})` : ''}
           </button>
+          {canUseSerumPowder && onSerumPowder && (
+            <button
+              type="button"
+              onClick={onSerumPowder}
+              aria-label="Exile your hand, then draw that many cards"
+              style={actionButtonStyle({
+                background: '#6366f1',
+                fill,
+              })}
+            >
+              Exile hand, draw that many
+            </button>
+          )}
         </>
       ) : (
         <button

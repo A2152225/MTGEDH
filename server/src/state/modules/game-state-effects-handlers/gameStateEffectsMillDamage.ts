@@ -46,6 +46,7 @@ function recordDamageReplacements(ctx: GameContext, result: { amount: number; mo
 }
 
 import { recordDamageReplacementMessages } from '../replacementDamageLog.js';
+import { filterPreventedDamageIfUnpreventable } from '../batch103Apply.js';
 
 export function calculateModifiedDamage(
   ctx: GameContext,
@@ -56,7 +57,8 @@ export function calculateModifiedDamage(
   isCombatDamage?: boolean,
   targetPermanentId?: string,
 ): { amount: number; modifiers: string[] } {
-  return recordDamageReplacements(ctx, calculateModifiedDamageUnlogged(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, isCombatDamage, targetPermanentId), damageAmount);
+  const result = recordDamageReplacements(ctx, calculateModifiedDamageUnlogged(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, isCombatDamage, targetPermanentId), damageAmount);
+  return filterPreventedDamageIfUnpreventable((ctx as any)?.state || ctx, result, damageAmount, { damageDealer, isCombatDamage, damageSourcePermanentId });
 }
 
 function calculateModifiedDamageUnlogged(

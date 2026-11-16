@@ -24,6 +24,7 @@ import {
   isCardOnAdventureForPlayer,
 } from '../playable-from-exile.js';
 import { cardMayBeCastWithMayhem, parseMayhemCost } from '../keywordCastMechanics.js';
+import { dinosaurHasGrantedEscape, nonlandHasGrantedMayhem } from '../batch101LongTailApply.js';
 import { buildFreeCastIntentFields } from '../castIntent.js';
 import type {
   SharedSpellSourceZone,
@@ -137,6 +138,14 @@ function getAvailableGraveyardCastKeywordInfo(
       return { keyword, cost: printedInfo.cost, additionalExileCount: printedInfo.additionalExileCount };
     }
 
+    if (keyword === 'escape' && dinosaurHasGrantedEscape((ctx as any).state, card, playerId)) {
+      const manaCost = String(card?.mana_cost || card?.manaCost || '').trim();
+      return { keyword, cost: manaCost, additionalExileCount: 3 };
+    }
+    if (keyword === 'mayhem' && nonlandHasGrantedMayhem((ctx as any).state, card, playerId) && cardMayBeCastWithMayhem((ctx as any).state, playerId, card)) {
+      const manaCost = String(card?.mana_cost || card?.manaCost || '').trim();
+      return { keyword, cost: manaCost };
+    }
     if (keyword !== 'mayhem') {
       const grantedInfo = getGrantedCastFromGraveyardKeywordInfo(ctx, playerId, card, keyword);
       if (grantedInfo.hasIt) {

@@ -15,6 +15,66 @@ import { queueTargetEventTriggersForStackItem } from './triggers/target-event-tr
 const OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN = /^you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const OPTIONAL_COPY_ABILITY_LIFE_PAYMENT_PATTERN = /^you may pay (\d+) life again\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
 const DIRECT_COPY_ABILITY_PATTERN = /^copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?$/i;
+// Unanchored forms recover the copy/retarget clause when the stacked
+// description is only the IR cost fragment ("you may pay {2}") and the
+// printed "If you do, copy that ability. You may choose new targets..."
+// rider still lives on item.effect / oracle text.
+const COPY_ABILITY_OPTIONAL_MANA_CLAUSE = /you may pay (\{[^}]+\}(?:\{[^}]+\})*)\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?/i;
+const COPY_ABILITY_OPTIONAL_LIFE_CLAUSE = /you may pay (\d+) life again\.\s*if you do,\s*copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?/i;
+const COPY_ABILITY_DIRECT_CLAUSE = /(?:^|[.\n;]\s*)copy that ability(?:\.|(?:\.\s*you may choose new targets for the copy\.))?/i;
+
+type CopyAbilityClause = {
+  kind: 'optional_mana' | 'optional_life' | 'direct';
+  manaCost?: string;
+  lifeAmount?: number;
+  allowsRetargeting: boolean;
+};
+
+function uniqueNonEmptyTexts(texts: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of texts) {
+    const text = String(raw || '').trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    out.push(text);
+  }
+  return out;
+}
+
+function findCopyAbilityClause(trimmedDescription: string, item: any): CopyAbilityClause | null {
+  const texts = uniqueNonEmptyTexts([
+    trimmedDescription,
+    String(item?.description || ''),
+    String(item?.effect || ''),
+    String(item?.card?.oracle_text || item?.sourcePermanentSnapshot?.card?.oracle_text || ''),
+  ]);
+  for (const text of texts) {
+    const mana = text.match(COPY_ABILITY_OPTIONAL_MANA_CLAUSE);
+    if (mana) {
+      return {
+        kind: 'optional_mana',
+        manaCost: String(mana[1] || '').trim(),
+        allowsRetargeting: /choose new targets for the copy/i.test(text),
+      };
+    }
+    const life = text.match(COPY_ABILITY_OPTIONAL_LIFE_CLAUSE);
+    if (life) {
+      return {
+        kind: 'optional_life',
+        lifeAmount: Math.max(0, Math.floor(Number(life[1]) || 0)),
+        allowsRetargeting: /choose new targets for the copy/i.test(text),
+      };
+    }
+    if (COPY_ABILITY_DIRECT_CLAUSE.test(text)) {
+      return {
+        kind: 'direct',
+        allowsRetargeting: /choose new targets for the copy/i.test(text),
+      };
+    }
+  }
+  return null;
+}
 
 export function cloneStackItemForAbilityCopy(
   ctx: GameContext,
@@ -207,21 +267,31 @@ export function tryDeferCopyTriggeredAbilityPrompts(
   triggerType: string,
   state: any,
 ): boolean {
+  const copyClause = triggerType === 'ability_activated'
+    ? findCopyAbilityClause(trimmedDescription, item)
+    : null;
+
+  // Copy-that-ability triggers must keep the legacy pay/copy/retarget path even
+  // when the stacked description is an IR-owned cost fragment. The printed
+  // rider (and retarget instruction) is recovered from item.effect above.
   if (
-    isOracleIrTriggerPrimaryEnabled()
+    !copyClause
+    && isOracleIrTriggerPrimaryEnabled()
     && isTriggerEffectOwnedByOracleIrPrimary(trimmedDescription, sourceName)
   ) {
     return false;
   }
 
-  const optionalCopyAbilityMatch = triggerType === 'ability_activated'
-    ? trimmedDescription.match(OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN)
-    : null;
-  const optionalCopyAbilityLifeMatch = triggerType === 'ability_activated'
-    ? trimmedDescription.match(OPTIONAL_COPY_ABILITY_LIFE_PAYMENT_PATTERN)
-    : null;
-  const isDirectAbilityCopy = triggerType === 'ability_activated' && DIRECT_COPY_ABILITY_PATTERN.test(trimmedDescription);
-  const allowsRetargetingCopy = /choose new targets for the copy\./i.test(trimmedDescription);
+  const optionalCopyAbilityMatch = copyClause?.kind === 'optional_mana' && copyClause.manaCost
+    ? [copyClause.manaCost, copyClause.manaCost]
+    : (triggerType === 'ability_activated' ? trimmedDescription.match(OPTIONAL_COPY_ABILITY_PAYMENT_PATTERN) : null);
+  const optionalCopyAbilityLifeMatch = copyClause?.kind === 'optional_life' && (copyClause.lifeAmount || 0) > 0
+    ? [String(copyClause.lifeAmount), String(copyClause.lifeAmount)]
+    : (triggerType === 'ability_activated' ? trimmedDescription.match(OPTIONAL_COPY_ABILITY_LIFE_PAYMENT_PATTERN) : null);
+  const isDirectAbilityCopy = copyClause?.kind === 'direct'
+    || (triggerType === 'ability_activated' && DIRECT_COPY_ABILITY_PATTERN.test(trimmedDescription));
+  const allowsRetargetingCopy = Boolean(copyClause?.allowsRetargeting)
+    || /choose new targets for the copy\./i.test(trimmedDescription);
 
   if (optionalCopyAbilityMatch && !(ctx as any).isReplaying) {
     const manaCost = String(optionalCopyAbilityMatch[1] || '').trim();

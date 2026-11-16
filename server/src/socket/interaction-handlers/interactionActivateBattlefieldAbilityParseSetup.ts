@@ -40,6 +40,8 @@ import {
   getActivatedAbilityConditionErrorPayload,
   resolveThresholdRestrictedActivatedAbility,
 } from "./interactionActivateBattlefieldAbilityHelpers.js";
+import { applyNontokenActivatedAdditionalLandSacrifice } from "./nontokenActivatedAdditionalSacrificeCost.js";
+import { abilityTextIsOnceEachTurn, getActivateOnceEachTurnBlock } from "../../state/modules/equipOnceEachTurn.js";
 
 export type ActivateBattlefieldAbilityParseState = {
   abilityText: string;
@@ -237,7 +239,7 @@ export function trySetupActivateBattlefieldAbilityParse(
   if (isExhaustActivation && hasActivatedExhaustAbility(game.state, permanentId, selectedAbilityIndex)) {
     socket.emit('error', {
       code: 'EXHAUST_ALREADY_ACTIVATED',
-      message: `That Exhaust ability on ${cardName} has already been activated this turn.`,
+      message: `That Exhaust ability on ${cardName} has already been activated.`,
     });
     return true;
   }
@@ -324,6 +326,14 @@ export function trySetupActivateBattlefieldAbilityParse(
         code: 'ABILITY_ALREADY_USED',
         message: `${cardName}'s selected ability can only be used once during each of your turns.`,
       });
+      return true;
+    }
+  }
+
+  if (abilityTextIsOnceEachTurn(oncePerTurnActivatedEffect)) {
+    const blocked = getActivateOnceEachTurnBlock(game, gameId, permanent, String(permanentId), selectedAbilityIndex, { noun: 'ability' });
+    if (blocked) {
+      socket.emit('error', blocked);
       return true;
     }
   }
@@ -480,5 +490,6 @@ export function trySetupActivateBattlefieldAbilityParse(
   out.abilityConditionText = abilityConditionText;
   out.isBoastAbility = isBoastAbility;
   out.oncePerTurnActivatedEffect = oncePerTurnActivatedEffect;
+  applyNontokenActivatedAdditionalLandSacrifice(game.state, permanent, out);
   return false;
 }

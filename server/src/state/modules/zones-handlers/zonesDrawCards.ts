@@ -13,21 +13,24 @@ import { appendEvent } from "../../../db/index.js";
 import { applyEmptyLibraryDrawConsequences } from "../game-state-effects.js";
 import { evaluateDrawReplacementEvent } from "../replacement-effects.js";
 import { summarizeDrawAmountReplacements } from "../replacementEffectSpec.js";
+import { consumeReedRichardsAfterSummarize } from "../replacementBatch91DrawReplacements.js";
 import { getCardDrawTriggers } from "../triggers/card-draw.js";
 import { orderTriggersByAPNAP } from "../triggers/ordering.js";
 import {
   hasUnsupportedTargetRequirement,
   inferGenericTriggeredAbilityTargetMetadata,
 } from "../triggers/target-metadata.js";
-import { queueDredgeDrawReplacementStep } from "./zonesDrawReplacementDredgeQueue.js";
-import { queueSkipDrawReplacementStep } from "./zonesDrawReplacementSkipDrawQueue.js";
-import { queueZursWeirdingDrawReplacementStep } from "./zonesDrawReplacementZursQueue.js";
-import { applyOrQueueOpponentLibraryDrawReplacement } from "./zonesDrawReplacementOpponentLibraryExile.js";
+import { queueOutOfTheTombsDrawReplacementStep } from "./zonesDrawReplacementOutOfTheTombsQueue.js";
+import { applyChoiceBearingDrawReplacements } from "../replacementOrderChoice.js";
 import { applyBatch18EmptyLibraryDrawInstead } from "../replacementBatch18DrawInstead.js";
+import { tryApplyBatch92DrawReplacementsInLoop } from "../replacementBatch92DrawReplacements.js";
 import { applyBatch19DrawInstead } from "../replacementBatch19DrawInstead.js";
 import { tryQueueRevealUntilKindDrawStep } from "./zonesDrawReplacementRevealUntilKind.js";
 import { isCardDrawProhibited, getCardDrawCapRemaining } from "../playersCantDrawCards.js";
 import { applyFirstDrawReveal } from '../firstDrawRevealStatic.js';
+import { applyBreathstealerAfterDraw } from '../breathstealersCryptDrawReveal.js';
+import { applyQuantumRiddlerDrawBonus } from '../replacementBatch93DrawReplacements.js';
+import { applyBatch103EmptyHandDrawTwo, registerBatch103DrawCards } from '../batch103Apply.js';
 
 export type DrawCardsOptions = {
   /** Parent event (nextStep / dredge|zur choice resolve) already restores draws on replay. */
@@ -73,6 +76,9 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
   const zones = ctx.state.zones = ctx.state.zones || {};
   const drawn: KnownCardRef[] = [];
   let normalizedCount = Math.max(0, Math.floor(Number(count || 0)));
+  if (normalizedCount > 0) {
+    normalizedCount = applyQuantumRiddlerDrawBonus(ctx.state, String(playerId), normalizedCount);
+  }
   if (normalizedCount > 0 && isCardDrawProhibited(ctx.state, String(playerId))) {
     debug(2, '[drawCards] draw prohibited ("can\'t draw cards" / per-turn cap)', { playerId, count: normalizedCount });
     return drawn;
@@ -84,6 +90,10 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
       debug(2, '[drawCards] clamping to per-turn draw cap', { playerId, requested: normalizedCount, remaining });
       normalizedCount = Math.max(0, remaining);
     }
+  }
+  if (normalizedCount <= 0) return drawn;
+  if (normalizedCount > 0) {
+    normalizedCount = applyBatch103EmptyHandDrawTwo(ctx.state, String(playerId), normalizedCount);
   }
   if (normalizedCount <= 0) return drawn;
   
@@ -182,6 +192,19 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
         const zoneLib = (zones[originalPlayerId] as { library?: unknown[] } | undefined)?.library;
         const libCount = Math.max(Array.isArray(mapLib) ? mapLib.length : 0, Array.isArray(zoneLib) ? zoneLib.length : 0);
         if (applyBatch18EmptyLibraryDrawInstead(ctx.state, originalPlayerId, libCount)) continue;
+        {
+          const b92 = tryApplyBatch92DrawReplacementsInLoop(ctx.state, originalPlayerId, libCount);
+          if (b92.needsChoice) {
+            const remainingAfter = Math.max(0, normalizedCount - i - 1);
+            const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();
+            if ((ctx as any).isReplaying && replayNextEventType === 'outOfTheTombsDrawResolve') {
+              break;
+            }
+            queueOutOfTheTombsDrawReplacementStep(ctx, originalPlayerId, b92.candidates || [], remainingAfter);
+            break;
+          }
+          if (b92.applied && b92.skipDraw) continue;
+        }
       }
       if (applyBatch19DrawInstead(ctx, originalPlayerId, { drawNumber, isDrawStep: currentStep.includes('draw') }, (pid) => drawOneForPlayer(pid, false))) continue;
       if (tryQueueRevealUntilKindDrawStep(ctx, originalPlayerId, Math.max(0, normalizedCount - i - 1))) break; // B42
@@ -200,73 +223,20 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
         },
       });
 
-      if (replacement.choiceRequired && replacement.effectId === 'zurs-weirding-draw-replacement') {
-        drawReplacementChoices.push(replacement.metadata);
-        const queued = queueZursWeirdingDrawReplacementStep(
-          ctx,
-          originalPlayerId,
-          replacement.metadata,
-          Math.max(0, normalizedCount - i - 1),
-        );
-        const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();
-        if (queued || ((ctx as any).isReplaying && replayNextEventType === 'zursWeirdingDrawReplacementResolve')) {
-          break;
-        }
-      }
-
-      if (replacement.choiceRequired && replacement.effectId === 'dredge-draw-replacement-choice') {
-        drawReplacementChoices.push(replacement.metadata);
-        const queued = queueDredgeDrawReplacementStep(
-          ctx,
-          originalPlayerId,
-          replacement.metadata,
-          drawNumber,
-          Math.max(0, normalizedCount - i - 1),
-        );
-        const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();
-        if (queued || ((ctx as any).isReplaying && replayNextEventType === 'dredgeDrawReplacementResolve')) {
-          break;
-        }
-      }
-
-      if (replacement.choiceRequired && replacement.effectId === 'skip-draw-step-replacement') {
-        drawReplacementChoices.push(replacement.metadata);
-        const queued = queueSkipDrawReplacementStep(
-          ctx,
-          originalPlayerId,
-          {
-            ...(replacement.metadata || {}),
-            sourceName: replacement.sourceName,
-            sourcePermanentId: String((replacement.metadata as any)?.sourcePermanentId || '').trim(),
+      {
+        const remainingAfter = Math.max(0, normalizedCount - i - 1);
+        const choiceAction = applyChoiceBearingDrawReplacements(ctx, originalPlayerId, remainingAfter, {
+          drawIndex: drawNumber,
+          metadata: {
+            isFirstDrawStepDraw: currentStep.includes('draw') && drawNumber === 1,
+            isDrawStepDraw: currentStep.includes('draw'),
+            skipDredgeReplacement: (ctx as any)._suppressDredgeReplacement === true,
+            skipZursWeirdingReplacement: (ctx as any)._suppressZursWeirdingReplacement === true,
+            skipSkipDrawReplacement: (ctx as any)._suppressSkipDrawReplacement === true,
           },
-          Math.max(0, normalizedCount - i - 1),
-        );
-        const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();
-        if (queued || ((ctx as any).isReplaying && replayNextEventType === 'skipDrawReplacementResolve')) {
-          break;
-        }
-      }
-
-      if (replacement.choiceRequired && replacement.effectId === 'draw-replaced-by-exile-opponent-library') {
-        const replayNextEventType = String((ctx as any)._replayNextEventType || '').trim();
-        if ((ctx as any).isReplaying && replayNextEventType === 'opponentLibraryDrawReplacementResolve') {
-          break;
-        }
-        drawReplacementChoices.push(replacement.metadata);
-        const queued = applyOrQueueOpponentLibraryDrawReplacement(
-          ctx,
-          originalPlayerId,
-          {
-            ...(replacement.metadata || {}),
-            sourceName: replacement.sourceName,
-            sourcePermanentId: String((replacement.metadata as any)?.sourcePermanentId || '').trim(),
-          },
-          Math.max(0, normalizedCount - i - 1),
-        );
-        if (queued) {
-          break;
-        }
-        continue;
+        });
+        if (choiceAction === 'break') break;
+        if (choiceAction === 'continue') continue;
       }
 
       if (replacement.effectId === 'draw-replaced-by-opponent') {
@@ -277,9 +247,11 @@ export function drawCards(ctx: GameContext, playerId: PlayerID, count: number, o
         }
       }
 
-      const extraDraw = summarizeDrawAmountReplacements(ctx.state, originalPlayerId, {
+      const extraDrawMeta = {
         isFirstDrawStepDraw: currentStep.includes('draw') && drawNumber === 1,
-      });
+      };
+      const extraDraw = summarizeDrawAmountReplacements(ctx.state, originalPlayerId, extraDrawMeta);
+      consumeReedRichardsAfterSummarize(ctx.state, originalPlayerId, extraDrawMeta);
       const cardsThisEvent = Math.max(1, (1 + extraDraw.extraCards) * extraDraw.multiplier);
       let stopDrawing = false;
       for (let d = 0; d < cardsThisEvent; d++) {
@@ -448,6 +420,14 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
   if (firstDrawNumber === 1 && Number(cardsDrawn || 0) > 0) {
     try { applyFirstDrawReveal(ctx, String(drawingPlayerId), 1, drawnCardFor(1)); } catch { /* reveal is informational */ }
   }
+  try {
+    const drawnBatch = [];
+    for (let drawNumber = 1; drawNumber <= Number(cardsDrawn || 0); drawNumber += 1) {
+      const drawnCard = drawnCardFor(drawNumber);
+      if (drawnCard) drawnBatch.push(drawnCard);
+    }
+    applyBreathstealerAfterDraw(ctx, String(drawingPlayerId), drawnBatch);
+  } catch { /* reveal / pay-or-discard is informational until chosen */ }
   const drawTriggersFor = (drawNumber: number) => orderTriggersByAPNAP(ctx, getCardDrawTriggers(ctx, String(drawingPlayerId), undefined, drawNumber, drawnCardFor(drawNumber)));
   const queueGenericDrawTrigger = (trigger: any, drawIndex: number) => {
     const effect = String(trigger?.effect || '').trim();
@@ -610,3 +590,8 @@ export function processDrawTriggers(ctx: GameContext, drawingPlayerId: PlayerID,
   }
 }
 
+
+registerBatch103DrawCards((ctx, playerId, amount) => {
+  const drawn = drawCards(ctx as GameContext, playerId as PlayerID, amount);
+  return Array.isArray(drawn) ? drawn.length : 0;
+});

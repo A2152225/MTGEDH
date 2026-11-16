@@ -9,6 +9,7 @@
  */
 
 import { CREATURE_TYPES, permanentHasCreatureType } from './creatureTypes.js';
+import { attachWorthyDefinitionToQualifiers, permanentMatchesWorthyDefinition } from './equipWorthy.js';
 
 const CREATURE_TYPES_LOWER = new Set(CREATURE_TYPES.map((t) => t.toLowerCase()));
 
@@ -35,6 +36,8 @@ export interface ParsedEquipAbility {
   qualifier: EquipQualifier;
   label: string;
   targetDescription: string;
+  /** True when this Equip clause is followed by "Activate only once each turn". */
+  onceEachTurn?: boolean;
 }
 
 const MANA_COST = String.raw`\{(?:[WUBRGCX\d/]+)\}(?:\{(?:[WUBRGCX\d/]+)\})*`;
@@ -49,6 +52,17 @@ const EQUIP_ABILITY_RE = new RegExp(
 
 function normalizeSpaces(text: string): string {
   return String(text || '').replace(/\s+/g, ' ').trim();
+}
+
+export const ACTIVATE_ONLY_ONCE_EACH_TURN_RE = /activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn/i;
+
+export function textHasActivateOnlyOnceEachTurn(text: string): boolean {
+  return ACTIVATE_ONLY_ONCE_EACH_TURN_RE.test(String(text || ''));
+}
+
+function onceEachTurnFollows(oracleText: string, matchEnd: number): boolean {
+  const rest = String(oracleText || '').slice(Math.max(0, matchEnd)).replace(/^\s*(?:\([^)]*\))?\s*\.?\s*/, '');
+  return /^(activate\s+(?:this\s+ability\s+)?only\s+once\s+(?:each|per)\s+turn)/i.test(rest);
 }
 
 function parseCreatureTypesFromQualifier(raw: string): string[] {
@@ -161,6 +175,7 @@ function parseManaEquipAbilities(oracleText: string): ParsedEquipAbility[] {
       qualifier,
       label,
       targetDescription,
+      onceEachTurn: onceEachTurnFollows(text, match.index + match[0].length),
     });
     (abilities[abilities.length - 1] as any).__pos = match.index;
     index += 1;
@@ -235,6 +250,9 @@ export function permanentMatchesEquipQualifier(permanent: any, qualifier: EquipQ
     case 'creature_token':
       return permanent?.isToken === true || permanent?.card?.isToken === true;
     case 'worthy':
+      if ((qualifier as any).worthyDef) {
+        return permanentMatchesWorthyDefinition(permanent, (qualifier as any).worthyDef);
+      }
       return permanentIsWorthy(permanent);
     case 'creature_types': {
       const types = qualifier.creatureTypes || [];
@@ -250,12 +268,12 @@ export function permanentMatchesEquipQualifier(permanent: any, qualifier: EquipQ
 // after the target is chosen (state/modules/equipNonManaCosts.ts). UI34: "Equip\u2014Sacrifice a creature." parses as cost "Sacrifice a creature".
 const EQUIP_LIFE_RE = /\bequip\b(?!\s+abilit)(?:\s+([^\n{.:\u2014\u2013]+?))?\s*[\u2014\u2013]\s*pay (\d+) life\b/gi;
 
-const EQUIP_SAC_RE = /\bequip\b(?!\s+abilit)(?:\s+([^\n{.:\u2014\u2013]+?))?\s*[\u2014\u2013]\s*sacrifice an? (creature|artifact|enchantment|land)\b/gi;
+const EQUIP_SAC_RE = /\bequip\b(?!\s+abilit)(?:\s+([^\n{.:\u2014\u2013]+?))?\s*[\u2014\u2013]\s*sacrifice(?:\s+another)?(?:\s+an?)?\s+(creature|artifact|enchantment|land|nonland permanent)\b/gi;
 // B37: "Equip\u2014Discard a card." parses as cost "Discard a card" (server/src/socket/resolution-handlers/targetSelectionEquipDiscardCost.ts).
 const EQUIP_DISCARD_RE = /\bequip\b(?!\s+abilit)(?:\s+([^\n{.:\u2014\u2013]+?))?\s*[\u2014\u2013]\s*discard a card\b/gi;
 
 // B39: "Equip\u2014Pay {3} or discard a card." (Bloodthorn Flail): generic two-option alternative equip cost.
-const EQUIP_ALT_PIECE = String.raw`(?:pay\s+)?(?:\{[^}]+\})+|pay \d+ life|sacrifice an? (?:creature|artifact|enchantment|land)|discard an? card`;
+const EQUIP_ALT_PIECE = String.raw`(?:pay\s+)?(?:\{[^}]+\})+|pay \d+ life|sacrifice(?:\s+another)?(?:\s+an?)?\s+(?:creature|artifact|enchantment|land|nonland permanent)|discard an? card`;
 const EQUIP_ALT_RE = new RegExp(String.raw`\bequip\b(?!\s+abilit)(?:\s+([^\n{.:\u2014\u2013]+?))?\s*[\u2014\u2013]\s*(${EQUIP_ALT_PIECE})\s+or\s+(${EQUIP_ALT_PIECE})(?=[.\n(]|$)`, 'gi');
 function equipAltPiece(raw: string): string {
   const s = raw.trim().replace(/^pay\s+(?=\{)/i, '');
@@ -271,21 +289,24 @@ export function parseEquipAbilitiesFromOracle(oracleText: string): ParsedEquipAb
     const rawQualifier = normalizeSpaces(match[1] || '') || null;
     const qualifier = parseEquipQualifier(rawQualifier);
     const cost = `Pay ${match[2]} life`;
-    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), __pos: match.index });
+    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), onceEachTurn: onceEachTurnFollows(text, match.index + match[0].length), __pos: match.index });
   }
   EQUIP_SAC_RE.lastIndex = 0;
   while ((match = EQUIP_SAC_RE.exec(text)) !== null) {
     const rawQualifier = normalizeSpaces(match[1] || '') || null;
     const qualifier = parseEquipQualifier(rawQualifier);
-    const cost = `Sacrifice ${/^[aeiou]/i.test(match[2]) ? 'an' : 'a'} ${match[2].toLowerCase()}`;
-    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), __pos: match.index });
+    const typeWord = String(match[2] || '').toLowerCase();
+    const another = /\bsacrifice\s+another\b/i.test(String(match[0] || ''));
+    const article = another ? 'another' : (/^[aeiou]/i.test(typeWord) ? 'an' : 'a');
+    const cost = `Sacrifice ${article} ${typeWord}`;
+    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), onceEachTurn: onceEachTurnFollows(text, match.index + match[0].length), __pos: match.index });
   }
   EQUIP_DISCARD_RE.lastIndex = 0;
   while ((match = EQUIP_DISCARD_RE.exec(text)) !== null) {
     const rawQualifier = normalizeSpaces(match[1] || '') || null;
     const qualifier = parseEquipQualifier(rawQualifier);
     const cost = 'Discard a card';
-    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), __pos: match.index });
+    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), onceEachTurn: onceEachTurnFollows(text, match.index + match[0].length), __pos: match.index });
   }
   EQUIP_ALT_RE.lastIndex = 0;
   while ((match = EQUIP_ALT_RE.exec(text)) !== null) {
@@ -294,8 +315,9 @@ export function parseEquipAbilitiesFromOracle(oracleText: string): ParsedEquipAb
     const cost = `${equipAltPiece(match[2])} or ${equipAltPiece(match[3])}`;
     const pos = match.index;
     for (let i = merged.length - 1; i >= 0; i--) if (merged[i].__pos === pos) merged.splice(i, 1);
-    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), __pos: pos });
+    merged.push({ index: 0, cost, qualifier, label: qualifier.kind === 'any' ? `Equip\u2014${cost}` : `Equip ${rawQualifier}\u2014${cost}`, targetDescription: describeQualifier(qualifier), onceEachTurn: onceEachTurnFollows(text, match.index + match[0].length), __pos: pos });
   }
   merged.sort((x, y) => Number(x.__pos ?? 0) - Number(y.__pos ?? 0));
-  return merged.map(({ __pos, ...rest }, index) => ({ ...rest, index }));
+  const parsed = merged.map(({ __pos, ...rest }, index) => ({ ...rest, index }));
+  return attachWorthyDefinitionToQualifiers(parsed, text);
 }

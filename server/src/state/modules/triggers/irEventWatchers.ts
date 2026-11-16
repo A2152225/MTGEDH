@@ -8,6 +8,7 @@
 import type { GameContext } from '../../context.js';
 import { queueGenericTriggeredAbility } from '../triggerEmissionFamilyUtils.js';
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
+import { irOwnsPrintedAction, queueParsedActionTriggers } from './queueParsedSpecialRuntimeIr.js';
 
 const ABILITY_WORD = /^\s*[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
 const REGEN_RIDER = /^when (?:it|that creature|the creature) regenerates this way,?\s*(.+?)\.?$/i;
@@ -90,12 +91,30 @@ const CONNIVE_SELF = /^whenever (?:~|this creature) connives,?\s*(.+)$/i;
 // Reflexive rider after the source's own connive (Psychic Pickpocket: "When this creature enters, it connives. When it connives this way, ...").
 const CONNIVE_THIS_WAY = /^when (?:it|~|this creature) connives this way,?\s*(.+)$/i;
 
+export function queueCreatureConnivesTriggers(ctx: GameContext, connivedId: string, sourceId = ''): any[] {
+  queueConniveTriggers(ctx, connivedId, sourceId);
+  const state = (ctx as any)?.state;
+  const stack = Array.isArray(state?.stack) ? state.stack : [];
+  return stack.filter((item: any) => String(item?.triggerType || '') === 'parsed_connives' || String(item?.triggerType || '') === 'connives');
+}
+
 function queueConniveTriggers(ctx: GameContext, connivedId: string, sourceId = ''): void {
   const connived = battlefieldOf(ctx).find((p: any) => String(p?.id || '') === connivedId);
   if (!connived) return;
   const conniverController = String(connived.controller || '');
+  queueParsedActionTriggers(ctx, {
+    event: 'performs',
+    action: 'connive',
+    subjectPermanent: connived,
+    subjectControllerId: conniverController,
+    triggerType: 'parsed_connives',
+    effectData: { connivedId, sourceId },
+  });
   for (const permanent of battlefieldOf(ctx)) {
     if (!permanent?.card || !canTrigger(ctx, permanent)) continue;
+    // "When it connives this way" is a parent-scheduled rider (delayedRider): the IR matcher never fires it, so the legacy CONNIVE_THIS_WAY entry below stays its owner.
+    const owned = irOwnsPrintedAction(String(permanent.card.oracle_text || ''), ['performs'], 'connive', String(permanent.card.name || '')).filter((line) => !line.condition?.thisWay);
+    if (owned.length > 0) continue;
     for (const sentence of sentencesOf(permanent.card)) {
       const any = CONNIVE_ANY.exec(sentence);
       const self = CONNIVE_SELF.exec(sentence)

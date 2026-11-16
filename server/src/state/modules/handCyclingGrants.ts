@@ -2,6 +2,7 @@
 // Tectonic Reformation: "Each land card in your hand has cycling {R}."
 // Battlefield grant of cycling to matching cards in hand.
 // Public entry symbols: oracleGrantsHandCycling, cardHasPrintedCycling, getGrantedCyclingCost.
+import { getGrantedSpellOrHandKeyword } from './batch95SpellAndHandKeywordGrants.js';
 
 const GRANT_RE =
   /\beach (land|nonland|artifact|creature|enchantment)? ?cards? in your hand has cycling ((?:\{[^}]+\})+)/i;
@@ -26,7 +27,7 @@ export function cardHasPrintedCycling(card: any): boolean {
   if (kws.some((k: string) => k === 'cycling' || /cycling$/.test(k))) return true;
   return String(card?.oracle_text || card?.oracleText || '')
     .split(/\n+/)
-    .some((line) => /^(?:[a-z ]+)?cycling\s*\{/i.test(line.trim()));
+    .some((line) => /^(?:[a-z ]+)?cycling\s*(?:\{|[\u2014\u2013-]\s*pay\b)/i.test(line.trim()));
 }
 
 function cardMatchesFilter(card: any, filter: HandCyclingGrant['cardFilter']): boolean {
@@ -47,5 +48,7 @@ export function getGrantedCyclingCost(state: any, playerId: string, card: any): 
     if (!grant || !cardMatchesFilter(card, grant.cardFilter)) continue;
     if (best === null) best = grant.cost;
   }
-  return best;
+  if (best) return best;
+  const generic = getGrantedSpellOrHandKeyword(state, playerId, card, 'cycling', { zone: 'hand' });
+  return generic?.cost || null;
 }

@@ -23,8 +23,10 @@ import { parseManaCost, normalizeParsedManaCost, canPayManaCostWithAvailableSour
 import { collectStaticEffectSources } from "./static-effect-sources";
 import { findFreeHandCastsThisTurnSource, grantsStaticFreeHandCasts } from "../../../../rules-engine/src/freeHandCastGrant.js";
 import { spellHasConvokeForCast } from "./casting-modifiers.js";
+import { getGrantedSpellOrHandKeyword } from "./batch95SpellAndHandKeywordGrants.js";
 import { permanentIsCommanderCard } from "./triggerPermanentUtils.js";
 import { applyCostAdjustmentToParsedCost, buildCostAdjustmentPlan } from "./cost-adjustments.js";
+import { getValgavothExileCastLifeCost } from "./valgavothExilePlay.js";
 
 function canPayAdjustedAlternateManaCost(
   ctx: GameContext,
@@ -481,8 +483,9 @@ export function hasImproviseAlternateCost(
   const { state } = ctx;
   const oracleText = (card.oracle_text || "").toLowerCase();
   
-  // Check for improvise keyword
-  if (!oracleText.includes("improvise")) {
+  // Check for improvise keyword or a battlefield grant (Inspiring Statuary).
+  const grantedImprovise = getGrantedSpellOrHandKeyword(state, playerId, card, 'improvise', { zone: 'cast' });
+  if (!oracleText.includes("improvise") && !grantedImprovise) {
     return false;
   }
   
@@ -1016,6 +1019,18 @@ export function getAllAlternateCostOptions(
     });
   }
   
+  const valgavothLife = getValgavothExileCastLifeCost(ctx?.state, playerId, card);
+  if (valgavothLife != null && (String(castFromZone || '').toLowerCase() === 'exile' || valgavothLife >= 0)) {
+    options.push({
+      type: 'alternate',
+      name: 'Valgavoth',
+      description: `Pay ${valgavothLife} life rather than this spell's mana cost`,
+      manaCost: undefined,
+      additionalEffects: [`Pay ${valgavothLife} life`],
+      sourceName: 'Valgavoth',
+    });
+  }
+
   return options;
 }
 

@@ -7,6 +7,7 @@
  */
 import { collectEffectiveGrantedAbilityTexts } from '../../../../shared/src/attachmentAbilityGrants.js';
 import { listGrantedActivatedAbilityLines } from '../../../../shared/src/grantedActivatedAbilityList.js';
+import { mergeCraftGrantedActivatedAbilityLines } from './batch106CraftGrantedActivated.js';
 import { collectBattlefieldAbilityBadgesForView } from './battlefieldAbilityBadges.js';
 import { getContinuousGrantedAbilitiesForPermanent } from './staticEffectSpec.js';
 
@@ -20,7 +21,7 @@ export function listGrantedActivatedAbilityLinesForPermanent(permanent: any, sta
   }
   const badges = collectBattlefieldAbilityBadgesForView(permanent, continuous, battlefield);
   const entries = collectEffectiveGrantedAbilityTexts({ ...permanent, grantedAbilities: badges }, battlefield);
-  return listGrantedActivatedAbilityLines(entries);
+  return mergeCraftGrantedActivatedAbilityLines(permanent, state, listGrantedActivatedAbilityLines(entries));
 }
 
 /** The granted line behind index n, or '' when the index is stale. */

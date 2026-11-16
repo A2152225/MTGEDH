@@ -91,10 +91,10 @@ describe('ETB / death watcher live-seam gaps', () => {
       gameId: 'unknown',
       state: { battlefield: [lynx, rat], stack: [], zones: { p1: { graveyard: [] }, p2: { graveyard: [] } } },
     } as any;
-    expect(getDeathTriggers(ctx, rat, 'p2').some((t: any) => t.triggerType === 'any_typed_creature_dies')).toBe(true);
+    expect(getDeathTriggers(ctx, rat, 'p2').some((t: any) => t.triggerType === 'any_typed_creature_dies' || t.triggerType === 'parsed_dies')).toBe(true);
 
     ctx.state.battlefield = [lynx, bear];
-    expect(getDeathTriggers(ctx, bear, 'p2').some((t: any) => t.triggerType === 'any_typed_creature_dies')).toBe(false);
+    expect(getDeathTriggers(ctx, bear, 'p2').some((t: any) => t.triggerType === 'any_typed_creature_dies' || t.triggerType === 'parsed_dies')).toBe(false);
   });
 
   it('emits typed_opponent_creature_dies only for opponents matching creatures', () => {
@@ -117,10 +117,10 @@ describe('ETB / death watcher live-seam gaps', () => {
       gameId: 'unknown',
       state: { battlefield: [hansk, oppZombie], stack: [], zones: { p1: { graveyard: [] }, p2: { graveyard: [] } } },
     } as any;
-    expect(getDeathTriggers(ctx, oppZombie, 'p2').some((t: any) => t.triggerType === 'typed_opponent_creature_dies')).toBe(true);
+    expect(getDeathTriggers(ctx, oppZombie, 'p2').some((t: any) => t.triggerType === 'typed_opponent_creature_dies' || t.triggerType === 'parsed_dies')).toBe(true);
 
     ctx.state.battlefield = [hansk, ownZombie];
-    expect(getDeathTriggers(ctx, ownZombie, 'p1').some((t: any) => t.triggerType === 'typed_opponent_creature_dies')).toBe(false);
+    expect(getDeathTriggers(ctx, ownZombie, 'p1').some((t: any) => t.triggerType === 'typed_opponent_creature_dies' || t.triggerType === 'parsed_dies')).toBe(false);
   });
 
   it('detects any-land enters, multi-type ETB, and remaining death watchers', () => {

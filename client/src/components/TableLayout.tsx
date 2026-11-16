@@ -28,6 +28,8 @@ import { battlefieldGridContentHeightForRows } from '../utils/battlefieldGrid';
 import { faceDownPublicLabel } from '../utils/faceDownUi';
 import { useMobilePlayLayout } from '../hooks/useMobilePlayLayout';
 import { useDesktopTableFrameHeight } from '../hooks/useDesktopTableFrameHeight';
+import { MulliganDecisionBar } from './MulliganDecisionBar';
+import { findSerumPowderCardsInHand } from '../utils/serumPowderCard';
 import {
   clamp,
   getTotalFloatingMana,
@@ -651,110 +653,20 @@ export function TableLayout(props: {
           position: 'relative'
         }}
       >
-      {/* Mulligan UI overlay at top of play area */}
-      {showMulliganUI && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 8,
-            left: 12,
-            right: 12,
-            zIndex: 200,
-            display: 'flex',
-            gap: 8,
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            padding: '6px 12px',
-            borderRadius: 8,
-            border: !hasKeptHand && !isPreGame ? '2px solid #ef4444' : '1px solid rgba(167, 139, 250, 0.6)',
-            background: !hasKeptHand && !isPreGame 
-              ? 'rgba(239, 68, 68, 0.15)' 
-              : 'rgba(30, 30, 50, 0.95)',
-            backdropFilter: 'blur(8px)',
-            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-            color: '#fff',
-            pointerEvents: 'auto',
-          }}
-        >
-          {hasKeptHand ? (
-            <span style={{ fontSize: 13, color: '#a78bfa', fontWeight: 500 }}>
-              ✓ Hand kept{mulligansTaken > 0 ? ` (${7 - mulligansTaken} cards)` : ''}
-            </span>
-          ) : pendingBottomCount > 0 ? (
-            <span style={{ fontSize: 13, color: '#fbbf24', fontWeight: 500 }}>
-              Select {pendingBottomCount} card{pendingBottomCount !== 1 ? 's' : ''} to put on bottom...
-            </span>
-          ) : (
-            <>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                {!isPreGame && (
-                  <span style={{ fontSize: 12, color: '#fca5a5', fontWeight: 600 }}>
-                    ⚠️ Keep your hand to continue!
-                  </span>
-                )}
-                <span style={{ fontSize: 12, color: '#c4b5fd' }}>
-                  Mulligans: {mulligansTaken}
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <button
-                onClick={onKeepHand}
-                disabled={!canKeepHand}
-                style={{
-                  background: canKeepHand ? '#10b981' : '#4b5563',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: 4,
-                  padding: '6px 14px',
-                  cursor: canKeepHand ? 'pointer' : 'not-allowed',
-                  opacity: canKeepHand ? 1 : 0.5,
-                  fontSize: 12,
-                  fontWeight: 500,
-                }}
-              >
-                Keep Hand
-              </button>
-              <button
-                onClick={onMulligan}
-                disabled={!canMulligan}
-                style={{
-                  background: canMulligan ? '#f59e0b' : '#4b5563',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: 4,
-                  padding: '6px 14px',
-                  cursor: canMulligan ? 'pointer' : 'not-allowed',
-                  opacity: canMulligan ? 1 : 0.5,
-                  fontSize: 12,
-                  fontWeight: 500,
-                }}
-              >
-                Mulligan
-              </button>
-              {isPreGame && onRandomizeStart && (
-                <button
-                  onClick={onRandomizeStart}
-                  style={{
-                    background: '#8b5cf6',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: 4,
-                    padding: '6px 14px',
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    fontWeight: 500,
-                  }}
-                  title="Randomly select which player goes first"
-                >
-                  🎲 Random Start
-                </button>
-              )}
-              </div>
-            </>
-          )}
-        </div>
-      )}
+      <MulliganDecisionBar
+        showMulliganUI={showMulliganUI}
+        hasKeptHand={hasKeptHand}
+        mulligansTaken={mulligansTaken}
+        pendingBottomCount={pendingBottomCount}
+        canKeepHand={canKeepHand}
+        canMulligan={canMulligan}
+        isPreGame={isPreGame}
+        onKeepHand={onKeepHand}
+        onMulligan={onMulligan}
+        onRandomizeStart={onRandomizeStart}
+        canUseSerumPowder={!!canMulligan && findSerumPowderCardsInHand((you && zones?.[you]?.hand) || []).length > 0}
+        onSerumPowder={() => { if (gameId) socket.emit('serumPowderHandRestart' as any, { gameId }); }}
+      />
 
       <div style={{ position: 'absolute', inset: 0, transform: cameraTransform, transformOrigin: '0 0', willChange: 'transform' }}>
 

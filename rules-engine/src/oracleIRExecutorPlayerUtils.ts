@@ -8,6 +8,7 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { cardHasCreatureType, normalizeCreatureTypeWord } from '../../shared/src/creatureTypes';
 import { clearPlayableFromExileForCards, stripPlayableFromExileTags } from './playableFromExile';
 import { stripPlayableFromGraveyardTags } from './playableFromGraveyard';
+import { resolvePlayerCounterGainFromHook } from './playerCounterGainHook';
 import type { GameState, PlayerID } from '../../shared/src';
 
 import {
@@ -880,7 +881,10 @@ export function adjustPlayerCounter(
 
   const nextCounters = { ...((player?.counters || {}) as Record<string, number>) };
   const currentValue = readNormalizedPlayerCounterValue(state, playerId, player, normalizedCounter);
-  const nextValue = Math.max(0, currentValue + delta);
+  const appliedDelta = delta > 0
+    ? resolvePlayerCounterGainFromHook(state, playerId, normalizedCounter, delta)
+    : delta;
+  const nextValue = Math.max(0, currentValue + appliedDelta);
 
   nextCounters[normalizedCounter] = nextValue;
   const nextPlayer: any = {

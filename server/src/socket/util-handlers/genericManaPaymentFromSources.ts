@@ -599,6 +599,8 @@ import {
 
     const paid = validateAndConsumeManaCostFromPool(pool, manaCost, {
       logPrefix: `[availableSourcePayment:${playerId}]`,
+      gameState,
+      playerId,
     });
     if (!paid.ok) {
       for (const permanentId of tappedPermanents) {

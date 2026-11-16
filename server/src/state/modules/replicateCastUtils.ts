@@ -13,6 +13,7 @@ import {
   expandManaCostWithMultikicker,
   getMaxAffordableMultikickerTimes,
 } from './multikickerCastUtils.js';
+import { getGrantedSpellOrHandKeyword } from './batch95SpellAndHandKeywordGrants.js';
 
 export function parseReplicateManaCost(oracleText: string): string | null {
   const match = String(oracleText || '').match(/\breplicate\s*((?:\{[^}]+\})+)/i);
@@ -39,7 +40,8 @@ export function getGrantedReplicateManaCost(state: any, playerId: PlayerID, card
     if (!m) continue;
     if (spellMatchesGrantedTypes(card, m[1])) return m[2];
   }
-  return null;
+  const generic = getGrantedSpellOrHandKeyword(state, playerId, card, 'replicate', { zone: 'cast' });
+  return generic?.cost || null;
 }
 
 /** Printed replicate cost, else a grant stamped at cast time (grantedReplicateCost). */

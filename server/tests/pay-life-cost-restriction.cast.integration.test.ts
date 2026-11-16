@@ -2,6 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createGameIfNotExists, deleteGame, initDb } from '../src/db/index.js';
 import { registerGameActions } from '../src/socket/game-actions.js';
+import { registerResolutionHandlers } from '../src/socket/resolution.js';
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { ResolutionQueueManager } from '../src/state/resolution/index.js';
@@ -125,12 +126,30 @@ describe('castSpellFromHand pay-life additional cost restriction', () => {
     const game = await setupCastGame(gameId, false);
     const emitted: Array<{ event: string; payload: any }> = [];
     const { socket, handlers } = createMockSocket('p1', gameId, emitted);
-    registerGameActions(createNoopIo() as any, socket as any);
+    const io = createNoopIo();
+    registerGameActions(io as any, socket as any);
+    registerResolutionHandlers(io as any, socket as any);
 
     await handlers.castSpellFromHand({ gameId, cardId: 'life_spell_1' });
 
     const error = emitted.find((entry) => entry.event === 'error');
     expect(error).toBeUndefined();
+
+    const payLifeStep = ResolutionQueueManager
+      .getQueue(gameId)
+      .steps
+      .find((step: any) => step.type === 'additional_cost_payment' && String((step as any).costType || '') === 'pay_life') as any;
+    expect(payLifeStep).toBeDefined();
+    expect((game.state as any).life?.p1).toBe(40);
+
+    await handlers.submitResolutionResponse({
+      gameId,
+      stepId: String(payLifeStep.id),
+      selections: ['pay'],
+    });
+
+    const afterErrors = emitted.filter((entry) => entry.event === 'error').map((entry) => entry.payload);
+    expect(afterErrors).toEqual([]);
     expect((game.state as any).life?.p1).toBe(38);
   });
 });

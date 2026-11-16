@@ -240,6 +240,14 @@ export function resolveOracleQuantity(
   if (qty.kind === 'reference_amount') {
     const normalized = normalizeOracleText(String(qty.raw || ''));
     const targetPlayerId = ctx.selectorContext?.targetPlayerId as PlayerID | undefined;
+    // "draw that many cards plus one" (Valakut Awakening) is the cards just moved, plus one.
+    if (normalized === 'that many cards plus one' || normalized === 'that many plus one') {
+      const runtimeRef = Number(runtime?.lastReferenceAmount);
+      const ctxRef = Number((ctx as any).lastReferenceAmount ?? ctx.referenceAmount);
+      const base = Number.isFinite(runtimeRef) ? runtimeRef : ctxRef;
+      if (!Number.isFinite(base)) return null;
+      return Math.max(0, Math.floor(base) + 1);
+    }
     // "N life for each 1 life they gained" (False Cure) / "... for each 1 damage dealt this way":
     // scale the triggering event's reference amount by N.
     const perOneReferenceMatch = normalized.match(

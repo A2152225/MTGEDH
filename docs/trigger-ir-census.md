@@ -1,52 +1,52 @@
 # Trigger IR census (TRIGGER_PRIMARY coverage)
 
-Generated 2026-11-09T11:39:45.113Z by `npm run census:triggers` (server/scripts/trigger-ir-census.ts).
+Generated 2026-11-12T21:22:37.504Z by `npm run census:triggers` (server/scripts/trigger-ir-census.ts).
 
 A clause counts as IR when `parseTriggerClause` returns a condition and an effect; otherwise
 it falls back to the legacy family detectors. Unique Commander-legal oracle cards; each face scanned.
 
 | Metric | Count |
 |---|---|
-| Commander-legal cards with trigger clauses | 12223 |
-| Trigger clauses | 14016 |
-| Parsed by trigger IR | 13485 (96.2%) |
-| Legacy fallback | 531 (3.8%) |
-| Reflexive/delayed riders excluded ("when you do", "next end step") | 343 |
+| Commander-legal cards with trigger clauses | 12533 |
+| Trigger clauses | 14359 |
+| Parsed by trigger IR | 14305 (99.6%) |
+| Legacy fallback | 54 (0.4%) |
+| Reflexive/delayed riders excluded ("when you do", "next end step") | 350 |
 
 ## Top 30 legacy-fallback wordings (by cards affected)
 
 | # | Trigger condition | Cards | Clauses | Examples |
 |---|---|---|---|---|
-| 1 | whenever you tap an untapped creature an opponent controls | 3 | 3 | Icewrought Sentry; Hylda of the Icy Crown; Solitary Sanctuary |
-| 2 | whenever a creature blocks this turn | 3 | 3 | Mage Hunters' Onslaught; Noxious Assault; Battle Cry |
-| 3 | whenever a source you control deals damage to you | 3 | 3 | Daredevil, Fearless Fighter; Auntie Blyte, Bad Influence; Stick, Fearless Mentor |
-| 4 | whenever a source an opponent controls deals damage to you | 3 | 3 | Farsight Mask; Retaliator Griffin; Michiko Konda, Truth Seeker |
-| 5 | whenever a creature dies this turn | 2 | 2 | Death Frenzy; Massacre Girl |
-| 6 | whenever you cast a permanent spell using mana produced by ~ | 2 | 2 | The Everflowing Well // The Myriad Pools; Brass's Tunnel-Grinder // Tecutlan, the Searing Rift |
-| 7 | whenever another artifact is put into your graveyard from the battlefield or an artifact card is put into your graveyard from anywhere other than the battlefield | 2 | 2 | Ultron the Annihilator; Ultron's Auxiliary |
-| 8 | whenever a creature you control deals combat damage to a player this turn | 2 | 2 | The Girl in the Fireplace; Surge to Victory |
-| 9 | whenever this creature or another creature you control is turned face up | 2 | 2 | Printlifter Ooze; Experiment Twelve |
-| 10 | whenever a creature deals damage to you | 2 | 2 | Aurification; No Mercy |
-| 11 | whenever you reveal an instant or sorcery card this way | 2 | 2 | God-Eternal Kefnet; Inquisitor Eisenhorn |
-| 12 | whenever you gain or lose life during your turn | 2 | 2 | Wax-Wane Witness; Moonstone Harbinger |
-| 13 | whenever two or more creatures you control attack a player | 2 | 2 | Landroval, Horizon Witness; Horn of the Mark |
-| 14 | whenever an opponent draws a card except the first one they draw in each of their draw steps | 2 | 2 | Leela, Sevateem Warrior; Xyris, the Writhing Storm |
-| 15 | when this artifact enters and when you sacrifice it | 2 | 2 | Carrot Cake; Heaped Harvest |
-| 16 | whenever a source an opponent controls deals damage to you or a permanent you control | 2 | 2 | Elesh Norn // The Argent Etchings; Flameblade Angel |
-| 17 | whenever you play a card | 2 | 2 | Null Profusion; Recycle |
-| 18 | whenever this creature attacks the player with the most life or tied for most life | 2 | 2 | Preacher of the Schism; Undercover Butler |
-| 19 | when enchanted creature attacks or blocks | 2 | 2 | Primal Cocoon; Cunning |
-| 20 | whenever equipped creature blocks or becomes blocked by a creature | 2 | 2 | Barrow-Blade; Dead-Iron Sledge |
-| 21 | whenever one or more pirates you control deal damage to your opponents | 2 | 2 | Malcolm, Keen-Eyed Navigator; Breeches, Brazen Plunderer |
-| 22 | whenever you roll a N or higher | 2 | 2 | Mr. House, President and CEO; Monoxa, Midway Manager |
-| 23 | whenever ~ or another nontoken creature you control leaves the battlefield | 2 | 2 | Rat King, Pale Piper; Splinter, the Mentor |
-| 24 | whenever an opponent attacks you with two or more creatures | 2 | 2 | Everett K. Ross, Hapless Attaché; Trouble in Pairs |
-| 25 | when this enchantment enters and whenever you cast your first spell with {x} in its mana cost each turn | 1 | 1 | Lattice Library |
-| 26 | whenever a creature you control of the chosen type enters or attacks | 1 | 1 | Kindred Discovery |
-| 27 | whenever a creature you control deals combat damage during your turn | 1 | 1 | Quilled Greatwurm |
-| 28 | whenever that creature is dealt damage this turn | 1 | 1 | Arcbond |
-| 29 | whenever a land enters during your turn | 1 | 1 | Foe-liage |
-| 30 | whenever your opponents are dealt combat damage | 1 | 1 | Mindblade Render |
+| 1 | when excess damage is dealt to the creature an opponent controls this way | 1 | 1 | Rhino's Rampage |
+| 2 | when you remove a counter this way | 1 | 1 | Immard, the Stormcleaver |
+| 3 | when you have N or less life | 1 | 1 | Opal Avenger |
+| 4 | whenever you choose to put one or more cards on the bottom of your library while scrying | 1 | 1 | The Temporal Anchor |
+| 5 | whenever a source you control deals noncombat damage to a creature equal to that creature's toughness | 1 | 1 | Taii Wakeen, Perfect Shot |
+| 6 | when there are N | 1 | 1 | The Millennium Calendar |
+| 7 | whenever ezio deals combat damage to a player | 1 | 1 | Ezio Auditore da Firenze |
+| 8 | whenever a creature you control with deathtouch deals damage to a planeswalker | 1 | 1 | Hooded Blightfang |
+| 9 | when the chosen player draws a card with the chosen name | 1 | 1 | Booby Trap |
+| 10 | whenever a land enters under an opponent's control | 1 | 1 | Tunnel Ignus |
+| 11 | when you control no permanents with phylactery counters on them | 1 | 1 | Phylactery Lich |
+| 12 | whenever a vehicle crewed by ~ this turn attacks | 1 | 1 | Balthier and Fran |
+| 13 | whenever a spell deals damage to this creature | 1 | 1 | Tephraderm |
+| 14 | whenever enchanted artifact becomes tapped or a player activates an ability of enchanted artifact without {t} in its activation cost | 1 | 1 | Artifact Possession |
+| 15 | whenever either of those creatures deals combat damage to a player this combat | 1 | 1 | Love on the Battlefield |
+| 16 | whenever you cast a spell using teamwork | 1 | 1 | Virtual Assistant |
+| 17 | when an exiled card enters under your control this way | 1 | 1 | Lagrella, the Magpie |
+| 18 | whenever a source an opponent controls deals damage to this creature | 1 | 1 | Archfiend of Spite |
+| 19 | whenever you cast a spell with mana value equal to the number of doom counters on this enchantment | 1 | 1 | Imminent Doom |
+| 20 | when the chosen color isn't the most common color among nontoken permanents the chosen player controls or is tied for most common | 1 | 1 | Call to Arms |
+| 21 | whenever one or more creatures you control with flying deal combat damage to a player this turn | 1 | 1 | The Raven's Warning |
+| 22 | whenever ~ deals combat damage to a player who doesn't have a contract counter | 1 | 1 | Miss Highwater |
+| 23 | whenever a player chooses one or more targets | 1 | 1 | Psychic Battle |
+| 24 | when this creature is put into your graveyard from the battlefield | 1 | 1 | Brood of Cockroaches |
+| 25 | whenever another creature you control enters and whenever you activate a power-up ability | 1 | 1 | Marvel Boy, Noh-Varr |
+| 26 | when there are four or more page counters on this artifact | 1 | 1 | Mazemind Tome |
+| 27 | whenever one or more creatures you control that entered this turn deal combat damage to a player | 1 | 1 | Goro-Goro and Satoru |
+| 28 | whenever an artifact an opponent controls becomes tapped or an opponent activates an artifact's ability without {t} in its activation cost | 1 | 1 | Powerleech |
+| 29 | when you put a creature card onto the battlefield this way | 1 | 1 | Hans Eriksson |
+| 30 | when the chosen creature leaves the battlefield | 1 | 1 | Zenos yae Galvus // Shinryu, Transcendent Rival |
 
 ## Before/after
 
@@ -572,3 +572,264 @@ after cards=12496 clauses=14317 ir=13344 (93.2%) legacy=973. Trek trigger lines 
 3. **Psychic Battle** ? "whenever a player chooses one or more targets": target-choice event subsystem (fires on declaring targets, with library-reveal contest); not spell_cast / becomes_target.
 4. **Firebender Ascension** ? "whenever a creature you control attacking causes a triggered ability of that creature to trigger": meta trigger-on-trigger / cause-of-trigger watcher tied to attack declaration.
 5. **City in a Bottle** ? "nontoken permanents with a name originally printed in the Arabian Nights expansion": set/printings metadata gate on the battlefield; needs oracle set-printing index, not type-line IR.
+
+## Legacy r1 (already landed in 672a9cfa)
+
+- Inventory before (R58 after): coveredLegacy **1250**. After r1: **1149** (later detector-hit inventory ended at **714** after r2).
+- Promoted equipped/first-time/attacks-a-player, combat-death, dealt-damage dies, multi-die, from-exile cast, draw-count, chosen-type, and bare combat-damage families off `legacyRuntimeOnly`.
+- Attack emission drops legacy duplicates when a printed IR line already queued the same effect.
+- Tests: `server/tests/trigger-ir-legacy-r1.test.ts`. UI: none.
+
+## Legacy r2 (already landed in 672a9cfa)
+
+- Delayed_rider promotions: reflexive "when you/they do", next/that/your end step, that combat, next EOC, that-creature dies/leaves this turn, next-cast / that-spell, plus ETB+upkeep, enters-from-graveyard, attacks-this-turn, enchanted-or-equipped attacks.
+- Delayed riders parse as IR but fail closed as permanent matchers (`delayedRider`); they are scheduled by the parent effect.
+- Tests: `server/tests/trigger-ir-legacy-r2.test.ts`. UI: none.
+
+## Round 60 / new Oracle cards (mbc, 2026-10-19)
+
+- Inventory before (post r2 + refreshed Oracle): **9 lines / 9 cards** (the original 5 bespoke plus 4 new commander-legal mbc cards). After: **5 lines / 5 cards** (-4 / -4). The 5 remaining are still the bespoke set: Millennium Calendar, Call to Arms, Psychic Battle, Firebender Ascension, City in a Bottle.
+- coveredIr **14604** / coveredLegacy **596** (was 14476 / 720). Official census: clauses **14359**, IR **13858** (96.5%), legacy fallback **501**.
+- tsc: **0** (baseline; the old 31 errors were already cleared in later commits).
+- New generics:
+  - spend-this-mana "this turn" (The Unluckiest Planeswalker; extends the existing Dragon/instant parse).
+  - "a spell or ability you control causes one or more cards to be exiled from an opponent's library" (`exiled`, `fromZone: library`, `zoneOwner: not_you`, `causedByYou`) - The Madcap Jester.
+  - "a source you control deals (exactly N) damage to you" and optional paired "causes you to lose exactly N life" (`exactDamage` / `exactLife`) - Sahir, Visitor in Darkness, also covering Auntie Blyte-style deals-damage-to-you.
+  - discard at random plus an optional random-action OR list (`atRandom`, `orEvents`) - Chira, All In.
+- Tests: `server/tests/trigger-ir-round60.test.ts` (parse + fires-once). UI: none.
+- Stayed off statics worker files and `triggerBecomesUnattached.ts`.
+
+## Legacy r3
+
+- Inventory before: coveredLegacy **720**. After: **596** (-124). coveredIr **14604** (was 14476).
+- Families migrated (inventory first-detector counts):
+  - on_cast_self **68 -> 0** (`cast_self` added to IR_EMITTED; existing on-cast emitter still fires once). Also parsed: from-hand / not-exile / while-you-control / and-attacks.
+  - delayed_rider remainder **23 -> 16** (next upkeep fallback; generic "this way" riders that reparse).
+  - etb **113 -> 100** (enters or deals combat damage; enters and sacrifice; enters this turn as delayed IR, not legacy self-ETB).
+  - death **67 -> 60** (dies this turn delayed).
+  - spellCast **75 -> 68** (promoted "play a land or cast a spell" off `legacyRuntimeOnly`; some related promotions).
+  - combatDamage **83 -> 79** (source deals damage to you via the Round 60 generic).
+  - attack **75 -> 75** (no net move this round; enters-or-combat-damage is ETB-primary).
+  - special_runtime also dropped (**61 -> 48**) as overlapping this-way / delayed lines moved to IR.
+- Tests: `server/tests/trigger-ir-legacy-r3.test.ts` (plus r1/r2 and spend-mana still pass). UI: none.
+- Stayed off statics worker files and `triggerBecomesUnattached.ts`.
+
+### Next legacy families (by lines, after r3)
+
+1. etb (~100) - still mostly dual-event / this-way / named-enters leftovers.
+2. combatDamage (~79) - specialized recipients and this-turn delayed damage.
+3. attack (~75) - life-compare, exactly-N attackers, owned-but-not-controlled, etc.
+4. spellCast (~68) - play-a-card, shrines (upkeep and color spell), this-way casts.
+5. death (~60) - dies-or-exiled, put-into-GY-from-anywhere-or-BF, controls-no-other state.
+6. special_runtime (~48), then abilityActivated (32), block (22), ltb (19), delayed_rider remainder (16), tap (17).
+
+## Legacy r4
+
+- Inventory before: coveredLegacy **596**. After: **469** (-127). coveredIr **14731** (was 14604).
+- Official census: clauses **14359**, IR **13968** (97.3%), legacy fallback **391** (was 13858 / 96.5% / 501). Generated 2026-11-12, 2:56 PM America/New_York.
+- tsc: **0** (server `-p server --noEmit`).
+- Uncovered triggers unchanged: **5 lines / 5 cards** (Millennium Calendar, Call to Arms, Psychic Battle, Firebender Ascension, City in a Bottle).
+- Families migrated (inventory first-detector counts):
+  - etb **100 -> 46** (named self-ETB via short-name normalize; generic "enters and whenever/when/at the beginning of"; "enters or <event>"; enters tapped/untapped, during combat, from a zone).
+  - combatDamage **79 -> 55** ("with a counter on it" rewrite; your commander deals combat damage; deals damage to you; deals combat damage during your turn; this-turn delayed damage riders).
+  - attack **75 -> 62** (one or more creatures attack one of your opponents; an opponent attacks you with N or more creatures; enters-or-attacks / attacks-or-becomes-the-target combiners).
+  - spellCast **68 -> 52** ("whenever you play a card"; shrine "upkeep and whenever you cast a COLOR spell"; Staff "cast a COLOR spell or a basic you control enters"; "when you cycle this card").
+  - death **60 -> 51** ("when that creature dies" as delayedRider; "dies or is put into exile").
+  - special_runtime also dropped slightly (**48 -> 45**); ltb **19 -> 15**, block **22 -> 20**.
+- New generics / infrastructure:
+  - Legendary short names: "X the Y" (Phage, Acererak, Samwise), "X of Y" / two-word-of (Kiora, Tivadar, Rosie Cotton, General Kudro).
+  - Dual-event combiner with `pairedCondition` so the second half can have a different subject (life-gain half of "enters and whenever you gain life", spell half of play-a-card / shrine / staff). `collectMatchingParsedEventLines` matches the paired condition when the current event is the paired event.
+  - `entersTapped` / `entersUntapped` checked on the entering subject (`TriggerMatchPermanent.tapped`).
+- Tests: `server/tests/trigger-ir-legacy-r4.test.ts` (parse + fires-once; r1-r3 still pass). UI: none.
+- Stayed off statics worker files, `client/`, and `triggerBecomesUnattached.ts`.
+
+### Next legacy families (by lines, after r4)
+
+1. attack (~62) - life-compare, attacks-alone, "you attack with...", opponent-attacks-planeswalker leftovers.
+2. combatDamage (~55) - specialized recipients, pirate-batch damage, "or an instant or sorcery spell deals damage".
+3. spellCast (~52) - mimics (both colors), modal/prepared/X-cost leftovers, this-turn delayed casts.
+4. death (~51) - put-into-GY-from-anywhere-or-BF, dies-or-exile-while, controls-no-other state.
+5. etb (~46) - turned-face-up, and/or-one-or-more, remaining this-way and qualified ETB.
+6. special_runtime (~45), then abilityActivated (32), block (20), delayed_rider (16), tap (16), ltb (15).
+
+## Legacy r5
+
+- Inventory before: coveredLegacy **469**. After: **411** (-58). coveredIr **14789** (was 14731).
+- Official census: clauses **14359**, IR **14024** (97.7%), legacy fallback **335** (was 13968 / 97.3% / 391). Generated 2026-11-12, 3:10 PM America/New_York.
+- tsc: **0** (server `-p server --noEmit`).
+- Uncovered triggers unchanged: **5 lines / 5 cards** (Millennium Calendar, Call to Arms, Psychic Battle, Firebender Ascension, City in a Bottle).
+- Families migrated (inventory first-detector counts):
+  - attack **62 -> 38** ("When/whenever you or a player attacks with N (or more) creatures"; "two or more creatures (you control) attack"; most life, monarch, more life than you; attacks a player alone).
+  - spellCast **52 -> 38** (mimic "that's both COLOR and COLOR" via `colorsAll`; Bolas planeswalker; "when you cast your commander"; this-turn delayed casts; play a land or cast a spell from anywhere other than your hand).
+  - combatDamage **55 -> 44** (instant or sorcery / a spell you control deals damage; a source deals damage to another player; one or more Pirates deal damage to a player).
+  - etb **46 -> 39** ("this or another ... is turned face up"; enters while the source has a counter (`interveningIf`); "put onto the battlefield this way" as delayedRider).
+  - death **51 -> 50** ("dies or is put into exile while its power is N or greater").
+  - special_runtime also dropped slightly (**45 -> 44**). abilityActivated stayed at 32; rolls/dilemmas were not promoted without an IR emitter.
+- New generics / infrastructure:
+  - `parseSelfAndPlayerEvents` "you attack with N" now accepts When or Whenever.
+  - `colorsAll` (AND) on the subject filter; `attackedPlayer` monarch / most_life / more_life_than_you; `attackedTargetType` battle / planeswalker; `attacksAlone`, `attacksPlayerAlone`, `exactAttackers`.
+  - Attack match context now supplies `playerLives`, `monarchPlayerId`, `attackersAtDefender`, and battle/planeswalker target flags.
+  - Printed `attacks` lines that parse as IR own the line even when this event does not match, so leftover "attacks," detectors cannot fire the qualifier as the effect.
+- Tests: `server/tests/trigger-ir-legacy-r5.test.ts` (parse + fires-once; r1-r4 still pass). UI: none.
+- Stayed off batch90 and the other statics files, mana/token replacement hooks, `client/`, and `triggerBecomesUnattached.ts`.
+
+### Next legacy families (by lines, after r5)
+
+1. death (~50) - put-into-GY-from-anywhere-or-BF, remaining dies-or-exile-while / controls-no-other state.
+2. special_runtime (~44) / combatDamage (~44) - dilemma, discard-this-card, explores/connives, specialized damage recipients.
+3. etb (~39) - remaining this-way, and/or-one-or-more, qualified ETB.
+4. attack (~38) / spellCast (~38) - remaining alone/battle leftovers, modal/prepared/X-cost casts.
+5. abilityActivated (32), then block (20), delayed_rider (16), tap (16), ltb (15).
+
+## Legacy r6
+
+- Inventory before: coveredLegacy **411**. After: **328** (-83). coveredIr **14872** (was 14789).
+- Official census: clauses **14359**, IR **14066** (98.0%), legacy fallback **293** (was 14024 / 97.7% / 335). Generated 2026-11-12, 3:25 PM America/New_York.
+- tsc: **0** (server `-p server --noEmit`).
+- Uncovered triggers unchanged: **5 lines / 5 cards** (Millennium Calendar, Call to Arms, Psychic Battle, Firebender Ascension, City in a Bottle).
+- Families migrated (inventory first-detector counts):
+  - death **50 -> 36** (GY-from-BF-or-elsewhere / Ultron; dies-or-exile-from-BF; dies-or-library; dies-or-command-zone; "you control no other X" with excludeSource).
+  - special_runtime **44 -> 17** (dilemmas, opponent-caused self-discard, explores including land/nonland, connives + this-way delayedRider).
+  - abilityActivated **32 -> 3** (roll a N / N or M / N or higher / highest natural; crew / saddle-or-crew; opponent activates a non-mana ability; "when you pay this cost" as delayedRider). Remaining leftovers are boast, clash, and shuffle-library.
+  - combatDamage **44 -> 39** (damage to a subtype; combat damage to a player or planeswalker; combat damage to a player or dies).
+  - etb **39 -> 36** ("and/or one or more other enter"; remaining chosen-type / this-way leftovers).
+  - attack **38 -> 35** ("you attack a player / an opponent / the player who has the initiative with one or more X"; attacks while you have the most life).
+  - spellCast **38 -> 36** (cast a creature spell of the chosen type / that shares a creature type with the source).
+- New generics / infrastructure:
+  - `parseRound63Events.ts` hooked from the end of Round 62 (still before r13/r14/r16/r37 LEGACY_ONLY stubs).
+  - Rolls, dilemmas, explores, connives, opponent-caused self-discard, crew/saddle, and opponent-activates emit through existing event hooks via `queueParsedActionTriggers` (`performs` / `discards`). Leftover regex paths drop a hit when IR already owns the printed line, so each line fires once.
+  - New match fields: `minRoll`, `rollValues`, `highestNatural`, `exploredIsLand`, `sourceMostLife`, `notManaAbility`, `duringMainPhase`, `damageRecipientSubtypes`, `damageRecipient: player_or_planeswalker`, `fromZone: not_battlefield`, `attackedPlayer: initiative`. Context adds `dieSides`, `rollIndexThisTurn`, `revealedIsLand`, `damagedTypeLine`, `inMainPhase`, `isManaAbility`, `initiativePlayerId`.
+- Tests: `server/tests/trigger-ir-legacy-r6.test.ts` (parse + fires-once; r1-r5 still pass). UI: none.
+- Stayed off the statics files (B91 census classifier / replacement hooks), `client/`, and `triggerBecomesUnattached.ts`. Left ai-selfplay alone.
+
+### Next legacy families (by lines, after r6)
+
+1. combatDamage (~39) - specialized recipients, monarch/this-turn delayed damage, "or an instant or sorcery spell deals damage" leftovers.
+2. etb (~36) / death (~36) / spellCast (~36) - remaining this-way and qualified ETB; named/power-death leftovers; modal/prepared/X-cost casts.
+3. attack (~35) - remaining alone/battle/mentor/saddled/enchanted leftovers.
+4. block (20) - blocks-or-becomes-blocked qualifiers.
+5. special_runtime (~17), then tap (16), delayed_rider (16), ltb (15), beginCombat (11), dealtDamage (9). abilityActivated remainder is 3.
+
+## Legacy r7
+
+- Inventory before: coveredLegacy **328**. After: **172** (-156). coveredIr **15028** (was 14872). Under-200 goal met.
+- Official census: clauses **14359**, IR **14192** (98.8%), legacy fallback **167** (was 14066 / 98.0% / 293). Generated 2026-11-12, 3:43 PM America/New_York.
+- tsc: **0** (server `-p server --noEmit`).
+- Uncovered triggers unchanged: **5 lines / 5 cards** (Millennium Calendar, Call to Arms, Psychic Battle, Firebender Ascension, City in a Bottle).
+- Families migrated (inventory first-detector counts):
+  - combatDamage **39 -> 22** (one or more deal damage; enchanted/renowned/keyword damage; qualified source-you-control damage; damage to you/this/enchanted planeswalker).
+  - etb **36 -> 24** (chosen-type ETB; power=toughness / N/N / base power / toughness>power; this or another enters; Aura enters attached; enters not from GY or exile; land during your turn).
+  - death **36 -> 24** (dies during your turn; one or more die; enchanted dies; GY from anywhere; this dies or another artifact GY).
+  - spellCast **36 -> 13** (even/odd mana value; first/third spell; min targets; spell you do not own; adventure; from exile/GY; using mana from source; X in cost; Aura that targets).
+  - attack **35 -> 14** (you attack initiative/enchanted/opponent/player; opponent-attacks variants; saddled; own but do not control; attacks a player and is not blocked; power=toughness / base P/T).
+  - block **20 -> 8** (equipped/enchanted blocks or becomes blocked; blocks lesser power).
+  - special_runtime **17 -> 5** (mana-tap land/forest/mountain parse-only; you tap an untapped opponent creature; becomes tapped during your turn).
+  - abilityActivated **3 -> 0** (boast via performs/boast; clash-and-win via win_clash; shuffle its controller via shuffles_library).
+  - also: tap **16 -> 10**, delayed_rider **16 -> 14**, cardDraw **8 -> 2**, beginCombat leftovers promoted (first main / opponent combat beginning). ltb stayed at 15.
+- New generics / infrastructure:
+  - `parseRound64Events.ts` hooked from the end of Round 63 (still before r13/r14/r16/r37 LEGACY_ONLY stubs).
+  - Boast activations collect `performs`/`boast` in `triggerAbilityActivatedTriggers`. Clash reuses `queueParsedKeywordAction(..., 'win_clash')`. Shuffle-its-controller reuses `queueLibraryShuffleTriggers`. Mana-tap is parse-only so leftover tap-detection still fires once.
+  - Spell-cast leftover is retired when IR owns the printed line, even when this event does not match (even mana value, first spell).
+  - New match fields include `manaValueParity`, `exactColorCount`, `powerEqualsToughness`, `requiresSubjectSaddled`, `minSpellTargets`, phase/death `whoseTurn`, extra `damageRecipient` values, and `fromZone: not_graveyard_or_exile`. Context adds `saddled`, `isEnchanted`, `baseToughness`, `spellManaValue`, and tap `causeControllerId`.
+- Tests: `server/tests/trigger-ir-legacy-r7.test.ts` (parse + fires-once; r1-r6 still pass). UI: none.
+- Stayed off the statics files (B92), `client/`, and `triggerBecomesUnattached.ts`. Left ai-selfplay alone.
+
+### Next legacy families (by lines, after r7)
+
+1. death (~24) / etb (~24) - remaining combiners (attacks-or-dies, multi-type ETB lists, transforms).
+2. combatDamage (~22) - chosen-name this-turn delayed, noncombat equal-to-toughness, "~ or an enchanted creature".
+3. ltb (~15) - leaves or becomes untapped; named-or-another leaves.
+4. delayed_rider (~14), attack (~14), spellCast (~13).
+5. tap (10), dealtDamage (9), block (8), special_runtime (5), landfall (3).
+
+## Legacy r8
+
+Generated 2026-11-12, 4:06 PM America/New_York. ASCII only.
+
+Goal: drive leftover families as close to 0 as cleanly possible (death/etb ~24, combatDamage ~22, ltb 15, delayed_rider 14, attack 14, spellCast 13, tap 10, dealtDamage 9, block 8, special_runtime 5, landfall 3), and add a generic granted-oracle trigger scan so quoted grants (Kosei, Endless Whispers, Aetherspark-style has "<trigger>") fire through IR exactly once and only while the grant applies.
+
+- Inventory before (r7 after): coveredLegacy **172**. After: **64** (-108). coveredIr **15136** (was 15028).
+- Official census: clauses **14359**, IR **14295** (99.6%), legacy fallback **64** (was 14192 / 98.8% / 167). Generated 2026-11-12, 3:58 PM America/New_York.
+- tsc: **0** (`tsc -p server --noEmit`).
+- Tests: `server/tests/trigger-ir-legacy-r8.test.ts` plus r1-r7, **62 passed**. No leftover vitest from this work. Left ai-selfplay alone. Stayed off B93/statics, UI draw/mulligan prompt files (including zonesDrawCards.ts), `client/`, and `triggerBecomesUnattached.ts`.
+- Uncovered triggers unchanged: **5 lines / 5 cards** (Millennium Calendar, Call to Arms, Psychic Battle, Firebender Ascension, City in a Bottle).
+
+### Families migrated (inventory first-detector counts, r7 after -> r8 after)
+
+- death **24 -> 4**, etb **24 -> 11**, combatDamage **22 -> 9**, ltb **15 -> 3**.
+- delayed_rider **14 -> 11**, attack **14 -> 7**, spellCast **13 -> 3**.
+- tap **10 -> 4**, dealtDamage **9 -> 3**, block **8 -> 3**, special_runtime **5 -> 2**, landfall **3 -> 0** as a first family (a few still tagged landfall as a secondary detector).
+- Also moved: cardDraw leftovers (except Booby Trap / Zurzoth parent), mill, transform (except Blightsower / Opal Avenger).
+
+Round 65 (`parseRound65Events.ts` + `parseRound65Helpers.ts`) is hooked from the end of Round 64 (still before r13/r14/r16/r37 LEGACY_ONLY stubs). Generic promotions include power-or-toughness-lte dies, dies-during-your-turn, GY-from-battlefield owner/other/legendary filters, OR-type dies/ETB/attacks/damage lists, dual enters-or-dies / attacks-or-dies / transforms-or-enters-transformed, artifact/creature/enchantment ETB, entered-this-turn attacks/damage, exact-two-color and related spell-cast filters, LTB combiners, and delayed this-turn / this-way riders (fail closed on the permanent; parent effects schedule them).
+
+### Granted-oracle trigger scan
+
+- New `server/src/state/modules/triggers/grantedOracleTriggerScan.ts`: `grantedTriggerTextsForPermanent`, `oracleTextWithGrantedTriggers`, `withRecipientOnBattlefieldForGrantScan`.
+- Unions statics-pipeline grants (`getContinuousGrantedAbilitiesForPermanent`, persisted, `grantedAbilities`) with a quoted-grant fallback extracted from battlefield oracles (`each creature has "..."`, `has/have "..."`, `as long as COND, NAME has "..."`, attached-has). Does not treat `with "..."` / `gains "..."` (token-create / one-shot) as continuous grants.
+- Conditions checked: enchanted, equipped, has a counter, attached to a creature, your turn. Fail closed on unknown as-long-as parts.
+- Hooked in `collectMatchingParsedEventLines` (before sentence split), leftover-detector oracle merge, death-text fragments, and a granted-only self-dies IR scan on the dying creature (printed self-dies stay with the live regex). Grants are appended only when they are not already a standalone newline sentence, so a self-grant is not dropped as a substring of the static line.
+- Dying recipients are scanned from a last-known battlefield copy so `each creature has` grants still apply as they die.
+- Tests: Kosei, Penitent Warlord fires combat-damage IR exactly once only while enchanted, equipped, and has a counter (0 if any condition is missing). Endless Whispers granted self-dies fires once while Endless Whispers is on the battlefield, and 0 after it leaves.
+
+Death leftover is skipped when the source already has an IR-owned dies / put_into_graveyard line (except delayedRider / thisWay / sourceInGraveyard), including the genericDies path, so a filtered IR miss does not get replaced by an unfiltered leftover fire.
+
+### What stays legacy, and why
+
+Aim was as close to 0 as cleanly possible. The remaining **64** are left on leftover (or unparsed) rather than forced into parse-only IR that would retire leftover without a wired emitter or matcher.
+
+State / count / life watchers (no IR state-trigger emitter): Phylactery Lich, Mazemind Tome, Opal Avenger.
+
+Meta "entering causes a triggered ability to trigger": Aboleth Spawn, Strict Proctor.
+
+`fights` has no IR emitter (`fights` is not in IR_EMITTED): Foe-Razer Regent.
+
+Parent-scheduled delayed / this-way / this-combat riders whose mid-clause is unique (excess damage, milled/exiled/attached/put-onto-battlefield/remove-a-counter this way, "either of those creatures this combat"): Rhino's Rampage, Saruman of Many Colors, Thorin, Mountain-king, Augusta, Order Returned, Hans Eriksson, Gilgamesh, Master-at-Arms, Immard, the Stormcleaver, Love on the Battlefield, Lagrella, the Magpie, Galea, Kindler of Hope. Desert Warfare is a sacrifice + GY-from-hand-or-library combiner with a next-end-step rider.
+
+GY-source watchers (IR emitters do not scan the graveyard; a parse would retire leftover and the line would never fire). Name-normalization also rewrites typal "Gate" in Gate Colossus to "this permanent": Gate Colossus.
+
+Combat damage / dealt-damage lines with no matching IR emitter or only a half-parse: Zagras and Hooded Blightfang (damage to a planeswalker), Tephraderm (a spell deals damage to this), Imodane (single-target instant or sorcery damage), Taii Wakeen (noncombat damage equal to toughness), Archfiend of Spite (opponent source to this), Elesh Norn / Flameblade Angel ("to you or a permanent you control" - the permanent half has no existing rewrite target), The Thing (Heroes deal damage), Miss Highwater (player without a contract counter), The Raven's Warning (flying combat damage this turn delayed rider).
+
+Highly unique attack / tap / block / spell / LTB one-offs: Tenuous Truce (you-or-they attack enchanted or a planeswalker), Balthier and Fran (Vehicle crewed by this this turn), Aegis of the Legion (mentors), Booby Trap (chosen player draws the chosen name), Imminent Doom (mana value equal to doom counters), Virtual Assistant (cast using teamwork), Faldorn (spell-from-exile or land-from-exile dual rewrite), Tunnel Ignus (second land under an opponent; matcher field not live on the landfall path), Fear of Sleep Paralysis (ETB and fully unlock a Room), Marvel Boy (ETB and activate a power-up), Share the Spoils (ETB and an opponent loses the game), Pick Up the Pace / Goro-Goro and Satoru (entered this turn - missing leading "a " in the attack pattern / leftover kept until the emitter passes enteredThisTurn), Attuma / Dollmaker's Shop (type attacks a player), Mazzy (enchanted creature attacks one of your opponents), Tui and La (plural become tapped after name-normalization), Darksteel Garrison (fortified land swallowed by the generic self-becomes-tapped rewrite), Powerleech / Artifact Possession (tap or activate without {T}), Extraction Integrant / Righteous Indignation / Zombie Boa (block this / block a color / chosen-color this turn), Lynde (a Curse is put into your graveyard), Zenos yae Galvus / Havengul Mystery (the chosen / put-with-this leaves), Ogre Geargrabber (lose control of that Equipment), Blightsower Thallid (transforms-into-name or dies), Extraplanar Lens (same name as the exiled card is tapped for mana), The Temporal Anchor (put cards on the bottom while scrying), Ezio (short name "Ezio" vs full card name).
+
+Printed parent sentences that also contain a granted "When this dies" quote (inventory still flags the parent as death leftover; token/one-shot `gains "..."` is intentionally not a continuous grant): Clavileno, First of the Blessed; Rivaz of the Claw; Zurzoth, Chaos Rider. Muddle, the Ever-Changing trips an extra attack leftover from the myriad reminder on a spell-cast line.
+
+### Next
+
+The leftover 64 need either a wired emitter/matcher (GY-source, planeswalker damage, state triggers, fights, unlock-a-room) or a rewrite target that already parses without retiring leftover. Do not force them into IR until those paths fire exactly once. Uncovered 5 stay uncovered (no generic family without a new event hook).
+
+## Legacy r9
+
+Generated 2026-11-12, 4:22 PM America/New_York. ASCII only.
+
+Final small round: complete r65 near-misses (identical reparse, missing leading "a " on entered-this-turn attacks, typal name-norm eating "Gate", GY-source ETB scan, dual-half rewrite failure), add fights to IR_EMITTED with an emitter, and promote damage half-parses where an emitter already exists. Only lines that fire exactly once were promoted.
+
+- Inventory before (r8 after): coveredLegacy **64**. After: **53** (-11). coveredIr **15147** (was 15136).
+- Official census: clauses **14359**, IR **14305** (99.6%), legacy fallback **54** (was 14295 / 99.6% / 64). Generated 2026-11-12, 4:22 PM America/New_York.
+- tsc: **0** (`tsc -p server --noEmit`).
+- Tests: `server/tests/trigger-ir-legacy-r9.test.ts` plus r1-r8, **69 passed**. No leftover vitest from this work. Left ai-selfplay alone. Stayed off B94/statics, UI replacement-order files (including the in-progress replacementBatch95CounterReplacements.ts), `client/`, and `triggerBecomesUnattached.ts`.
+- Uncovered triggers unchanged: **5 lines / 5 cards** (Millennium Calendar, Call to Arms, Psychic Battle, Firebender Ascension, City in a Bottle).
+
+### What was promoted
+
+- Identical reparse: r64 `blocksSelf` now rewrites to `whenever a creature blocks` + `blockPartnerIsSource` (matcher fail-closed). r65 `dmgToPw` rewrites to combat damage to a player + `player_or_planeswalker`. r65 `selfBecomesTapped` no longer swallows typal phrases (`fortified land`) by treating them as a card name; it accepts `this permanent become[s] tapped` after name-norm (Tui and La).
+- Entered-this-turn attacks: the r65 pattern now allows a leading `a ` (`whenever a creature you control that entered this turn attacks`). `permanentToTriggerMatch` copies `enteredThisTurn` from the permanent.
+- Typal name-norm: `selfNameNormalize` no longer treats typal type words (land types including Gate, plus artifact/enchantment/spell/card types) as short personal names. `Gate Colossus` no longer rewrites `a Gate you control` to `a this permanent you control`.
+- GY-source ETB: r65 `gateGy` rewrites to `a land you control enters`, stamps Gate `groups`/`subtypeGroups`, and sets `sourceInGraveyard`. `appendGraveyardSourceEtbParsedLines` scans graveyards on ETB and queues IR only when `sourceInGraveyard` matches. Landfall leftover is skipped when IR owns an enters/plays_land line so leftover cannot fire on the battlefield while the GY path is the real one.
+- Dual-half rewrite: r61 `fromZone` no longer returns null and swallows later dual parses when the subject is `you cast a spell from exile or a land you control`. r62/r64 exile-or-land now rewrite to already-parsed `cast a spell` / `a land you control enters` with `castFromZone`/`fromZone: exile`, and only return when combineDual succeeds (Faldorn). Elesh Norn / Flameblade Angel: the working `deals damage to you` half is stamped `damageRecipient: you_or_permanent_you_control` instead of a failing second-half reparse. Noncombat and combat-to-player emitters pass `causeControllerId` and `damagedPermanentControllerId`. Leftover dealt-damage is skipped when IR owns the line.
+- Fights: event `fights` added to the IR type and `IR_EMITTED`. r65 parses `whenever a creature you control fights`. `emitFightsTriggers` runs from `applyFightDamageBetweenCreatures` (every fight path) and queues once per fighting creature.
+
+### What stays legacy, and why
+
+coveredLegacy **53**. These were not force-promoted because there is no wired emitter/matcher that can fire them exactly once, or the wording is a unique one-off:
+
+- State / life / counter watchers: Phylactery Lich, Mazemind Tome, Opal Avenger.
+- Meta "entering / attacking causes a triggered ability to trigger": Aboleth Spawn, Strict Proctor, and Firebender Ascension (uncovered).
+- Unique delayed / this-way / this-combat parent riders: Rhino's Rampage, Saruman of Many Colors, Thorin, Augusta, Hans Eriksson, Gilgamesh, Immard, Love on the Battlefield, Lagrella, Galea; Desert Warfare.
+- Combat / dealt-damage with no matching watcher or only a unique filter: Zagras / Hooded Blightfang still wait on a planeswalker combat-damage *watcher* path (the dmgToPw parse now exists, but the existing combat emitter is source-side). Tephraderm (a spell deals damage to this), Imodane (single-target instant or sorcery), Taii Wakeen (noncombat equal to toughness), Archfiend of Spite (opponent source to this), The Thing (Heroes deal damage), Miss Highwater (no contract counter), The Raven's Warning (flying combat this turn), Ezio (short name vs full name), Goro-Goro and Satoru (entered this turn deal combat damage - attack path was promoted, the damage path was not fire-tested).
+- Unique attack / tap / block / spell / LTB one-offs: Tenuous Truce, Balthier and Fran, Aegis of the Legion, Booby Trap, Imminent Doom, Virtual Assistant, Tunnel Ignus, Fear of Sleep Paralysis, Marvel Boy, Share the Spoils, Attuma, Dollmaker's Shop, Mazzy, Darksteel Garrison, Powerleech, Artifact Possession, Righteous Indignation, Zombie Boa, Lynde, Zenos, Havengul Mystery, Ogre Geargrabber, Blightsower Thallid, Extraplanar Lens, The Temporal Anchor.
+- Printed parents that also contain a granted `When this dies` quote (`gains "..."` is not a continuous grant): Clavileno, Rivaz, Zurzoth. Muddle still trips an extra attack leftover from the myriad reminder.
+
+### Next
+
+The remaining 53 need emitters or matchers (state triggers, unique this-way riders, planeswalker-damage watchers, unlock-a-room, scry-bottom) before they can be promoted without retiring leftover. Uncovered 5 stay uncovered.

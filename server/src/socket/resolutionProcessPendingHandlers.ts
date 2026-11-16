@@ -11,6 +11,9 @@ import { broadcastGame, appendGameEvent } from "./util.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../state/resolution/index.js";
 import { processPendingOracleIrCompoundResumeOnContext } from "../state/modules/oracleIrServerZoneSync.js";
+import { processPendingTomorrowDraw } from "../state/modules/zones-handlers/zonesDrawReplacementTomorrowQueue.js";
+import { processPendingOutOfTheTombsDraw } from "../state/modules/zones-handlers/zonesDrawReplacementOutOfTheTombsQueue.js";
+import { processPendingArchmageAscensionDraw } from "../state/modules/zones-handlers/zonesDrawReplacementArchmageQueue.js";
 import { maybeResumeDeferredOracleIrStackSpellOnGame } from "../state/modules/oracleIrDeferredStackFinalize.js";
 import { upsertDurablePermission, buildDurablePlayableFromExilePermission } from "../state/modules/durable-permissions.js";
 import {
@@ -18,6 +21,8 @@ import {
   cloneExileStateForEvent,
   appendQueuedResolutionPromptEvent,
 } from "./resolutionCloneQueuedPromptUtils.js";
+import { adjustScryCount } from '../state/modules/replacementBatch91ScryReplacements.js';
+import { shouldReplaceScryWithDraw } from '../state/modules/replacementBatch93ScryReplacements.js';
 
 export function upsertOneShotCastFromExilePromptPermission(
   game: any,
@@ -205,9 +210,22 @@ export function processPendingScry(
     for (const playerId of Object.keys(pending)) {
       const rawEntry = pending[playerId];
       const entry = typeof rawEntry === 'number' ? { count: rawEntry } : rawEntry;
-      const scryCount = Number(entry?.count || 0);
+      const rawScryCount = Number(entry?.count || 0);
+      const scryCount = adjustScryCount(game.state, playerId, rawScryCount);
       if (!Number.isFinite(scryCount) || scryCount <= 0) continue;
       if (entry?.queued === true) continue;
+
+      if (shouldReplaceScryWithDraw(game.state, playerId)) {
+        const libForDraw = (game as any).libraries?.get(playerId) || (game.state as any)?.zones?.[playerId]?.library || [];
+        const n = Math.min(scryCount, Array.isArray(libForDraw) ? libForDraw.length : 0);
+        const drawn = Array.isArray(libForDraw) ? libForDraw.splice(0, n) : [];
+        (game.state as any).zones = (game.state as any).zones || {};
+        (game.state as any).zones[playerId] = (game.state as any).zones[playerId] || {};
+        const hand = (game.state as any).zones[playerId].hand = Array.isArray((game.state as any).zones[playerId].hand) ? (game.state as any).zones[playerId].hand : [];
+        hand.push(...drawn);
+        delete pending[playerId];
+        continue;
+      }
       
       // Get library
       const lib = (game as any).libraries?.get(playerId) || [];
@@ -465,6 +483,13 @@ export function processPendingPonder(io: Server, game: any, gameId: string): voi
     }
   } catch (e) {
     debugError(1, '[processPendingPonder] Error:', e);
+  }
+  try {
+    processPendingTomorrowDraw(io, game, gameId);
+    processPendingOutOfTheTombsDraw(io, game, gameId);
+    processPendingArchmageAscensionDraw(io, game, gameId);
+  } catch (err) {
+    debugWarn(1, '[processPendingPonder] tomorrow/tombs pending hook failed:', err);
   }
 }
 

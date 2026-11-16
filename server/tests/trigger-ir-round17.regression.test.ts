@@ -41,7 +41,7 @@ describe('round 17: player-level attack wordings are IR, batched once per declar
 });
 
 describe('round 17: cast or cycle self', () => {
-  it('matches the normalized self name (legacy spell-cast detector owns it)', () => {
-    expect(cond('When you cast or cycle Warped Tusker, create a 0/1 colorless Eldrazi Spawn creature token.', 'Warped Tusker')).toMatchObject({ legacyRuntimeOnly: true });
+  it('parses cast-or-cycle of the normalized self name as IR (cast_self paired with cycles)', () => {
+    expect(cond('When you cast or cycle Warped Tusker, create a 0/1 colorless Eldrazi Spawn creature token.', 'Warped Tusker')).toMatchObject({ event: 'cast_self', pairedEvent: 'cycles' });
   });
 });

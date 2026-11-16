@@ -20,6 +20,7 @@ import { broadcastGame, ensureGame, getPlayerName, payGenericManaWithAvailableSo
 import { queueParsedKeywordAction } from "../../state/modules/triggerEmissionFamilyUtils.js";
 import type { EnsureInGameRoom } from "./gameActionsSocketRoomGuard.js";
 import { getGrantedForetellCost } from "../../state/modules/foretellGrants.js";
+import { getForetellActionGenericCost, recordForetellActionThisTurn } from "../../state/modules/foretellFirstCostGrant.js";
 
 // ==========================================================================
 // FORETELL SUPPORT
@@ -86,11 +87,17 @@ export async function handleForetellCardRequest(
       return;
     }
 
-    const payment = payGenericManaWithAvailableSources(game.state, playerId, 2);
+    const foretellActionCost = getForetellActionGenericCost(game.state, playerId);
+    const payment = foretellActionCost === 0
+      ? { ok: true as const }
+      : payGenericManaWithAvailableSources(game.state, playerId, foretellActionCost);
     if (!payment.ok) {
-      socket.emit("error", { code: "CANNOT_PAY_FORETELL", message: payment.error || "Pay {2} to foretell." });
+      const payError = 'error' in payment ? String((payment as { error?: string }).error || '') : '';
+      socket.emit("error", { code: "CANNOT_PAY_FORETELL", message: payError || `Pay {${foretellActionCost}} to foretell.` });
       return;
     }
+
+    recordForetellActionThisTurn(game.state, playerId);
 
     // Parse the later-turn cast cost (not the {2} exile cost)
     const foretellCostMatch = oracleText.match(/\bforetell\b\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i);

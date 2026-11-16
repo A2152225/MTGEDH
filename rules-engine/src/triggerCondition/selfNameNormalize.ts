@@ -7,6 +7,23 @@
 
 import { isCreatureTypeWord } from '../../../shared/src/creatureTypes.js';
 
+/** Land, artifact, enchantment, spell, and card-type words that are typal in oracle text, not a short personal name. */
+const TYPAL_TYPE_WORDS = new Set([
+  'plains', 'island', 'swamp', 'mountain', 'forest', 'gate', 'desert', 'lair', 'locus', 'mine', 'tower', 'sphere', 'cave', 'cloud', 'town', 'planet', "urza's", 'power-plant',
+  'equipment', 'vehicle', 'contraption', 'fortification', 'clue', 'food', 'gold', 'treasure', 'blood', 'powerstone', 'incubator', 'map', 'lander',
+  'aura', 'cartouche', 'curse', 'saga', 'shrine', 'case', 'class', 'room', 'role', 'background', 'shard', 'cage',
+  'adventure', 'arcane', 'lesson', 'trap', 'chorus',
+  'artifact', 'creature', 'enchantment', 'land', 'instant', 'sorcery', 'planeswalker', 'battle', 'kindred', 'tribal',
+  'legendary', 'basic', 'snow', 'world', 'ongoing',
+].map((w) => w.toLowerCase()));
+
+function isTypalTypeWord(word: string): boolean {
+  const raw = String(word || '').trim();
+  if (!raw) return false;
+  if (isCreatureTypeWord(raw)) return true;
+  return TYPAL_TYPE_WORDS.has(raw.toLowerCase());
+}
+
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -23,10 +40,20 @@ function titledShortNames(short: string): string[] {
   const words = short.split(/\s+/);
   if (rank && words.length > 2) out.push(rank[1] + ' ' + words[words.length - 1]);
   const ofThe = /^([A-Z][A-Za-z'-]{2,}) of the /.exec(short);
-  if (ofThe && !isCreatureTypeWord(ofThe[1])) out.push(ofThe[1]);
+  if (ofThe && !isTypalTypeWord(ofThe[1])) out.push(ofThe[1]);
+  // "Phage the Untouchable", "Acererak the Archlich", "Samwise the Stouthearted"
+  const theName = /^(\p{Lu}[\p{L}'-]{2,}) the \p{Lu}/u.exec(short);
+  if (theName && !isTypalTypeWord(theName[1])) out.push(theName[1]);
+  // "Kiora of Fire and Ashes", "Tivadar of Thorn", "Rosie Cotton of South Lane"
+  const ofName = /^((?:\p{Lu}[\p{L}'.-]*\s+){0,1}\p{Lu}[\p{L}'.-]*) of(?: the)? /u.exec(short);
+  if (ofName) {
+    const head = ofName[1].trim();
+    const words = head.split(/\s+/);
+    if (head && head !== short && !isTypalTypeWord(words[words.length - 1])) out.push(head);
+  }
   // Two-word personal names ("Dáin Ironfoot" -> "Dáin", "Elesh Norn" -> "Elesh"); not a creature type.
   const twoWord = /^(\p{Lu}[\p{L}'-]{2,}) \p{Lu}[\p{L}'-]+$/u.exec(short);
-  if (twoWord && !isCreatureTypeWord(twoWord[1])) out.push(twoWord[1]);
+  if (twoWord && !isTypalTypeWord(twoWord[1])) out.push(twoWord[1]);
   return out;
 }
 

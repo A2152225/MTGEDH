@@ -15,6 +15,7 @@ import { appendEvent } from "../../db";
 import { buildPersistedCastPermissionFields, buildPersistedFreeCastIntentFields, buildPersistedWebSlingingCastIntentFields } from "../../state/modules/castIntent.js";
 import { inferTriggeredAbilityTargetMetadata } from "../../state/modules/inferTriggeredAbilityTargetMetadata.js";
 import { isOnCastReflexiveCostGateEffect, resolveOnCastSpellTriggerDescriptions } from "../../state/modules/onCastSpellTriggerUtils.js";
+import { parseRippleOnCastEffect } from "../../state/modules/rippleTrigger.js";
 import { queueExpendTriggers } from "../../state/modules/triggerEmissionFamilyUtils.js";
 import { uid } from "../../state/utils";
 import { debug, debugWarn } from "../../utils/debug.js";
@@ -380,7 +381,7 @@ export async function persistAndProcessCastSpellFromHand(
           : null;
         const onCastTriggeringStackItemSnapshot = cloneTriggeringStackItemSnapshot(onCastTriggeringStackItem);
 
-        const onCastTriggers = resolveOnCastSpellTriggerDescriptions(cardInHand);
+        const onCastTriggers = resolveOnCastSpellTriggerDescriptions(cardInHand, { state: game.state, playerId: String(playerId) });
         for (const onCastTrigger of onCastTriggers) {
           debug(2, `[castSpellFromHand] On-cast trigger matching: ${cardInHand.name} - ${onCastTrigger.description}`);
 
@@ -448,6 +449,13 @@ export async function persistAndProcessCastSpellFromHand(
               ? { paidKickerCosts: [...(cardInHand as any).paidKickerCosts] }
               : null),
           };
+
+          // Ripple N (printed or granted): resolved by applyStackRippleTrigger, not the generic effect text.
+          const rippleCount = parseRippleOnCastEffect(String(onCastTrigger.effect || ''));
+          if (rippleCount) {
+            triggerPayload.triggerType = 'ripple';
+            triggerPayload.effectData = { ...(triggerPayload.effectData || {}), rippleCount };
+          }
 
           // Overwrite the description for Emrakul Extra Turn to match regex anchor
           if (triggerLower.includes('extra turn after this one')) {

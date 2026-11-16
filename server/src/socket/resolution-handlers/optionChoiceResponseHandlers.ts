@@ -23,11 +23,23 @@ import {
 import { handleMayRevealHandWinIfOwnNamedChoice } from "./optionChoiceMayRevealHandWinHandlers.js";
 import { sanitizeStepForClient } from "./sanitizeStepForClient.js";
 import { tryHandleSkipDrawReplacementChoice } from "../resolutionOptionChoiceSkipDrawReplacementHandlers.js";
+import { tryHandlePursuitDrawReplacementChoice } from "../resolutionOptionChoicePursuitDrawReplacementHandlers.js";
+import { tryHandlePayLifeReplacementOrderChoice } from "../resolutionOptionChoicePayLifeReplacementOrderHandlers.js";
 import { tryHandleAmplifyRevealChoice, tryHandleOptionalDrawStepSkipChoice } from "../resolutionOptionChoiceBatch24Handlers.js";
 import { tryHandleOpponentLibraryDrawReplacementChoice } from "../resolutionOptionChoiceOpponentLibraryDrawReplacementHandlers.js";
 import { tryHandleExtraVoteOfferChoice } from "../resolutionOptionChoiceExtraVoteHandlers.js"; // B29
 import { tryHandleEquipAlternativeCostChoice } from "./optionChoiceEquipAlternativeCost.js"; // B39
+import { tryHandleDemonstrateChoice } from "./onCastDemonstrateChoiceHandler.js";
+import { tryHandleIchorPlanarDiceChoice } from "./ichorPlanarDiceOptionChoiceHandler.js";
+import { tryHandleLifeFloorReplacementOrderChoice } from "./lifeFloorReplacementOrderHandler.js";
 import { tryHandleRevealUntilKindDrawChoice } from "../resolutionOptionChoiceRevealUntilKindDrawHandlers.js"; // B42
+import { tryHandleBatch101OptionChoice } from '../resolutionOptionChoiceBatch101Handlers.js';
+import { tryHandleBatch102OptionChoice } from '../resolutionOptionChoiceBatch102Handlers.js';
+import { tryHandleDiceExchangeBasePTChoice } from '../../state/modules/diceExchangeBasePTPrompt.js';
+import { tryHandleDieRollNudgeChoice } from '../../state/modules/dieRollNudgePrompt.js';
+import { tryHandleOffspringCastChoice } from './offspringCastChoiceHandler.js';
+import { broadcastGame } from '../util.js';
+import { tryHandleBreathstealerPayOrDiscard } from "./breathstealerPayOrDiscardHandler.js";
 
 /** OPTION_CHOICE: dispatch the chosen prompt flag to the specialized handler. */
 /**
@@ -47,6 +59,16 @@ export async function handleOptionChoiceResponse(
   
   debug(2, `[Resolution] Option choice response from ${playerId}: ${selectedOption}`);
 
+  if (await tryHandleBreathstealerPayOrDiscard(io, game, gameId, step, response)) {
+    return;
+  }
+
+  if (await tryHandlePursuitDrawReplacementChoice(io, game, gameId, step, response)) {
+    return;
+  }
+  if (await tryHandlePayLifeReplacementOrderChoice(io, game, gameId, step, response)) {
+    return;
+  }
   if (await tryHandleSkipDrawReplacementChoice(io, game, gameId, step, response)) {
     return;
   }
@@ -75,6 +97,16 @@ export async function handleOptionChoiceResponse(
     return;
   }
 
+  if (await tryHandleDemonstrateChoice(io, game, gameId, step, response)) {
+    return;
+  }
+  if (await tryHandleIchorPlanarDiceChoice(io, game, gameId, step, response)) {
+    return;
+  }
+  if (await tryHandleLifeFloorReplacementOrderChoice(io, game, gameId, step, response)) {
+    return;
+  }
+
   const extractId = (sel: any): string | null => {
     if (typeof sel === 'string') return sel;
     if (Array.isArray(sel) && sel.length > 0) return typeof sel[0] === 'string' ? sel[0] : (sel[0] as any)?.id || null;
@@ -89,6 +121,28 @@ export async function handleOptionChoiceResponse(
   if (await getResolutionHandlerDeps().tryHandleOptionChoiceEarlySpecialsConfirmCastPayment(io, game, gameId, step, response)) {
     return;
   }
+
+  try {
+    if (await tryHandleBatch101OptionChoice(io, game, gameId, step, response)) return;
+  } catch {}
+  try {
+    if (await tryHandleBatch102OptionChoice(io, game, gameId, step, response)) return;
+  } catch {}
+
+  if (tryHandleDiceExchangeBasePTChoice(io, game, gameId, step, response)) {
+    try { broadcastGame(io, game, gameId); } catch {}
+    return;
+  }
+
+  if (tryHandleDieRollNudgeChoice(io, game, gameId, step, response)) {
+    try { broadcastGame(io, game, gameId); } catch {}
+    return;
+  }
+
+  if (await tryHandleOffspringCastChoice(io, game, gameId, step, response)) {
+    return;
+  }
+
 
   if (stepData?.mayRevealHandWinIfOwnNamedChoice === true) {
     await handleMayRevealHandWinIfOwnNamedChoice(io, game, gameId, step, response);

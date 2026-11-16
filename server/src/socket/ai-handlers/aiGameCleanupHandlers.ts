@@ -4,29 +4,39 @@
  * Cluster moved: cleanupGameAI, checkPendingModals, getPendingBlockerDeclaration.
  *
  * Public entry symbols: cleanupGameAI, checkPendingModals, getPendingBlockerDeclaration.
+ * cleanupGameAI also clears response-window + fast-pass maps for the gameId.
  */
 import { ResolutionQueueManager } from "../../state/resolution/ResolutionQueueManager.js";
 import { getPendingInteractions } from "../../state/modules/turn.js";
 import { debug } from "../../utils/debug.js";
 import {
+  aiActionDebugStage,
   aiActionsInProgress,
   aiEngine,
   aiPlayers,
   clearScheduledAIActionsForGame,
   getAIActionKey,
 } from "./aiScheduler.js";
+import { clearAIResponseWindowsForGame } from "./aiActionCandidateHandlers.js";
+import { clearAIFastPassDecisionsForGame } from "./aiFastPassPrecheck.js";
 import { isAiBlockedResolutionStep, purgeAiBlockedResolutionSteps } from "./aiResolutionStepLoopBreak.js";
 
 /**
- * Clean up AI players when game ends
+ * Clean up AI players when game ends.
+ * Also clears process-global per-gameId AI maps so a deleted game cannot leave
+ * scheduled timers / window memory that fire into a later harness run.
  */
 export function cleanupGameAI(gameId: string): void {
   clearScheduledAIActionsForGame(gameId);
+  clearAIResponseWindowsForGame(gameId);
+  clearAIFastPassDecisionsForGame(gameId);
   const gameAIs = aiPlayers.get(gameId);
   if (gameAIs) {
     for (const playerId of gameAIs.keys()) {
+      const key = getAIActionKey(gameId, playerId);
       aiEngine.unregisterAI(playerId);
-      aiActionsInProgress.delete(getAIActionKey(gameId, playerId));
+      aiActionsInProgress.delete(key);
+      aiActionDebugStage.delete(key);
     }
     aiPlayers.delete(gameId);
     debug(1, '[AI] Cleaned up AI players for game:', gameId);

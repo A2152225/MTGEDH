@@ -12,6 +12,7 @@ import { energyCostError, equipLifeCostError, equipSacrificeCandidates, parseEne
 import { parseAlternativeCostOptions } from "../../state/modules/alternativeCostOptions.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { parseEquipAbilitiesFromOracle, permanentMatchesEquipQualifier } from "../../../../shared/src/equipAbilities.js";
+import { parseEquipAbilitiesForPermanent, permanentIsEquipmentNow, playerMayActivateEquipAtInstantSpeed } from "../../state/modules/batch97GrantedEquipmentAbilities.js";
 import {
   creatureMeetsEquipmentAttachGates,
   creatureMeetsEquipmentAttachPower,
@@ -19,6 +20,7 @@ import {
   equipmentRequiresLegendaryHost,
 } from "../../state/modules/equipmentAttachPowerGate.js";
 import { cheaperEquipCost, getGrantedEquipmentEquipCost } from "../../state/modules/equipmentEquipCostGrants.js";
+import { equipAbilityIsOnceEachTurn, getEquipOnceEachTurnBlock } from "../../state/modules/equipOnceEachTurn.js";
 import { appendEvent } from "../../db";
 import { isCreatureNow } from "../../state/creatureTypeNow.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
@@ -59,21 +61,13 @@ export async function tryHandleActivateEquipFortifyReconfigure(
 
   // Handle equip abilities (equipment cards)
   // Check if this is an equip ability - abilityId contains "equip" or it's an equipment with equip cost
-  const isEquipment = typeLine.includes("equipment");
+  const isEquipment = typeLine.includes("equipment") || permanentIsEquipmentNow(permanent, game.state);
   const hasExplicitEquipAbilityId = /-equip-(\d+)$/i.test(abilityId) || abilityId === 'equip';
   const equipAbilityText = hasExplicitEquipAbilityId ? oracleText : scopedAbilityFullText;
   const isEquipAbility = hasExplicitEquipAbilityId || (isEquipment && /\bequip\b/i.test(equipAbilityText));
   if (isEquipAbility) {
-    // CR 702.6a: Equip is sorcery-speed even when oracle omits the reminder text.
-    if (!isBattlefieldSorcerySpeedWindow(game, String(pid))) {
-      socket.emit('error', {
-        code: 'SORCERY_SPEED_ONLY',
-        message: `${cardName}'s Equip ability can only be activated at sorcery speed (your main phase with an empty stack).`,
-      });
-      return true;
-    }
     // Parse all equip abilities (shared qualifier parser): legendary / tribal / compound / commander / token / …
-    const equipAbilities = parseEquipAbilitiesFromOracle(equipAbilityText);
+    const equipAbilities = parseEquipAbilitiesForPermanent(permanent, game.state);
     
     // Extract which equip ability was selected from abilityId
     // Format: "{cardId}-equip-{index}" e.g., "card123-equip-0" or "card123-equip-1"
@@ -84,6 +78,22 @@ export async function tryHandleActivateEquipFortifyReconfigure(
     }
     
     const selectedEquip = equipAbilities[selectedAbilityIndex] || equipAbilities[0] || null;
+    const equipOnceEachTurn = equipAbilityIsOnceEachTurn(permanent, selectedEquip);
+    if (equipOnceEachTurn) {
+      const blocked = getEquipOnceEachTurnBlock(game, gameId, permanent, String(permanentId), selectedAbilityIndex);
+      if (blocked) {
+        socket.emit('error', blocked);
+        return true;
+      }
+    }
+    // CR 702.6a: Equip is sorcery-speed even when oracle omits the reminder text.
+    if (!isBattlefieldSorcerySpeedWindow(game, String(pid)) && !playerMayActivateEquipAtInstantSpeed(game.state, String(pid))) {
+      socket.emit('error', {
+        code: 'SORCERY_SPEED_ONLY',
+        message: `${cardName}'s Equip ability can only be activated at sorcery speed (your main phase with an empty stack).`,
+      });
+      return true;
+    }
     let equipCost = selectedEquip?.cost || "{0}";
     {
       const grantedEquip = getGrantedEquipmentEquipCost(game.state, String(pid));
@@ -184,6 +194,8 @@ export async function tryHandleActivateEquipFortifyReconfigure(
         activatedAbilityText,
         abilityType: 'equip',
         equipCost,
+        equipOnceEachTurn,
+        equipAbilityIndex: selectedAbilityIndex,
         equipType,
         equipQualifierKind: equipQualifier.kind,
         targetsOpponentCreatures: false,
@@ -235,6 +247,8 @@ export async function tryHandleActivateEquipFortifyReconfigure(
           activatedAbilityText,
           abilityType: 'equip',
           equipCost,
+          equipOnceEachTurn,
+          equipAbilityIndex: selectedAbilityIndex,
           equipType,
           equipQualifierKind: equipQualifier.kind,
           targetsOpponentCreatures: false,

@@ -1,8 +1,8 @@
 import type { Server, Socket } from "socket.io";
 import { ensureGame, getPlayerName, broadcastGame } from "./util";
-import { queueFreshDieRollTriggers } from "../state/modules/triggers/playLandSaddleDieRollHooks.js";
-import { debug, debugWarn, debugError } from "../utils/debug.js";
+import { debug, debugError } from "../utils/debug.js";
 import { applyDieRollAdvantage, countDieRollAdvantage } from "../../../rules-engine/src/dieRollAdvantage.js";
+import { queueDieRollNudgePrompt, runDieRollFollowups } from "../state/modules/dieRollNudgePrompt.js";
 
 /**
  * Roll a die with the specified number of sides.
@@ -89,9 +89,20 @@ export function registerRandomnessHandlers(io: Server, socket: Socket) {
       }
       
       debug(2, `[randomness] ${playerName} rolled d${sides}: ${result}`);
+      let nudgeQueued = false;
       try {
-        if (queueFreshDieRollTriggers(game as any, String(playerId)).length > 0) broadcastGame(io, game as any, gameId);
+        nudgeQueued = queueDieRollNudgePrompt({
+          ctx: { ...game, gameId, state: game.state },
+          playerId: String(playerId),
+        });
       } catch { /* best-effort */ }
+      if (nudgeQueued) {
+        try { broadcastGame(io, game as any, gameId); } catch { /* best-effort */ }
+      } else {
+        try {
+          if (runDieRollFollowups(io, game, gameId, String(playerId))) broadcastGame(io, game as any, gameId);
+        } catch { /* best-effort */ }
+      }
 
       // Also send as a chat message for game log
       io.to(gameId).emit("chat", {

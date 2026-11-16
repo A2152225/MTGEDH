@@ -47,6 +47,9 @@ import type {
   PermanentBattlefieldEntryOptions,
   PermanentBattlefieldEntryOutcome,
 } from './stackResolveSharedTypes.js';
+import { applyNontokenEntersAsCopyOfEnchanted } from './batch93EtbCopy.js';
+import { applyEssenceEnterAsCopy } from './batch101EnterCopyAndTokens.js';
+import { maybeQueueLandEquilibriumSacrifice } from './batch101LandRecoverSurveil.js';
 
 export type { PermanentBattlefieldEntryOutcome } from './stackResolveSharedTypes.js';
 
@@ -207,19 +210,19 @@ export function resolvePermanentSpellBattlefieldEntry(
     }
   }
   
-  // Check for "enters with counters" patterns (Zack Fair, modular creatures, sagas, etc.)
-  const etbCounters = detectEntersWithCounters(effectiveCard);
-  for (const [counterType, count] of Object.entries(etbCounters)) {
-    initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
-    debug(2, `[resolveTopOfStack] ${effectiveCard.name} enters with ${count} ${counterType} counter(s)`);
-  }
-
   const spellXValue = Number((item as any)?.xValue ?? (item as any)?.card?.xValue ?? (effectiveCard as any)?.xValue);
   const wasCastKicked = (item as any)?.wasKicked === true
     || (item as any)?.card?.wasKicked === true
     || (effectiveCard as any)?.wasKicked === true
     || Number((item as any)?.timesKicked ?? (item as any)?.card?.timesKicked ?? (effectiveCard as any)?.timesKicked) > 0
     || Number((item as any)?.kickerPaidCount ?? (item as any)?.card?.kickerPaidCount ?? (effectiveCard as any)?.kickerPaidCount) > 0;
+
+  // Check for "enters with counters" patterns (Zack Fair, modular creatures, sagas, kicked ETB, etc.)
+  const etbCounters = detectEntersWithCounters(effectiveCard, wasCastKicked);
+  for (const [counterType, count] of Object.entries(etbCounters)) {
+    initialCounters[counterType] = (initialCounters[counterType] || 0) + count;
+    debug(2, `[resolveTopOfStack] ${effectiveCard.name} enters with ${count} ${counterType} counter(s)`);
+  }
   const irEntryCounters = deriveSelfEntryCountersFromOracleIR({
     oracleText: String((effectiveCard as any)?.oracle_text || fallbackOracleText || ''),
     cardName: String((effectiveCard as any)?.name || (item as any)?.cardName || ''),
@@ -311,6 +314,18 @@ export function resolvePermanentSpellBattlefieldEntry(
     // Preserve isCommander flag from stack item if it exists
     isCommander: (item as any).card?.isCommander || (effectiveCard as any).isCommander || false,
   };
+
+  try {
+    applyNontokenEntersAsCopyOfEnchanted(state, newPermanent);
+  } catch {}
+  try {
+    applyEssenceEnterAsCopy(state, newPermanent);
+  } catch {}
+  try {
+    if (/\bland\b/i.test(String(newPermanent?.card?.type_line || newPermanent?.type_line || ''))) {
+      maybeQueueLandEquilibriumSacrifice(ctx, String(newPermanent.controller || ''), String(newPermanent.id || ''));
+    }
+  } catch {}
 
   if (copiedPermanentSpellBecomesToken && newPermanent.card) {
     // A copy of a permanent spell becomes a token with its own object identity.

@@ -128,8 +128,11 @@ export function collectRecipientVariantCombatDamageTriggers(
         subjectPermanent: attacker,
         subjectControllerId: String(attacker.controller || ""),
         sourcePermanent: source,
+        // Rounds 63-65 parse "a player or planeswalker" as damageRecipient; the matcher needs the walker type.
+        matchContext: { damagedTypeLine: "Planeswalker", damagedPermanentControllerId: pw.controllerId },
       })) {
-        if (!line.condition?.orPlaneswalkerRecipient || line.condition?.quantity === "one_or_more") continue;
+        const orWalker = line.condition?.orPlaneswalkerRecipient || line.condition?.damageRecipient === "player_or_planeswalker";
+        if (!orWalker || line.condition?.quantity === "one_or_more") continue;
         pushLine(source, line, "deals_combat_damage", {
           targetPlayer: pw.controllerId,
           damagedPlayerId: pw.controllerId,

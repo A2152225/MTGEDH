@@ -9,6 +9,10 @@ import { selfCastProhibitionReason } from './playerActionProhibitions.js'; // B3
 import { firstTurnsCastViolation } from './firstTurnsCastRestriction.js';
 import { castOnlyIfCastAnotherViolation } from './castOnlyIfCastAnotherRestriction.js';
 import { castRestrictionTailViolation } from './castRestrictionTailFamilies.js'; // B47
+import { findBatch93CastRestrictionViolation } from './batch93CastRestrictions.js';
+import { namedPermanentCastIsLocked } from './batch102Apply.js';
+import { batch104CastRestrictionReason } from './batch104Apply.js';
+import { batch105CannotCastInstantDuringCombat, batch105CannotCastOrPlayForWardOfBones } from './batch105Apply.js';
 
 const NUMBER_WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
@@ -63,6 +67,12 @@ export function findOracleCastingLimitViolation(
   const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const pid = String(playerId || '');
   if (!pid) return { prohibited: false };
+  if (namedPermanentCastIsLocked(state, spell)) {
+    const nm = String(spell?.name || spell?.card?.name || 'this spell');
+    return { prohibited: true, reason: 'Cast this spell only if no permanents named ' + nm + ' are on the battlefield.' };
+  }
+  const b93 = findBatch93CastRestrictionViolation(state, pid, spell);
+  if (b93.prohibited) return b93;
   const firstTurns = firstTurnsCastViolation(state, pid, spell);
   if (firstTurns) return { prohibited: true, reason: firstTurns };
   const castAnother = castOnlyIfCastAnotherViolation(state, pid, spell);
@@ -71,6 +81,12 @@ export function findOracleCastingLimitViolation(
   if (b34SelfCast) return { prohibited: true, reason: b34SelfCast };
   const b47Tail = castRestrictionTailViolation(state, pid, spell, castingZone);
   if (b47Tail) return { prohibited: true, reason: b47Tail };
+  const b104Cast = batch104CastRestrictionReason(state, pid, spell);
+  if (b104Cast) return { prohibited: true, reason: b104Cast };
+  const b105Instant = batch105CannotCastInstantDuringCombat(state, spell);
+  if (b105Instant) return { prohibited: true, reason: b105Instant };
+  const b105Ward = batch105CannotCastOrPlayForWardOfBones(state, pid, spell, 'cast');
+  if (b105Ward) return { prohibited: true, reason: b105Ward };
   const spellTypeLine = spell?.type_line ?? spell?.card?.type_line ?? spell?.typeLine;
   const spellIsCreature = isCreatureTypeLine(spellTypeLine);
   const turnPlayer = String(state?.turnPlayer ?? state?.activePlayer ?? '');

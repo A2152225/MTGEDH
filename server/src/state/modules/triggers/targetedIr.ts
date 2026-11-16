@@ -67,6 +67,8 @@ export function mergeParsedBecomesTargetTriggers<T extends TargetedItemLike>(
   targetIds: readonly string[],
   legacy: readonly T[],
   build: (source: any, effect: string, subjectId: string) => T | undefined,
+  /** Every target of the stack object, claimed or not ("an ability that targets only it" counts them all). */
+  allTargetIds: readonly string[] = targetIds,
 ): T[] {
   const state = ctx?.state;
   const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
@@ -95,7 +97,7 @@ export function mergeParsedBecomesTargetTriggers<T extends TargetedItemLike>(
         subjectPermanent: subject,
         subjectControllerId: String(subject.controller || ''),
         sourcePermanent: source,
-        matchContext: { targetingControllerId: actor, targetingKind: kind, ...(playerTarget && !byId(targetId) ? { subjectIsPlayer: true } : {}) },
+        matchContext: { targetingControllerId: actor, targetingKind: kind, targetPermanentIds: [...allTargetIds], ...(playerTarget && !byId(targetId) ? { subjectIsPlayer: true } : {}) },
       });
       for (const line of lines) {
         const sourceId = String(source.id || '');
@@ -107,7 +109,11 @@ export function mergeParsedBecomesTargetTriggers<T extends TargetedItemLike>(
         ));
         if (duplicate) continue;
         if ((line.condition as any)?.onceEachTurn && !claimOnceEachTurn(state, `${sourceId}|${subjectId}|${line.effect}`)) continue;
-        const item = build(source, line.effect, subjectId);
+        // The IR line carries its "if you do" rider separately; the stacked trigger needs both clauses (Agrus Kos's copy).
+        const riderEffect = String((line as any).reflexive?.effect || '').trim();
+        const stackedEffect = (riderEffect ? `${line.effect.replace(/[.\s]+$/, '')}. If you do, ${riderEffect}` : line.effect)
+          .replace(/\{[^}]+\}/g, (symbol) => symbol.toUpperCase());
+        const item = build(source, stackedEffect, subjectId);
         if (item) out.push(item);
       }
     }

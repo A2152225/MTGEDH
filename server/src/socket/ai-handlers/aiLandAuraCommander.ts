@@ -12,6 +12,7 @@
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { getCastableCommanderCandidates, getPlayableLandCandidates } from "../../state/modules/can-respond.js";
 import { getAvailableMana } from "../../state/modules/mana-check.js";
+import { withReadOnlyQueryScope } from "../../../../rules-engine/src/readOnlyQueryScope.js";
 import { getEffectiveAdditionalCost } from "../game-actions.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { cardGrantsNoMaximumHandSize } from "../../state/modules/handSizeUtils.js";
@@ -20,6 +21,7 @@ import type { AICastableCommanderCandidate, AIPlayableLandCandidate } from "./ai
 import { canAIPayAdditionalCost } from "./aiManaCostHelpers.js";
 import { canAIAssembleSpellPaymentPlan } from "./aiSpellPaymentPlanHelpers.js";
 import { classifyAuraPolarity } from "./aiAuraPolarity.js";
+import { getAvailableManaCached, getOrComputeSeqSeatModeCached } from "./aiDecisionCache.js";
 
 function getAIActionContext(game: any): any {
   return getAIHandlerDeps().getAIActionContext(game);
@@ -285,7 +287,22 @@ export function findCastableCommander(
   playerId: PlayerID,
   options?: { responseOnly?: boolean },
 ): AICastableCommanderCandidate | null {
-  const manaPool = getAvailableMana(game.state, playerId);
+  const mode = options?.responseOnly === true ? 'response' : 'main';
+  return getOrComputeSeqSeatModeCached(
+    game,
+    '_aiCastableCommanderCache',
+    String(playerId),
+    mode,
+    () => withReadOnlyQueryScope(() => findCastableCommanderUncached(game, playerId, options)),
+  );
+}
+
+function findCastableCommanderUncached(
+  game: any,
+  playerId: PlayerID,
+  options?: { responseOnly?: boolean },
+): AICastableCommanderCandidate | null {
+  const manaPool = getAvailableManaCached(game, playerId, () => getAvailableMana(game.state, playerId));
   const responseOnly = options?.responseOnly === true;
   const candidate = getCastableCommanderCandidates(getAIActionContext(game), playerId)
     .filter((entry) => !responseOnly || entry.grantsFlash === true)

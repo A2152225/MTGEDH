@@ -133,6 +133,10 @@ function subjectFilterMatches(
     const colors = (subject.colors || []).map((color) => String(color || '').toLowerCase());
     if (!filter.colors.some((color) => colors.includes(color))) return false;
   }
+  if (filter.colorsAll && filter.colorsAll.length > 0) {
+    const colors = (subject.colors || []).map((color) => String(color || '').toLowerCase());
+    if (!filter.colorsAll.every((color) => colors.includes(String(color).toLowerCase()))) return false;
+  }
   if (filter.kicked && !subject.kicked) return false;
   if (filter.colorCount) {
     if (!Array.isArray(subject.colors)) return false;
@@ -159,7 +163,7 @@ function subjectFilterMatches(
 
   const pairCount = Math.max(filter.typeGroups.length, filter.subtypeGroups.length);
   if (pairCount === 0) return filter.anyObject || Boolean(
-    filter.commander || filter.historic || (filter.colors && filter.colors.length > 0) || Boolean(filter.colorCount) || Boolean(filter.kicked),
+    filter.commander || filter.historic || (filter.colors && filter.colors.length > 0) || (filter.colorsAll && filter.colorsAll.length > 0) || Boolean(filter.colorCount) || Boolean(filter.kicked),
   );
   return Array.from({ length: pairCount }, (_, index) => index).some((index) => {
     const types = filter.typeGroups[index] || [];
@@ -223,6 +227,8 @@ function qualifiersMatch(
       if (!zone || zone === 'hand') return false;
     } else if (condition.castFromZone === 'hand') {
       if (zone && zone !== 'hand') return false;
+    } else if (condition.castFromZone === 'not_exile') {
+      if (!zone || zone === 'exile') return false;
     } else if (zone !== condition.castFromZone) {
       return false;
     }
@@ -335,6 +341,30 @@ function qualifiersMatch(
     if (condition.damageRecipient === 'creature' && !context?.damageRecipientIsCreature) return false;
     if (condition.damageRecipient === 'player' && !recipientPlayer) return false;
     if (condition.damageRecipient === 'opponent' && (!recipientPlayer || recipientPlayer === String(source.controllerId || '').trim())) return false;
+    if (condition.damageRecipient === 'player_or_planeswalker') {
+      const pw = /\bplaneswalker\b/i.test(String(context?.damagedTypeLine || ''));
+      if (!recipientPlayer && !pw) return false;
+    }
+    if (condition.damageRecipient === 'you' && recipientPlayer !== String(source.controllerId || '').trim()) return false;
+    if (condition.damageRecipient === 'source' && !context?.damageRecipientIsSource) return false;
+    if (condition.damageRecipient === 'enchanted_planeswalker') {
+      if (!/\bplaneswalker\b/i.test(String(context?.damagedTypeLine || '')) || !context?.damageRecipientIsEnchanted) return false;
+    }
+    if (condition.damageRecipient === 'creature_or_opponent') {
+      const opp = recipientPlayer && recipientPlayer !== String(source.controllerId || '').trim();
+      if (!context?.damageRecipientIsCreature && !opp) return false;
+    }
+    if (condition.damageRecipient === 'blocking_creature' && context?.damageRecipientIsBlocking !== true) return false;
+    if (condition.damageRecipient === 'you_or_permanent_you_control' || condition.damageRecipient === 'permanent_you_control') {
+      const you = String(source.controllerId || '').trim();
+      const recipientPlayer = String(context?.damageRecipientPlayerId || '').trim();
+      const permCtrl = String((context as any)?.damagedPermanentControllerId || '').trim();
+      const toYou = Boolean(recipientPlayer && you && recipientPlayer === you);
+      const toYourPerm = Boolean(permCtrl && you && permCtrl === you);
+      if (condition.damageRecipient === 'permanent_you_control') {
+        if (!toYourPerm) return false;
+      } else if (!toYou && !toYourPerm) return false;
+    }
   }
   if (condition.attackedPlayer === 'you') {
     const attacked = String(context?.attackedPlayerId || '').trim();
@@ -355,6 +385,11 @@ function qualifiersMatch(
   if (condition.minBlockers != null) {
     const n = Number(context?.blockerCount);
     if (!Number.isFinite(n) || n < condition.minBlockers) return false;
+  }
+  if (condition.blockPartnerIsSource) {
+    const partnerId = String((context as any)?.blockPartner?.id || '').trim();
+    const sourceId = String(source.id || '').trim();
+    if (!partnerId || !sourceId || partnerId !== sourceId) return false;
   }
   if (condition.blockPartnerDealtDamageThisTurn && !context?.blockPartnerDealtDamageThisTurn) return false;
   if (condition.foughtThisWay && !context?.foughtThisWay) return false;
@@ -400,6 +435,10 @@ function qualifiersMatch(
       if (fromZone !== 'battlefield' && fromZone !== 'graveyard') return false;
     } else if (condition.fromZone === 'library_or_graveyard') {
       if (fromZone !== 'library' && fromZone !== 'graveyard') return false;
+    } else if (condition.fromZone === 'not_battlefield') {
+      if (!fromZone || fromZone === 'battlefield') return false;
+    } else if (condition.fromZone === 'not_graveyard_or_exile') {
+      if (fromZone === 'graveyard' || fromZone === 'exile') return false;
     } else if (condition.fromZone === 'hand_or_battlefield') {
       if (fromZone !== 'hand' && fromZone !== 'battlefield') return false;
       const sourceController = String(source.controllerId || '').trim();
@@ -419,7 +458,7 @@ function qualifiersMatch(
   if (condition.damageKind === 'noncombat' && String(context?.damageKind || '').trim().toLowerCase() === 'combat') return false;
   if (condition.requiresExcess && !context?.excessDamage) return false;
   if (condition.resolveOrdinal != null) {
-    const n = Number(context?.abilityResolveCount);
+    const n = Number(context?.abilityResolveCount ?? context?.rollIndexThisTurn);
     if (!Number.isFinite(n) || n !== condition.resolveOrdinal) return false;
   }
   if (condition.manaValueLessThanResult) {
@@ -434,7 +473,13 @@ function qualifiersMatch(
     const p = Number(context?.totalAttackerPower);
     if (!Number.isFinite(p) || p < condition.minTotalPower) return false;
   }
-  if (condition.minDamageAmount != null) {
+  if (condition.minDamageAmount != null && context?.damageAmount != null && String(context.damageAmount) !== '') {
+    const d = Number(context.damageAmount);
+    if (!Number.isFinite(d)) return false;
+    if (condition.exactDamage) {
+      if (d !== condition.minDamageAmount) return false;
+    } else if (d < condition.minDamageAmount) return false;
+  } else if (condition.minDamageAmount != null && !condition.exactDamage) {
     const d = Number(context?.damageAmount);
     if (!Number.isFinite(d) || d < condition.minDamageAmount) return false;
   }
@@ -531,9 +576,19 @@ function qualifiersMatch(
     const cc = Number(context?.chargeCountersOnSource);
     if (!Number.isFinite(cc) || cc < condition.chargeCounterMinimum) return false;
   }
-  if (condition.exactLife && condition.lifeAmount != null) {
-    const amt = (context as any)?.lifeAmount;
+  if (condition.exactLife && condition.lifeAmount != null && (context as any)?.lifeAmount != null) {
+    const amt = (context as any).lifeAmount;
     if (amt !== condition.lifeAmount) return false;
+  }
+  if (condition.atRandom && context?.atRandom !== true) return false;
+  if (condition.causedByYou) {
+    const cause = String((context as any)?.causeControllerId || (context as any)?.exileControllerId || '').trim();
+    if (cause && cause !== String(source.controllerId || '').trim()) return false;
+  }
+  if (condition.causedByOpponent) {
+    const cause = String((context as any)?.causeControllerId || '').trim();
+    const src = String(source.controllerId || '').trim();
+    if (!cause || !src || cause === src) return false;
   }
   if (condition.notDying) {
     const toZone = String(context?.toZone || '').trim().toLowerCase();
@@ -585,6 +640,8 @@ export function triggerConditionMatches(
     const cost = String((subject as any)?.manaCost || (subject as any)?.mana_cost || '').toLowerCase();
     if (!fromCtx && !/\{x\}/i.test(cost)) return false;
   }
+  if (condition.entersTapped && subject.tapped !== true) return false;
+  if (condition.entersUntapped && subject.tapped !== false) return false;
   if (condition.hasAdventure && !subject.hasAdventure) return false;
   if (condition.playerSubject) {
     if (!context?.subjectIsPlayer) return false;

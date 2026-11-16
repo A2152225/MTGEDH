@@ -16,6 +16,8 @@ export interface MobilePregameActionBannerProps {
   mulligansTaken?: number;
   onKeepHand?: () => void;
   onMulligan?: () => void;
+  canUseSerumPowder?: boolean;
+  onSerumPowder?: () => void;
   onUnkeepHand?: () => void;
   onRandomizeStart?: () => void;
 }
@@ -28,6 +30,8 @@ export const MobilePregameActionBanner: React.FC<MobilePregameActionBannerProps>
   mulligansTaken,
   onKeepHand,
   onMulligan,
+  canUseSerumPowder,
+  onSerumPowder,
   onUnkeepHand,
   onRandomizeStart,
 }) => {
@@ -69,6 +73,8 @@ export const MobilePregameActionBanner: React.FC<MobilePregameActionBannerProps>
         mulligansTaken={mulligansTaken}
         onKeepHand={onKeepHand}
         onMulligan={onMulligan}
+      canUseSerumPowder={canUseSerumPowder}
+      onSerumPowder={onSerumPowder}
         onUnkeepHand={onUnkeepHand}
         onRandomizeStart={onRandomizeStart}
         showRandomStart

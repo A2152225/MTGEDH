@@ -9,6 +9,7 @@ import type { GameContext } from '../context.js';
 import { broadcastGame, canPayManaCostStringWithAvailableSources, payManaCostWithAvailableSources } from '../../socket/util.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
 import { addAgeCounter, sacrificePermanent } from './upkeep-triggers.js';
+import { payLifeAmount } from './batch97PayLife.js';
 
 export type CumulativeUpkeepCost =
   | { kind: 'mana'; options: string[] }
@@ -88,6 +89,10 @@ export function addCumulativeUpkeepMana(state: any, playerId: string, mana: stri
 }
 
 function payLife(state: any, playerId: string, amount: number): void {
+  try {
+    payLifeAmount(state, playerId, amount);
+    return;
+  } catch { /* hook optional */ }
   state.life = state.life || {};
   const current = Number(state.life[playerId] ?? state.startingLife ?? 40);
   state.life[playerId] = current - amount;

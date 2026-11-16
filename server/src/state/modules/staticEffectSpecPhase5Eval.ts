@@ -203,6 +203,33 @@ export function evalPhase5StaticCondition(
       return (battlefield || []).some((p: any) => p && !p.phasedOut
         && new RegExp('\\b' + wanted.replace(/s$/, '') + 's?\\b').test(String(p?.card?.type_line || p?.type_line || '').toLowerCase()));
     }
+    case 'target_attacked_this_turn': {
+      // B89: Agent Frank Horrigan.
+      return (permanent as any)?.attackedThisTurn === true
+        || ((permanent as any)?.attacking != null && (permanent as any)?.attacking !== false);
+    }
+    case 'target_has_any_creature_type': {
+      // B90: Hancock — Zombie or Mutant.
+      const wanted = String((condition as any).creatureType || '')
+        .split('|')
+        .map((w) => w.trim().toLowerCase())
+        .filter(Boolean);
+      if (!wanted.length) return false;
+      const tl = String((permanent as any)?.card?.type_line || (permanent as any)?.type_line || '').toLowerCase();
+      return wanted.some((w) => new RegExp('\\b' + w + 's?\\b').test(tl));
+    }
+    case 'controller_creature_token_count_at_least': {
+      // B89: Toby, Beastie Befriender.
+      const controller = String(spec.sourceController || '');
+      const amount = Number(condition.amount || 0);
+      if (!controller || !(amount > 0)) return false;
+      const n = (battlefield || []).filter((p: any) => {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) return false;
+        if (p.isToken !== true) return false;
+        return /\bcreature\b/i.test(String(p?.card?.type_line || ''));
+      }).length;
+      return n >= amount;
+    }
     default:
       return evalExtraStaticCondition(condition, permanent, battlefield || [], state)
         ?? evalPhase5StateCondition(condition as any, permanent, findSource(spec, battlefield), String(spec.sourceController || ''), battlefield || [], state as any)

@@ -169,14 +169,15 @@ export function parseRound16TriggerSentence(text: string, reparse: Reparse): Par
   if (spendManaFromCommander) {
     return withFields(reparse('whenever you cast a spell, ' + spendManaFromCommander[1]), { requiresSourceMana: true, fromCommander: true } as any);
   }
-  const spendMana = /^when you spend this mana to (cast (.+?)|cast a spell or activate an ability),\s*(.+)$/.exec(text);
+  const spendMana = /^when you spend this mana to (cast (.+?)|cast a spell or activate an ability)( this turn)?,\s*(.+)$/.exec(text);
   if (spendMana) {
-    const castTarget = spendMana[2] ? spendMana[2] : 'a spell';
+    const castTarget = (spendMana[2] ? spendMana[2] : 'a spell').replace(/\s+this turn$/, '');
+    const spendThisTurn = Boolean(spendMana[3]) || /\s+this turn$/.test(spendMana[2] || '');
     const spendCastTarget = /^(?:your )?commander(?: spell)?$/.test(castTarget) ? 'a legendary spell' : castTarget;
-    const effect = spendMana[3];
+    const effect = spendMana[4];
     const via = spendMana[1].startsWith('cast a spell or activate')
-      ? withFields(reparse('whenever you cast a spell, ' + effect), { pairedEvent: 'performs', action: 'activate_ability', causedByYou: true, requiresSourceMana: true } as any)
-      : withFields(reparse('whenever you cast ' + spendCastTarget + ', ' + effect), { causedByYou: true, requiresSourceMana: true, ...(/commander/.test(castTarget) ? { isCommander: true } : {}) } as any);
+      ? withFields(reparse('whenever you cast a spell, ' + effect), { pairedEvent: 'performs', action: 'activate_ability', causedByYou: true, requiresSourceMana: true, ...(spendThisTurn ? { thisTurn: true } : {}) } as any)
+      : withFields(reparse('whenever you cast ' + spendCastTarget + ', ' + effect), { causedByYou: true, requiresSourceMana: true, ...(spendThisTurn ? { thisTurn: true } : {}), ...(/commander/.test(castTarget) ? { isCommander: true } : {}) } as any);
     if (via) return via;
   }
   const youPutCounters = /^(?:whenever|when) you put (a \+1\/\+1 counter|one or more \+1\/\+1 counters|a -[0-9]+\/-[0-9]+ counter|one or more -[0-9]+\/-[0-9]+ counters|a loyalty counter|one or more loyalty counters|a time counter|one or more time counters|a lore counter|one or more lore counters|a counter|one or more counters) on (.+?),\s*(.+)$/.exec(text);

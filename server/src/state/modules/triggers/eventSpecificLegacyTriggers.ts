@@ -11,6 +11,7 @@ import type { GameContext } from '../../context.js';
 import { queueGenericTriggeredAbility } from '../triggerEmissionFamilyUtils.js';
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 import { queueFreshDieRollTriggers } from './playLandSaddleDieRollHooks.js';
+import { irOwnsPrintedAction, queueParsedActionTriggers } from './queueParsedSpecialRuntimeIr.js';
 
 const ABILITY_WORD = /^\s*[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
 
@@ -98,6 +99,21 @@ export function queueSelfDiscardTriggers(
     if (!card) continue;
     const faces = Array.isArray(card.card_faces) && card.card_faces.length > 0 ? card.card_faces : [card];
     for (const face of faces) {
+      const cardIdEarly = String(card.id || '');
+      const snapshotEarly = { id: cardIdEarly, controller: String(discardingPlayerId), owner: String(card.owner || discardingPlayerId), card: { ...card, oracle_text: face?.oracle_text || card.oracle_text, name: face?.name || card.name }, zone: 'graveyard' };
+      const irHits = queueParsedActionTriggers(ctx, {
+        event: 'discards',
+        subjectPermanent: snapshotEarly,
+        subjectControllerId: String(discardingPlayerId),
+        sources: [snapshotEarly],
+        matchContext: { causeControllerId: cause, sourceIsDiscarded: true },
+        triggerType: 'parsed_self_discard',
+        effectData: { discardingPlayerId: String(discardingPlayerId), discardedCardId: cardIdEarly, sourceZone: 'graveyard', ...(cause ? { causeControllerId: cause } : null) },
+      });
+      if (irHits.length > 0) {
+        queued.push(...irHits);
+        continue;
+      }
       for (const sentence of triggerLines(String(face?.oracle_text || ''))) {
         let effect = '';
         const self = SELF_DISCARD.exec(sentence);
@@ -167,9 +183,21 @@ const EXPLORES = /^whenever a creature you control explores(?: a (land|nonland) 
 export function queueCreatureExploresTriggers(ctx: GameContext, playerId: string, explorerPermanentId: string, revealedIsLand: boolean): any[] {
   if (replaying(ctx) || !playerId) return [];
   const queued: any[] = [];
+  const explorer = battlefieldOf(ctx).find((p: any) => String(p?.id || '') === String(explorerPermanentId)) || { id: explorerPermanentId, controller: playerId, card: { name: 'Explorer', type_line: 'Creature' } };
+  queued.push(...queueParsedActionTriggers(ctx, {
+    event: 'performs',
+    action: 'explore',
+    subjectPermanent: explorer,
+    subjectControllerId: String(explorer.controller || playerId),
+    matchContext: { revealedIsLand: Boolean(revealedIsLand) },
+    triggerType: 'parsed_creature_explores',
+    effectData: { playerId, explorerPermanentId, revealedIsLand: Boolean(revealedIsLand) },
+  }));
   for (const permanent of battlefieldOf(ctx)) {
     if (String(permanent?.controller || '') !== String(playerId) || !permanent?.card || !canTrigger(ctx, permanent)) continue;
     for (const sentence of triggerSentences(String(permanent.card.oracle_text || ''))) {
+      const owned = irOwnsPrintedAction(String(permanent.card.oracle_text || ''), ['performs'], 'explore', String(permanent.card.name || ''));
+      if (owned.length > 0) continue;
       const m = EXPLORES.exec(sentence);
       if (!m) continue;
       if (m[1] && (m[1].toLowerCase() === 'land') !== Boolean(revealedIsLand)) continue;
@@ -220,12 +248,37 @@ export function queueCrewVehicleTriggers(ctx: GameContext, crewerIds: readonly s
   const state = (ctx as any).state || {};
   const step = String(state.step || state.phase || '').toLowerCase();
   const queued: any[] = [];
+  const inMainPhase = /main/.test(String(state.step || state.phase || '').toLowerCase()) && String(state.turnPlayer || state.activePlayer || '') !== '';
   for (const id of Array.isArray(crewerIds) ? crewerIds : []) {
     const permanent = battlefieldOf(ctx).find((p: any) => String(p?.id || '') === String(id));
     if (!permanent?.card || !canTrigger(ctx, permanent)) continue;
+    const mine = String(state.turnPlayer || state.activePlayer || '') === String(permanent.controller || '');
+    queued.push(...queueParsedActionTriggers(ctx, {
+      event: 'performs',
+      action: 'crew',
+      subjectPermanent: permanent,
+      subjectControllerId: String(permanent.controller || ''),
+      sources: [permanent],
+      matchContext: { inMainPhase: Boolean(mine && inMainPhase) },
+      triggerType: 'parsed_crew_vehicle',
+      effectData: { vehicleId, crewerId: String(id), targetPermanentId: vehicleId },
+    }));
+    queued.push(...queueParsedActionTriggers(ctx, {
+      event: 'performs',
+      action: 'saddle_or_crew',
+      subjectPermanent: permanent,
+      subjectControllerId: String(permanent.controller || ''),
+      sources: [permanent],
+      matchContext: { inMainPhase: Boolean(mine && inMainPhase) },
+      triggerType: 'parsed_crew_vehicle',
+      effectData: { vehicleId, crewerId: String(id), targetPermanentId: vehicleId },
+    }));
     const name = String(permanent.card.name || '');
     for (const raw of triggerSentences(String(permanent.card.oracle_text || ''))) {
       const sentence = name ? raw.split(name).join('~') : raw;
+      const owned = irOwnsPrintedAction(String(permanent.card.oracle_text || ''), ['performs'], undefined, String(permanent.card.name || ''))
+        .filter((line) => line.condition?.action === 'crew' || line.condition?.action === 'saddle_or_crew');
+      if (owned.length > 0) continue;
       const m = CREWS.exec(sentence);
       if (!m) continue;
       if (m[1]) {

@@ -10,6 +10,20 @@ function typeLineOf(perm: any): string {
 
 export const LAYER4_ANIMATION_SPECS: Array<{ re: RegExp; build: (source: any) => any }> = [
   {
+    re: /lands you control are (\d+)\/(\d+) creatures with (first strike|flying|vigilance|haste|trample|lifelink|deathtouch)\.?\s*they're still lands/i,
+    build: (source) => {
+      const parsed = String(source?.card?.oracle_text || source?.oracle_text || '').match(/lands you control are (\d+)\/(\d+) creatures with ([^.]+)/i);
+      const power = Number(parsed?.[1] || 0);
+      const toughness = Number(parsed?.[2] || 0);
+      const controller = String(source?.controller || '');
+      return {
+        addTypes: ['Creature'],
+        basePT: () => ({ power, toughness }),
+        appliesTo: (perm: any) => String(perm?.controller || '') === controller && /\bland\b/.test(typeLineOf(perm)),
+      };
+    },
+  },
+  {
     re: /\ball lands are (\d+)\/(\d+) creatures that are still lands\b/i,
     build: (source) => {
       const m = String(source?.card?.oracle_text || source?.oracle_text || '').match(/\ball lands are (\d+)\/(\d+) creatures/i);

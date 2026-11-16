@@ -218,6 +218,9 @@ export function queueGenericTriggeredAbility(
     ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
     triggerType,
     mandatory: trigger.mandatory !== false,
+    // Parsed rider clauses ("If you do, ...", "at the beginning of the next end step") travel with the item.
+    ...(trigger.reflexiveWhenYouDo ? { reflexiveWhenYouDo: trigger.reflexiveWhenYouDo } : null),
+    ...(trigger.delayedEndStep ? { delayedEndStep: trigger.delayedEndStep } : null),
     ...(effectData ? { effectData } : null),
   };
 
@@ -243,6 +246,8 @@ export function queueGenericTriggeredAbility(
         effect,
         ...targetMetadata,
         mandatory: trigger.mandatory !== false,
+        ...(trigger.reflexiveWhenYouDo ? { reflexiveWhenYouDo: trigger.reflexiveWhenYouDo } : null),
+        ...(trigger.delayedEndStep ? { delayedEndStep: trigger.delayedEndStep } : null),
         ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
         ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
         ...(effectData ? { effectData } : null),

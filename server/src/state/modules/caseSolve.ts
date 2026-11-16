@@ -1,4 +1,4 @@
-﻿// server/src/state/modules/caseSolve.ts
+// server/src/state/modules/caseSolve.ts
 // Cases (MKM): at the beginning of the controller's end step, an unsolved Case whose "To solve"
 // condition holds becomes solved (perm.solved = true), which turns on its "Solved \u2014" statics
 // (condition kind source_is_solved). Unrecognised "To solve" conditions never solve.
@@ -59,6 +59,9 @@ export function evaluateCaseSolveCondition(text: string, controller: string, sta
   if ((m = t.match(/^(\w+) or more creatures are damaged$/i))) {
     return battlefield.filter((perm) => /\bcreature\b/.test(typeLineOf(perm))
       && Number(perm?.damage ?? perm?.markedDamage ?? perm?.damageMarked ?? 0) > 0).length >= num(m[1]);
+  }
+  if ((m = t.match(/^(\w+) or more creature cards were put into graveyards from anywhere this turn$/i))) {
+    return Number(state?.creatureCardsPutIntoGraveyardsThisTurn || 0) >= num(m[1]);
   }
   return undefined;
 }

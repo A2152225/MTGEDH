@@ -10,6 +10,7 @@ import {
   stampCardsPutIntoGraveyardThisTurn,
   writePlayerZoneCards,
 } from './oracleIRExecutorPlayerUtils';
+import { noteManaValueAsExiled } from './batch97ExileManaValueNote';
 
 export type PlayerZoneChangeBridgeContext = {
   readonly ctx?: OracleIRExecutionContext;
@@ -69,6 +70,7 @@ function placeCardInPlayerZone(
     return;
   }
   writePlayerZoneCards(state, player.id, player, zoneName, [...zoneCards, stamped]);
+  if (zoneName === 'exile') noteManaValueAsExiled(state, stamped);
 }
 
 function resolveLibraryPlacementFromTransition(

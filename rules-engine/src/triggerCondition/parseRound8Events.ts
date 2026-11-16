@@ -156,11 +156,13 @@ export function parseRound8TriggerSentence(text: string): Round8TriggerSentence 
     const subj = phasesIn[1].replace(/~ or another /, 'another ').replace(/this (?:creature|permanent) or another /, 'another ');
     return result(subjectCondition(subj, 'phases_in' as any), phasesIn[2]);
   }
-  const controlsNone = /^(?:whenever|when) you control no ([a-z ]+?),\s*(.+)$/.exec(text);
+  const controlsNone = /^(?:whenever|when) you control no (other )?([a-z ]+?),\s*(.+)$/.exec(text);
   if (controlsNone) {
-    const singular = controlsNone[1] === 'plains' ? 'plains' : controlsNone[1].replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
+    const kind = controlsNone[2];
+    const singular = kind === 'plains' ? 'plains' : kind.replace(/ies$/, 'y').replace(/(?<!s)s$/, '');
     const parsed = BASIC_LAND_TYPES.has(singular) ? basicLandSubject(singular) : parseSubjectPhrase(`a ${singular}`, 'controls_none' as any);
-    return result(parsed ? withController({ ...parsed, event: 'controls_none' } as TriggerConditionIR, 'you') : null, controlsNone[2]);
+    const ir = parsed ? withController({ ...parsed, event: 'controls_none', ...(controlsNone[1] ? { excludeSource: true } : {}) } as TriggerConditionIR, 'you') : null;
+    return result(ir, controlsNone[3]);
   }
 
   const scryOrSurveil = /^(?:whenever|when) (you|an opponent|a player) (?:scry or surveil|scries or surveils),\s*(.+)$/.exec(text);

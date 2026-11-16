@@ -13,6 +13,7 @@ import { applyStaticAbilitiesToBattlefield } from './staticAbilities';
 import { GameEndReason, WinCondition } from './types/gameFlow';
 import { opponentsHaveCantWinEffect } from './winEffectCards';
 import { RulesEngineEvent, type RulesEvent } from './core/events';
+import { payLifeAmount } from '../../server/src/state/modules/batch97PayLife.js';
 
 type EmitRulesEvent = (event: RulesEvent) => void;
 type PersistGameState = (gameId: string, state: GameState) => void;
@@ -165,6 +166,22 @@ export function payLifeActionForState(args: {
   }
 
   const amount = action.amount || 1;
+  try {
+    const paid = payLifeAmount(state, action.playerId, amount);
+    const newLife = paid.newLife;
+    emit({
+      type: RulesEngineEvent.LIFE_PAID,
+      timestamp: Date.now(),
+      gameId,
+      data: { playerId: action.playerId, amount, newLife, replaced: paid.replaced, exiled: paid.exiled },
+    });
+    return {
+      next: state,
+      log: [paid.replaced
+        ? `${action.playerId} exiled ${paid.exiled} card(s) instead of paying ${amount} life`
+        : `${action.playerId} paid ${amount} life`],
+    };
+  } catch { /* fall through */ }
   const newLife = (player.life || 0) - amount;
 
   const updatedPlayers = state.players.map(entry =>

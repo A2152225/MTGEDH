@@ -18,6 +18,7 @@ import { expandGroupedTokensForDisplay } from "../utils/expandGroupedTokens";
 import { ReturnControlledPermanentChoiceModal, type ReturnControlledPermanentOption } from "../components/ReturnControlledPermanentChoiceModal";
 import { CardSelectionModal } from "../components/CardSelectionModal";
 import { ProliferateModal } from "../components/ProliferateModal";
+import { DamageAssignmentModal } from "../components/DamageAssignmentModal";
 import { LifeRedistributionModal } from "../components/LifeRedistributionModal";
 import { AppearanceSettingsModal } from "../components/AppearanceSettingsModal";
 import { XValueSelectionModal } from "../components/XValueSelectionModal";
@@ -26,7 +27,32 @@ import { DeckManagerModal } from "../components/DeckManagerModal";
 import { MoveLocalDecksModal } from "../components/MoveLocalDecksModal";
 import NameInUseModal from "../components/NameInUseModal";
 
+function grantedCasualtyForSpellToCast(spellToCast: any, safeView: any, you: string | undefined): number | undefined {
+  const direct = Number(spellToCast?.grantedCasualty);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const cardId = String(spellToCast?.cardId || '');
+  if (!cardId || !safeView) return undefined;
+  const zones = (you && safeView.zones && safeView.zones[you]) || {};
+  const piles = [zones.hand, zones.exile, zones.graveyard, zones.library, zones.command, safeView.battlefield, (safeView.stack || []).map((item: any) => item?.card || item)];
+  for (const pile of piles) {
+    if (!Array.isArray(pile)) continue;
+    for (const entry of pile) {
+      const nested = entry?.card && (String(entry.id || '') === cardId || String(entry.cardId || '') === cardId || String(entry.card?.id || '') === cardId);
+      const card = nested ? (entry.card || entry) : (String(entry?.id || '') === cardId || String(entry?.cardId || '') === cardId ? entry : null);
+      if (!card) continue;
+      const n = Number(card.grantedCasualty ?? card.card?.grantedCasualty);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  return undefined;
+}
+
 export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
+  const {
+    damageAssignmentModalOpen,
+    damageAssignmentData,
+    handleDamageAssignmentConfirm,
+  } = p.damageAssignmentOverlay || p;
   const {
     appearanceModalOpen,
     attackingCreatures,
@@ -179,6 +205,7 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
         isActivatedAbilityPayment={spellToCast?.isActivatedAbilityPayment === true}
         castFromZone={spellToCast?.fromZone ?? 'hand'}
         oracleText={spellToCast?.oracleText}
+        grantedCasualty={grantedCasualtyForSpellToCast(spellToCast, safeView, you)}
         forcedAlternateCostId={spellToCast?.forcedAlternateCostId}
         preferredAlternateCostId={(spellToCast as any)?.preferredAlternateCostId}
         extraAlternateCosts={spellToCast?.extraAlternateCosts ?? battlefieldAlternateCosts}
@@ -207,6 +234,12 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
         sneakOptions={spellToCast?.sneakOptions}
         webSlingingOptions={(spellToCast as any)?.webSlingingOptions}
         currentStep={String((safeView as any)?.step || '')}
+        currentLife={(() => {
+          const n = Number((safeView as any)?.life?.[String(you || '')]);
+          return Number.isFinite(n) ? n : undefined;
+        })()}
+        payerId={you ?? undefined}
+        manaSpendPermanents={(safeView?.battlefield || []) as BattlefieldPermanent[]}
         onConfirm={handleCastSpellConfirm}
         onCancel={handleCastSpellCancel}
       />
@@ -418,6 +451,20 @@ export function renderAppPlayOverlaysCombat(p: Record<string, any>) {
       />
 
       {/* Proliferate Modal */}
+      {damageAssignmentData && (
+        <DamageAssignmentModal
+          open={resolutionPromptOpen(!!damageAssignmentModalOpen, damageAssignmentData.stepId)}
+          attacker={damageAssignmentData.attacker}
+          blockers={damageAssignmentData.blockers || []}
+          hasTrample={!!damageAssignmentData.hasTrample && damageAssignmentData.assignmentMode !== 'free-division'}
+          defendingPlayerId={damageAssignmentData.defendingPlayerId}
+          defendingPlayerName={damageAssignmentData.defendingPlayerName}
+          assignmentMode={damageAssignmentData.assignmentMode || 'blockers'}
+          requireLethalOrder={damageAssignmentData.requireLethalOrder !== false}
+          onConfirm={handleDamageAssignmentConfirm}
+        />
+      )}
+
       <ProliferateModal
         open={resolutionPromptOpen(proliferateModalOpen, proliferateData?.stepId)}
         sourceName={proliferateData?.sourceName || ''}

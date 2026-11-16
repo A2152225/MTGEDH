@@ -17,13 +17,14 @@ import { appendEvent } from "../../db/index.js";
 import { sacrificePermanent } from "../../state/modules/upkeep-triggers.js";
 import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolution/index.js";
 import { debugWarn } from "../../utils/debug.js";
-import { emitWardCounterOutcome, tryCounterByWard } from "../resolutionWardUtils.js";
+import { applyWardCounter } from "../resolutionWardUtils.js";
 import { broadcastGame, broadcastManaPoolUpdate, emitToPlayer, getPlayerName } from "../util.js";
 import {
   applySelectedManaPaymentForResolutionCost,
   applyWardManaPaymentSelection,
   extractResolutionPaymentItems,
 } from "./resolutionManaPaymentApplication.js";
+import { tryHandleRecoverManaPayment } from '../resolutionOptionChoiceBatch102Handlers.js';
 
 /** MANA_PAYMENT_CHOICE prefix: ward payment and sacrifice-unless-pay prompts. */
 export async function tryHandleManaPaymentChoiceWardAndSacrificePrefix(
@@ -35,6 +36,7 @@ export async function tryHandleManaPaymentChoiceWardAndSacrificePrefix(
 ): Promise<boolean> {
   const pid = response.playerId;
   const stepData = step as any;
+  if (await tryHandleRecoverManaPayment(io, game, gameId, step, response)) return true;
 
   if (stepData.wardPayment === true) {
     const triggeredBy = String(stepData?.wardTriggeredBy || stepData?.sourceId || '').trim();
@@ -44,8 +46,7 @@ export async function tryHandleManaPaymentChoiceWardAndSacrificePrefix(
     const paymentType = String(stepData?.wardPaymentType || '').trim().toLowerCase() || (/\{[^}]+\}/.test(wardCost) ? 'mana' : '');
 
     if (response.cancelled) {
-      const outcome = tryCounterByWard(game, gameId, triggeredBy, wardController);
-      emitWardCounterOutcome(io, game, gameId, wardName, pid, outcome, 'declined to pay ward');
+      applyWardCounter(io, game, gameId, triggeredBy, wardController, wardName, pid, 'declined to pay ward');
       if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
       broadcastGame(io, game, gameId);
       return true;
@@ -61,8 +62,7 @@ export async function tryHandleManaPaymentChoiceWardAndSacrificePrefix(
           message: appliedError.message,
         });
 
-        const outcome = tryCounterByWard(game, gameId, triggeredBy, wardController);
-        emitWardCounterOutcome(io, game, gameId, wardName, pid, outcome, "couldn't pay ward");
+        applyWardCounter(io, game, gameId, triggeredBy, wardController, wardName, pid, "couldn't pay ward");
         if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
         broadcastGame(io, game, gameId);
         return true;

@@ -14,7 +14,7 @@ export function hasGlobalPlayersSkipUntapSteps(ctx: GameContext): boolean {
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
     const oracleText = String(permanent.card.oracle_text || '').toLowerCase();
-    if (/players\s+skip\s+their\s+untap\s+steps?/.test(oracleText)) {
+    if (/(?:each\s+player\s+skips|players\s+skip)\s+their\s+untap\s+steps?/.test(oracleText)) {
       return true;
     }
   }

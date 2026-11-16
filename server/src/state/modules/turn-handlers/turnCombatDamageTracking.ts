@@ -10,6 +10,7 @@ import type { GameContext } from "../../context.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 import { markPlayerOutOfPriority } from "../priorityEligibility.js";
 import { removeLeavingPlayerGameObjects } from "../playerLeavingGame.js";
+import { tryApplyLoseGameExileAndResetLife } from '../replacementBatch91LoseGameReplacements.js';
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -48,6 +49,10 @@ export function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
       
       // Check for player defeat (Rule 704.5a: Life <= 0)
       if (player.life <= 0 && !player.hasLost) {
+        if (tryApplyLoseGameExileAndResetLife(state, player.id)) {
+          player.life = state.life?.[player.id] ?? player.life;
+          continue;
+        }
         player.hasLost = true;
         player.lossReason = "Life total is 0 or less";
         defeatedPlayers.push(player.id);
@@ -64,6 +69,10 @@ export function syncLifeAndCheckDefeat(ctx: GameContext): string[] {
           0,
       );
       if (poisonTotal >= 10 && !player.hasLost) {
+        if (tryApplyLoseGameExileAndResetLife(state, player.id)) {
+          player.life = state.life?.[player.id] ?? player.life;
+          continue;
+        }
         player.hasLost = true;
         player.lossReason = "10 or more poison counters";
         defeatedPlayers.push(player.id);
@@ -124,6 +133,9 @@ export function trackCommanderDamage(
     const players = (ctx as any).state?.players || [];
     const defeatedPlayer = players.find((p: any) => p.id === defendingPlayerId);
     if (defeatedPlayer && !defeatedPlayer.hasLost) {
+      if (tryApplyLoseGameExileAndResetLife((ctx as any).state, defendingPlayerId)) {
+        return;
+      }
       defeatedPlayer.hasLost = true;
       defeatedPlayer.lossReason = `21 or more combat damage from ${attackerCard.name || 'a commander'}`;
       markPlayerOutOfPriority(ctx as any, defendingPlayerId);

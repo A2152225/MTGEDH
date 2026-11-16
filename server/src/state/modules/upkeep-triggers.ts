@@ -28,6 +28,7 @@ import { getLastUpkeepMarker } from "./upkeep-triggers-handlers/upkeepMarkerHelp
 import { detectUpkeepTriggers } from "./upkeep-triggers-handlers/upkeepTriggerDetect.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from "./triggers/triggerConditionFamilyMatch.js";
 import { permanentHasTriggeredAbilities } from './triggers/triggeredAbilitySuppression.js';
+import { shouldBlockOpponentForcedActionFromContext } from './batch96CauseGuard.js';
 
 export type { UpkeepTrigger };
 export { detectUpkeepTriggers };
@@ -340,6 +341,11 @@ export function sacrificePermanent(ctx: GameContext, permanentId: string, player
     if (permanentCannotBeSacrificed(permanent, battlefield)) {
       return null;
     }
+    try {
+      if (shouldBlockOpponentForcedActionFromContext(ctx, String(playerId || permanent?.controller || ''))) {
+        return null;
+      }
+    } catch { /* hook optional */ }
     const cardName = permanent.card?.name || "Unknown";
 
     // Per-turn tracking for intervening-if templates like:

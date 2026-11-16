@@ -73,7 +73,7 @@ export function parseAbilitiesFromTail(tail: string): string[] {
       found.push(ability);
     }
   }
-  for (const match of lower.matchAll(/\b(afflict|toxic|fabricate|annihilator|bushido|rampage)\s+(\d+)\b/g)) {
+  for (const match of lower.matchAll(/\b(afflict|toxic|fabricate|annihilator|bushido|rampage|afterlife)\s+(\d+)\b/g)) {
     found.push(`${match[1]} ${match[2]}`);
   }
   const outlastMatch = lower.match(/\boutlast\s+(\{[^}]+\})/i);

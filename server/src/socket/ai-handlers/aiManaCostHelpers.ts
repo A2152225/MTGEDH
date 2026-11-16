@@ -27,6 +27,7 @@ import { collectAIManaColorNeedWeights, pickAIManaColorByNeedWeights } from "./a
 import { calculateCardThemeAlignment, ensureAIDeckProfile } from "./aiDeckProfileHandlers.js";
 import { permanentCannotActivateTapAbilities } from "../../state/modules/staticEffectSpecActivationLocks.js";
 import { getPermanentCombatStats } from "./aiPermanentCombatStats.js";
+import { getAvailableManaCached } from "./aiDecisionCache.js";
 
 /**
  * Determine what color of mana a permanent can produce based on its type and oracle text
@@ -286,8 +287,8 @@ export function scoreAISacrificePermanentForManaAbility(game: any, playerId: Pla
  * This ensures consistency between AI and human mana calculations
  */
 export function calculateAvailableMana(game: any, playerId: PlayerID): { total: number; colors: Record<string, number>; sourcesByColor: Map<string, string[]> } {
-  // Use the shared getAvailableMana function from mana-check.ts
-  const manaPool = getAvailableMana(game.state, playerId);
+  // Use the shared getAvailableMana function from mana-check.ts (seq-cached).
+  const manaPool = getAvailableManaCached(game, playerId, () => getAvailableMana(game.state, playerId));
   
   // Convert the pool format to what AI expects
   const colors: Record<string, number> = {

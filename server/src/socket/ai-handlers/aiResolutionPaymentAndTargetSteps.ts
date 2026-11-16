@@ -16,6 +16,7 @@ import { chooseAIScrySelection } from "./aiZoneSearchChoiceHandlers.js";
 import { chooseAIManaColorForActivation } from "./aiManaCostHelpers.js";
 import { chooseAIJoinForcesContribution } from "./aiJoinForcesDecision.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { chooseAIPayLifeAdditionalCost } from "./aiPayLifeAdditionalCost.js";
 
 export async function handleAIResolutionPaymentAndTargetSteps(
   io: Server,
@@ -373,6 +374,17 @@ export async function handleAIResolutionPaymentAndTargetSteps(
       case 'additional_cost_payment': {
         const amount = Math.max(0, Number((step as any)?.amount ?? 0));
         const costType = String((step as any)?.costType || 'discard');
+        if (costType === 'pay_life') {
+          const decision = chooseAIPayLifeAdditionalCost(game, String(playerId), step);
+          if (decision === 'decline') {
+            ResolutionQueueManager.completeStep(gameId, step.id, createResponse([], true));
+            debug(1, '[AI] additional_cost_payment: declined pay_life');
+          } else {
+            ResolutionQueueManager.completeStep(gameId, step.id, createResponse([]));
+            debug(1, '[AI] additional_cost_payment: accepted pay_life');
+          }
+          break;
+        }
         const selectedIds = (costType === 'remove_counters'
           ? (Array.isArray((step as any)?.availableCounters) ? (step as any).availableCounters : [])
               .slice(0, amount)

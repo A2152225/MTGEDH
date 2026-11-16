@@ -12,6 +12,7 @@ import {
   generateCoinFlipResultWithIgnoreOne,
   resolveCoinFlipWithIgnoreOne,
 } from './coinFlipIgnoreOneReplacement';
+import { shouldForceFirstFlipHeadsAndWin, markCoinFlipEventThisTurn } from './batch97CoinFlipForce';
 import { performDieRoll, performMultipleDieRolls } from './dieRoll';
 import { applyRegenerateStep } from './oracleIRExecutorBattlefieldStepHandlers';
 import { opponentsHaveCantWinEffect, playerHasCantLoseEffect } from './winEffectCards';
@@ -286,7 +287,10 @@ export function tryApplyMainLoopCoinDieDrawSteps(
         for (const playerId of players) {
           const results: Array<'heads' | 'tails'> = [];
           const wins: boolean[] = [];
+          const forceHeadsWin = shouldForceFirstFlipHeadsAndWin(nextState, playerId);
+          if (forceHeadsWin) markCoinFlipEventThisTurn(nextState, playerId);
           const generateOneFlip = (): 'heads' | 'tails' | undefined => {
+            if (forceHeadsWin) return 'heads';
             if (typeof lastWon === 'boolean') {
               return lastWon ? call : (call === 'heads' ? 'tails' : 'heads');
             }
@@ -327,7 +331,7 @@ export function tryApplyMainLoopCoinDieDrawSteps(
             const nextResult = generateOneFlip();
             if (nextResult === undefined) break;
             results.push(nextResult);
-            wins.push(nextResult === call);
+            wins.push(forceHeadsWin || nextResult === call);
             if (step.repeatUntil === 'lose_flip') {
               while (wins[wins.length - 1] && results.length < 100) {
                 const extraFlip = generateCoinFlipResultWithIgnoreOne(nextState, playerId, { call });

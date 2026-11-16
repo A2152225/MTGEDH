@@ -32,6 +32,8 @@ export type PonderVariant =
   | 'ponder'           // Look, reorder, may shuffle, draw 1
   | 'index'            // Look, reorder only (no shuffle, no draw)
   | 'telling_time'     // Look, pick 1 to hand, reorder rest on top
+  | 'anticipate'       // Look, pick 1 to hand, order rest on the bottom
+  | 'tomorrow'         // Same as anticipate (draw replacement)
   | 'brainstorm'       // Already drew 3, put 2 back on top in order
   | 'architects';      // Look at target player's library, reorder (no shuffle, no draw)
 
@@ -66,6 +68,8 @@ export interface PonderModalProps {
   }) => void;
   /** Callback when modal is cancelled */
   onCancel: () => void;
+  /** Hide the cancel button for mandatory replacements. */
+  canCancel?: boolean;
 }
 
 export function PonderModal({
@@ -82,9 +86,12 @@ export function PonderModal({
   isOwnLibrary = true,
   onConfirm,
   onCancel,
+  canCancel = true,
 }: PonderModalProps) {
+  const restOnBottom = variant === 'anticipate' || variant === 'tomorrow';
+  const pickCount = pickToHand > 0 ? pickToHand : (variant === 'telling_time' || restOnBottom ? 1 : 0);
   // State: ordered list of card IDs on library (top first)
-  // For pickToHand variants: start with all cards in library, player picks which go to hand
+  // For pickCount variants: start with all cards in library, player picks which go to hand
   const [libraryOrder, setLibraryOrder] = useState<string[]>(() => 
     cards.map(c => c.id)
   );
@@ -109,7 +116,7 @@ export function PonderModal({
   
   // For Telling Time style: move card between hand selection and library
   const moveToHand = (id: string) => {
-    if (handCards.length >= pickToHand) return; // Can't pick more
+    if (handCards.length >= pickCount) return; // Can't pick more
     setLibraryOrder(prev => prev.filter(x => x !== id));
     setHandCards(prev => [...prev, id]);
   };
@@ -135,8 +142,8 @@ export function PonderModal({
   };
   
   // Validation
-  const isValid = pickToHand > 0 
-    ? handCards.length === pickToHand && libraryOrder.length === cards.length - pickToHand
+  const isValid = pickCount > 0 
+    ? handCards.length === pickCount && libraryOrder.length === cards.length - pickCount
     : libraryOrder.length === cards.length;
   
   const CardBox = ({ id, index, inHand = false }: { id: string; index: number; inHand?: boolean }) => {
@@ -224,7 +231,7 @@ export function PonderModal({
             >
               → Library
             </button>
-          ) : pickToHand > 0 && handCards.length < pickToHand ? (
+          ) : pickCount > 0 && handCards.length < pickCount ? (
             <button 
               onClick={() => moveToHand(id)}
               style={{
@@ -295,7 +302,10 @@ export function PonderModal({
       case 'index':
         return `Look at these cards from ${targetText} library and put them back in any order`;
       case 'telling_time':
-        return `Choose ${pickToHand} card${pickToHand > 1 ? 's' : ''} to put in your hand, then order the rest on top of ${targetText} library`;
+        return `Choose ${pickCount} card${pickCount > 1 ? 's' : ''} to put in your hand, then order the rest on top of ${targetText} library`;
+      case 'anticipate':
+      case 'tomorrow':
+        return `Choose ${pickCount} card${pickCount > 1 ? 's' : ''} to put in your hand, then order the rest on the bottom of ${targetText} library`;
       case 'brainstorm':
         return `Put these cards on top of ${targetText} library in any order`;
       case 'architects':
@@ -311,6 +321,8 @@ export function PonderModal({
     switch (variant) {
       case 'ponder': return '🔮';
       case 'telling_time': return '⏰';
+      case 'anticipate':
+      case 'tomorrow': return '📘';
       case 'brainstorm': return '🧠';
       default: return '📚';
     }
@@ -377,7 +389,7 @@ export function PonderModal({
         </div>
         
         {/* Hand section (for Telling Time style - only if own library) */}
-        {pickToHand > 0 && isOwnLibrary && (
+        {pickCount > 0 && isOwnLibrary && (
           <div style={{ marginBottom: 20 }}>
             <div style={{ 
               color: '#3b82f6', 
@@ -385,7 +397,7 @@ export function PonderModal({
               marginBottom: 8,
               fontWeight: 600,
             }}>
-              ✋ Going to Hand ({handCards.length}/{pickToHand}):
+              ✋ Going to Hand ({handCards.length}/{pickCount}):
             </div>
             <div style={{ 
               display: 'grid', 
@@ -424,7 +436,7 @@ export function PonderModal({
           }}>
             <span>
               📚 {isOwnLibrary ? 'Your' : `${targetPlayerName || "Opponent"}'s`} library order 
-              (left = top of library{drawAfter && !willShuffle && isOwnLibrary ? ', will be drawn' : ''}):
+              (left = {restOnBottom ? 'first card onto the bottom' : 'top of library'}{drawAfter && !willShuffle && isOwnLibrary ? ', will be drawn' : ''}):
             </span>
           </div>
           <div style={{ 
@@ -439,7 +451,7 @@ export function PonderModal({
           }}>
             {libraryOrder.length === 0 ? (
               <div style={{ color: '#6b7280', fontSize: 13, textAlign: 'center' }}>
-                {pickToHand > 0 ? 'Select cards for your hand first' : 'No cards'}
+                {pickCount > 0 ? 'Select cards for your hand first' : 'No cards'}
               </div>
             ) : (
               libraryOrder.map((id, index) => (
@@ -503,7 +515,7 @@ export function PonderModal({
                 <> (top card: <strong>{cardById.get(libraryOrder[0])?.name}</strong>)</>
               )}
             </>
-          ) : pickToHand > 0 ? (
+          ) : pickCount > 0 ? (
             <>
               <strong>Effect:</strong> Put{' '}
               {handCards.map((id, i) => (
@@ -513,7 +525,7 @@ export function PonderModal({
                 </span>
               ))}
               {handCards.length === 0 && <span style={{ color: '#6b7280' }}>(select cards)</span>}
-              {' '}into your hand, then put the rest on top of your library
+              {' '}into your hand, then put the rest on {restOnBottom ? 'the bottom of' : 'top of'} your library
             </>
           ) : willShuffle ? (
             <>
@@ -533,6 +545,7 @@ export function PonderModal({
         
         {/* Action buttons */}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+{canCancel && (
           <button
             onClick={onCancel}
             style={{
@@ -547,6 +560,7 @@ export function PonderModal({
           >
             Cancel
           </button>
+          )}
           <button
             onClick={handleConfirm}
             disabled={!isValid}

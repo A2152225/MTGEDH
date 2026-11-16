@@ -9,6 +9,7 @@ import { landAwareTypeLine } from './effectiveLandTypeLine.js';
 import { getGrantedVehicleCrewValue } from '../../socket/crewGrantedVehicleCrew.js';
 import { specMatchesStaticCondition } from './staticEffectSpecConditionEval.js';
 import { describeCondition } from './viewPermanentPtBreakdown.js';
+import { parseAdditionalTypesAndSaddle, permanentGainsSaddleFromTypeGrant } from './batch98CombatAndKeywords.js';
 
 export interface CopyInfo { name: string; typeLine: string; power?: string; toughness?: string; originalName?: string; additions?: string[] }
 export interface ConditionalStaticLine { sourceName: string; text: string; active: boolean }
@@ -95,6 +96,23 @@ export function computeConditionalStatics(perm: any, state: any): ConditionalSta
 export interface GrantedCrewInfo { value: number; sourceName: string }
 
 /** "Vehicles you control have crew N" granted to this Vehicle: cheapest value and its source. */
+export type GrantedSaddleInfo = { value: number; sourceName: string };
+
+export function computeGrantedSaddle(perm: any, state: any): GrantedSaddleInfo | undefined {
+  const value = permanentGainsSaddleFromTypeGrant(perm, state);
+  if (value == null || !Number.isFinite(Number(value))) return undefined;
+  const controller = String(perm?.controller || '');
+  let sourceName = 'a permanent';
+  for (const src of (state?.battlefield || []) as any[]) {
+    if (!src || String(src.controller || '') !== controller) continue;
+    const parsed = parseAdditionalTypesAndSaddle(src?.card?.oracle_text || src?.oracle_text || '');
+    if (!parsed || Number(parsed.saddle) !== Number(value)) continue;
+    sourceName = String(src?.card?.name || src?.name || sourceName);
+    if (String(src.id || '') !== String(perm.id || '')) break;
+  }
+  return { value: Number(value), sourceName };
+}
+
 export function computeGrantedCrew(perm: any, state: any): GrantedCrewInfo | undefined {
   const controller = String(perm?.controller || '');
   if (!controller || !/\bvehicle\b/i.test(String(perm?.card?.type_line || ''))) return undefined;

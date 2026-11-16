@@ -58,13 +58,18 @@ describe('round 13: census wordings parse', () => {
   it('enchanted creature attacks or blocks', () => {
     expect(cond('Whenever enchanted creature attacks or blocks, draw a card.')).toMatchObject({ event: 'attacks', pairedEvent: 'blocks' });
   });
-  it('legacy-runtime wordings parse but fail closed', () => {
+  it('former legacy-runtime wordings now parse as IR', () => {
     for (const t of [
       'When you pay this cost one or more times, draw a card.',
       "At the beginning of that turn's end step, draw a card.",
       'When you discard a card this way, draw a card.',
       'Whenever enchanted player is attacked, draw a card.',
-    ]) expect(cond(t)).toMatchObject({ legacyRuntimeOnly: true });
+    ]) {
+      // Rounds 55-65 promoted these wordings to IR: they parse to an event and are no longer legacy-only.
+      const c = cond(t) as any;
+      expect(c?.event).toBeTruthy();
+      expect(c?.legacyRuntimeOnly).not.toBe(true);
+    }
   });
   it('paired lines match both events', () => {
     const oracle = 'When this creature enters or is turned face up, draw a card.';

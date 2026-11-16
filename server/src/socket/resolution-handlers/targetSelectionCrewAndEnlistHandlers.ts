@@ -25,6 +25,7 @@ import { debug, debugWarn } from "../../utils/debug.js";
 import { creatureHasHaste } from "../game-actions.js";
 import { resolveGroupedPermanentRef } from "../tokenGroupResolve.js";
 import { crewSaddlePowerBonus } from "../crewSaddlePowerBonus.js";
+import { effectiveCrewStationPower } from "../crewStationUsedPower.js";
 import {
   broadcastGame,
   emitToPlayer,
@@ -101,7 +102,7 @@ export async function tryHandleCrewAbilityTargetSelection(
     usedCrewerIds.add(String(resolvedId));
     resolvedCrewerIds.push(String(resolvedId));
     chosenCrewers.push(crewer);
-    totalPower += getEffectivePower(crewer, game.state) + crewSaddlePowerBonus(crewer, 'crew');
+    totalPower += effectiveCrewStationPower(crewer, game.state, isSaddleTargetStep ? 'saddle' : 'crew');
   }
   const crewerIds = resolvedCrewerIds;
 

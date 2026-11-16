@@ -39,6 +39,7 @@ import {
 } from "../resolutionActivatedAbilityTargetingUtils.js";
 import { appendQueuedResolutionPromptEvent } from "../resolutionCloneQueuedPromptUtils.js";
 import { finalizeBattlefieldAbilitySelfExertCost } from "../resolutionGraveyardSelectionHelperUtils.js";
+import { maybeQueueAdditionalLandSacrificeFollowUp } from "../interaction-handlers/additionalLandSacrificeFollowUp.js";
 import {
   broadcastGame,
   broadcastManaPoolUpdate,
@@ -318,6 +319,33 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
     tappedPermanentsForCost.push(String(permanentId));
   }
   const allTappedPermanentsForCost = [...prePaidTappedPermanentsForCost, ...tappedPermanentsForCost];
+
+  const prePaidSacrificedIds = Array.isArray(stepAny?.prePaidSacrificedPermanentsForCost)
+    ? (stepAny.prePaidSacrificedPermanentsForCost as any[]).map((entry: any) => String(entry)).filter(Boolean)
+    : [];
+  if (prePaidSacrificedIds.length) {
+    for (const id of prePaidSacrificedIds) {
+      if (!sacrificedIds.includes(id)) sacrificedIds.unshift(id);
+    }
+  }
+  const prePaidSnapshots = Array.isArray(stepAny?.lastSacrificedPermanents) ? stepAny.lastSacrificedPermanents : [];
+  if (prePaidSnapshots.length) {
+    sacrificedPermanentSnapshots.unshift(...prePaidSnapshots);
+  }
+  if (maybeQueueAdditionalLandSacrificeFollowUp({
+    io,
+    game,
+    gameId,
+    step: stepAny,
+    controllerId,
+    permanentId,
+    sacrificedIds,
+    sacrificedPermanentSnapshots,
+    allTappedPermanentsForCost,
+    prePaidLifeForCost: Number.isFinite(lifeToPayForCost + prePaidLifeForCost) && (lifeToPayForCost + prePaidLifeForCost) > 0
+      ? (lifeToPayForCost + prePaidLifeForCost)
+      : 0,
+  })) return;
 
   const activatedAbilityText = String(stepAny?.activatedAbilityText || '').trim()
     || (manaCost ? `${manaCost}: ${abilityText}` : abilityText);

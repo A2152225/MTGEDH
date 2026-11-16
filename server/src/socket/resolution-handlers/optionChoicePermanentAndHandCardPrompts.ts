@@ -31,7 +31,8 @@ import { debugWarn } from "../../utils/debug.js";
 import { maybeResumeOracleIRStepsAfterResolution } from "../../state/modules/oracleIrServerZoneSync.js";
 import { appendQueuedResolutionPromptEvent } from "../resolutionCloneQueuedPromptUtils.js";
 import { getPlayerName } from "../util.js";
-import { extractOptionChoiceSelectionId } from "./resolutionOptionChoiceSelectionIds.js";
+import { PUT_NO_HAND_CARDS_OPTION_ID } from "../../state/modules/oracleIrServerZoneSync-handlers/oracleIrServerHandCardToLibraryPrompts.js";
+import { extractOptionChoiceSelectionId, extractOptionChoiceSelectionIds } from "./resolutionOptionChoiceSelectionIds.js";
 
 /** "Put a card from your hand on the top/bottom of your library." */
 export async function handleMoveChosenHandCardToLibraryChoice(
@@ -44,6 +45,8 @@ export async function handleMoveChosenHandCardToLibraryChoice(
   const stepData = step as any;
   const playerId = response.playerId;
 
+  const anyNumber = stepData.moveChosenHandCardToLibraryAnyNumber === true;
+  const selectedIds = extractOptionChoiceSelectionIds(response.selections);
   const chosenCardId = extractOptionChoiceSelectionId(response.selections);
   const controllerId = String(stepData.moveChosenHandCardToLibraryController || playerId);
   const sourceName = String(stepData.moveChosenHandCardToLibrarySourceName || step.sourceName || 'Ability');
@@ -51,7 +54,10 @@ export async function handleMoveChosenHandCardToLibraryChoice(
   const position = String(stepData.moveChosenHandCardToLibraryPosition || 'top').toLowerCase() === 'bottom'
     ? 'bottom'
     : 'top';
-  if (!chosenCardId) {
+  const requestedIds = (anyNumber ? selectedIds : (chosenCardId ? [chosenCardId] : []))
+    .map((id) => String(id || '').trim())
+    .filter((id) => id && id !== PUT_NO_HAND_CARDS_OPTION_ID);
+  if (!anyNumber && requestedIds.length === 0) {
     debugWarn(2, `[Resolution] moveChosenHandCardToLibraryChoice: missing selection`);
     return;
   }
@@ -67,19 +73,23 @@ export async function handleMoveChosenHandCardToLibraryChoice(
   });
   z.hand = z.hand || [];
 
-  const idx = (z.hand as any[]).findIndex((c: any) => String(c?.id) === String(chosenCardId));
-  if (idx < 0) {
+  const movedCards: any[] = [];
+  const missingId = requestedIds.find((id) =>
+    !(z.hand as any[]).some((card: any) => String(card?.id) === id));
+  if (missingId) {
     debugWarn(2, `[Resolution] moveChosenHandCardToLibraryChoice: selected card not in hand`);
     return;
   }
 
-  const [card] = (z.hand as any[]).splice(idx, 1);
-
   const lib = (game as any).libraries?.get?.(controllerId) || (z.library as any[]) || [];
-  if (position === 'bottom') {
-    lib.push({ ...card, zone: 'library' });
-  } else {
-    lib.unshift({ ...card, zone: 'library' });
+  for (const id of requestedIds) {
+    const idx = (z.hand as any[]).findIndex((card: any) => String(card?.id) === id);
+    if (idx < 0) continue;
+    const [card] = (z.hand as any[]).splice(idx, 1);
+    const libraryCard = { ...card, zone: 'library' };
+    if (position === 'bottom') lib.push(libraryCard);
+    else lib.unshift(libraryCard);
+    movedCards.push(libraryCard);
   }
   if ((game as any).libraries?.set) {
     (game as any).libraries.set(controllerId, lib);
@@ -89,10 +99,14 @@ export async function handleMoveChosenHandCardToLibraryChoice(
 
   z.handCount = (z.hand as any[]).length;
   z.libraryCount = lib.length;
+  const movedIds = new Set(movedCards.map((card) => String(card?.id || '')));
   const handPlayer = (Array.isArray(state.players) ? state.players : [])
     .find((entry: any) => String(entry?.id || '') === controllerId);
   if (handPlayer && Array.isArray(handPlayer.hand)) {
-    handPlayer.hand = handPlayer.hand.filter((c: any) => String(c?.id) !== String(chosenCardId));
+    handPlayer.hand = handPlayer.hand.filter((card: any) => !movedIds.has(String(card?.id)));
+  }
+  if (handPlayer && Array.isArray(handPlayer.library)) {
+    handPlayer.library = [...lib];
   }
 
   try {
@@ -102,21 +116,29 @@ export async function handleMoveChosenHandCardToLibraryChoice(
       sourceId: sourceId || undefined,
       sourceName,
       resolvedStepId: String(step.id || '').trim() || undefined,
-      chosenCardId: String(chosenCardId || ''),
+      chosenCardId: movedCards[0] ? String(movedCards[0].id || '') : undefined,
+      chosenCardIds: movedCards.map((card) => String(card?.id || '')),
       position,
-      movedCardSnapshot: { ...card, zone: 'library' },
+      movedCardSnapshot: movedCards[0] ? { ...movedCards[0] } : undefined,
+      movedCardSnapshots: movedCards.map((card) => ({ ...card })),
     });
   } catch (err) {
     debugWarn(1, '[Resolution] appendEvent(moveChosenHandCardToLibraryChoiceResolve) failed:', err);
   }
 
+  const movedCount = movedCards.length;
   io.to(gameId).emit('chat', {
     id: `m_${Date.now()}`,
     gameId,
     from: 'system',
-    message: `${sourceName}: ${getPlayerName(game, controllerId)} put a card from their hand on the ${position} of their library.`,
+    message: movedCount === 1
+      ? `${sourceName}: ${getPlayerName(game, controllerId)} put a card from their hand on the ${position} of their library.`
+      : `${sourceName}: ${getPlayerName(game, controllerId)} put ${movedCount} card(s) from their hand on the ${position} of their library.`,
     ts: Date.now(),
   });
+
+  // The following draw ("that many cards plus one") reads this count, not the count plus one.
+  stepData.oracleIrReferenceAmount = movedCount;
 
   // Oracle IR bridge prompts (oracleIrServerHandCardToLibraryPrompts) carry any steps that follow
   // the move ("..., then shuffle", etc.); continue them now that the card is placed.

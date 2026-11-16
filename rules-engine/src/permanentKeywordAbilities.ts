@@ -34,6 +34,8 @@ import {
 } from './oracleOwnKeywordText.js';
 import { readAttachmentTimestamp, readPermanentTimestamp, TIMESTAMP_BASE } from './permanentTimestamps.js';
 import { GRANT_LIST_FIELDS, readAbilityGrantTimestamp, readAbilityLossTimestamp } from './abilityEffectTimestamps.js';
+import { sparkRuptureAbilityLossTimestamp } from './batch97SparkAbilityLoss.js';
+import { batch105CreaturesLoseAllAbilitiesFromBattlefield } from './batch105KeywordLoss';
 import {
   indexedAttachmentCandidates,
   indexedLossSources,
@@ -443,6 +445,7 @@ export function permanentKeywordLossTimestamp(perm: any, keyword: string, battle
   let latest: number | undefined;
   const note = (ts: number | undefined) => { const v = ts ?? Infinity; latest = latest === undefined ? v : Math.max(latest, v); };
   if (perm.losesAllAbilities === true || perm.lostAllAbilities === true) note(readAbilityLossTimestamp(perm, 'all abilities'));
+  if (batch105CreaturesLoseAllAbilitiesFromBattlefield(perm, battlefield)) note(Infinity);
   const removed = [
     ...stringEntries(perm.removedKeywords),
     ...stringEntries(perm.lostKeywords),
@@ -474,6 +477,10 @@ export function permanentKeywordLossTimestamp(perm: any, keyword: string, battle
         if (grantApplies(grant, source, perm, battlefield)) { note(readPermanentTimestamp(source)); break; }
       }
     }
+  }
+  if (kw === 'all abilities' || kw === 'all') {
+    const sparkTs = sparkRuptureAbilityLossTimestamp(perm, battlefield);
+    if (sparkTs !== undefined) note(sparkTs);
   }
   return latest;
 }
@@ -513,6 +520,8 @@ function keywordGrantedAfter(perm: any, kw: string, lossTs: number, battlefield?
  * True when `perm` currently has keyword ability `keyword`.
  * Pass the battlefield so equipment/aura/lord grants and removals are honored.
  */
+import { imprintExiledGrantsKeyword } from './imprintExiledKeywordGrants';
+
 export function permanentHasKeywordAbility(
   perm: any,
   keyword: string,
@@ -524,6 +533,7 @@ export function permanentHasKeywordAbility(
   if (lossTs !== undefined) return keywordGrantedAfter(perm, kw, lossTs, battlefield);
   if (ownSourcesHaveKeyword(perm, kw)) return true;
   if (attachmentGrantsKeywordTo(perm, kw, battlefield)) return true;
+  if (imprintExiledGrantsKeyword(perm, kw, { battlefield })) return true;
   return battlefieldGrantsKeywordTo(perm, kw, battlefield);
 }
 

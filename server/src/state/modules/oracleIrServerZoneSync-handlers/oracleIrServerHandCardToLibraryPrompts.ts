@@ -19,6 +19,10 @@ import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/ind
 import { attachOracleIrResumeMetadata, isOracleIrPlayerChoiceGap } from '../oracleIrServerPromptResumeUtils.js';
 
 const SINGLE_CARD_FROM_YOUR_HAND = /^(?:a|an|one) card from your hand$/i;
+const ANY_NUMBER_FROM_YOUR_HAND = /^any number of cards from your hand$/i;
+
+/** Option id for "put none of them" on an any-number hand-to-library choice. */
+export const PUT_NO_HAND_CARDS_OPTION_ID = '__put_no_cards__';
 
 /** "top" / "bottom" for a mandatory single-card hand-to-library move step, otherwise null. */
 export function readHandCardToLibraryPlacement(step: unknown): 'top' | 'bottom' | null {
@@ -27,7 +31,10 @@ export function readHandCardToLibraryPlacement(step: unknown): 'top' | 'bottom' 
   const raw = String((moveStep as any).raw || '').trim();
   if ((moveStep as any).optional === true || /^(?:then\s+)?you may\b/i.test(raw)) return null;
   const whatText = String((moveStep.what as any)?.text || (moveStep.what as any)?.raw || '').trim();
-  if (!SINGLE_CARD_FROM_YOUR_HAND.test(whatText)) return null;
+  const anyNumber = ANY_NUMBER_FROM_YOUR_HAND.test(whatText);
+  if (!anyNumber && !SINGLE_CARD_FROM_YOUR_HAND.test(whatText)) return null;
+  // "Shuffle any number of cards from your hand into your library" is not an ordered bottom/top put.
+  if (anyNumber && /\bshuffles?\b/i.test(raw)) return null;
   const toRaw = String((moveStep as any).toRaw || '').toLowerCase();
   if (/\bbottom\b/.test(toRaw)) return 'bottom';
   if (/\btop\b/.test(toRaw)) return 'top';
@@ -36,6 +43,13 @@ export function readHandCardToLibraryPlacement(step: unknown): 'top' | 'bottom' 
 
 export function isHandCardToLibraryChoiceStep(step: unknown): boolean {
   return readHandCardToLibraryPlacement(step) !== null;
+}
+
+export function isAnyNumberHandCardToLibraryStep(step: unknown): boolean {
+  if (readHandCardToLibraryPlacement(step) === null) return false;
+  const moveStep = step as Extract<OracleEffectStep, { kind: 'move_zone' }> | undefined;
+  const whatText = String((moveStep?.what as any)?.text || (moveStep?.what as any)?.raw || '').trim();
+  return ANY_NUMBER_FROM_YOUR_HAND.test(whatText);
 }
 
 function readControllerHand(state: any, controller: string): any[] {
@@ -81,22 +95,29 @@ export function queueHandCardToLibraryChoicePromptsFromOracleIRResult(
 
     const hand = readControllerHand(state, controller);
     if (hand.length === 0) continue;
+    const anyNumber = isAnyNumberHandCardToLibraryStep(step);
+    const cardOptions = hand.map((card: any) => ({
+      id: String(card?.id || ''),
+      label: String(card?.name || 'Card'),
+      description: String(card?.type_line || ''),
+    }));
 
     ResolutionQueueManager.addStep(gameId, attachOracleIrResumeMetadata({
       type: ResolutionStepType.OPTION_CHOICE,
       playerId: controller as PlayerID,
-      description: `${sourceName}: Choose a card from your hand to put on the ${placement} of your library.`,
+      description: anyNumber
+        ? `${sourceName}: Choose any number of cards from your hand to put on the ${placement} of your library, in order. The last card you choose is the ${placement} card. Choose "Put no cards" to leave your hand as it is.`
+        : `${sourceName}: Choose a card from your hand to put on the ${placement} of your library.`,
       mandatory: true,
       sourceId,
       sourceName,
-      options: hand.map((card: any) => ({
-        id: String(card?.id || ''),
-        label: String(card?.name || 'Card'),
-        description: String(card?.type_line || ''),
-      })),
+      options: anyNumber
+        ? [...cardOptions, { id: PUT_NO_HAND_CARDS_OPTION_ID, label: 'Put no cards', description: 'Leave your hand unchanged.' }]
+        : cardOptions,
       minSelections: 1,
-      maxSelections: 1,
+      maxSelections: anyNumber ? Math.max(1, cardOptions.length) : 1,
       moveChosenHandCardToLibraryChoice: true,
+      moveChosenHandCardToLibraryAnyNumber: anyNumber,
       moveChosenHandCardToLibraryController: controller,
       moveChosenHandCardToLibrarySourceName: sourceName,
       moveChosenHandCardToLibrarySourceId: sourceId,

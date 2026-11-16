@@ -40,7 +40,7 @@ describe('round 14: leftover wordings parse', () => {
     expect(cond("At the beginning of the end step of enchanted creature's controller, draw a card.")).toMatchObject({ event: 'beginning_of_end_step', whoseTurn: 'enchanted_controller' });
     expect(cond('Whenever you play a land, draw a card.')).toMatchObject({ event: 'plays_land' });
   });
-  it('legacy-runtime wordings', () => {
+  it('former legacy-runtime wordings now parse as IR', () => {
     for (const t of [
       'Whenever a creature you control explores, draw a card.',
       'Whenever you play a land or cast a spell, draw a card.',
@@ -48,6 +48,11 @@ describe('round 14: leftover wordings parse', () => {
       "At the beginning of combat on each opponent's turn, draw a card.",
       'Whenever a player attacks enchanted player with one or more creatures, draw a card.',
       'When that creature leaves the battlefield this turn, draw a card.',
-    ]) expect(cond(t)).toMatchObject({ legacyRuntimeOnly: true });
+    ]) {
+      // Rounds 55-65 promoted these wordings to IR: they parse to an event and are no longer legacy-only.
+      const c = cond(t) as any;
+      expect(c?.event).toBeTruthy();
+      expect(c?.legacyRuntimeOnly).not.toBe(true);
+    }
   });
 });

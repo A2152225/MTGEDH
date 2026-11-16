@@ -49,7 +49,7 @@ export function queueDiesTriggersForOracleIrRemovals(
       if (/\bcreature\b/i.test(String(perm?.card?.type_line || ''))) recordCreatureDeath(state, perm);
       const triggers = mergeDeathTriggers(
         getDeathTriggers(ctx, perm, controller),
-        getKeywordDeathTriggersForPermanent(perm, controller),
+        getKeywordDeathTriggersForPermanent(perm, controller, (ctx as any)?.state),
       ).filter((trigger: any) => {
         const sourceId = String(trigger?.source?.permanentId || '');
         const sourcePerm = (state.battlefield || []).find((p: any) => String(p?.id || '') === sourceId)

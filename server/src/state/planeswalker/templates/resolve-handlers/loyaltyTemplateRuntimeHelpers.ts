@@ -19,6 +19,7 @@ import { buildDurablePlayableFromExilePermission, upsertDurablePermission } from
 import { applyDamageToPermanentWithCounterEffects } from "../../../modules/counter-common-effects.js";
 import { applyCreatureDamageFromSource } from "../../../modules/combat-damage-processing.js";
 import { pushCardToPlayerGraveyardWithReplacements } from "../../../modules/graveyardEntryUtils.js";
+import { maybeQueueLibraryOfLengDiscardChoices } from "../../../modules/libraryOfLengDiscardChoice.js";
 import { getBattlefield, modifyLifeLikeStack } from "../utils.js";
 import { markPermanentDealtDamage } from "../../../modules/damageDealtFlag.js";
 
@@ -28,11 +29,13 @@ export function discardHandCardsToGraveyard(
   hand: any[],
   graveyard: any[],
 ): void {
+  const entered: any[] = [];
   for (const card of hand) {
-    if (card) {
-      pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), card, graveyard);
+    if (card && pushCardToPlayerGraveyardWithReplacements(ctx, String(playerId), card, graveyard)) {
+      entered.push(graveyard[graveyard.length - 1]);
     }
   }
+  maybeQueueLibraryOfLengDiscardChoices(ctx, String(playerId), entered);
 }
 
 

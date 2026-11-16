@@ -25,6 +25,19 @@ function getZoneCount(player: PlayerLike | null, zone: string): number | null {
   return null;
 }
 
+function cardCountsAsNamedInGraveyard(
+  card: any,
+  wantedName: string,
+  normalizeOracleText: NormalizeOracleText,
+): boolean {
+  const name = normalizeOracleText(String(card?.name || card?.card?.name || ''));
+  if (name && name === wantedName) return true;
+  const oracle = String(card?.oracle_text || card?.card?.oracle_text || '');
+  const m = oracle.match(/if this card is in a graveyard, effects from spells named ([^.]+) count it as a card named ([^.]+)/i);
+  if (!m) return false;
+  return normalizeOracleText(String(m[2] || m[1] || '').replace(/\.$/, '')) === wantedName;
+}
+
 export function tryEvaluateModifyPtWhereZoneCardCounts(args: {
   state: GameState;
   controllerId: string;
@@ -216,6 +229,20 @@ export function tryEvaluateModifyPtWhereZoneCardCounts(args: {
       if (!controller) return null;
       const gy = Array.isArray(controller.graveyard) ? controller.graveyard : [];
       return gy.filter((card: any) => normalizeOracleText(String((card as any)?.name || '')) === wantedName).length;
+    }
+  }
+
+  {
+    const m = raw.match(/^x is (\d+) plus the number of cards? named ([a-z0-9 ,.'\u2019-]+) in all graveyards$/i);
+    if (m) {
+      const base = Number(m[1]);
+      const wantedName = normalizeOracleText(String(m[2] || ''));
+      if (!wantedName || !Number.isFinite(base)) return null;
+      const count = (state.players || []).reduce((sum, p: any) => {
+        const gy = Array.isArray((p as any)?.graveyard) ? (p as any).graveyard : [];
+        return sum + gy.filter((card: any) => cardCountsAsNamedInGraveyard(card, wantedName, normalizeOracleText)).length;
+      }, 0);
+      return base + count;
     }
   }
 

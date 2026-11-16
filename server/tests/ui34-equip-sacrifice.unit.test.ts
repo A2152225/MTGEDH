@@ -36,4 +36,19 @@ describe('UI34 Equip\u2014Sacrifice a creature', () => {
     expect(game.state.battlefield.some((p: any) => p.id === 'b')).toBe(false);
     expect(queued.sacrificedPermanentsForCost).toEqual(['b']);
   });
+
+  it('parses Equip—Sacrifice another nonland permanent and excludes lands and the equipment', () => {
+    const abilities = parseEquipAbilitiesFromOracle("Equip\u2014Sacrifice another nonland permanent. Activate only once each turn.");
+    expect(abilities[0].cost).toBe('Sacrifice another nonland permanent');
+    expect(parseEquipSacrificeCost(abilities[0].cost)).toBe('nonland_permanent');
+    const state = {
+      battlefield: [
+        { id: 'eq', controller: 'p1', card: { type_line: 'Artifact \u2014 Equipment' } },
+        { id: 'sol', controller: 'p1', card: { type_line: 'Artifact' } },
+        { id: 'forest', controller: 'p1', card: { type_line: 'Basic Land \u2014 Forest' } },
+        { id: 'bear', controller: 'p1', card: { type_line: 'Creature \u2014 Bear' } },
+      ],
+    };
+    expect(equipSacrificeCandidates(state, 'p1', abilities[0].cost, ['eq', 'bear']).map((p: any) => p.id)).toEqual(['sol']);
+  });
 });

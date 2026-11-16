@@ -10,6 +10,7 @@ import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.
 import { broadcastGame } from '../../socket/util.js';
 import { debugWarn } from '../../utils/debug.js';
 import { queueParsedKeywordAction } from './triggerEmissionFamilyUtils.js';
+import { shouldForceFirstFlipHeadsAndWin, markCoinFlipEventThisTurn } from '../../../../rules-engine/src/batch97CoinFlipForce.js';
 
 const MAX_FLIPS = 32;
 
@@ -59,8 +60,15 @@ export function resolveFlipCoinLifeStakesIteration(
   const opponentId = String(options.opponentId);
   const stake = Math.max(1, Math.floor(Number(options.stake) || 1));
   const call: 'heads' | 'tails' = 'heads';
-  const result = generateCoinFlipResultWithIgnoreOne(state, controllerId, { call });
-  const won = result === call;
+  let result = generateCoinFlipResultWithIgnoreOne(state, controllerId, { call });
+  let won = result === call;
+  try {
+    if (shouldForceFirstFlipHeadsAndWin(state, controllerId)) {
+      result = 'heads';
+      won = true;
+      markCoinFlipEventThisTurn(state, controllerId);
+    }
+  } catch { /* hook optional */ }
 
   if (won) {
     applyLifeDelta(state, controllerId, stake);

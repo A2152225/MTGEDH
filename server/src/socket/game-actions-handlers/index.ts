@@ -79,6 +79,7 @@ export {
   handleRestartGameRequest,
   handleUnkeepHandRequest,
 } from "./gameActionsPregameSocketHandlers.js";
+export { handleSerumPowderHandRestartRequest, playerCanUseSerumPowder } from "./gameActionsSerumPowderSocketHandlers.js";
 
 // Life, mill, and house-rules socket handlers lifted out of registerGameActions.
 export {

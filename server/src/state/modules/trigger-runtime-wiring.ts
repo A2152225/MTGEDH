@@ -183,6 +183,8 @@ export function isControllerOptionalTriggeredAbilityEffect(effectText: string): 
   // Leading clause only: "Mill five. You may put …" is mandatory + optional resolution step.
   const withoutEventPrefix = lower
     .replace(/^(?:whenever|when|at the beginning of)[\s\S]*?,\s*/i, '')
+    // Leading intervening-if ("if this card is in your graveyard and it's your turn, you may cast it ...").
+    .replace(/^if\b[^,]*,\s*(?=you may\b)/i, '')
     .trim();
   return /^you may\b/.test(withoutEventPrefix);
 }

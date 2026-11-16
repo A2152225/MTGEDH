@@ -134,6 +134,8 @@ export function evaluateSelectedTargetLegality(
         controllerId: sourceInfo.controllerId,
         colors: sourceInfo.colors,
         objectType: sourceInfo.objectType,
+        oracleText: (sourceInfo as any).oracleText,
+        card: (sourceInfo as any).card,
       });
       return {
         legal: result.canTarget,
@@ -252,6 +254,8 @@ export function isStackTargetCurrentlyLegal(state: GameState, stackObject: Stack
           : {}),
         objectType: stackObject.type === 'ability' ? 'ability' : 'spell',
         ...(this.getStackSourceTypeName(stackObject) ? { typeName: this.getStackSourceTypeName(stackObject) } : {}),
+        oracleText: String((stackObject as any)?.card?.oracle_text || (stackObject as any)?.oracle_text || ''),
+        card: (stackObject as any)?.card || stackObject,
       }
     ).legal;
   }

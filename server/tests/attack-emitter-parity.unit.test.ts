@@ -4,6 +4,11 @@ import {
   getAttackTriggersForCreatures,
 } from '../src/state/modules/triggers/combat.js';
 
+// IR owns printed attack lines, so the emitter queues them as parsed_attacks; the legacy detector type name is also accepted.
+function isAttackTrigger(trigger: any, legacyType: string): boolean {
+  return trigger.triggerType === legacyType || trigger.triggerType === 'parsed_attacks';
+}
+
 function makeCtx(battlefield: any[], extraState: Record<string, unknown> = {}) {
   const state = {
     seq: 1,
@@ -56,7 +61,7 @@ describe('attack emitter — detector watchers fire for generic attack templates
       type_line: 'Creature — Dragon',
       oracle_text: 'Whenever a Dragon you control attacks, create a 6/6 red Dragon creature token with flying.',
     }, { id: 'hellkite_1', controller: 'p1' });
-    const found = triggers.find((trigger) => trigger.triggerType === 'typed_subtype_attacks');
+    const found = triggers.find((trigger) => isAttackTrigger(trigger, 'typed_subtype_attacks'));
     expect(found).toBeDefined();
     expect(String(found?.requiredTypePhrase || '')).toMatch(/dragon/i);
   });
@@ -77,7 +82,7 @@ describe('attack emitter — detector watchers fire for generic attack templates
     const triggers = collect([watcher, dragon], [dragon]);
     expect(triggers.some((trigger) => (
       trigger.permanentId === watcher.id
-      && trigger.triggerType === 'typed_subtype_attacks'
+      && isAttackTrigger(trigger, 'typed_subtype_attacks')
       && /dragon creature token/i.test(String(trigger.effect || trigger.description || ''))
     ))).toBe(true);
   });
@@ -116,7 +121,7 @@ describe('attack emitter — detector watchers fire for generic attack templates
     }, { attacking: 'p2' });
     const triggers = collect([watcher, bear], [watcher, bear]);
     const queued = triggers.filter((trigger) => (
-      trigger.permanentId === watcher.id && trigger.triggerType === 'another_creature_attacks'
+      trigger.permanentId === watcher.id && isAttackTrigger(trigger, 'another_creature_attacks')
     ));
     expect(queued).toHaveLength(1);
     expect((queued[0] as any).value?.attackingCreatureId).toBe(bear.id);
@@ -138,7 +143,7 @@ describe('attack emitter — detector watchers fire for generic attack templates
     const triggers = collect([watcher, bear], [bear], 'p2', 'p1');
     expect(triggers.some((trigger) => (
       trigger.permanentId === watcher.id
-      && trigger.triggerType === 'any_creature_attacks'
+      && isAttackTrigger(trigger, 'any_creature_attacks')
     ))).toBe(true);
   });
 
@@ -164,10 +169,10 @@ describe('attack emitter — detector watchers fire for generic attack templates
     }, { attacking: 'p2' });
 
     const whenOpponentAttacks = collect([watcher, enemy], [enemy], 'p2', 'p1');
-    expect(whenOpponentAttacks.some((trigger) => trigger.triggerType === 'opponent_creature_attacks')).toBe(true);
+    expect(whenOpponentAttacks.some((trigger) => isAttackTrigger(trigger, 'opponent_creature_attacks'))).toBe(true);
 
     const whenYouAttack = collect([watcher, friend], [friend], 'p1', 'p2');
-    expect(whenYouAttack.some((trigger) => trigger.triggerType === 'opponent_creature_attacks')).toBe(false);
+    expect(whenYouAttack.some((trigger) => isAttackTrigger(trigger, 'opponent_creature_attacks'))).toBe(false);
   });
 
   it('queues creature-attacks-alone only when exactly one creature attacks', () => {
@@ -219,10 +224,10 @@ describe('attack emitter — detector watchers fire for generic attack templates
     }, { attacking: 'p2' });
 
     const withCounter = collect([watcher, pumped], [pumped]);
-    expect(withCounter.some((trigger) => trigger.triggerType === 'counter_creature_attacks')).toBe(true);
+    expect(withCounter.some((trigger) => isAttackTrigger(trigger, 'counter_creature_attacks'))).toBe(true);
 
     const withoutCounter = collect([watcher, plain], [plain]);
-    expect(withoutCounter.some((trigger) => trigger.triggerType === 'counter_creature_attacks')).toBe(false);
+    expect(withoutCounter.some((trigger) => isAttackTrigger(trigger, 'counter_creature_attacks'))).toBe(false);
   });
 
   it('queues modified-creature attack watchers for equipped attackers', () => {
@@ -245,7 +250,7 @@ describe('attack emitter — detector watchers fire for generic attack templates
     }, { attachedTo: 'bear_1' });
 
     const triggers = collect([watcher, attacker, sword], [attacker]);
-    expect(triggers.some((trigger) => trigger.triggerType === 'modified_creature_attacks')).toBe(true);
+    expect(triggers.some((trigger) => isAttackTrigger(trigger, 'modified_creature_attacks'))).toBe(true);
   });
 
   it('queues low-power attack watchers only when power is at or below the printed threshold', () => {
@@ -269,8 +274,8 @@ describe('attack emitter — detector watchers fire for generic attack templates
       toughness: '5',
     }, { attacking: 'p2', basePower: 5, baseToughness: 5 });
 
-    expect(collect([watcher, small], [small]).some((trigger) => trigger.triggerType === 'low_power_creature_attacks')).toBe(true);
-    expect(collect([watcher, large], [large]).some((trigger) => trigger.triggerType === 'low_power_creature_attacks')).toBe(false);
+    expect(collect([watcher, small], [small]).some((trigger) => isAttackTrigger(trigger, 'low_power_creature_attacks'))).toBe(true);
+    expect(collect([watcher, large], [large]).some((trigger) => isAttackTrigger(trigger, 'low_power_creature_attacks'))).toBe(false);
   });
 
   it('queues curse attack watchers when the enchanted player is attacked', () => {
@@ -287,7 +292,7 @@ describe('attack emitter — detector watchers fire for generic attack templates
       toughness: '2',
     }, { attacking: 'p2' });
     const triggers = collect([curse, bear], [bear]);
-    expect(triggers.some((trigger) => trigger.triggerType === 'curse_attack')).toBe(true);
+    expect(triggers.some((trigger) => isAttackTrigger(trigger, 'curse_attack'))).toBe(true);
   });
 
   it('queues two-or-more opponent-creature attack watchers once', () => {
@@ -312,12 +317,12 @@ describe('attack emitter — detector watchers fire for generic attack templates
     }, { attacking: 'p1' });
 
     const two = collect([watcher, a, b], [a, b], 'p2', 'p1').filter((trigger) => (
-      trigger.triggerType === 'opponents_two_or_more_creatures_attack'
+      isAttackTrigger(trigger, 'opponents_two_or_more_creatures_attack')
     ));
     expect(two).toHaveLength(1);
 
     const one = collect([watcher, a], [a], 'p2', 'p1');
-    expect(one.some((trigger) => trigger.triggerType === 'opponents_two_or_more_creatures_attack')).toBe(false);
+    expect(one.some((trigger) => isAttackTrigger(trigger, 'opponents_two_or_more_creatures_attack'))).toBe(false);
   });
 
   it('detects self attacks-or-blocks without collapsing it to a generic attacks trigger', () => {
@@ -352,7 +357,7 @@ describe('attack emitter — detector watchers fire for generic attack templates
     }, { attacking: 'p2' });
 
     const triggers = collect([watcher, merfolk, human], [merfolk, human]);
-    const queued = triggers.filter((trigger) => trigger.triggerType === 'chosen_type_creature_etb_or_attack');
+    const queued = triggers.filter((trigger) => isAttackTrigger(trigger, 'chosen_type_creature_etb_or_attack'));
     expect(queued).toHaveLength(1);
     expect((queued[0] as any).value?.attackingCreatureId).toBe(merfolk.id);
   });
@@ -373,7 +378,7 @@ describe('attack emitter — detector watchers fire for generic attack templates
     const triggers = collect([commander, background], [commander]);
     expect(triggers.some((trigger) => (
       trigger.permanentId === commander.id
-      && trigger.triggerType === 'attacks'
+      && isAttackTrigger(trigger, 'attacks')
       && /put a \+1\/\+1 counter/i.test(String(trigger.description || ''))
     ))).toBe(true);
   });
@@ -398,7 +403,7 @@ describe('attack emitter — detector watchers fire for generic attack templates
       power: '2',
       toughness: '2',
     }, { attacking: 'p2' });
-    const queued = collect([watcher, a, b], [a, b]).filter((trigger) => trigger.triggerType === 'creature_attacks');
+    const queued = collect([watcher, a, b], [a, b]).filter((trigger) => isAttackTrigger(trigger, 'creature_attacks'));
     expect(queued).toHaveLength(2);
   });
 
@@ -425,13 +430,13 @@ describe('attack emitter — detector watchers fire for generic attack templates
     }, { attacking: 'p1' });
 
     const whenGoadedAttacks = collect([ancestor, goaded], [goaded], 'p2', 'p1');
-    const goadedQueued = whenGoadedAttacks.filter((trigger) => trigger.triggerType === 'goaded_creature_attacks');
+    const goadedQueued = whenGoadedAttacks.filter((trigger) => isAttackTrigger(trigger, 'goaded_creature_attacks'));
     expect(goadedQueued).toHaveLength(1);
     expect(goadedQueued[0]?.permanentId).toBe(ancestor.id);
     expect((goadedQueued[0] as any).value?.attackingCreatureId).toBe(goaded.id);
 
     const whenUngoadedAttacks = collect([ancestor, ungoaded], [ungoaded], 'p2', 'p1');
-    expect(whenUngoadedAttacks.some((trigger) => trigger.triggerType === 'goaded_creature_attacks')).toBe(false);
+    expect(whenUngoadedAttacks.some((trigger) => isAttackTrigger(trigger, 'goaded_creature_attacks'))).toBe(false);
   });
 
   it('queues flying-creature watchers for any attacking flyer, not just yours', () => {
@@ -458,11 +463,11 @@ describe('attack emitter — detector watchers fire for generic attack templates
 
     const whenFlyerAttacks = collect([well, flyer], [flyer], 'p2', 'p1');
     expect(whenFlyerAttacks.some((trigger) => (
-      trigger.triggerType === 'flying_creature_attacks' && (trigger as any).value?.attackingCreatureId === flyer.id
+      isAttackTrigger(trigger, 'flying_creature_attacks') && (trigger as any).value?.attackingCreatureId === flyer.id
     ))).toBe(true);
 
     const whenGroundedAttacks = collect([well, grounded], [grounded], 'p2', 'p1');
-    expect(whenGroundedAttacks.some((trigger) => trigger.triggerType === 'flying_creature_attacks')).toBe(false);
+    expect(whenGroundedAttacks.some((trigger) => isAttackTrigger(trigger, 'flying_creature_attacks'))).toBe(false);
   });
 
   it('queues typed color-creature watchers only for matching attackers you control', () => {
@@ -491,7 +496,7 @@ describe('attack emitter — detector watchers fire for generic attack templates
     const detected = detectAttackTriggers(linden.card, linden);
     expect(String(detected.find((trigger) => trigger.triggerType === 'typed_creature_attacks')?.requiredTypePhrase || '')).toMatch(/white/i);
 
-    const queued = collect([linden, white, red], [white, red]).filter((trigger) => trigger.triggerType === 'typed_creature_attacks');
+    const queued = collect([linden, white, red], [white, red]).filter((trigger) => isAttackTrigger(trigger, 'typed_creature_attacks'));
     expect(queued).toHaveLength(1);
     expect((queued[0] as any).value?.attackingCreatureId).toBe(white.id);
   });
@@ -525,11 +530,11 @@ describe('attack emitter — detector watchers fire for generic attack templates
     }, { attacking: 'p2' });
 
     const withGoblins = collect([watcher, goblin, extraGoblin], [goblin, extraGoblin])
-      .filter((trigger) => trigger.triggerType === 'one_or_more_typed_attack');
+      .filter((trigger) => isAttackTrigger(trigger, 'one_or_more_typed_attack'));
     expect(withGoblins).toHaveLength(1);
 
     const withBear = collect([watcher, bear], [bear]);
-    expect(withBear.some((trigger) => trigger.triggerType === 'one_or_more_typed_attack')).toBe(false);
+    expect(withBear.some((trigger) => isAttackTrigger(trigger, 'one_or_more_typed_attack'))).toBe(false);
   });
 
   it('queues multi-typed you-control attacks for Elf or Goblin, not Bears', () => {
@@ -556,7 +561,7 @@ describe('attack emitter — detector watchers fire for generic attack templates
     const detected = detectAttackTriggers(watcher.card, watcher);
     expect(String(detected.find((trigger) => trigger.triggerType === 'multi_typed_you_control_attacks')?.requiredTypePhrase || '')).toMatch(/elf/i);
 
-    const queued = collect([watcher, elf, bear], [elf, bear]).filter((trigger) => trigger.triggerType === 'multi_typed_you_control_attacks');
+    const queued = collect([watcher, elf, bear], [elf, bear]).filter((trigger) => isAttackTrigger(trigger, 'multi_typed_you_control_attacks'));
     expect(queued).toHaveLength(1);
     expect((queued[0] as any).value?.attackingCreatureId).toBe(elf.id);
   });

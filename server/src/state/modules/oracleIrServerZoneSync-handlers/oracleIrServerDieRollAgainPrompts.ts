@@ -12,6 +12,7 @@ import type { OracleIRExecutionContext, OracleIRExecutionResult } from '../../..
 import type { GameContext } from '../../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
 import { extractWarpWorldChoiceId } from './oracleIrServerWarpWorldChoicePrompts.js';
+import { maybeQueueDiceExchangeFromLastDieRoll } from '../diceExchangeBasePTPrompt.js';
 
 /** The roll_die + die_roll_results pair that re-runs the table whose band offered the re-roll. */
 export function buildDieRollAgainSteps(pending: any, steps: readonly any[]): OracleEffectStep[] | null {
@@ -30,6 +31,7 @@ export function queueDieRollAgainPromptFromOracleIRResult(
   result: OracleIRExecutionResult,
   params: { controller: PlayerID; sourceName?: string; sourceId?: string; irCtx: OracleIRExecutionContext },
 ): void {
+  maybeQueueDiceExchangeFromLastDieRoll(ctx, state, result);
   const pending = state?.pendingDieRollAgain;
   if (!pending) return;
   const gameId = String((ctx as any).gameId || '').trim();

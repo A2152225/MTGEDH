@@ -8,10 +8,7 @@
  */
 
 import type { Server, Socket } from "socket.io";
-import { appendEvent } from "../../db";
 import { adjustActivationManaCostForPayment } from "../../state/modules/ability-cost-adjustments.js";
-import { pushCardToPlayerGraveyardWithReplacements } from "../../state/modules/graveyardEntryUtils.js";
-import { ResolutionStepType } from "../../state/resolution/index.js";
 import {
   broadcastGame,
   calculateTotalAvailableMana,
@@ -24,10 +21,10 @@ import {
 } from "../util";
 import { isSplitSecondLockActive } from "./interactionActivateBattlefieldAbilityHelpers.js";
 import { getCyclingDefinitionForActivation, resolveCyclingCostX } from "./interactionCyclingActivationDefinitions.js";
+import { canPayLifeAmount } from "../../state/modules/batch97PayLife.js";
+import { completeCyclingAfterCostPaid, parseCyclingPayLifeAmount, queueCyclingPayLifePrompt } from "./cyclingPayLifeCost.js";
 import { getGrantedCyclingCost, cardHasPrintedCycling } from "../../state/modules/handCyclingGrants.js";
 import { cyclingProhibitionReason } from "../../state/modules/cycleRestrictionFamilies.js";
-import { queueCycleTriggeredAbilities } from "../../state/modules/triggers/cycle.js";
-import { queueDiscardTriggeredAbilities } from "../../state/modules/triggers/discard.js";
 
 export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: Socket): void {
   // ============================================================================
@@ -343,6 +340,29 @@ export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: 
       return;
     }
     const cyclingXValue = cyclingHasX ? xValue : undefined;
+    const cyclingPayLifeAmount = parseCyclingPayLifeAmount(cyclingCostStr);
+    if (cyclingPayLifeAmount) {
+      if (!canPayLifeAmount(game.state, String(pid), cyclingPayLifeAmount)) {
+        socket.emit('error', {
+          code: 'CANNOT_PAY_COST',
+          message: `You can't pay ${cyclingPayLifeAmount} life.`,
+        });
+        return;
+      }
+      queueCyclingPayLifePrompt({
+        game,
+        gameId,
+        playerId: String(pid),
+        card,
+        cardId: String(cardId),
+        abilityId: normalizedAbilityId,
+        amount: cyclingPayLifeAmount,
+        xValue: cyclingXValue,
+      });
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
     const resolvedCyclingCost = cyclingHasX ? resolveCyclingCostX(cyclingCostStr, xValue as number) : cyclingCostStr;
     const costAdjustment = adjustActivationManaCostForPayment({
       state: game.state,
@@ -378,79 +398,27 @@ export function registerReplacementAndCyclingSocketHandlers(io: Server, socket: 
     // Consume the mana from the pool (costs are paid when activating)
     consumeManaFromPool(manaPool, parsedCost.colors, parsedCost.generic);
 
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
+    const completedCycling = completeCyclingAfterCostPaid({
+      io,
+      game,
       gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} paid ${effectiveCyclingCost} to activate ${cyclingDefinition.keywordLabel} on ${cardName}.`,
-      ts: Date.now(),
-    });
-
-    // Discard the card (cost is paid immediately)
-    zones.hand.splice(handIndex, 1);
-    zones.graveyard = zones.graveyard || [];
-    const cyclingCtx = {
-      state: game.state,
-      libraries: (game as any).libraries,
-      bumpSeq: typeof game.bumpSeq === 'function' ? game.bumpSeq.bind(game) : (() => {}),
-      rng: (game as any).rng,
-      gameId,
-    } as any;
-    pushCardToPlayerGraveyardWithReplacements(cyclingCtx, String(pid), card, zones.graveyard);
-    zones.handCount = zones.hand.length;
-    zones.graveyardCount = zones.graveyard.length;
-
-    game.state.stack = game.state.stack || [];
-    const abilityStackId = `ability_cycling_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    game.state.stack.push({
-      id: abilityStackId,
-      type: 'ability',
-      controller: pid,
-      source: cardId,
-      sourceName: cardName,
-      description: cyclingDefinition.stackDescription,
-      abilityType: cyclingDefinition.kind,
+      playerId: String(pid),
+      cardId: String(cardId),
       abilityId: normalizedAbilityId,
-      cardId: cardId,
-      cardName: cardName,
-      searchCriteria: cyclingDefinition.searchCriteria,
-      searchFilter: cyclingDefinition.searchFilter,
-      ...(typeof cyclingXValue === "number" ? { xValue: cyclingXValue } : null),
-    } as any);
-
-    io.to(gameId).emit("chat", {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: "system",
-      message: `${getPlayerName(game, pid)} activated ${cyclingDefinition.keywordLabel} on ${cardName} (on the stack).`,
-      ts: Date.now(),
+      cyclingDefinition,
+      xValue: cyclingXValue,
+      costPaidLabel: effectiveCyclingCost,
     });
-
-    if (typeof game.bumpSeq === "function") {
-      game.bumpSeq();
+    if (!completedCycling) {
+      socket.emit("error", {
+        code: "CARD_NOT_IN_HAND",
+        message: "Card not found in hand",
+      });
+      return;
     }
 
-    appendEvent(gameId, (game.state as any).seq ?? 0, "activateCycling", {
-      playerId: pid,
-      cardId,
-      cardName,
-      abilityId: normalizedAbilityId,
-      cyclingCost: effectiveCyclingCost,
-      ...(typeof cyclingXValue === "number" ? { xValue: cyclingXValue } : null),
-      stackId: abilityStackId,
-      stackAbilityType: cyclingDefinition.kind,
-      stackDescription: cyclingDefinition.stackDescription,
-      searchCriteria: cyclingDefinition.searchCriteria,
-      searchFilter: cyclingDefinition.searchFilter,
-    });
-
-    // "When you cycle this card" and "whenever you/a player cycle(s) [or discard(s)]" triggers go on
-    // the stack above the cycling ability; cycling also discards the card (discard triggers).
-    const cycledCardSnapshot = { ...card };
-    queueCycleTriggeredAbilities(cyclingCtx, String(pid), cycledCardSnapshot, { xValue: cyclingXValue });
-    queueDiscardTriggeredAbilities(cyclingCtx, String(pid), [cycledCardSnapshot], { fromCycling: true });
-
     broadcastGame(io, game, gameId);
+    return;
     }
   );
 }

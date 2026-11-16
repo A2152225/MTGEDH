@@ -3,6 +3,8 @@
 // Battlefield grant of encore to matching graveyard creature cards. Cost is {N} with N = mana value.
 // Public entry symbols: oracleGrantsGraveyardEncore, cardHasPrintedEncore, getGrantedEncoreCost.
 
+import { parseGyCardsHaveEncore } from './batch106Parsers.js';
+
 const GRANT_RE =
   /\beach (?:([a-z][a-z'-]*) )?creature card in your graveyard has encore \{x\}, where x is its mana value\b/i;
 
@@ -12,13 +14,20 @@ function lowerOracle(card: any): string {
 
 export type GraveyardEncoreGrant = {
   creatureType?: string;
+  artifactOnly?: boolean;
+  costMode?: 'mana_value' | 'mana_cost';
 };
 
 export function oracleGrantsGraveyardEncore(oracle: string): GraveyardEncoreGrant | null {
+  const parsed = parseGyCardsHaveEncore(oracle);
+  if (parsed) {
+    const typ = parsed.creatureType ? parsed.creatureType.charAt(0).toUpperCase() + parsed.creatureType.slice(1) : undefined;
+    return { creatureType: typ, artifactOnly: parsed.artifactOnly, costMode: parsed.costMode };
+  }
   const m = String(oracle || '').toLowerCase().replace(/\u2019/g, "'").match(GRANT_RE);
   if (!m) return null;
   const creatureType = m[1] ? m[1].charAt(0).toUpperCase() + m[1].slice(1) : undefined;
-  return { creatureType };
+  return { creatureType, costMode: 'mana_value' };
 }
 
 export function cardHasPrintedEncore(card: any): boolean {
@@ -59,6 +68,11 @@ export function getGrantedEncoreCost(state: any, playerId: string, card: any): s
     const grant = oracleGrantsGraveyardEncore(p.card?.oracle_text);
     if (!grant) continue;
     if (grant.creatureType && !typeLineHasCreatureType(String(card.type_line || ''), grant.creatureType)) continue;
+    if (grant.artifactOnly && !/\bartifact\b/i.test(String(card.type_line || ''))) continue;
+    if (grant.costMode === 'mana_cost') {
+      const cost = String(card?.mana_cost || card?.manaCost || '').trim();
+      if (cost) return cost;
+    }
     const mv = cardManaValue(card);
     return `{${mv}}`;
   }

@@ -22,13 +22,20 @@ function costLength(cost: string): number {
   return n;
 }
 
-/** Prefer the cheaper of two mana equip costs (lower converted symbols). */
+function isManaEquipCost(cost: string): boolean {
+  return /\{[^}]+\}/.test(cost) && !/\b(sacrifice|discard|pay\s+\d+\s+life)\b/i.test(cost);
+}
+
+/** Prefer the cheaper of two mana equip costs (lower converted symbols). Non-mana costs are left alone. */
 export function cheaperEquipCost(a: string | null | undefined, b: string | null | undefined): string | null {
-  const left = a ? String(a).replace(/\s+/g, '') : null;
-  const right = b ? String(b).replace(/\s+/g, '') : null;
-  if (!left) return right;
-  if (!right) return left;
-  return costLength(right) < costLength(left) ? right : left;
+  const rawA = a ? String(a) : null;
+  const rawB = b ? String(b) : null;
+  if (rawA && !isManaEquipCost(rawA)) return rawA;
+  if (!rawA) return rawB;
+  if (!rawB || !isManaEquipCost(rawB)) return rawA;
+  const left = rawA.replace(/\s+/g, '');
+  const right = rawB.replace(/\s+/g, '');
+  return costLength(right) < costLength(left) ? rawB : rawA;
 }
 
 export function getGrantedEquipmentEquipCost(state: any, controllerId: string): string | null {

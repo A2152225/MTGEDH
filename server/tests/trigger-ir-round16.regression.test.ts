@@ -25,7 +25,8 @@ describe('round 16: Adventure spell now IR', () => {
     expect(triggerConditionMatches(c, { id: 's', typeLine: 'Creature - Human', controllerId: 'p1' } as any, src)).toBe(false);
   });
 });
-describe('round 16: legacy-runtime tail', () => {
+// Rounds 55-65 promoted these wordings to real IR (previously legacyRuntimeOnly); they must parse to an event and no longer be flagged legacy-only.
+describe('round 16: former legacy-runtime tail now parses as IR', () => {
   const legacy = [
     'Whenever you roll a 1, draw a card.',
     'Whenever you cast a spell with {X} in its mana cost, draw a card.',
@@ -35,9 +36,15 @@ describe('round 16: legacy-runtime tail', () => {
     'Whenever one or more other creatures die, draw a card.',
   ];
   for (const text of legacy) {
-    it(text, () => expect(cond(text)).toMatchObject({ legacyRuntimeOnly: true }));
+    it(text, () => {
+      const c = cond(text);
+      expect(c?.event).toBeTruthy();
+      expect(c?.legacyRuntimeOnly).not.toBe(true);
+    });
   }
   it('dealt damage by ~ this turn dies', () => {
-    expect(cond('Whenever a creature dealt damage by Madame Vastra this turn dies, draw a card.', 'Madame Vastra')).toMatchObject({ legacyRuntimeOnly: true });
+    const c = cond('Whenever a creature dealt damage by Madame Vastra this turn dies, draw a card.', 'Madame Vastra');
+    expect(c?.event).toBe('dies');
+    expect(c?.legacyRuntimeOnly).not.toBe(true);
   });
 });

@@ -28,6 +28,7 @@ import { refreshRevealedInformationFlags } from "../revealedInformationFlags.js"
 import { hydrateGameStateOracleText } from "../cardOracleHydration.js";
 import { movePermanentToGraveyard } from "./countersTokensMoveToGraveyard.js";
 import { tryStaticRegenerateInsteadOfDestroy } from "../replacementBatch16LongTail.js";
+import { tryApplyLoseGameExileAndResetLife } from "../replacementBatch91LoseGameReplacements.js";
 import { getCountersTokensHandlerDeps } from "./countersTokensHandlerDeps.js";
 import { markPlayerOutOfPriority } from "../priorityEligibility.js";
 import { removeLeavingPlayerGameObjects } from "../playerLeavingGame.js";
@@ -272,6 +273,10 @@ function runSBAUnbatched(ctx: GameContext) {
     for (const playerId of res.playersLost) {
       const player = state.players?.find((p: any) => p && p.id === playerId);
       if (player && !player.hasLost) {
+        if (tryApplyLoseGameExileAndResetLife(state, playerId)) {
+          changed = true;
+          continue;
+        }
         player.hasLost = true;
         player.lostReason = 'Life total reached 0 or less';
         debug(1, `[runSBA] Player ${playerId} has lost the game (life <= 0)`);

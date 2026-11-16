@@ -2,6 +2,12 @@ import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { getExploreActionCount } from './keywordActionRepetition.js';
+import {
+  buildPreExploreScryStep,
+  peekLibraryForScryStep,
+  takePendingPreExploreScry,
+} from './preExploreScryPrompt.js';
+import { twistsAndTurnsExploreScryCount } from './replacementBatch96ExploreAndMana.js';
 
 export function queueExploreDecisionStep(
   ctx: GameContext,
@@ -15,6 +21,32 @@ export function queueExploreDecisionStep(
 
   const library = ctx.libraries.get(controller) || [];
   if (library.length === 0) return false;
+  if (!options?.skipExploreReplacement) {
+    try {
+      const scry = twistsAndTurnsExploreScryCount(ctx.state, String(controller));
+      if (scry > 0) {
+        const st: any = ctx.state;
+        st.pendingPreExploreScry = st.pendingPreExploreScry || {};
+        st.pendingPreExploreScry[String(controller)] = (Number(st.pendingPreExploreScry[String(controller)] || 0) + scry);
+        const consumed = takePendingPreExploreScry(st, String(controller));
+        const cards = peekLibraryForScryStep(library, consumed);
+        if (consumed > 0 && cards.length > 0) {
+          ResolutionQueueManager.addStep(gameId, buildPreExploreScryStep({
+            playerId: String(controller),
+            cards,
+            scryCount: cards.length,
+            exploreFollowup: {
+              controller: String(controller),
+              permanentId,
+              remainingPermanentIds,
+            },
+            sourceName: 'Twists and Turns',
+          }) as any);
+          return true;
+        }
+      }
+    } catch { /* hook optional; scry prompt is existing infrastructure */ }
+  }
 
   const revealedCard = library[0];
   if (!revealedCard) return false;

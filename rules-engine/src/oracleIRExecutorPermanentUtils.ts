@@ -1,4 +1,5 @@
 import type { BattlefieldPermanent } from '../../shared/src';
+import { nextLoyaltyAfterDamageWithSave } from './planeswalkerLoyaltyReplacements.js';
 import { getMarkedDamage } from '../../shared/src/markedDamage.js';
 import { permanentHasCreatureType } from '../../shared/src/creatureTypes.js';
 import { hasPermanentType } from './permanentTypeUtils';
@@ -100,6 +101,13 @@ export function addDamageToPermanentLikeCreatureFromSource(
     normalizedSourcePermanentId && !currentDamageSourceIds.includes(normalizedSourcePermanentId)
       ? [...currentDamageSourceIds, normalizedSourcePermanentId]
       : currentDamageSourceIds;
+  const currentBySource =
+    (perm as any).markedDamageBySource && typeof (perm as any).markedDamageBySource === 'object'
+      ? { ...(perm as any).markedDamageBySource }
+      : {};
+  if (normalizedSourcePermanentId) {
+    currentBySource[normalizedSourcePermanentId] = (Number(currentBySource[normalizedSourcePermanentId]) || 0) + n;
+  }
   return {
     ...(perm as any),
     counters,
@@ -107,6 +115,7 @@ export function addDamageToPermanentLikeCreatureFromSource(
     damageMarked: next,
     damage: next,
     ...(damageSourceIds.length > 0 ? { damageSourceIds } : {}),
+    ...(Object.keys(currentBySource).length > 0 ? { markedDamageBySource: currentBySource } : {}),
   } as any;
 }
 
@@ -137,12 +146,11 @@ export function getExcessDamageToPermanent(perm: BattlefieldPermanent, amount: n
   return 0;
 }
 
-export function removeLoyaltyFromPlaneswalker(perm: BattlefieldPermanent, amount: number): BattlefieldPermanent {
+export function removeLoyaltyFromPlaneswalker(perm: BattlefieldPermanent, amount: number, state?: unknown): BattlefieldPermanent {
   const n = Math.max(0, amount | 0);
   if (n <= 0) return perm;
 
-  const current = Number((perm as any).loyalty ?? (perm as any).counters?.loyalty ?? 0) || 0;
-  const next = Math.max(0, current - n);
+  const next = nextLoyaltyAfterDamageWithSave(perm, n, state);
   const counters = { ...(((perm as any).counters || {}) as any), loyalty: next };
   return { ...(perm as any), counters, loyalty: next } as any;
 }

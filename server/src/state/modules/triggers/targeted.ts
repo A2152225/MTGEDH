@@ -576,6 +576,7 @@ export function triggerPermanentTargetedTriggersFromAbility(
   return pushTargetedTriggersOntoStack(ctx, dedupeTargetedTriggers(mergeParsedBecomesTargetTriggers(
     ctx, String(event.activatedBy || ''), 'ability', normalizedTargetIds, createdTriggers,
     (source, effect, subjectId) => buildTargetedTriggeredStackItem(ctx, source, String(source?.controller || '') as PlayerID, effect, effect, event, { targetedSubjectPermanentId: subjectId }),
+    allTargetIds,
   )));
 }
 
@@ -627,6 +628,7 @@ export function triggerPermanentTargetedTriggersFromSpell(
   return pushTargetedTriggersOntoStack(ctx, dedupeTargetedTriggers(mergeParsedBecomesTargetTriggers(
     ctx, String(event.castBy || ''), 'spell', normalizedTargetIds, createdTriggers,
     (source, effect, subjectId) => buildTargetedTriggeredStackItem(ctx, source, String(source?.controller || '') as PlayerID, effect, effect, event, { targetedSubjectPermanentId: subjectId }),
+    normalizeTargetIds(event.targetIds),
   )));
 }
 

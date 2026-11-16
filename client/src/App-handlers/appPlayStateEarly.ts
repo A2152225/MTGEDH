@@ -94,6 +94,7 @@ export function useAppPlayStateEarly(p: Record<string, any>) {
     isActivatedAbilityPayment?: boolean;
     fromZone?: 'hand' | 'graveyard' | 'exile' | 'library' | 'command';
     oracleText?: string;  // Oracle text for parsing alternate costs (Overload, Flashback, Surge, etc.)
+    grantedCasualty?: number;
     forcedAlternateCostId?: string;
     title?: string;
     confirmLabel?: string;

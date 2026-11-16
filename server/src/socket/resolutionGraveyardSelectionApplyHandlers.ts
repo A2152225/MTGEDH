@@ -36,6 +36,7 @@ import {
   triggeredSourceExilesSpellCastThisWay,
 } from "./resolutionGraveyardSelectionHelperUtils.js";
 import { resumePlayerCastSpellFromHand } from "./resolutionSyntheticCastSocketUtils.js";
+import { handleCollectEvidenceCastCancel } from "./game-actions-handlers/collectEvidenceCastContinuation.js";
 import {
   finishGraveyardSelectionAfterApply,
   type GraveyardSelectionApplyResult,
@@ -105,25 +106,7 @@ export async function handleGraveyardSelectionResponse(
       });
     }
 
-     // For cast continuations (e.g., optional collect evidence), treat cancel as decline and continue.
-     const castArgs = stepData.castSpellFromHandArgs as any;
-     if (castArgs && typeof castArgs === 'object' && castArgs.cardId) {
-       const basePayment = Array.isArray(castArgs?.payment) ? castArgs.payment : [];
-       const alreadyMarked = basePayment.some((p: any) => p && p.collectEvidenceResolved === true);
-       const paymentWithMarker = alreadyMarked
-         ? basePayment
-         : [...basePayment, { collectEvidenceResolved: true, collectEvidenceDeclined: true, evidenceCollected: false }];
-
-       await resumePlayerCastSpellFromHand(io, gameId, String(pid), {
-         cardId: String(castArgs.cardId),
-         targets: castArgs.targets,
-         payment: paymentWithMarker,
-         xValue: castArgs.xValue,
-         alternateCostId: castArgs.alternateCostId,
-         convokeTappedCreatures: castArgs.convokeTappedCreatures,
-       });
-       return;
-     }
+     if (await handleCollectEvidenceCastCancel(io, game, gameId, pid, step, stepData)) return;
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);

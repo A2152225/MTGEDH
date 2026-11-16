@@ -190,7 +190,13 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
     }
     case 'controller_lands_of_subtype': {
       const re = new RegExp('\\b' + String(grant.countCardType || '').toLowerCase() + '\\b');
-      return controlledLandTypeLines(controller, battlefield, state).filter((tl) => re.test(tl)).length;
+      const needBasic = grant.countQualifier && grant.countQualifier.basic === true;
+      if (!needBasic) return controlledLandTypeLines(controller, battlefield, state).filter((tl) => re.test(tl)).length;
+      return battlefield.filter((p) => {
+        if (!p || p.phasedOut || String(p.controller || '') !== controller) return false;
+        const tl = landAwareTypeLine(state, p).toLowerCase();
+        return /\bland\b/.test(tl) && re.test(tl) && /\bbasic\b/.test(tl);
+      }).length;
     }
     case 'opponents_below_half_starting_life': {
       const st: any = state; const start = Number(st?.startingLife ?? 40);
@@ -406,6 +412,61 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
         const tl = typeLine(p);
         return wanted.some((w) => new RegExp('\\b' + w + 's?\\b').test(tl));
       }).length;
+    }
+    case 'opponents_owned_cards_in_exile': {
+      // B90: Umbris.
+      const zones: any = (state as any)?.zones || {};
+      let n = 0;
+      for (const zoneId of Object.keys(zones)) {
+        const exile = zones[zoneId]?.exile;
+        if (!Array.isArray(exile)) continue;
+        for (const card of exile) {
+          const owner = String(card?.owner || card?.card?.owner || zoneId || '').trim();
+          if (owner && owner !== controller) n += 1;
+        }
+      }
+      if (Array.isArray((state as any)?.exile)) {
+        for (const card of (state as any).exile) {
+          const owner = String(card?.owner || card?.card?.owner || '').trim();
+          if (owner && owner !== controller) n += 1;
+        }
+      }
+      return n;
+    }
+    case 'controller_life_lost_this_turn': {
+      // B90: Greven.
+      const lost = Number((state as any)?.lifeLostThisTurn?.[controller] || 0);
+      return Number.isFinite(lost) ? Math.max(0, Math.floor(lost)) : 0;
+    }
+    case 'greatest_mana_value_among_controller_commanders': {
+      // B90: Tangleweave Armor.
+      const cards: any[] = [];
+      const zone = (state as any)?.commandZone?.[controller];
+      if (Array.isArray(zone?.commanders)) cards.push(...zone.commanders);
+      if (Array.isArray(zone?.cards)) cards.push(...zone.cards);
+      if (Array.isArray((state as any)?.commanders?.[controller])) cards.push(...(state as any).commanders[controller]);
+      for (const p of battlefield) {
+        if (!p || p.phasedOut) continue;
+        if (!(p.isCommander === true || p.card?.isCommander === true)) continue;
+        const who = String(p.owner || p.controller || '');
+        if (who !== controller) continue;
+        cards.push(p.card || p);
+      }
+      let best = 0;
+      for (const card of cards) {
+        const c = card?.card || card;
+        const cmc = Number(c?.cmc ?? c?.mana_value ?? c?.manaValue);
+        let mv = Number.isFinite(cmc) ? cmc : 0;
+        if (!Number.isFinite(cmc)) {
+          for (const sym of String(c?.mana_cost || '').match(/\{[^}]+\}/g) || []) {
+            const s = sym.slice(1, -1).toUpperCase();
+            if (/^\d+$/.test(s)) mv += parseInt(s, 10);
+            else if (s !== 'X') mv += 1;
+          }
+        }
+        if (mv > best) best = mv;
+      }
+      return best;
     }
     default:
       return undefined;

@@ -188,6 +188,10 @@ export function applyChoicePromptEvents(ctx: GameContext, e: GameEvent): boolean
           const sourceName = String((e as any).sourceName || '').trim();
           const resolvedStepId = String((e as any).resolvedStepId || '').trim();
           const chosenCardId = String((e as any).chosenCardId || '').trim();
+          const chosenCardIds = (Array.isArray((e as any).chosenCardIds) ? (e as any).chosenCardIds : [])
+            .map((id: unknown) => String(id || '').trim())
+            .filter(Boolean);
+          const cardIdsToMove = chosenCardIds.length > 0 ? chosenCardIds : (chosenCardId ? [chosenCardId] : []);
           const position = String((e as any).position || 'top').toLowerCase() === 'bottom' ? 'bottom' : 'top';
 
           if (replayGameId) {
@@ -208,26 +212,36 @@ export function applyChoicePromptEvents(ctx: GameContext, e: GameEvent): boolean
             });
           }
 
-          if (controllerId && chosenCardId) {
+          if (controllerId && cardIdsToMove.length > 0) {
             const stateAny = ctx.state as any;
             const zones = (stateAny.zones = stateAny.zones || {});
             const zone = (zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, library: [], libraryCount: 0 });
             zone.hand = Array.isArray(zone.hand) ? zone.hand : [];
 
             const library = pickMutablePlayerLibrary(ctx, controllerId);
-            const handIndex = (zone.hand as any[]).findIndex((card: any) => String(card?.id || '') === chosenCardId);
-            let movedCard = handIndex >= 0
-              ? (zone.hand as any[]).splice(handIndex, 1)[0]
-              : undefined;
-
-            if (!movedCard && (e as any).movedCardSnapshot && typeof (e as any).movedCardSnapshot === 'object') {
-              const alreadyInLibrary = (library as any[]).some((card: any) => String(card?.id || '') === chosenCardId);
-              if (!alreadyInLibrary) {
-                movedCard = { ...((e as any).movedCardSnapshot as any) };
+            const snapshots = Array.isArray((e as any).movedCardSnapshots) ? (e as any).movedCardSnapshots : [];
+            const snapshotFor = (cardId: string): any => {
+              const listed = snapshots.find((card: any) => String(card?.id || '') === cardId);
+              if (listed && typeof listed === 'object') return listed;
+              if (cardId === chosenCardId && (e as any).movedCardSnapshot && typeof (e as any).movedCardSnapshot === 'object') {
+                return (e as any).movedCardSnapshot;
               }
-            }
+              return undefined;
+            };
 
-            if (movedCard) {
+            for (const cardId of cardIdsToMove) {
+              const handIndex = (zone.hand as any[]).findIndex((card: any) => String(card?.id || '') === cardId);
+              let movedCard = handIndex >= 0
+                ? (zone.hand as any[]).splice(handIndex, 1)[0]
+                : undefined;
+
+              if (!movedCard) {
+                const alreadyInLibrary = (library as any[]).some((card: any) => String(card?.id || '') === cardId);
+                const snapshot = snapshotFor(cardId);
+                if (!alreadyInLibrary && snapshot) movedCard = { ...snapshot };
+              }
+
+              if (!movedCard) continue;
               const libraryCard = { ...movedCard, zone: 'library' };
               if (position === 'bottom') {
                 (library as any[]).push(libraryCard);

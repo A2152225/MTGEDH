@@ -16,7 +16,7 @@ import { castFaceSpellView, refineSpellCastQualifierTriggers } from "./spellCast
 import type { SpellCastTrigger } from "./spell-cast-trigger-type.js";
 import { spellOrdinalForCaster } from "./spell-cast.js";
 import { spellCastTriggerIRVerdict } from "./triggerIRVerdict.js";
-import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource, spellCastConditionMatches } from "./triggerConditionFamilyMatch.js";
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, parsedEventLinesFor, sameTriggerSource, spellCastConditionMatches } from "./triggerConditionFamilyMatch.js";
 import {
   filterOracleTextToActiveStationAbilities,
   hasStationThresholdMarkers,
@@ -156,6 +156,21 @@ export function getSpellCastTriggers(
         shouldTrigger = false;
       }
 
+      // IR owns printed spell-cast lines even when this event does not match (even MV, first spell).
+      // Legacy entries carrying a structured optional payment / token (Emperor Mihail II) keep that metadata, which
+      // the IR entry does not carry; the IR loop below skips its duplicate via the reflexive effect.
+      const legacyHasStructuredPayload = Boolean((trigger as any).optionalPaymentCost || (trigger as any).tokenDetails);
+      if (shouldTrigger && !legacyHasStructuredPayload) {
+        const irLines = parsedEventLinesFor(
+          String(permanent.card.oracle_text || ''),
+          ['spell_cast'],
+          String(permanent.card.name || '') || undefined,
+        ).filter((line) => !line.condition?.legacyRuntimeOnly && !line.condition?.delayedRider && !line.condition?.thisWay);
+        if (irLines.some((line) => parsedEffectDuplicates([trigger.effect, trigger.description], line))) {
+          shouldTrigger = false;
+        }
+      }
+
       // Same printed sentence emitted twice by the legacy detector under different enums.
       if (shouldTrigger && triggers.some((existing) => (
         existing.permanentId === trigger.permanentId
@@ -187,8 +202,20 @@ export function getSpellCastTriggers(
       matchContext: {
         hasXInCost: /\{x\}/i.test(String(spellCard?.mana_cost || spellCard?.manaCost || '')),
         spellHasXInCost: /\{x\}/i.test(String(spellCard?.mana_cost || spellCard?.manaCost || '')),
+        spellManaValue: Number(spellCard?.mana_value ?? spellCard?.cmc ?? spellCard?.manaValue),
+        spellColors: Array.isArray(spellCard?.colors) ? spellCard.colors : (Array.isArray(spellCard?.color_identity) ? spellCard.color_identity : []),
+        spellOwnerId: String(spellCard?.owner || casterId || ''),
+        spellTargetCount: Array.isArray(spellCard?.targets) ? spellCard.targets.length : Number(spellCard?.targetCount || 0),
+        isPreparedSpell: Boolean(spellCard?.prepared || spellCard?.isPrepared),
+        isModalSpell: Boolean(spellCard?.modal || /choose (one|two|three)/i.test(String(spellCard?.oracle_text || ''))),
+        spellManaCost: String(spellCard?.mana_cost || spellCard?.manaCost || ''),
+        spellPower: Number(spellCard?.power ?? spellCard?.card?.power),
+        sourcePower: Number(permanent?.power ?? permanent?.card?.power),
+        sourceCounters: permanent?.counters,
       },
     })) {
+      const irSharesType = Boolean((line.condition?.alternatives || []).some((alt) => (alt?.subject as { sharesCreatureTypeWithSource?: boolean } | undefined)?.sharesCreatureTypeWithSource === true));
+      if (irSharesType && !spellSharesCreatureTypeWithSource(spellCard, permanent)) continue;
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
         sameTriggerSource(existing, permanent)

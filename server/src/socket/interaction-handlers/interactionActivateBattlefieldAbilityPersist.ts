@@ -8,6 +8,7 @@
  */
 
 import { notifyNoncombatPlayerDamage } from '../../state/modules/triggers/player-dealt-damage-ir.js';
+import { payLifeAmount } from "../../state/modules/batch97PayLife.js";
 import { appendEvent } from "../../db";
 import { pushWheneverYouExertTriggersOntoStack } from "../exert-triggers.js";
 import { broadcastGame, getPlayerName } from "../util";
@@ -104,18 +105,17 @@ export async function applyActivateBattlefieldAbilityPersist(
   // This ensures we don't pay life if the activation later fails due to mana payment, etc.
   if (pendingLifePaymentForCost > 0) {
     try {
-      (game.state as any).life = (game.state as any).life || {};
-      const cur = Number((game.state as any).life?.[pid] ?? 40);
       const paidLife = Math.max(0, Number(pendingLifePaymentForCost || 0));
-      (game.state as any).life[pid] = Math.max(0, cur - paidLife);
-
-      (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
-      (game.state as any).lifeLostThisTurn[String(pid)] =
-        Number((game.state as any).lifeLostThisTurn[String(pid)] || 0) + paidLife;
-
-      const player = (game.state.players || []).find((entry: any) => entry?.id === pid);
-      if (player) {
-        player.life = (game.state as any).life[pid];
+      const paid = payLifeAmount(game.state, String(pid), paidLife, {
+        forSpellOrNonManaAbility: isManaAbility !== true,
+        isManaAbility: isManaAbility === true,
+        skipReplacementOrder: true,
+        ctx: { state: game.state, gameId, isReplaying: Boolean((game as any).isReplaying) },
+      });
+      if (paid.paid && !paid.replaced) {
+        (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
+        (game.state as any).lifeLostThisTurn[String(pid)] =
+          Number((game.state as any).lifeLostThisTurn[String(pid)] || 0) + paidLife;
       }
     } catch {
       // best-effort only

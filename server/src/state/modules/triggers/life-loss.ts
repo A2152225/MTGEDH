@@ -91,7 +91,7 @@ export function detectLifeLossTriggers(card: any, permanent: any, gameState?: an
   return triggers;
 }
 
-export function getLifeLossTriggers(ctx: GameContext, losingPlayerId: string): LifeLossTrigger[] {
+export function getLifeLossTriggers(ctx: GameContext, losingPlayerId: string, options?: { lifeAmount?: number; causeControllerId?: string }): LifeLossTrigger[] {
   const triggers: LifeLossTrigger[] = [];
   const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
 
@@ -139,6 +139,10 @@ export function getLifeLossTriggers(ctx: GameContext, losingPlayerId: string): L
       subjectPermanent: { id: '', typeLine: '', controllerId: losingPlayerId },
       subjectControllerId: losingPlayerId,
       sourcePermanent: permanent,
+      matchContext: {
+        ...(options?.lifeAmount != null ? { lifeAmount: options.lifeAmount } : {}),
+        ...(options?.causeControllerId ? { causeControllerId: options.causeControllerId } : {}),
+      },
     })) {
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (

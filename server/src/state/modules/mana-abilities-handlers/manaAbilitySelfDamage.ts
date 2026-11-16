@@ -7,6 +7,7 @@
 
 import { notifyNoncombatPlayerDamage } from '../triggers/player-dealt-damage-ir.js';
 import type { ManaAbility } from './manaAbilityLandTypeModifiers.js';
+import { withAdditionalManaAbilityLifeCost } from '../batch99ManaAbilityAdditionalLife.js';
 
 export type ManaAbilityLifeEffect = {
   amount: number;
@@ -123,16 +124,19 @@ export function resolveManaAbilityLifeEffect(params: {
   const damageFromAbility = params.ability?.damageEffect;
   if (damageFromAbility?.type === 'damage_self') {
     const amount = Math.max(0, Number(damageFromAbility.amount || 0));
-    if (amount > 0) return { amount, isDamage: true };
+    if (amount > 0) return withAdditionalManaAbilityLifeCost(params.card, { amount, isDamage: true });
   }
 
   const lineText = String(params.abilityText || '').trim();
   if (lineText) {
     const amount = parseManaAbilityLineSelfDamage(lineText);
-    if (amount > 0) return { amount, isDamage: true };
+    if (amount > 0) return withAdditionalManaAbilityLifeCost(params.card, { amount, isDamage: true });
   }
 
-  return inferManaAbilityLifeEffectFromCard(params.card, params.producesColoredMana);
+  return withAdditionalManaAbilityLifeCost(
+    params.card,
+    inferManaAbilityLifeEffectFromCard(params.card, params.producesColoredMana),
+  );
 }
 
 export function applyManaAbilityLifeEffectToState(

@@ -238,6 +238,9 @@ export function registerResolutionHandlers(io: Server, socket: Socket) {
         (step as any)?.sacrificeUnlessPayChoice === true
       )) ||
       step.type === ResolutionStepType.EXTORT_PAYMENT ||
+      (step.type === ResolutionStepType.ADDITIONAL_COST_PAYMENT &&
+        String((step as any)?.costType || '') === 'pay_life' &&
+        ((step as any)?.canCancel === true || (step as any)?.allowCancel === true)) ||
       isCancellablePlayerInitiatedXStep(step);
 
     if (cancelled && step.mandatory && !isCancellableMandatoryStep) {

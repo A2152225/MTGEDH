@@ -272,6 +272,7 @@ export function renderAppPlayOverlaysLate(p: Record<string, any>) {
           canShuffle={ponderRequest.canShuffle}
           drawAfter={ponderRequest.drawAfter}
           pickToHand={ponderRequest.pickToHand}
+          canCancel={ponderRequest.canCancel !== false}
           targetPlayerId={ponderRequest.targetPlayerId}
           targetPlayerName={ponderRequest.targetPlayerName}
           isOwnLibrary={ponderRequest.isOwnLibrary}

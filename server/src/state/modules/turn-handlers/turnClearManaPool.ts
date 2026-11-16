@@ -13,6 +13,7 @@ import {
   syncTemporaryRetainedManaToPool,
 } from "./turnTemporaryRetainedMana.js";
 import { readOracleManaRetentionEffects } from "./turnManaRetentionOracle.js";
+import { unspentManaAmount, applyYurlokUnspentManaLifeLossAmount } from '../replacementBatch96ExploreAndMana.js';
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -225,6 +226,18 @@ export function clearManaPool(ctx: GameContext) {
 
       (ctx as any).state.manaPool[pid] = newPool;
       syncTemporaryRetainedManaToPool((ctx as any).state, pid);
+      try {
+        const lost = Math.max(0, unspentManaAmount(currentPool) - unspentManaAmount(newPool));
+        const life = applyYurlokUnspentManaLifeLossAmount((ctx as any).state, lost);
+        if (life > 0) {
+          const st = (ctx as any).state;
+          st.life = st.life || {};
+          const current = Number(st.life[pid] ?? st.players?.find?.((p: any) => String(p?.id) === String(pid))?.life ?? 40);
+          st.life[pid] = current - life;
+          const player = (st.players || []).find((p: any) => String(p?.id) === String(pid));
+          if (player) player.life = st.life[pid];
+        }
+      } catch { /* hook optional */ }
 
       if (convertToColor && convertToColor !== 'colorless') {
         debug(1, `${ts()} [clearManaPool] Player ${pid}: Converted ${totalConvertedToColor} mana to ${convertToColor}, retained colors: ${Array.from(colorsToRetain).join(', ') || 'none'}, temporary retention: ${hasTemporaryRetention}`);

@@ -78,7 +78,11 @@ export function isSpellCastingProhibitedByChosenName(state: any, playerId: Playe
   }
 
   for (const perm of getBattlefield(state)) {
-    const chosen = (perm as any)?.chosenCardName;
+    const listed = [
+      (perm as any)?.chosenCardName,
+      ...(((perm as any)?.chosenCardNames || (perm as any)?.chosenNames || []) as unknown[]),
+    ].map((value) => String(value || '').trim()).filter(Boolean);
+    const chosen = listed.find((name) => normalizeCardName(name) === targetName);
     if (!chosen) continue;
 
     const chosenName = normalizeCardName(String(chosen));
@@ -88,8 +92,9 @@ export function isSpellCastingProhibitedByChosenName(state: any, playerId: Playe
 
     // Must actually contain the cast-prohibition text.
     const isCastProhibition =
-      /spells?\s+with\s+the\s+chosen\s+name\s+(?:can't|cannot)\s+be\s+cast/.test(oracle) ||
-      /(?:can't|cannot)\s+cast\s+spells?\s+with\s+the\s+chosen\s+name/.test(oracle);
+      /spells?\s+with\s+the\s+chosen\s+names?\s+(?:can't|cannot)\s+be\s+cast/.test(oracle) ||
+      /(?:can't|cannot)\s+cast\s+spells?\s+with\s+the\s+chosen\s+names?/.test(oracle) ||
+      /spells with the chosen names can't be cast and lands with the chosen names can't be played/.test(oracle);
 
     if (!isCastProhibition) continue;
 
@@ -126,7 +131,11 @@ export function isAbilityActivationProhibitedByChosenName(
   if (!targetName) return { prohibited: false };
 
   for (const perm of getBattlefield(state)) {
-    const chosen = (perm as any)?.chosenCardName;
+    const listed = [
+      (perm as any)?.chosenCardName,
+      ...(((perm as any)?.chosenCardNames || (perm as any)?.chosenNames || []) as unknown[]),
+    ].map((value) => String(value || '').trim()).filter(Boolean);
+    const chosen = listed.find((name) => normalizeCardName(name) === targetName);
     if (!chosen) continue;
 
     const chosenName = normalizeCardName(String(chosen));

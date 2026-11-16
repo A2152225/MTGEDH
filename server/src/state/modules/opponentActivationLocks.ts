@@ -7,6 +7,9 @@
 // Origin parent: socket/interaction.ts activateBattlefieldAbility gate + canRespondActivatableAbilities.
 // Public entry symbols: parseOpponentActivationLock, opponentActivationProhibitionReason.
 
+
+import { batch105CannotActivateNonManaDuringCombat } from './batch105Apply.js';
+import { isAbilityActivationProhibitedByBatch108ChosenPermanent } from './batch108Apply.js';
 export interface OpponentActivationLock { duringYourTurnOnly: boolean; types: string[]; allowsMana: boolean }
 
 const LOCK_RE = /^(during your turn, )?(?:your opponents|each opponent) can't (?:cast spells(?:,| or) )?(?:and )?activate (?:activated )?abilities of ([a-z ,]+?)(?: unless they're mana abilities)?\.?$/;
@@ -40,5 +43,9 @@ export function opponentActivationProhibitionReason(state: any, playerId: string
       return `${String(perm?.card?.name || 'An opponent\'s permanent')} prevents activating abilities of ${lock.types.join('s, ')}s${lock.duringYourTurnOnly ? " during its controller's turn" : ''}.`;
     }
   }
+  const b105Combat = batch105CannotActivateNonManaDuringCombat(state, isManaAbility);
+  if (b105Combat) return b105Combat;
+  const b108Chosen = isAbilityActivationProhibitedByBatch108ChosenPermanent(state, permanent);
+  if (b108Chosen) return b108Chosen;
   return null;
 }

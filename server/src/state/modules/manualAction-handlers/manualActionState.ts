@@ -6,6 +6,7 @@ import type { GameContext } from '../../context.js';
 import type { ManualActionPayload } from '../../../../../shared/src/manualAction.js';
 import { addExtraTurn } from '../turn-handlers/turnScheduledStepsAndExtras.js';
 import { addEnergyCounters } from '../../utils.js';
+import { addExperienceCounters } from '../batch108Apply.js';
 import { canonicalizeCounterKey, updateCounters } from '../counters_tokens.js';
 import { findManualObject } from './manualActionFind.js';
 import { relocateManualObject } from './manualActionRelocate.js';
@@ -75,10 +76,15 @@ function writePlayerResource(ctx: GameContext, playerId: string, kind: 'poison' 
     }
     return;
   }
-  ctx.experience = ctx.experience || {};
-  ctx.experience[playerId] = value;
-  state.experience = state.experience || {};
-  state.experience[playerId] = value;
+  const currentExperience = Number(state.experience?.[playerId] || ctx.experience?.[playerId] || 0);
+  if (value >= currentExperience) {
+    addExperienceCounters(state, playerId, value - currentExperience, ctx);
+  } else {
+    ctx.experience = ctx.experience || {};
+    ctx.experience[playerId] = value;
+    state.experience = state.experience || {};
+    state.experience[playerId] = value;
+  }
 }
 
 export function applyManualStateVerb(

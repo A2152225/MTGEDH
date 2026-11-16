@@ -108,6 +108,15 @@ export function chooseAIOptionSelectionsForStep(
     return { selections: [choiceId], cancelled: false };
   }
 
+  if (step?.jinnieFayTokenChoice === true) {
+  if (step?.replacementOrderChoice === true) {
+    return { selections: [resolveOptionId(options[0])], cancelled: false };
+  }
+
+    const face = options.find((option: any) => String(resolveOptionId(option) || '').startsWith('face_')) || options[0];
+    return { selections: [resolveOptionId(face)], cancelled: false };
+  }
+
   if (step?.mirrormindCrownTokenReplacementChoice === true) {
     const hasEquippedCreatureSnapshot = Boolean(step?.mirrormindCrownEquippedCreatureCard);
     const preferredChoice = hasEquippedCreatureSnapshot ? 'replace' : 'normal';

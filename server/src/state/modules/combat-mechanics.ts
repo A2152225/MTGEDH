@@ -44,7 +44,13 @@
 import type { GameContext } from "../context.js";
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { getContinuousGrantedAbilitiesForPermanent } from "./staticEffectSpec.js";
+import { batch105HasDoubleStrike } from "./batch105Apply.js";
+import { batch108PermanentHasKeyword } from "./batch108Apply.js";
+import { batch109PermanentHasKeyword } from "./batch109Apply.js";
+import { batch110PermanentHasKeyword } from "./batch110Apply.js";
+import { commanderCreatureGrantHasKeyword } from "./commanderCreatureGrants.js";
 import { getEffectiveColors } from "./effectiveColors.js";
+import { ghostlyFlameDamageSourceIsColorless } from "./staticEffectSpec-handlers/batch97LongTailStatics.js";
 import { iterAttachments, parseAttachmentGrantedKeywordsFromOracle } from '../../../../shared/src/attachmentKeywordGrants.js';
 import { isCreatureTypeWord, permanentHasCreatureType } from '../../../../shared/src/creatureTypes.js';
 import { hasBlanketCantAttack } from '../../../../rules-engine/src/attackRestrictionText.js';
@@ -365,6 +371,11 @@ export function parseCreatureKeywords(card: any, permanent?: any, gameState?: an
     const keywordSubject = permanent ? { ...permanent, card: permanent.card || card } : { card };
     const hasKeywordOrGranted = (kw: string) => {
       const needle = kw.toLowerCase();
+      if (needle === 'double strike' && batch105HasDoubleStrike(keywordSubject, keywordBattlefield, gameState)) return true;
+      if (batch108PermanentHasKeyword(keywordSubject, gameState, needle)) return true;
+      if (batch109PermanentHasKeyword(keywordSubject, gameState, needle)) return true;
+      if (batch110PermanentHasKeyword(keywordSubject, gameState, needle)) return true;
+      if (commanderCreatureGrantHasKeyword(keywordSubject, gameState, needle)) return true;
       if (permanentLosesKeyword(keywordSubject, needle, keywordBattlefield)) return false;
       if (permanentHasKeywordAbility(keywordSubject, needle, keywordBattlefield)) return true;
       if (oracleTextGrantsOwnKeyword(oracleText, needle)) return true;
@@ -603,7 +614,9 @@ export function protectionPreventsSource(
       return true;
     }
   }
-  const colors = getEffectiveColors(sourcePermanent, gameState);
+  const colors = ghostlyFlameDamageSourceIsColorless(sourcePermanent, gameState)
+    ? []
+    : getEffectiveColors(sourcePermanent, gameState);
   return wouldDamageBePreventedByProtection(
     { colors, types: typeWordsFromPermanent(sourcePermanent) },
     { protections },

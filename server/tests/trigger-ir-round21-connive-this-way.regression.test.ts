@@ -16,9 +16,9 @@ const stackText = (g: any) => (g.state.stack || []).map((s: any) => String(s?.de
 const conniveStep = { kind: 'connive', raw: 'it connives' };
 
 describe('when it connives this way', () => {
-  it('parses as a legacy-runtime-only clause', () => {
+  it('parses as a parent-scheduled connive rider (thisWay + delayedRider), never matched by the IR detector', () => {
     const p: any = parseTriggerClause("When it connives this way, return up to one target nonland permanent to its owner's hand.", 'Psychic Pickpocket');
-    expect(p?.condition?.legacyRuntimeOnly).toBe(true);
+    expect(p?.condition).toMatchObject({ event: 'performs', action: 'connive', thisWay: true, delayedRider: true });
   });
 
   it('queues the rider after the source\'s own connive', () => {

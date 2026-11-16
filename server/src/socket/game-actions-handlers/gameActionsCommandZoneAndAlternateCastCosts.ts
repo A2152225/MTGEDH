@@ -24,6 +24,8 @@ import {
   parseWarpCost,
   parseImpendingInfo,
 } from "../../state/modules/alternate-costs.js";
+import { getGrantedBlitzAlternateCost } from "../../state/modules/batch91BlitzCastGrants.js";
+import { resolveGrantedKeywordAlternateCost } from "../../state/modules/batch96GrantedKeywordHooks.js";
 import {
   getCommandZoneCommanderCandidates,
   type SharedCommanderAvailabilityCandidate,
@@ -223,6 +225,31 @@ export function buildAlternateCostPaymentExtrasForCast(
       description: meta.description,
       rawCost,
     });
+  }
+
+  if (timingContext?.game && timingContext?.playerId) {
+    const cardHint = (paymentMetadata as any)?.card || (paymentMetadata as any)?.spell || paymentMetadata;
+    for (const keywordId of ['emerge', 'evoke'] as const) {
+      if (handKeywordAlternateCosts.some((c) => c.id === keywordId)) continue;
+      const granted = resolveGrantedKeywordAlternateCost(timingContext.game.state, timingContext.playerId, cardHint, keywordId, { fromZone: 'hand' });
+      if (granted) {
+        const meta = genericLabels[keywordId] || { label: keywordId, description: `Cast for ${keywordId} cost` };
+        handKeywordAlternateCosts.push({ id: keywordId, label: meta.label, description: meta.description, rawCost: granted });
+      }
+    }
+  }
+
+  if (timingContext?.game && timingContext?.playerId && !handKeywordAlternateCosts.some((c) => c.id === 'blitz')) {
+    const cardHint = (paymentMetadata as any)?.card || (paymentMetadata as any)?.spell || paymentMetadata;
+    const granted = getGrantedBlitzAlternateCost(timingContext.game.state, timingContext.playerId, cardHint);
+    if (granted?.manaCost) {
+      handKeywordAlternateCosts.push({
+        id: 'blitz',
+        label: 'Blitz',
+        description: 'Cast for blitz cost; sacrifice at the beginning of the next end step',
+        rawCost: granted.manaCost,
+      });
+    }
   }
 
   const sneakCost = parseSneakCost(normalizedOracleText);

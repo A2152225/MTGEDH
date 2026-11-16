@@ -385,6 +385,18 @@ export function tryPushCastSpellFromHandToStack(
                     wasBargained,
                   }
                 : {}),
+              ...((cardInHand as any).casualtyResolved === true || typeof (cardInHand as any).casualtyPaid === 'boolean'
+                ? {
+                    casualtyResolved: true,
+                    casualtyPaid: (cardInHand as any).casualtyPaid === true,
+                  }
+                : {}),
+              ...((cardInHand as any).conspireResolved === true || typeof (cardInHand as any).conspirePaid === 'boolean'
+                ? {
+                    conspireResolved: true,
+                    conspirePaid: (cardInHand as any).conspirePaid === true,
+                  }
+                : {}),
               ...(teamworkResolved === true && typeof teamworkWasPaid === 'boolean'
                 ? {
                     teamworkResolved: true,

@@ -1,4 +1,5 @@
 import React from "react";
+import { socket } from "../socket";
 import { revealedByLabel, isLibraryTopRevealedToAll } from '../utils/revealedInformationLabel';
 import type { PlayerZones, CommanderInfo, KnownCardRef } from "../../../shared/src";
 import { showCardPreview, hideCardPreview } from "./CardPreviewLayer";
@@ -36,9 +37,10 @@ export function ZonesPiles(props: {
   onUseTopOfLibrary?: () => void;
   playableCards?: string[];
   playerId?: string;
+  gameId?: string;
   appearanceSettings?: AppearanceSettings;
 }) {
-  const { zones: zonesInput = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onGraveyardContextMenu, onViewExile, onUseTopOfLibrary, playableCards = [], playerId, appearanceSettings } = props;
+  const { zones: zonesInput = SAFE_DEFAULT_ZONES, commander, isCommanderFormat, showHandCount = 0, hideHandDetails, canCastCommander, onCastCommander, onViewGraveyard, onGraveyardContextMenu, onViewExile, onUseTopOfLibrary, playableCards = [], playerId, gameId, appearanceSettings } = props;
   // Ensure zones is never null
   const zones = zonesInput ?? SAFE_DEFAULT_ZONES;
 
@@ -263,7 +265,9 @@ export function ZonesPiles(props: {
   const exileTopHidden = Boolean(exileTop && (exileTop as any).faceDown && (exileTop as any).known === false);
   
   // Check if zones are playable
-  const libraryPlayable = !!(playerId && playableCards.includes(`library-${playerId}`));
+  const libraryPlotPlayable = !!(playerId && playableCards.includes(`library-plot-${playerId}`));
+  const libraryPlayable = !!(playerId && (playableCards.includes(`library-${playerId}`) || libraryPlotPlayable));
+  const libraryTopPlotAction = (zones as any).libraryTopPlotAction as { cardName?: string; cost?: string } | undefined;
   const graveyardPlayable = playableCards.some(id => grArr.some(card => card.id === id));
   const exilePlayable = playableCards.some(id => exArr.some(card => card.id === id));
   const libraryAction = libraryPlayable && onUseTopOfLibrary ? onUseTopOfLibrary : undefined;
@@ -286,6 +290,23 @@ export function ZonesPiles(props: {
           <div data-testid="library-top-revealed-by" style={{ fontSize: 10, color: "#fbbf24", maxWidth: 90, textAlign: "center" }}>
             {revealedByLabel((libraryTop as any)?.revealedBy)}
           </div>
+        )}
+        {libraryPlotPlayable && libraryTopPlotAction && (
+          <button
+            type="button"
+            data-testid="library-top-plot-action"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (gameId) {
+                socket.emit("plotLibraryTop", { gameId });
+              }
+            }}
+            style={{ fontSize: 10, padding: "2px 6px", cursor: "pointer", borderRadius: 4, border: "1px solid #fbbf24", background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}
+            title={`Plot ${libraryTopPlotAction.cardName || "the top card"} for ${libraryTopPlotAction.cost || "its cost"}`}
+          >
+            {`Plot ${libraryTopPlotAction.cost || ""}`.trim()}
+          </button>
         )}
       </div>
       {/* Graveyard supports both click and double-click - double-click opens the full graveyard modal */}

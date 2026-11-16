@@ -1,7 +1,7 @@
 /**
  * Detect "enters with counters" patterns from a card's oracle text.
  */
-export function detectEntersWithCounters(card: any): Record<string, number> {
+export function detectEntersWithCounters(card: any, wasKicked?: boolean): Record<string, number> {
   const counters: Record<string, number> = {};
   if (!card) return counters;
 
@@ -80,6 +80,23 @@ export function detectEntersWithCounters(card: any): Record<string, number> {
 
   if (oracleText.includes('unleash')) {
     counters['+1/+1'] = (counters['+1/+1'] || 0) + 1;
+  }
+
+  if (wasKicked) {
+    const kickedPattern = /was kicked[^.]*enters(?: the battlefield)? with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s*([+\-\d\/]+|\w+)\s*counters?/i;
+    const kickedMatch = oracleText.match(kickedPattern);
+    if (kickedMatch) {
+      const wordToNum: Record<string, number> = {
+        a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
+        six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+      };
+      const countStr = kickedMatch[1].toLowerCase();
+      const count = wordToNum[countStr] !== undefined ? wordToNum[countStr] : parseInt(countStr, 10);
+      if (!isNaN(count) && count > 0) {
+        const counterType = kickedMatch[2].trim();
+        counters[counterType] = (counters[counterType] || 0) + count;
+      }
+    }
   }
 
   return counters;

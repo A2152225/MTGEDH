@@ -7,6 +7,7 @@
  * Env:
  *   AI_SELFPLAY_GAMES, AI_SELFPLAY_SEED, AI_SELFPLAY_OUT, AI_SELFPLAY_SHARD (i/n),
  *   AI_SELFPLAY_MAX_TURNS (default 60), AI_SELFPLAY_CHALLENGER (default v0),
+ *   AI_SELFPLAY_BASELINE (default v0; other three seats),
  *   AI_POSITIONS_FILE (optional P1-2 feature log), AI_POSITIONS_VERIFY=1 (public-only assert)
  */
 
@@ -36,6 +37,7 @@ const OUT = process.env.AI_SELFPLAY_OUT || '';
 const POSITIONS_FILE = process.env.AI_POSITIONS_FILE || '';
 const MAX_TURNS = Number(process.env.AI_SELFPLAY_MAX_TURNS || 60);
 const CHALLENGER = String(process.env.AI_SELFPLAY_CHALLENGER || 'v0');
+const BASELINE = String(process.env.AI_SELFPLAY_BASELINE || 'v0');
 const SHARD = String(process.env.AI_SELFPLAY_SHARD || '0/1');
 
 function parseShard(spec: string): { index: number; count: number } {
@@ -127,9 +129,9 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
 
         const seats: DeckSeatSpec[] = decksForSeats.map((deck, seatIdx) => {
           // AI_BRAIN (if set) applies to every seat — needed for shadow reproduction.
-          // Otherwise seat 0 is the challenger and the rest stay v0.
+          // Otherwise seat 0 is the challenger and the rest use AI_SELFPLAY_BASELINE.
           const envBrain = String(process.env.AI_BRAIN || '').trim();
-          const brain = envBrain || (seatIdx === 0 ? CHALLENGER : 'v0');
+          const brain = envBrain || (seatIdx === 0 ? CHALLENGER : BASELINE);
           return {
             deckId: deck.id,
             cardNames: linesFromDeck(deck),
@@ -142,12 +144,13 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
           };
         });
 
-        let endReason: 'win' | 'turn-limit' | 'stall' | 'error' = 'error';
+        let endReason: 'win' | 'turn-limit' | 'stall' | 'error' | 'aborted' = 'error';
         let turns = 0;
         let winner: string | null = null;
         // Date is faked below for AI scheduling; use hrtime for reported wall duration.
         const startedHr = process.hrtime.bigint();
         let prepared: Awaited<ReturnType<typeof prepareLiveGame>> | null = null;
+        const abort = new AbortController();
 
         try {
           prepared = await prepareLiveGame({ gameId, seats, seed: gameSeed, seedAI: true });
@@ -159,8 +162,10 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
             maxStagnantTicks: 40,
             minStagnantWallMs: 15_000,
             // Real wall ms without a turn advance → stall (hrtime must stay unfaked).
-            // Only applies once turnNumber > 0 (see advanceLiveGame).
-            maxNoTurnAdvanceMs: 60_000,
+            // Only applies once turnNumber > 0 (see advanceLiveGame). Scale with
+            // horizon: max90 MAIN1 boards often need >60s of real actions without a
+            // turn flip; 60s caused ~40%+ false turn-stalls at maxTurns=90.
+            maxNoTurnAdvanceMs: Math.max(60_000, Math.min(180_000, MAX_TURNS * 2_000)),
             // Real wall clock: generous per-tick budget (mulligan/setup ticks can be slow).
             maxWallClockMs: Math.max(180_000, MAX_TURNS * 15_000),
             // Gate soft-stalls included many tick-timeout@60s with stack>0 (storm drain).
@@ -168,10 +173,16 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
             maxTickWallClockMs: 180_000,
             softStop: true,
             label: gameId,
+            signal: abort.signal,
             stopWhen: (game) => Boolean((game.state as any).gameOver),
           });
           turns = advanced.turns;
-          endReason = advanced.endReason === 'loop-exhausted' ? 'turn-limit' : advanced.endReason;
+          endReason =
+            advanced.endReason === 'loop-exhausted'
+              ? 'turn-limit'
+              : advanced.endReason === 'aborted'
+                ? 'aborted'
+                : advanced.endReason;
           if ((prepared.game.state as any).gameOver) {
             endReason = 'win';
             winner = String((prepared.game.state as any).winner || '') || null;
@@ -225,11 +236,16 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
           results.push(row);
           appendResult(row);
         } finally {
+          abort.abort();
           if (prepared) await cleanupLiveGame(prepared);
         }
       }
     } finally {
-      vi.clearAllTimers();
+      try {
+        vi.clearAllTimers();
+      } catch {
+        // ignore
+      }
       vi.useRealTimers();
       seedAIRandom(null);
     }

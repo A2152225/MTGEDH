@@ -17,12 +17,14 @@ import {
 import { debug, debugWarn, debugEnv } from "../../utils/debug.js";
 import { registerTokenGroupMembers } from "../tokenGroupResolve.js";
 import { getPlayableCardIds } from "./getPlayableCardIds.js";
+import { buildLibraryTopPlotActionView } from "../../state/modules/libraryTopPlotView.js";
 import { getGrantedForetellCost } from "../../state/modules/foretellGrants.js";
 import { getGrantedScavengeCost, cardHasPrintedScavenge } from "../../state/modules/graveyardScavengeGrants.js";
 import { getGrantedEncoreCost, cardHasPrintedEncore } from "../../state/modules/graveyardEncoreGrants.js";
 import { getGrantedCyclingCost, cardHasPrintedCycling } from "../../state/modules/handCyclingGrants.js";
 import { getGraveyardAbilityHints } from "./getGraveyardAbilityHints.js";
 import { defaultPlayerZones } from "./playerStateZones.js";
+import { getCirclingVulturesDiscardActions } from "../../state/modules/circlingVulturesDiscardAction.js";
 
 type SharedEmitBattlefieldCache = {
   seq: number;
@@ -418,6 +420,20 @@ export function normalizeViewForEmit(rawView: any, game: any) {
             view.canRespond = view.canAct; // Conservative fallback
           }
         }
+        try {
+          const plotView = buildLibraryTopPlotActionView(game.state, String(viewerId));
+          if (plotView) {
+            (view as any).libraryTopPlotAction = plotView;
+            const zoneBag = (view as any).zones && (view as any).zones[viewerId];
+            if (zoneBag && typeof zoneBag === 'object') (zoneBag as any).libraryTopPlotAction = plotView;
+          }
+          try {
+            const vulturesActions = getCirclingVulturesDiscardActions(game.state, String(viewerId));
+            if (Array.isArray(vulturesActions) && vulturesActions.length > 0) {
+              (view as any).circlingVulturesDiscardActions = vulturesActions;
+            }
+          } catch { /* optional listing */ }
+        } catch { /* optional listing */ }
       }
     } catch (e) {
       // non-fatal - don't break the whole view if playable calculation fails

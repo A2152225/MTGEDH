@@ -9,7 +9,8 @@
 
 import type { GameContext } from "../../context.js";
 import { parseDiesSubjectClause, triggerConditionMatches } from "../../../../../rules-engine/src/triggerCondition/index.js";
-import { collectMatchingParsedEventLines, parsedEffectDuplicates, permanentToTriggerMatch } from "./triggerConditionFamilyMatch.js";
+import { collectMatchingParsedEventLines, parsedEffectDuplicates, parsedEventLinesFor, permanentToTriggerMatch } from "./triggerConditionFamilyMatch.js";
+import { grantedTriggerTextsForPermanent } from "./grantedOracleTriggerScan.js";
 import { detectDeathTriggers } from "./death-detection.js";
 import {
   getContinuousGrantedAbilitiesForPermanent,
@@ -60,7 +61,7 @@ export function getPermanentRulesTextFragments(perm: any, gameState?: any): stri
   const continuousGranted = gameState
     ? getContinuousGrantedAbilitiesForPermanent(perm, gameState)
     : [];
-  for (const ability of [...grantedAbilities, ...continuousGranted]) {
+  for (const ability of [...grantedAbilities, ...continuousGranted, ...(gameState ? grantedTriggerTextsForPermanent(perm, gameState) : [])]) {
     const text = String(ability || '').trim().toLowerCase();
     if (text && !fragments.includes(text)) {
       fragments.push(text);
@@ -564,6 +565,9 @@ export function appendDetectedDeathWatcherTriggers(
       if (!shouldQueueDetectedDeathTrigger(detectCtx, trigger, permanent, dyingCreature, dyingCreatureController)) {
         continue;
       }
+      if (printedDeathLineIsIrOwned(permanent)) {
+        continue;
+      }
       const extras: Partial<DeathTriggerResult> = {};
       const effect = String(trigger.effect || trigger.description || '');
       if (/for each aura/i.test(effect) && dyingCreatureIsEnchanted(ctx, dyingCreature)) {
@@ -677,6 +681,19 @@ export function appendHauntLeaveDeathTriggers(
   }
 }
 
+export function printedDeathLineIsIrOwned(permanent: any): boolean {
+  const oracleText = String(permanent?.card?.oracle_text || permanent?.oracle_text || '');
+  // "Return that card to the battlefield" (Scythe of the Wretched, Vraska, Lim-Dul) needs the legacy
+  // bound-graveyard-card metadata, which the parsed_dies path does not carry; keep the legacy detector.
+  if (/\breturn (?:that card|that creature|it|the card)\b[^.]*\b(?:to|onto) the battlefield\b/i.test(oracleText)) return false;
+  const lines = parsedEventLinesFor(
+    oracleText,
+    ['dies', 'put_into_graveyard'],
+    String(permanent?.card?.name || permanent?.name || '') || undefined,
+  );
+  return lines.some((line) => !line.condition?.legacyRuntimeOnly && !line.condition?.delayedRider && !line.condition?.thisWay && !line.condition?.sourceInGraveyard);
+}
+
 export function appendParsedDiesTriggerLines(
   ctx: any,
   results: DeathTriggerResult[],
@@ -690,23 +707,31 @@ export function appendParsedDiesTriggerLines(
     if (!permanent?.card && !permanent?.oracle_text) continue;
     const sourceId = String(permanent?.id || '').trim();
     if (!sourceId) continue;
-    // A dying creature's own "When this creature dies" lines (printed or granted) are queued by
-    // the live self-dies scan in getDeathTriggers, which keeps reflexive/bound-card metadata.
-    // Pushing the parsed sentence first made that scan drop its richer entry as a duplicate.
-    if (dyingIsCreature && sourceId === dyingId) continue;
-    const oracleText = getPermanentRulesTextFragments(permanent).join('\n');
-    for (const line of collectMatchingParsedEventLines({
+    // Printed self-dies lines stay with the live self-dies scan (richer metadata).
+    // Granted-only self-dies lines have no printed sentence, so IR must scan them here.
+    const grantedOnly = dyingIsCreature && sourceId === dyingId
+      ? grantedTriggerTextsForPermanent(permanent, ctx.state).join('\n')
+      : '';
+    if (dyingIsCreature && sourceId === dyingId && !grantedOnly) continue;
+    const oracleText = (dyingIsCreature && sourceId === dyingId)
+      ? grantedOnly
+      : getPermanentRulesTextFragments(permanent, ctx.state).join('\n');
+    // "is put into a graveyard from the battlefield" lines are their own IR event; scan both so retiring
+    // the legacy detectors (printedDeathLineIsIrOwned) never leaves noncreature leaves unqueued.
+    const parsedDiesLines = (['dies', 'put_into_graveyard'] as const).flatMap((event) => collectMatchingParsedEventLines({
       ctx,
       oracleText,
-      event: 'dies',
+      event,
       subjectPermanent: dyingCreature,
       subjectControllerId: dyingCreatureController,
       sourcePermanent: permanent,
+      fromZone: 'battlefield',
       matchContext: {
         subjectIsToken: Boolean(dyingCreature?.isToken || dyingCreature?.token || dyingCreature?.card?.isToken || dyingCreature?.card?.token),
         dealtDamageBySource: sourceDamagedDyingCreatureThisTurn(ctx, permanent, dyingCreature),
       },
-    })) {
+    }));
+    for (const line of parsedDiesLines) {
       const effect = line.effect;
       const normalizedEffect = effect.toLowerCase().replace(/\s+/g, ' ').trim();
       const alreadyQueued = normalizedEffect !== '' && results.some((result) => {

@@ -788,6 +788,7 @@ export function renderTableLayoutPlayerSeat({
                             onUseTopOfLibrary={isYouThis ? onUseTopOfLibrary : undefined}
                             playableCards={isYouThis ? playableCards : undefined}
                             playerId={pb.player.id}
+                            gameId={isYouThis ? gameId : undefined}
                             appearanceSettings={appearanceSettings}
                           />
                         )}

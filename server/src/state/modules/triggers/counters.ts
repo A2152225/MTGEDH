@@ -376,7 +376,7 @@ export function getCounterPlacedTriggers(
     })) {
       const wanted = line.condition?.placedCounter;
       if (wanted && wanted !== 'any' && !positiveEntries.some((entry) => (
-        entry.counterType === wanted || entry.counterType === 'plus1plus1' || entry.counterType === '+1/+1'
+        entry.counterType === wanted || (normalizeCounterType(String(wanted)) === '+1/+1' && (entry.counterType === 'plus1plus1' || entry.counterType === '+1/+1'))
       ))) continue;
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (
@@ -691,7 +691,7 @@ export function getCounterRemovedTriggers(
     })) {
       const wanted = line.condition?.placedCounter;
       if (wanted && wanted !== 'any' && !positiveEntries.some((entry) => (
-        entry.counterType === wanted || entry.counterType === 'plus1plus1' || entry.counterType === '+1/+1'
+        entry.counterType === wanted || (normalizeCounterType(String(wanted)) === '+1/+1' && (entry.counterType === 'plus1plus1' || entry.counterType === '+1/+1'))
       ))) continue;
       const normalized = line.effect.toLowerCase();
       if (triggers.some((existing) => (

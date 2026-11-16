@@ -8,6 +8,7 @@
 // turn-handlers/index.ts. dealCombatDamage is passed in to avoid a cycle.
 
 import type { GameContext } from "../../context.js";
+import { shouldSkipUpkeepForEonHub } from '../containmentPriestAndEonHubApply.js';
 import { permanentHasKeywordAbility } from "../../../../../rules-engine/src/permanentKeywordAbilities.js";
 import { queueCombatDamageChat } from "../combatDamageChat.js";
 import { hasExtraCombat, consumeExtraCombat } from "./turnScheduledStepsAndExtras.js";
@@ -75,6 +76,11 @@ export function computeNextStepPhaseAdvance(
         nextPhase = "beginning";
         nextStep = "UPKEEP";
         shouldUntap = true; // Untap all permanents when leaving UNTAP step
+        // Eon Hub: players skip their upkeep steps.
+        if (shouldSkipUpkeepForEonHub((ctx as any).state, 'upkeep')) {
+          nextStep = "DRAW";
+          shouldDraw = true;
+        }
         // NOTE: Upkeep triggers will be pushed AFTER phase/step update below
       } else if (currentStep === "upkeep" || currentStep === "UPKEEP") {
         nextPhase = "beginning";

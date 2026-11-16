@@ -59,7 +59,11 @@ export function parseRound14TriggerSentence(text: string, reparse: Reparse): Par
   }
 
   const landOrSpell = /^whenever you play a land or cast a spell,\s*(.+)$/.exec(text);
-  if (landOrSpell) return withFields(reparse('whenever you play a land, ' + landOrSpell[1]), { pairedEvent: 'spell_cast', ...LEGACY });
+  if (landOrSpell) {
+    const left = reparse('whenever you play a land, ' + landOrSpell[1]);
+    const right = reparse('whenever you cast a spell, ' + landOrSpell[1]);
+    return withFields(left, { pairedEvent: 'spell_cast', ...(right ? { pairedCondition: right.condition } : {}) } as any);
+  }
 
   const firstMain = /^at the beginning of each player's (?:first|precombat) main phase,\s*(.+)$/.exec(text);
   if (firstMain) return withFields(reparse('at the beginning of your precombat main phase, ' + firstMain[1]), { whoseTurn: 'each_player', ...LEGACY });

@@ -3,6 +3,7 @@
  * 
  * Validation utilities for Commander/EDH deck building rules:
  * - 100 card requirement (99 + commander or 98 + partner commanders)
+ * - No maximum deck size when a commander says so (e.g. Whtz)
  * - Singleton rule (one of each card except basic lands)
  * - Color identity validation
  * - Commander eligibility checks
@@ -124,6 +125,17 @@ export function getCardColorIdentity(card: CardWithInfo): ManaColor[] {
   oracleColors.forEach(c => colors.add(c));
   
   return Array.from(colors);
+}
+
+const NO_MAXIMUM_DECK_SIZE_RE = /a deck with this commander has no maximum deck size/i;
+
+/**
+ * True when a commander grants no maximum deck size (mirrors server
+ * commanderHasNoMaximumDeckSize). Decks still need the usual 100-card minimum.
+ */
+export function commanderHasNoMaximumDeckSize(commanderCard: { oracle_text?: string; oracleText?: string } | null | undefined): boolean {
+  const text = String(commanderCard?.oracle_text || commanderCard?.oracleText || '').replace(/\u2019/g, "'");
+  return NO_MAXIMUM_DECK_SIZE_RE.test(text);
 }
 
 /**
@@ -300,11 +312,20 @@ export function validateCommanderDeck(
     }
   }
   
-  // Check total card count (99 cards + 1 commander, or 98 + 2 partners)
+  // Check total card count (99 cards + 1 commander, or 98 + 2 partners).
+  // Commanders with "no maximum deck size" still require the 100-card minimum.
   const expectedCards = 100 - commanderCount;
   const totalCards = cards.length;
+  const noMaximumDeckSize = commanders.some((commander) => commanderHasNoMaximumDeckSize(commander));
   
-  if (totalCards !== expectedCards && commanderCount > 0) {
+  if (commanderCount > 0 && totalCards < expectedCards) {
+    errors.push({
+      type: 'card_count',
+      message: noMaximumDeckSize
+        ? `Deck has ${totalCards} cards. Expected at least ${expectedCards} (plus ${commanderCount} commander${commanderCount > 1 ? 's' : ''}; no maximum).`
+        : `Deck has ${totalCards} cards. Expected ${expectedCards} (plus ${commanderCount} commander${commanderCount > 1 ? 's' : ''} = 100 total).`,
+    });
+  } else if (commanderCount > 0 && totalCards !== expectedCards && !noMaximumDeckSize) {
     errors.push({
       type: 'card_count',
       message: `Deck has ${totalCards} cards. Expected ${expectedCards} (plus ${commanderCount} commander${commanderCount > 1 ? 's' : ''} = 100 total).`,

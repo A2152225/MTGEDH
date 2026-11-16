@@ -18,6 +18,11 @@ import {
   restoreMirrormindReplayTokens,
   applyRecordedLifePayment,
 } from "../applyEventReplayZoneCommanderManaHelpers.js";
+import { applyJinnieFayTokenChoiceOnContext } from "../counters_tokens-handlers/countersTokensJinnieFayApply.js";
+import { applyReplacementOrderChoiceOnContext } from "../replacementOrderChoiceApply.js";
+import { applyTransformAttachPlayerChoiceOnContext } from "../transformAttachPlayerChoice.js";
+import { applyTransformChooseOpponentOnContext } from "../batch99TransformEvents.js";
+import { applySpecialCombatDamageAssignmentResponse } from "../turn-handlers/combatSpecialDamageAssignment.js";
 import {
   applyReplayHandCardMove,
   applyReplayCardUpdatesInHand,
@@ -655,6 +660,132 @@ export function applyStackPromptEvents(ctx: GameContext, e: GameEvent): boolean 
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(mirrormindCrownTokenReplacementChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "jinnieFayTokenChoiceResolve": {
+        const playerId = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.jinnieFayTokenChoice === true && (!playerId || String(step?.playerId || '').trim() === playerId);
+            });
+          }
+          applyJinnieFayTokenChoiceOnContext(ctx as any, {
+            playerId,
+            choiceId: String((e as any).choiceId || '').trim() || 'normal',
+            faces: (e as any).faces,
+            original: (e as any).jinnieFayOriginalTokenCreate,
+            gameId: replayGameId,
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(jinnieFayTokenChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "replacementOrderChoiceResolve": {
+        const playerId = String((e as any).playerId || '').trim();
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.replacementOrderChoice === true && (!playerId || String(step?.playerId || '').trim() === playerId);
+            });
+          }
+          applyReplacementOrderChoiceOnContext(ctx as any, {
+            playerId,
+            choiceId: String((e as any).choiceId || '').trim(),
+            eventKind: (e as any).eventKind,
+            candidates: (e as any).candidates,
+            remainingDrawCountAfterChoice: Number((e as any).remainingDrawCountAfterChoice || 0),
+            tokenCreate: (e as any).tokenCreate,
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(replacementOrderChoiceResolve): failed', err);
+        }
+        break;
+      }
+
+      case "transformAttachToPlayerResolve": {
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.transformAttachToPlayerChoice === true
+                && String(step?.permanentId || step?.sourceId || '').trim() === String((e as any).permanentId || '').trim();
+            });
+          }
+          applyTransformAttachPlayerChoiceOnContext(ctx as any, {
+            permanentId: String((e as any).permanentId || '').trim(),
+            playerId: String((e as any).attachedToPlayerId || (e as any).playerId || '').trim(),
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(transformAttachToPlayerResolve): failed', err);
+        }
+        break;
+      }
+
+      case "transformChooseOpponentResolve": {
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.transformChooseOpponent === true
+                && String(step?.permanentId || step?.sourceId || '').trim() === String((e as any).permanentId || '').trim();
+            });
+          }
+          applyTransformChooseOpponentOnContext(ctx as any, {
+            permanentId: String((e as any).permanentId || '').trim(),
+            playerId: String((e as any).chosenOpponentId || (e as any).playerId || '').trim(),
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(transformChooseOpponentResolve): failed', err);
+        }
+        break;
+      }
+
+      case "specialCombatDamageAssignmentResolve": {
+        const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String(step?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return step?.specialCombatDamageAssignment === true
+                && String(step?.attackerId || step?.sourceId || '').trim() === String((e as any).attackerId || '').trim();
+            });
+          }
+          applySpecialCombatDamageAssignmentResponse(ctx as any, {
+            attackerId: String((e as any).attackerId || '').trim(),
+            mode: String((e as any).mode || '').trim(),
+            cancelled: (e as any).cancelled === true,
+            targetId: String((e as any).targetId || '').trim(),
+            shares: (e as any).shares,
+            isFirstStrikePhase: (e as any).isFirstStrikePhase,
+          });
+        } catch (err) {
+          debugWarn(1, 'applyEvent(specialCombatDamageAssignmentResolve): failed', err);
         }
         break;
       }

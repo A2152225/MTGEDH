@@ -127,7 +127,7 @@ describe('Kindred Discovery chosen-type ETB and attack triggers', () => {
     );
 
     const kindredTriggers = triggers.filter(
-      (entry) => entry.triggerType === 'chosen_type_creature_etb_or_attack' && entry.cardName === 'Kindred Discovery',
+      (entry) => (entry.triggerType === 'chosen_type_creature_etb_or_attack' || entry.triggerType === 'parsed_attacks') && entry.cardName === 'Kindred Discovery',
     );
 
     expect(kindredTriggers).toHaveLength(1);

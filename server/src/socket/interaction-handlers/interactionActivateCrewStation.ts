@@ -12,9 +12,14 @@ import { ResolutionQueueManager, ResolutionStepType } from "../../state/resoluti
 import { debug } from "../../utils/debug.js";
 import { broadcastGame, getEffectivePower, getEffectiveToughness } from "../util";
 import { crewSaddlePowerBonus } from "../crewSaddlePowerBonus.js";
+import { effectiveCrewStationPower } from "../crewStationUsedPower.js";
+import { permanentGainsSaddleFromTypeGrant } from "../../state/modules/batch98CombatAndKeywords.js";
+import { layer4AddedTypesFor } from "../../state/modules/layer4TypeSetting.js";
 import { getGrantedVehicleCrewValue, resolveCrewPowerRequirement } from "../crewGrantedVehicleCrew.js";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
 import { persistQueuedBattlefieldAbilityStepActivation } from "./interactionActivationEventPersistence.js";
+
+import { abilityTextIsOnceEachTurn, getActivateOnceEachTurnBlock, pendingActivationForPermanent, readEquipAbilityIndex } from "../../state/modules/equipOnceEachTurn.js";
 
 export async function tryHandleActivateCrewStation(
   ctx: ActivateBattlefieldAbilityContext,
@@ -48,6 +53,17 @@ export async function tryHandleActivateCrewStation(
     // Parse crew power requirement from oracle text
     // Own "Crew N" or a granted one ("Vehicles you control have crew N"): use the cheapest.
     const crewPower = resolveCrewPowerRequirement(crewAbilityText, battlefield, String(pid), permanent);
+    if (abilityTextIsOnceEachTurn(crewAbilityText) || abilityTextIsOnceEachTurn(oracleText)) {
+      const crewAbilityIndex = readEquipAbilityIndex(abilityId, 0);
+      const blocked = getActivateOnceEachTurnBlock(game, gameId, permanent, String(permanentId), crewAbilityIndex, {
+        noun: 'Crew ability',
+        pending: () => pendingActivationForPermanent(gameId, String(permanentId), (step) => step?.crewAbility === true),
+      });
+      if (blocked) {
+        socket.emit('error', blocked);
+        return true;
+      }
+    }
     
     // Get valid creatures that can crew (untapped creatures the player controls)
     const validCrewers = battlefield.filter((p: any) => {
@@ -69,7 +85,7 @@ export async function tryHandleActivateCrewStation(
 
     // Calculate total available power (including counters and modifiers)
     const totalAvailablePower = validCrewers.reduce((sum: number, c: any) => {
-      return sum + getEffectivePower(c, game.state) + crewSaddlePowerBonus(c, 'crew');
+      return sum + effectiveCrewStationPower(c, game.state, 'crew');
     }, 0);
 
     if (totalAvailablePower < crewPower) {
@@ -154,20 +170,23 @@ export async function tryHandleActivateCrewStation(
     return true;
   }
 
-  const isMount = /\bmount\b/i.test(typeLine);
+  const grantedSaddle = permanentGainsSaddleFromTypeGrant(permanent, game.state);
+  const isMount = /\bmount\b/i.test(typeLine)
+    || (layer4AddedTypesFor(permanent, game.state) || []).some((type) => /^mount$/i.test(String(type)))
+    || grantedSaddle != null;
   const hasExplicitSaddleAbilityId = /-saddle-(\d+)$/i.test(abilityId) || abilityId === 'saddle';
   const saddleAbilityText = hasExplicitSaddleAbilityId ? oracleText : scopedAbilityFullText;
-  const isSaddleAbility = hasExplicitSaddleAbilityId || (isMount && /\bsaddle\s*\d+/i.test(saddleAbilityText));
+  const isSaddleAbility = hasExplicitSaddleAbilityId || (isMount && (/\bsaddle\s*\d+/i.test(saddleAbilityText) || grantedSaddle != null));
   if (isSaddleAbility) {
     const saddleMatch = saddleAbilityText.match(/saddle\s*(\d+)/i);
-    const saddlePower = saddleMatch ? parseInt(saddleMatch[1], 10) : 0;
+    const saddlePower = saddleMatch ? parseInt(saddleMatch[1], 10) : (grantedSaddle ?? 0);
     const validCrewers = battlefield.filter((perm: any) => {
       if (!perm || perm.id === permanentId) return false;
       if (String(perm.controller || '') !== String(pid)) return false;
       if (perm.tapped) return false;
       return /\bcreature\b/i.test(String(perm.card?.type_line || ''));
     });
-    const totalAvailablePower = validCrewers.reduce((sum: number, perm: any) => sum + getEffectivePower(perm, game.state) + crewSaddlePowerBonus(perm, 'saddle'), 0);
+    const totalAvailablePower = validCrewers.reduce((sum: number, perm: any) => sum + effectiveCrewStationPower(perm, game.state, 'saddle'), 0);
     if (totalAvailablePower < saddlePower) {
       socket.emit('error', {
         code: 'INSUFFICIENT_POWER',
@@ -269,7 +288,7 @@ export async function tryHandleActivateCrewStation(
 
     // Queue creature selection via Resolution Queue
     const creatureOptions = untappedCreatures.map((c: any) => {
-      const creaturePower = getEffectivePower(c, game.state);
+      const creaturePower = effectiveCrewStationPower(c, game.state, 'station');
       return {
         id: c.id,
         name: c.card?.name || 'Unknown',

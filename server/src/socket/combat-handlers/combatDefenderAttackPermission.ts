@@ -4,6 +4,9 @@
 import { sanitizeOracleTextForStaticEffectScan } from "../../../../rules-engine/src/staticEffectOracleSanitize.js";
 import { permanentHasCreatureType } from "../../../../shared/src/creatureTypes.js";
 import { getEffectivePower } from "../util-handlers/getEffectivePowerToughness.js";
+import { graveyardHasLessonCard } from "../../state/modules/batch100CombatAndKeywords.js";
+import { batch106CanAttackAsThoughItDidntHaveDefender } from '../../state/modules/batch106Apply.js';
+import { defenderConditionCastNoncreatureSpell } from '../../state/modules/batch109Apply.js';
 
 function escapeRe(v: string): string { return v.replace(/[.*+?^${}()|[\]\\]/g, (c) => '\\' + c); }
 
@@ -50,6 +53,11 @@ export function evaluateDefenderCondition(cond: string, source: any, battlefield
     return !!id && battlefield.some((p) => p && String(p.attachedTo || '') === id
       && /\baura\b/i.test(String(p.card?.type_line || '')));
   }
+  if (cond === '~ is enchanted or equipped' || cond === 'it is enchanted or equipped') {
+    const id = String(source?.id || '');
+    return !!id && battlefield.some((p) => p && String(p.attachedTo || '') === id
+      && /\b(aura|equipment)\b/i.test(String(p.card?.type_line || '')));
+  }
   m = cond.match(/^you control an? ([a-z]+)$/);
   if (m) {
     const word = m[1];
@@ -61,10 +69,25 @@ export function evaluateDefenderCondition(cond: string, source: any, battlefield
   // B49: "as long as an artifact entered the battlefield under your control this turn" (Mechan Shieldmate).
   m = cond.match(/^an? (artifact|creature|land|enchantment|planeswalker|battle) entered the battlefield under your control this turn$/);
   if (m) return typeEnteredUnderControlThisTurn(m[1], battlefield, controllerId, gameState);
+  if (/^there(?: is|'s) a lesson card in your graveyard$/.test(cond)) {
+    return graveyardHasLessonCard(gameState, controllerId);
+  }
+  if (/^you've scried or surveilled this turn$/.test(cond)) {
+    if (gameState?.scriedOrSurveilledThisTurn?.[controllerId]) return true;
+    if (gameState?.scriedThisTurn?.[controllerId] || gameState?.surveilledThisTurn?.[controllerId]) return true;
+    const player = Array.isArray(gameState?.players) ? gameState.players.find((p: any) => String(p?.id) === String(controllerId)) : undefined;
+    if (player?.hasScriedThisTurn || player?.hasSurveilledThisTurn) return true;
+    return false;
+  }
+  if (defenderConditionCastNoncreatureSpell(cond, gameState, controllerId)) return true;
+  if (/^you have no cards in hand$/.test(cond)) {
+    const z = gameState?.zones?.[controllerId];
+    return (Number(z?.handCount ?? z?.hand?.length ?? 0) || 0) === 0;
+  }
   return false;
 }
 
-const SELF_RE = /^(?:as long as (.+?), )?(?:~|it) can attack as though it didn't have defender(?: as long as (.+))?$/;
+const SELF_RE = /^(?:as long as (.+?), )?(?:~|it|this creature) can attack as though it didn't have defender(?: as long as (.+))?$/;
 const GLOBAL_RE = /^(?:as long as (.+?), )?(?:creatures you control|each creature you control) can attack as though (?:they|it) didn't have defender$/;
 // B72: Guardians of Oboro — "Modified creatures you control can attack as though they didn't have defender."
 const MODIFIED_RE = /^(?:as long as (.+?), )?modified creatures you control can attack as though (?:they|it) didn't have defender$/;
@@ -122,6 +145,7 @@ export function defenderAttackTargetRestrictionReason(
 }
 
 export function canAttackDespiteDefender(permanent: any, battlefield: any[], controllerId: string, gameState?: any): boolean {
+  if (batch106CanAttackAsThoughItDidntHaveDefender(permanent, gameState || { battlefield })) return true;
   if (canAttackDespiteDefenderUnrestricted(permanent, battlefield, controllerId, gameState)) return true;
   return hasLastTurnAttackersPermission(permanent) && playersWhoAttackedYouLastTurn(gameState, controllerId).length > 0;
 }

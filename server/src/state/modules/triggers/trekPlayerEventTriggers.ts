@@ -9,6 +9,7 @@
  */
 
 import { uid } from '../../utils.js';
+import { irOwnsPrintedAction, queueParsedActionTriggers } from './queueParsedSpecialRuntimeIr.js';
 
 const DILEMMA = /(?:^|\n)whenever you face a dilemma,\s*([^\n]+)/i;
 
@@ -43,8 +44,20 @@ export function recordDilemmaFaced(ctx: any, playerId: string, selectedModeCount
   state.dilemmasFacedThisTurn = state.dilemmasFacedThisTurn || {};
   state.dilemmasFacedThisTurn[pid] = (Number(state.dilemmasFacedThisTurn[pid]) || 0) + 1;
   if (ctx?.isReplaying || (ctx as any)?.game?.isReplaying) return;
-  for (const perm of Array.isArray(state.battlefield) ? state.battlefield : []) {
-    if (String(perm?.controller || '') !== pid) continue;
+  const subject = { id: 'dilemma:' + pid, controller: pid, card: { name: 'Dilemma', type_line: '' } };
+  const bf = (Array.isArray(state.battlefield) ? state.battlefield : []).filter((perm: any) => String(perm?.controller || '') === pid && perm?.card);
+  queueParsedActionTriggers(ctx, {
+    event: 'performs',
+    action: 'face_dilemma',
+    subjectPermanent: subject,
+    subjectControllerId: pid,
+    sources: bf,
+    triggerType: 'parsed_face_a_dilemma',
+    effectData: { playerId: pid },
+  });
+  for (const perm of bf) {
+    const owned = irOwnsPrintedAction(String(perm?.card?.oracle_text || ''), ['performs'], 'face_dilemma', String(perm?.card?.name || ''));
+    if (owned.length > 0) continue;
     const effect = dilemmaEffect(perm?.card);
     if (effect && !/from your graveyard/i.test(effect)) pushTrigger(state, pid, perm.card, perm, effect, 'battlefield');
   }

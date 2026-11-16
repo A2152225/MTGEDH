@@ -36,7 +36,7 @@ export interface DecisionTrace {
   ms?: number;
   /** Shadow / v1 comparison payload (Phase 1); optional. */
   shadow?: {
-    brain: 'shadow' | 'v1';
+    brain: 'shadow' | 'v1' | 'v2';
     winProb: Record<string, number>;
     scores: Array<{
       v0Index: number;

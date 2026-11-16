@@ -12,12 +12,13 @@ function counterEffectsForType(
   overlaySpecs: readonly ReplacementEffectSpec[],
   targetController: PlayerID,
   targetTypeLine?: string,
+  cause?: unknown,
 ): ReplacementEffect[] {
   const effects: ReplacementEffect[] = [];
 
   for (const spec of overlaySpecs) {
     if (spec.event !== 'counter-placement' || !spec.instead.modify) continue;
-    if (!overlaySpecsMatchCounterPlacement(spec, { counterType, targetController, targetTypeLine })) continue;
+    if (!overlaySpecsMatchCounterPlacement(spec, { counterType, targetController, targetTypeLine, cause })) continue;
     effects.push(overlayReplacementSpecToEffect(spec));
   }
 
@@ -55,6 +56,7 @@ export function computeCounterPlacementModifiedDeltas(
   targetPermanentId: string,
   deltas: Record<string, number>,
   overlaySpecs: readonly ReplacementEffectSpec[] = [],
+  cause?: unknown,
 ): Record<string, number> {
   const targetPermanent = (gameState?.battlefield || []).find((p: any) => p.id === targetPermanentId);
   if (!targetPermanent) return deltas;
@@ -69,7 +71,7 @@ export function computeCounterPlacementModifiedDeltas(
     if (amount === 0) continue;
 
     if (amount > 0) {
-      const effects = counterEffectsForType(counterType, overlaySpecs, targetController, String(targetPermanent?.card?.type_line || targetPermanent?.type_line || ''));
+      const effects = counterEffectsForType(counterType, overlaySpecs, targetController, String(targetPermanent?.card?.type_line || targetPermanent?.type_line || ''), cause);
       if (effects.length > 0) {
         amount = applyCounterPreferenceOrdering(gameState, targetController, amount, effects);
       }

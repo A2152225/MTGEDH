@@ -1,5 +1,6 @@
 import { alreadyAttackedPlayerRestrictionReason } from "./combatBatch37Restrictions.js"; // B37
 import { cantAttackAloneReason } from "./combatBatch53AttackAlone.js"; // B53
+import { hallsOfMistPreventsAttack } from "../../state/modules/batch93AttackRestrictions.js";
 import { controlTypeAttackRestrictionReason } from "./combatBatch36Restrictions.js"; // B36
 import { castThisTurnAttackRestrictionReason } from "./combatBatch34AttackRestrictions.js"; // B34
 import { controlCountAttackRestrictionReason } from "./combatBatch33AttackRestrictions.js"; // B33 count
@@ -24,6 +25,10 @@ import { formatEnergyCost, resolveAttackTriggerManaPaymentChoice } from "./comba
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { formatDeclareAttackersMessage } from "../../../../shared/src/gameLogFormat.js";
 import { getIllegalDefendingPlayerRestriction } from "../../../../rules-engine/src/attackRestrictionText.js";
+import { batch105AttackRestrictionReason } from '../../state/modules/batch105Apply.js';
+import { batch106AttackRestrictionReason } from '../../state/modules/batch106Apply.js';
+import { batch108AttackRestrictionReason, batch108CanOnlyAttackAloneReason } from '../../state/modules/batch108Apply.js';
+import { batch109AttackRestrictionReason } from '../../state/modules/batch109Apply.js';
 import { getDefendingLandAttackRestrictionReason } from "./combatDefendingLandRestriction.js";
 import { defenderConditionedAttackReason } from "./combatR36DefenderConditionedAttack.js"; // R36
 import { graveyardCountAttackRestrictionReason } from "./combatBatch30AttackRestrictions.js"; // B30
@@ -39,6 +44,7 @@ import {
   lookupBattlefieldPermanentName,
   persistTriggeredAbilityPush,
 } from "./combatDeclareBlockersRequest.js";
+import { arboriaAttackRestrictionReason } from '../../state/modules/batch102Apply.js';
 
 function lookupDefenderLabel(
   game: any,
@@ -152,8 +158,23 @@ export function getOwnerAttackRestrictionReason(
     if (b37Already) return b37Already;
     const b53Alone = cantAttackAloneReason(creature, options.proposedAttackerIds, options.battlefield); // B53
     if (b53Alone) return b53Alone;
+    const b108Alone = batch108CanOnlyAttackAloneReason(creature, options.proposedAttackerIds, options.battlefield);
+    if (b108Alone) return b108Alone;
   }
-  const restriction = getIllegalDefendingPlayerRestriction({
+    if (options?.gameState && hallsOfMistPreventsAttack(options.gameState, String(creature?.id || ''))) {
+      return `${String(creature?.card?.name || 'This creature')} can't attack because it attacked during its controller's last turn.`;
+    }
+  const arboria = arboriaAttackRestrictionReason(creature, defendingPlayerId, (options?.gameState as any) || { battlefield: options?.battlefield });
+  if (arboria) return arboria;
+  const b105Attack = batch105AttackRestrictionReason(creature, String(defendingPlayerId || ''), (options?.gameState as any) || { battlefield: options?.battlefield });
+  if (b105Attack) return b105Attack;
+  const b106Attack = batch106AttackRestrictionReason(creature, String(defendingPlayerId || ''), (options?.gameState as any) || { battlefield: options?.battlefield });
+  if (b106Attack) return b106Attack;
+  const b108Attack = batch108AttackRestrictionReason(creature, String(defendingPlayerId || ''), (options?.gameState as any) || { battlefield: options?.battlefield });
+  if (b108Attack) return b108Attack;
+  const b109Attack = batch109AttackRestrictionReason(creature, options?.proposedAttackerIds, (options?.gameState as any) || { battlefield: options?.battlefield });
+  if (b109Attack) return b109Attack;
+    const restriction = getIllegalDefendingPlayerRestriction({
     oracleText: String(creature?.card?.oracle_text || creature?.oracle_text || ''),
     ownerId: creature?.owner || creature?.ownerId,
     controllerId: creature?.controller,

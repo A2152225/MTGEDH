@@ -235,7 +235,8 @@ describe('Killian, Decisive Mentor attack-draw', () => {
       (t: any) => t.cardName === 'Killian, Decisive Mentor' && /draw a card/i.test(String(t.effect || t.description || '')),
     );
     expect(killianDraw).toHaveLength(1);
-    expect(killianDraw[0]?.triggerType).toBe('one_or_more_enchanted_by_aura_you_control_attack');
+    // IR owns the printed line, so the emitter queues it as parsed_attacks (legacy name accepted).
+    expect(['one_or_more_enchanted_by_aura_you_control_attack', 'parsed_attacks']).toContain(killianDraw[0]?.triggerType);
   });
 
   it('does not fire when attacking creatures are not enchanted by an Aura you control', () => {

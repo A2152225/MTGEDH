@@ -10,6 +10,8 @@
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../../state/context.js";
 import { canPlayerPayLife } from "../../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
+import { playersCannotPayLifeToCastOrActivateNonMana } from "../../state/modules/karnsSylexPayLifeRestriction.js";
+import { isActivatedManaAbilityText } from "../../state/modules/ability-cost-adjustments.js";
 import { parseWordNumber } from "../../state/utils";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
@@ -126,10 +128,14 @@ export async function tryHandleActivatePayLifeExileCounters(
           }
 
           const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
-          if (!canPlayerPayLife(game as GameContext, String(pid))) {
+          const sylexBlocksPayLife = playersCannotPayLifeToCastOrActivateNonMana(game.state, String(pid))
+            && !isActivatedManaAbilityText(abilityText);
+          if (!canPlayerPayLife(game as GameContext, String(pid)) || sylexBlocksPayLife) {
             socket.emit('error', {
               code: 'CANNOT_PAY_COST',
-              message: `Cannot activate ${cardName}: players can't pay life.`,
+              message: sylexBlocksPayLife
+                ? `Cannot activate ${cardName}: players can't pay life to activate abilities that aren't mana abilities.`
+                : `Cannot activate ${cardName}: players can't pay life.`,
             });
             return true;
           }
@@ -212,10 +218,14 @@ export async function tryHandleActivatePayLifeExileCounters(
             }
 
             const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
-            if (!canPlayerPayLife(game as GameContext, String(pid))) {
+            const sylexBlocksPayLife = playersCannotPayLifeToCastOrActivateNonMana(game.state, String(pid))
+            && !isActivatedManaAbilityText(abilityText);
+          if (!canPlayerPayLife(game as GameContext, String(pid)) || sylexBlocksPayLife) {
               socket.emit('error', {
                 code: 'CANNOT_PAY_COST',
-                message: `Cannot activate ${cardName}: players can't pay life.`,
+                message: sylexBlocksPayLife
+                ? `Cannot activate ${cardName}: players can't pay life to activate abilities that aren't mana abilities.`
+                : `Cannot activate ${cardName}: players can't pay life.`,
               });
               return true;
             }

@@ -49,6 +49,8 @@ import { getOrInitManaPool } from "../../../socket/util.js";
 import { clearStaleReplayedGraveyardCastPrompts } from "../stackReplayUtils.js";
 import { applyDamageToPermanentWithCounterEffects } from "../counter-common-effects.js";
 import { applyCreatureDamageFromSource, resolvePlayerDamage } from "../combat-damage-processing.js";
+import { adjustScryCount } from '../replacementBatch91ScryReplacements.js';
+import { applyEligethReplacementAtScryQueue } from '../batch94ScryQueue.js';
 
 export function applyStackCoreEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -282,8 +284,13 @@ export function applyStackCoreEvents(ctx: GameContext, e: GameEvent): boolean {
                   break;
                 case 'QueueScry':
                   if ((eff as any).playerId && (eff as any).count) {
-                    (ctx.state as any).pendingScry = (ctx.state as any).pendingScry || {};
-                    (ctx.state as any).pendingScry[(eff as any).playerId] = Number((eff as any).count);
+                    const pid = (eff as any).playerId;
+                    const scryCount = adjustScryCount(ctx.state, pid, Number((eff as any).count));
+                    const replaced = applyEligethReplacementAtScryQueue(ctx, pid, scryCount);
+                    if (!replaced.replaced) {
+                      (ctx.state as any).pendingScry = (ctx.state as any).pendingScry || {};
+                      (ctx.state as any).pendingScry[pid] = scryCount;
+                    }
                   }
                   break;
                 case 'QueueSurveil':

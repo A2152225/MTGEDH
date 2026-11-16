@@ -56,6 +56,8 @@ export function handleEquipSacrificeCostStage(
       abilityText: stepAny.abilityText,
       activatedAbilityText: stepAny.activatedAbilityText,
       abilityType: 'equip',
+      equipOnceEachTurn: stepAny.equipOnceEachTurn,
+      equipAbilityIndex: stepAny.equipAbilityIndex,
       equipCost: cost,
       equipType: stepAny.equipType,
       equipQualifierKind: stepAny.equipQualifierKind,

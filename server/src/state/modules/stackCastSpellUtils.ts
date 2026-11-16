@@ -399,9 +399,13 @@ export function castSpell(
     }
   }
 
+  const alreadyCastThisTurn = (Array.isArray((state as any)?.spellsCastThisTurn) ? (state as any).spellsCastThisTurn : []).some(
+    (s) => String(s && (s.casterId || s.controller || s.playerId) || '') === String(playerId),
+  );
   const cascadeCount = getCascadeInstancesForCast(state, String(playerId), card, {
     castSourceZone,
     isFirstSpellCastFromExileThisTurn: castFromExile && !hadCastFromExileThisTurn,
+    isFirstSpellCastThisTurn: !alreadyCastThisTurn,
   });
   if (cascadeCount > 0) {
     (state as any).pendingCascade = (state as any).pendingCascade || {};

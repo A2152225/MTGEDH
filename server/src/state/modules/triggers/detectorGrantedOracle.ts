@@ -8,6 +8,7 @@
 
 import { getContinuousGrantedAbilitiesForPermanent } from '../staticEffectSpec.js';
 import { persistedGrantedAbilitiesSurvivingLoss } from '../persistedGrantedAbilityLoss.js';
+import { grantedTriggerTextsForPermanent } from './grantedOracleTriggerScan.js';
 import {
   filterOracleTextToActiveStationAbilities,
   hasStationThresholdMarkers,
@@ -17,6 +18,26 @@ import {
 const FIRST_TIME_EACH_TURN_RE =
   /\s+for the first time(?: each turn| during each of your turns)/gi;
 const DURING_YOUR_TURN_BEFORE_COMMA_RE = /\s+during your turn(?=,)/gi;
+
+/**
+ * Reminder text of a granted keyword ("Spells you cast have ripple 4. (Whenever you cast a spell, ...)") is
+ * not an ability of the source: detectors would otherwise read it as a second, printed trigger.
+ */
+const GRANTED_KEYWORD_TRIGGER_REMINDER_RE = /(\b(?:have|has)\s[^.\n(]*\.)\s*\((?=when(?:ever)?\b)[^)\n]*\)/gi;
+
+/**
+ * A quoted trigger granted to other permanents ("... have flying and "At the beginning of your upkeep, ...")
+ * is the recipient's ability, never the source's: drop it from the source's own detector text.
+ */
+function stripGrantedQuotedTriggers(text: string): string {
+  return text.split('\n').map((line) => {
+    const verb = /\b(?:have|has|gains?)\b/i.exec(line);
+    if (!verb || verb.index === 0) return line;
+    const head = line.slice(0, verb.index + verb[0].length);
+    const tail = line.slice(verb.index + verb[0].length).replace(/\s*"(?:when(?:ever)?|at the)\b[^"]*"/gi, '');
+    return head + tail;
+  }).join('\n');
+}
 
 export function isAbilityLikeGrantedText(text: string): boolean {
   // Case-insensitive: persisted grants keep printed capitalisation ("Whenever ...", "At the ...").
@@ -51,6 +72,14 @@ export function mergeDetectorOracleWithContinuousGrants(
     if (!trimmed || !isAbilityLikeGrantedText(trimmed)) return false;
     return !printedLower.includes(trimmed.toLowerCase());
   });
+  if (gameState) {
+    for (const line of grantedTriggerTextsForPermanent(permanent, gameState)) {
+      const trimmed = String(line || '').trim();
+      if (!trimmed || printedLower.includes(trimmed.toLowerCase())) continue;
+      if (extra.some((existing) => existing.toLowerCase() === trimmed.toLowerCase())) continue;
+      extra.push(trimmed);
+    }
+  }
   const oracleText = extra.length > 0
     ? `${printed}\n${extra.join('\n')}`
     : printed;
@@ -86,7 +115,9 @@ export function resolveDetectorOracleForPermanent(
 } {
   // Station "N+ | …" lines (and following lines until the next marker) are not
   // printed abilities until charge counters reach N — strip them for detectors.
-  let printed = String(printedOracle || '');
+  let printed = stripGrantedQuotedTriggers(
+    String(printedOracle || '').replace(GRANTED_KEYWORD_TRIGGER_REMINDER_RE, (_m, sentence: string) => sentence),
+  );
   if (hasStationThresholdMarkers(printed)) {
     printed = filterOracleTextToActiveStationAbilities(printed, readChargeCounterCount(permanent));
   }

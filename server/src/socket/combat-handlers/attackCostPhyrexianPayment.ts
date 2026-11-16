@@ -12,6 +12,7 @@ import {
   refundGenericManaPayment,
   type AvailableSourceManaPaymentResult,
 } from '../util.js';
+import { canPayLifeAmount, payLifeAmount } from '../../state/modules/batch97PayLife.js';
 
 export interface AttackCostPhyrexianChoicePrompt {
   index: number;
@@ -236,11 +237,17 @@ export function payAttackCostManaAndLife(
       : undefined)
     ?? 40,
   );
-  if (lifePaid > 0 && playerLife <= lifePaid) {
-    return {
-      ...empty,
-      error: `Cannot pay ${lifePaid} life (you have ${playerLife} life - payment would be lethal)`,
-    };
+  if (lifePaid > 0) {
+    let canPay = playerLife > lifePaid;
+    try {
+      canPay = canPayLifeAmount(gameState, playerId, lifePaid, { allowPayToZero: false });
+    } catch { /* keep default */ }
+    if (!canPay) {
+      return {
+        ...empty,
+        error: `Cannot pay ${lifePaid} life (you have ${playerLife} life - payment would be lethal)`,
+      };
+    }
   }
 
   const manaCost = buildManaCostString(Math.max(0, Math.floor(Number(args.generic) || 0)), colorCounts);
@@ -260,18 +267,26 @@ export function payAttackCostManaAndLife(
   }
 
   if (lifePaid > 0) {
-    gameState.life = gameState.life || {};
-    const startingLife = gameState.startingLife || 40;
-    const currentLife = gameState.life?.[playerId] ?? startingLife;
-    gameState.life[playerId] = Number(currentLife) - lifePaid;
+    let replaced = false;
     try {
-      (gameState as any).lifeLostThisTurn = (gameState as any).lifeLostThisTurn || {};
-      (gameState as any).lifeLostThisTurn[String(playerId)] =
-        ((gameState as any).lifeLostThisTurn[String(playerId)] || 0) + lifePaid;
-    } catch { /* ignore */ }
-    const playerObj = (Array.isArray(gameState.players) ? gameState.players : [])
-      .find((player: any) => String(player?.id || '') === String(playerId));
-    if (playerObj) playerObj.life = gameState.life[playerId];
+      const paid = payLifeAmount(gameState, playerId, lifePaid);
+      replaced = !!paid.replaced;
+    } catch {
+      gameState.life = gameState.life || {};
+      const startingLife = gameState.startingLife || 40;
+      const currentLife = gameState.life?.[playerId] ?? startingLife;
+      gameState.life[playerId] = Number(currentLife) - lifePaid;
+      const playerObj = (Array.isArray(gameState.players) ? gameState.players : [])
+        .find((player: any) => String(player?.id || '') === String(playerId));
+      if (playerObj) playerObj.life = gameState.life[playerId];
+    }
+    if (!replaced) {
+      try {
+        (gameState as any).lifeLostThisTurn = (gameState as any).lifeLostThisTurn || {};
+        (gameState as any).lifeLostThisTurn[String(playerId)] =
+          ((gameState as any).lifeLostThisTurn[String(playerId)] || 0) + lifePaid;
+      } catch { /* ignore */ }
+    }
   }
 
   return { ...manaPayment, ok: true, lifePaid };

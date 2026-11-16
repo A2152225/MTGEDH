@@ -348,7 +348,7 @@ export function setTurnDirection(ctx: GameContext, dir: 1 | -1) {
  * 
  * Returns summary of damage dealt for logging/notification.
  */
-function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
+export function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
   damageToPlayers: Record<string, number>;
   lifeGainForPlayers: Record<string, number>;
   creaturesDestroyed: string[];
@@ -399,6 +399,7 @@ function dealCombatDamage(ctx: GameContext, isFirstStrikePhase?: boolean): {
     const startingLife = (ctx as any).state?.startingLife || 40;
     
     applyDealCombatDamageAttackerLoop(ctx, attackers, battlefield, state, life, startingLife, result, isFirstStrikePhase);
+    if ((ctx as any)._combatDamageAssignmentPending) return result;
     
     // Update life state
     (ctx as any).state.life = life;

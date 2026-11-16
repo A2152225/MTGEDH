@@ -156,7 +156,7 @@ describe('aiBrain', () => {
       throw new Error('rng');
     };
     try {
-      for (const brain of ['v0', 'shadow', 'v1'] as const) {
+      for (const brain of ['v0', 'shadow', 'v1', 'v2'] as const) {
         const sorted = [spell('Sol Ring', 50)];
         expect(() => applyBrain(minimalGame(brain), 'p1', { mode: 'main' }, sorted)).not.toThrow();
       }

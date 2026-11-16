@@ -94,6 +94,7 @@ export function useAppPlayStateLate(p: Record<string, any>) {
     canShuffle: boolean;
     drawAfter: boolean;
     pickToHand: number;
+    canCancel?: boolean;
     targetPlayerId?: string;
     targetPlayerName?: string;
     isOwnLibrary: boolean;
@@ -417,7 +418,7 @@ export function useAppPlayStateLate(p: Record<string, any>) {
   const [additionalCostModalData, setAdditionalCostModalData] = useState<{
     cardId: string;
     cardName: string;
-    costType: 'discard' | 'sacrifice' | 'remove_counters';
+    costType: 'discard' | 'sacrifice' | 'remove_counters' | 'conspire' | 'pay_life';
     amount: number;
     title: string;
     description: string;

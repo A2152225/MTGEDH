@@ -23,6 +23,7 @@ import {
   loseGameSpecPreventsLoss,
   loseGameSpecWinsOnEmptyLibraryDraw,
 } from "../replacementEffectSpec-handlers/replacementEffectSpecLoseGameOracleTemplates.js";
+import { tryApplyLoseGameExileAndResetLife } from "../replacementBatch91LoseGameReplacements.js";
 import {
   detectLifeModifiers,
   canLifeChange,
@@ -231,6 +232,9 @@ export function checkLoseConditions(
     if (cantLose.cantLose || hasZeroOrLessLifeLoseExemption(ctx, playerId)) {
       return { lost: false };
     }
+    if (tryApplyLoseGameExileAndResetLife((ctx as any).state || ctx, playerId)) {
+      return { lost: false };
+    }
     return { lost: true, reason: "Life total is 0 or less" };
   }
   
@@ -238,6 +242,9 @@ export function checkLoseConditions(
   const poisonCounters = ctx.state?.poisonCounters?.[playerId] || 0;
   if (poisonCounters >= 10) {
     if (cantLose.cantLose) return { lost: false };
+    if (tryApplyLoseGameExileAndResetLife((ctx as any).state || ctx, playerId)) {
+      return { lost: false };
+    }
     return { lost: true, reason: "10 or more poison counters" };
   }
   
@@ -246,6 +253,9 @@ export function checkLoseConditions(
   for (const [commanderId, damage] of Object.entries(commanderDamage)) {
     if ((damage as number) >= 21) {
       if (cantLose.cantLose) return { lost: false };
+      if (tryApplyLoseGameExileAndResetLife((ctx as any).state || ctx, playerId)) {
+        return { lost: false };
+      }
       return { lost: true, reason: `21 or more combat damage from a commander` };
     }
   }
@@ -383,6 +393,10 @@ export function applyEmptyLibraryDrawConsequences(
       continue;
     }
 
+    if (tryApplyLoseGameExileAndResetLife(state, playerId)) {
+      ignored.push(playerId);
+      continue;
+    }
     player.hasLost = true;
     player.lostReason = result.reason || 'Attempted to draw from an empty library';
     player.lossReason = player.lostReason;

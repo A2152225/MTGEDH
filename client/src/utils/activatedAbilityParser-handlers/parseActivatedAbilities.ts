@@ -13,6 +13,8 @@ import { appendGrantedLoyaltyAbilityLines } from '../../../../shared/src/planesw
 import { parseNumberFromText, parseSacrificeCost } from '../../../../shared/src/textUtils';
 import { appendGrantedActivatedAbilities } from './appendGrantedActivatedAbilities';
 import { grantedCrewFor } from '../grantedVehicleCrew';
+import { grantedSaddleFor } from '../grantedMountSaddle';
+import { additionalManaAbilityLifeCostFromCard } from '../manaAbilityAdditionalLife';
 import type { ParsedActivatedAbility } from './activatedAbilityParserTypes';
 import { parseCostComponents, parseMillEffect } from './parseActivatedAbilityCostAndMill';
 import { parseManaProduction } from './parseManaProduction';
@@ -593,6 +595,30 @@ export function parseActivatedAbilities(
       });
     }
   }
+
+  // Saddle N, including type-granted Mounts (Jandor).
+  {
+    const saddleMatch = oracleText.match(/saddle\s*(\d+)/i);
+    const grantedSaddle = options?.permanent ? grantedSaddleFor(options.permanent, options.battlefield as any[] | undefined) : null;
+    if (saddleMatch || grantedSaddle) {
+      const ownSaddle = saddleMatch ? parseInt(saddleMatch[1], 10) : Infinity;
+      const useGranted = !!grantedSaddle && grantedSaddle.value < ownSaddle;
+      const saddlePower = useGranted ? grantedSaddle!.value : ownSaddle;
+      if (Number.isFinite(saddlePower)) {
+        abilities.push({
+          id: `${card.id}-saddle-${abilityIndex++}`,
+          label: useGranted ? `Saddle ${saddlePower} (from ${grantedSaddle!.sourceName})` : `Saddle ${saddlePower}`,
+          description: `Tap other creatures with total power ${saddlePower}+ to saddle this Mount`,
+          cost: '',
+          effect: 'This Mount becomes saddled until end of turn',
+          isSaddleAbility: true,
+          saddlePower,
+          crewPower: saddlePower,
+          timingRestriction: undefined,
+        } as any);
+      }
+    }
+  }
   
   // ======== STATION ABILITIES (Spacecraft) ========
   // Station N (Rule 702.184a): Tap another untapped creature you control: Put charge counters
@@ -632,6 +658,17 @@ export function parseActivatedAbilities(
         return [{
           keywordLabel: 'Cycle',
           cost: plainCyclingMatch[1],
+          description: 'Discard this card: Draw a card',
+          effect: 'Discard this card, then draw a card',
+        }];
+      }
+
+      const payLifeCyclingMatch = line.match(/^cycling\s*[\u2014\u2013-]\s*(pay\s+(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+life)\b/i);
+      if (payLifeCyclingMatch) {
+        const cost = String(payLifeCyclingMatch[1] || '').trim().replace(/^pay/i, 'Pay');
+        return [{
+          keywordLabel: 'Cycle',
+          cost,
           description: 'Discard this card: Draw a card',
           effect: 'Discard this card, then draw a card',
         }];
@@ -852,6 +889,14 @@ export function parseActivatedAbilities(
     });
   }
   
+  const extraLife = additionalManaAbilityLifeCostFromCard(card);
+  if (extraLife > 0) {
+    for (const ability of abilities) {
+      if (ability.isManaAbility) {
+        ability.lifeCost = (Number(ability.lifeCost) || 0) + extraLife;
+      }
+    }
+  }
   return abilities;
 }
 

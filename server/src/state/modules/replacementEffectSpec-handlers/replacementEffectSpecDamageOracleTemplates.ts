@@ -13,8 +13,11 @@ import { collectBatch21DamageScalingSpecs } from '../replacementBatch21DamageSca
 import { collectBatch23DamageCapSpecs, damageSourceIsInstantOrSorcerySpell } from '../replacementBatch23DamageCap.js';
 import { collectBatch64DamageReplacementSpecs, damageSourceIsAnySpell, readSpellColorsForDamageSource } from '../replacementBatch64DamageReplacements.js';
 import { collectBatch65DamageReplacementSpecs } from '../replacementBatch65DamageReplacements.js';
+import { collectBatch89DamageReplacementSpecs } from '../replacementBatch89DamageReplacements.js';
+import { matchesBatch89DamageExtras } from './replacementEffectSpecDamageMatchBatch89.js';
 import { normalizeOraclePatternText, readCardOracleText } from './replacementEffectSpecOracleTextUtils.js';
 import { collectOraclePatternDamagePreventionSpecsFromState, matchesDamagePreventionExtras } from './replacementEffectSpecDamagePreventionOracleTemplates.js';
+import { collectBatch109DamageReplacementSpecsFromState } from '../replacementBatch109Collect.js';
 
 interface OracleDamageReplacementTemplate {
   templateId: string;
@@ -184,7 +187,7 @@ export function collectOraclePatternDamageReplacementSpecsFromState(state: unkno
       });
     }
 
-    specs.push(...collectBatch21DamageScalingSpecs(oracle, { sourcePermanentId, sourceController, sourceName, counters: permRecord.counters }, state));
+    specs.push(...collectBatch21DamageScalingSpecs(oracle, { sourcePermanentId, sourceController, sourceName, counters: permRecord.counters, power: (permRecord as any).power ?? (permRecord.card as any)?.power }, state));
     specs.push(...collectBatch23DamageCapSpecs(oracle, { sourcePermanentId, sourceController, sourceName }));
     specs.push(...collectBatch64DamageReplacementSpecs(readCardOracleText(permRecord.card), {
       sourcePermanentId,
@@ -200,6 +203,11 @@ export function collectOraclePatternDamageReplacementSpecsFromState(state: unkno
         || (permRecord as any)?.card?.chosenCreatureType
         || '',
       ).trim() || undefined,
+    }));
+    specs.push(...collectBatch89DamageReplacementSpecs(readCardOracleText(permRecord.card), {
+      sourcePermanentId,
+      sourceController,
+      sourceName,
     }));
 
     const preventAllBut = parsePreventAllButAnotherTypeDamageSpec(oracle);
@@ -249,6 +257,7 @@ export function collectOraclePatternDamageReplacementSpecsFromState(state: unkno
   }
 
   specs.push(...collectOraclePatternDamagePreventionSpecsFromState(state));
+  specs.push(...collectBatch109DamageReplacementSpecsFromState(state));
   return specs;
 }
 
@@ -588,5 +597,6 @@ export function overlaySpecsMatchDamage(
     }
   }
   if (!matchesDamagePreventionExtras(spec, input, state)) return false;
+  if (!matchesBatch89DamageExtras(spec, input, state)) return false;
   return true;
 }

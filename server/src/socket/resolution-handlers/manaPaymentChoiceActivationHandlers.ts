@@ -14,6 +14,7 @@
  */
 
 import type { Server } from "socket.io";
+import { stampEquipOnceEachTurnFromStep } from "../../state/modules/equipOnceEachTurn.js";
 import { appendEvent } from "../../db/index.js";
 import {
   detectManaModifiers,
@@ -251,6 +252,7 @@ export async function tryHandleManaPaymentChoiceActivation(
         equipmentName: cardName,
         targetCreatureName: String(targetCreature?.card?.name || 'Creature'),
       };
+      stampEquipOnceEachTurnFromStep(stackItem, sourcePerm, stepData);
     } else if (battlefieldAbilityType === 'fortify') {
       const targetLandId = String(selectedTargetIds[0] || '');
       const targetLand = battlefield.find((perm: any) => perm && String(perm.id) === targetLandId);

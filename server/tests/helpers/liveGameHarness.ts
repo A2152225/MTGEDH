@@ -15,8 +15,9 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as realSetTimeout, clearTimeout as realClearTimeout } from 'node:timers';
 import { expect, vi } from 'vitest';
 import { createGameIfNotExists, deleteGame } from '../../src/db/index.js';
+import { GameManager } from '../../src/GameManager.js';
 import { ensureGame, broadcastGame } from '../../src/socket/util.js';
-import { registerAIPlayer, scheduleAIGameFlow, unregisterAIPlayer } from '../../src/socket/ai.js';
+import { cleanupGameAI, registerAIPlayer, scheduleAIGameFlow, unregisterAIPlayer } from '../../src/socket/ai.js';
 import { aiPlayers } from '../../src/socket/ai-handlers/aiScheduler.js';
 import { games, priorityTimers } from '../../src/socket/socket.js';
 import { ResolutionQueueManager } from '../../src/state/resolution/index.js';
@@ -338,7 +339,15 @@ export async function prepareLiveGame(options: PrepareLiveGameOptions): Promise<
     seedAIRandom(seed);
   }
 
+  // Tear down any leftover process-global AI / GameManager state for this id before
+  // recreate — prevents a timed-out prior shard from resurrecting via ensureGame.
+  cleanupGameAI(gameId);
   ResolutionQueueManager.removeQueue(gameId);
+  try {
+    GameManager.deleteGame(gameId);
+  } catch {
+    // best-effort
+  }
   games.delete(gameId as any);
   const existingPriorityTimer = priorityTimers.get(gameId as any);
   if (existingPriorityTimer) {
@@ -438,17 +447,29 @@ export async function prepareLiveGame(options: PrepareLiveGameOptions): Promise<
 }
 
 export async function cleanupLiveGame(prepared: PreparedLiveGame): Promise<void> {
+  const gameId = prepared.gameId;
+  // Cancel scheduled AI timers first so they cannot fire into the next test's fake clock.
+  cleanupGameAI(gameId);
   for (const playerId of prepared.actualPlayerIds) {
-    unregisterAIPlayer(prepared.gameId, playerId as any);
+    try {
+      unregisterAIPlayer(gameId, playerId as any);
+    } catch {
+      // already cleared by cleanupGameAI
+    }
   }
-  ResolutionQueueManager.removeQueue(prepared.gameId);
-  const pendingPriorityTimer = priorityTimers.get(prepared.gameId as any);
+  ResolutionQueueManager.removeQueue(gameId);
+  const pendingPriorityTimer = priorityTimers.get(gameId as any);
   if (pendingPriorityTimer) {
     clearTimeout(pendingPriorityTimer);
-    priorityTimers.delete(prepared.gameId as any);
+    priorityTimers.delete(gameId as any);
   }
-  games.delete(prepared.gameId as any);
-  await deleteGame(prepared.gameId);
+  try {
+    GameManager.deleteGame(gameId);
+  } catch {
+    // best-effort
+  }
+  games.delete(gameId as any);
+  await deleteGame(gameId);
   seedAIRandom(null);
 }
 
@@ -523,20 +544,30 @@ export async function advanceLiveGame(
     label?: string;
     /** When true, turn-limit / stall become soft outcomes instead of throws. */
     softStop?: boolean;
+    /**
+     * Abort to stop the loop immediately (vitest timeout / harness finally).
+     * Prevents a timed-out shard from keeping fake timers / AI schedules alive
+     * into the next test in the same worker.
+     */
+    signal?: AbortSignal;
   },
-): Promise<{ endReason: 'win' | 'turn-limit' | 'stall' | 'loop-exhausted'; turns: number }> {
+): Promise<{ endReason: 'win' | 'turn-limit' | 'stall' | 'loop-exhausted' | 'aborted'; turns: number }> {
   let lastSeq = Number(game.seq || 0);
   let stagnantTicks = 0;
   let lastLoggedTurn = Number((game.state as any).turnNumber || 0);
   let lastTurnAdvanceElapsedMs = 0;
   let lastTurnAdvanceWallMs = 0;
+  /** Wall ms spent with stack/resolution busy since last turn advance (paused, not reset). */
+  let turnStallPausedAccumMs = 0;
+  let turnStallBusyStartedWallMs: number | null = null;
   // Prefer real wall clock. Callers under vitest must not fake hrtime (see ai-selfplay harness
   // useFakeTimers toFake list). process.hrtime.bigint is used directly so maxNoTurnAdvanceMs /
   // minStagnantWallMs / maxWallClockMs measure real elapsed time, not simulated tick time.
   const startedAt = process.hrtime.bigint();
-  let endReason: 'win' | 'turn-limit' | 'stall' | 'loop-exhausted' = 'loop-exhausted';
+  let endReason: 'win' | 'turn-limit' | 'stall' | 'loop-exhausted' | 'aborted' = 'loop-exhausted';
 
   const wallMs = () => Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+  const isAborted = () => Boolean(options.signal?.aborted);
 
   const maybeLogProgress = (reason: string) => {
     if (!LIVE_PRECON_PROGRESS_LOG) return;
@@ -551,6 +582,12 @@ export async function advanceLiveGame(
   if (options.label) logPosition(game, options.label);
 
   for (let tick = 0; tick < options.maxTicks; tick++) {
+    if (isAborted()) {
+      maybeLogProgress('aborted');
+      endReason = 'aborted';
+      break;
+    }
+
     if ((game.state as any).gameOver) {
       endReason = 'win';
       break;
@@ -577,6 +614,12 @@ export async function advanceLiveGame(
       throw err;
     }
 
+    if (isAborted()) {
+      maybeLogProgress('aborted');
+      endReason = 'aborted';
+      break;
+    }
+
     const simulatedElapsedMs = (tick + 1) * options.tickMs;
     const currentSeq = Number(game.seq || 0);
     const currentTurn = Number((game.state as any).turnNumber || 0);
@@ -592,6 +635,8 @@ export async function advanceLiveGame(
       lastLoggedTurn = currentTurn;
       lastTurnAdvanceElapsedMs = simulatedElapsedMs;
       lastTurnAdvanceWallMs = wallMs();
+      turnStallPausedAccumMs = 0;
+      turnStallBusyStartedWallMs = null;
       if (options.label) logPosition(game, options.label);
       maybeLogProgress(`advanced-turn-${currentTurn}`);
     } else if (LIVE_PRECON_PROGRESS_LOG && tick > 0 && tick % 100 === 0) {
@@ -624,14 +669,37 @@ export async function advanceLiveGame(
 
     // Use wall clock, not simulated ms: under fake timers simulated time races ahead
     // while wall time stays small, which false-stalled many games at turn 1.
-    // Skip while the stack is busy: storm turns (hundreds of triggers) can spend >60s
-    // resolving without a turn advance while seq still climbs — not a soft stall.
+    // Pause (don't reset) the turn-stall clock while stack/resolution is busy so a storm
+    // can drain without false-stall — but intermittent MAIN1 cast→stack flickers must not
+    // refresh the watermark forever (that produced 10–20min wall-clock "stalls").
+    // Self-play passes gameId as options.label.
     const stackBusy = Array.isArray((game.state as any)?.stack) && (game.state as any).stack.length > 0;
+    let resolutionBusy = false;
+    if (options.label) {
+      try {
+        const q = ResolutionQueueManager.getQueue(options.label);
+        resolutionBusy = Boolean(q && Array.isArray(q.steps) && q.steps.length > 0);
+      } catch {
+        resolutionBusy = false;
+      }
+    }
+    const engineBusy = stackBusy || resolutionBusy;
+    const nowWall = wallMs();
+    if (engineBusy) {
+      if (turnStallBusyStartedWallMs == null) turnStallBusyStartedWallMs = nowWall;
+    } else if (turnStallBusyStartedWallMs != null) {
+      turnStallPausedAccumMs += nowWall - turnStallBusyStartedWallMs;
+      turnStallBusyStartedWallMs = null;
+    }
+    const busyPauseNow =
+      turnStallBusyStartedWallMs != null ? nowWall - turnStallBusyStartedWallMs : 0;
+    const idleSinceTurnMs =
+      nowWall - lastTurnAdvanceWallMs - turnStallPausedAccumMs - busyPauseNow;
     if (
       options.maxNoTurnAdvanceMs
       && currentTurn > 0
-      && !stackBusy
-      && wallMs() - lastTurnAdvanceWallMs >= options.maxNoTurnAdvanceMs
+      && !engineBusy
+      && idleSinceTurnMs >= options.maxNoTurnAdvanceMs
     ) {
       maybeLogProgress('turn-stalled');
       endReason = 'stall';
@@ -639,11 +707,6 @@ export async function advanceLiveGame(
       throw new Error(
         `Game stalled without advancing turns for ${options.maxNoTurnAdvanceMs}ms wall-clock: ${JSON.stringify(stateSnapshot(game))}`,
       );
-    }
-    // While the stack is draining, keep the "last turn advance" watermark fresh so a
-    // just-emptied stack does not immediately inherit the whole storm's wall time.
-    if (stackBusy) {
-      lastTurnAdvanceWallMs = wallMs();
     }
   }
 

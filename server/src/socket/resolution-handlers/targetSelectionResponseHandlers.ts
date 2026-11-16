@@ -34,6 +34,9 @@ import { violatesFlagbearerRequirement } from "../../state/modules/flagbearerTar
 import { handleUntapCapChoiceSelection } from "./untapCapChoiceSelectionHandler.js";
 import { handleChooseThenSacrificeRestTargetSelection } from "./chooseThenSacrificeRestTargetSelection.js";
 import { handleAttackCostPermanentPaymentTargetSelection } from "./attackCostPermanentPaymentHandlers.js";
+import { handleTransformAttachPlayerChoiceResponse } from "../resolutionTransformAttachPlayerResponseHandlers.js";
+import { handleTransformChooseOpponentResponse } from "../resolutionTransformChooseOpponentResponseHandlers.js";
+import { handleSpecialCombatDamageAssignmentResponse } from "../resolutionSpecialCombatDamageResponseHandlers.js";
 
 /** TARGET_SELECTION: validate selections then dispatch to the specialized branch. */
 export async function handleTargetSelectionResponse(
@@ -43,6 +46,9 @@ export async function handleTargetSelectionResponse(
   step: ResolutionStep,
   response: ResolutionStepResponse
 ): Promise<void> {
+  if (await handleTransformAttachPlayerChoiceResponse(io, game, gameId, step, response)) return;
+  if (await handleTransformChooseOpponentResponse(io, game, gameId, step, response)) return;
+  if (await handleSpecialCombatDamageAssignmentResponse(io, game, gameId, step, response)) return;
   const pid = response.playerId;
   const selections = response.selections as string[];
 

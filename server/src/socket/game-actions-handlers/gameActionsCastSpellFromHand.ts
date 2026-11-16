@@ -31,6 +31,7 @@ import {
 } from "./gameActionsModalCastModeCosts.js";
 import type { EnsureInGameRoom } from "./gameActionsSocketRoomGuard.js";
 import { canCompleteSpellCastAtCurrentTiming } from "./gameActionsSpellCastLock.js";
+import { tryPromptValgavothExileLifeCost } from "./valgavothExileCastPayment.js";
 
 export async function handleCastSpellFromHandRequest(
   io: Server,
@@ -157,6 +158,21 @@ export async function handleCastSpellFromHandRequest(
       if (!modalOverloadLife) return;
 
       
+      const valgavothLifePrompt = tryPromptValgavothExileLifeCost({
+        io,
+        game,
+        gameId,
+        playerId,
+        cardId,
+        cardInHand,
+        payment,
+        targets,
+        xValue,
+        alternateCostId,
+        convokeTappedCreatures,
+      });
+      if (valgavothLifePrompt !== 'continue') return;
+
       const additionalCostPrompt = tryPromptCastSpellAdditionalCostsFromHand({
         io,
         socket,

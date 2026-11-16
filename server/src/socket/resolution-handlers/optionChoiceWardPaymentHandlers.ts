@@ -15,8 +15,7 @@
  */
 
 import type { Server } from "socket.io";
-import type { GameContext } from "../../state/context.js";
-import { counterStackItem } from "../../state/modules/stack-mechanics.js";
+import { applyWardCounter } from "../resolutionWardUtils.js";
 import { queueLifePaymentTriggers } from "../../state/modules/triggers/pay-life.js";
 import {
   ResolutionQueueManager,
@@ -56,21 +55,7 @@ export async function handleWardPaymentOptionChoice(
       return;
     }
 
-    const ctx = {
-      state: game.state,
-      bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-      zones: game.state?.zones,
-      gameId,
-    } as unknown as GameContext;
-
-    counterStackItem(ctx, triggeredBy, wardPermanentController);
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${wardPermanentName}: ${getPlayerName(game, playerId)} declined to pay ward and the spell/ability was countered.`,
-      ts: Date.now(),
-    });
+    applyWardCounter(io, game, gameId, triggeredBy, wardPermanentController, wardPermanentName, String(playerId || ''), 'declined to pay ward');
     if (typeof game.bumpSeq === 'function') game.bumpSeq();
     broadcastGame(io, game, gameId);
     return;
@@ -104,28 +89,16 @@ export async function handleWardPaymentOptionChoice(
   }
 
   // If the spell/ability was already countered/removed, this ward payment is moot.
+  // From-hand casts may still be in pendingSpellCasts (ward is prompted before spell mana is paid).
   const stackItem = (game.state?.stack || []).find((s: any) => s && s.id === triggeredBy);
-  if (!stackItem) {
+  const pendingCast = (game.state as any)?.pendingSpellCasts?.[triggeredBy];
+  if (!stackItem && !pendingCast) {
     debug(2, `[Resolution] wardPayment: stack item missing (${triggeredBy}); skipping`);
     return;
   }
 
-  const ctx = {
-    state: game.state,
-    bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-    zones: game.state?.zones,
-    gameId,
-  } as unknown as GameContext;
-
   if (choiceId === 'decline_ward_cost') {
-    counterStackItem(ctx, triggeredBy, wardPermanentController);
-    io.to(gameId).emit('chat', {
-      id: `m_${Date.now()}`,
-      gameId,
-      from: 'system',
-      message: `${wardPermanentName}: ${getPlayerName(game, playerId)} declined to pay ward and the spell/ability was countered.`,
-      ts: Date.now(),
-    });
+    applyWardCounter(io, game, gameId, triggeredBy, wardPermanentController, wardPermanentName, String(playerId || ''), 'declined to pay ward');
     if (typeof game.bumpSeq === 'function') game.bumpSeq();
     broadcastGame(io, game, gameId);
     return;
@@ -142,7 +115,7 @@ export async function handleWardPaymentOptionChoice(
         code: 'UNSUPPORTED_COST',
         message: `Unsupported ward cost (${wardCost || 'unknown'}).`,
       });
-      counterStackItem(ctx, triggeredBy, wardPermanentController);
+      applyWardCounter(io, game, gameId, triggeredBy, wardPermanentController, wardPermanentName, String(playerId || ''), "couldn't pay ward");
       if (typeof game.bumpSeq === 'function') game.bumpSeq();
       broadcastGame(io, game, gameId);
       return;
@@ -160,14 +133,7 @@ export async function handleWardPaymentOptionChoice(
           code: 'INSUFFICIENT_MANA',
           message: validationError,
         });
-        counterStackItem(ctx, triggeredBy, wardPermanentController);
-        io.to(gameId).emit('chat', {
-          id: `m_${Date.now()}`,
-          gameId,
-          from: 'system',
-          message: `${wardPermanentName}: ${getPlayerName(game, playerId)} couldn't pay ward and the spell/ability was countered.`,
-          ts: Date.now(),
-        });
+        applyWardCounter(io, game, gameId, triggeredBy, wardPermanentController, wardPermanentName, String(playerId || ''), "couldn't pay ward");
         if (typeof game.bumpSeq === 'function') game.bumpSeq();
         broadcastGame(io, game, gameId);
         return;
@@ -191,7 +157,7 @@ export async function handleWardPaymentOptionChoice(
         code: 'UNSUPPORTED_COST',
         message: `Failed to process ward payment (${wardCost || 'unknown'}).`,
       });
-      counterStackItem(ctx, triggeredBy, wardPermanentController);
+      applyWardCounter(io, game, gameId, triggeredBy, wardPermanentController, wardPermanentName, String(playerId || ''), "couldn't pay ward");
       if (typeof game.bumpSeq === 'function') game.bumpSeq();
       broadcastGame(io, game, gameId);
     }
@@ -211,7 +177,7 @@ export async function handleWardPaymentOptionChoice(
         code: 'UNSUPPORTED_COST',
         message: `Unsupported ward cost (${wardCost || 'unknown'}).`,
       });
-      counterStackItem(ctx, triggeredBy, wardPermanentController);
+      applyWardCounter(io, game, gameId, triggeredBy, wardPermanentController, wardPermanentName, String(playerId || ''), "couldn't pay ward");
       if (typeof game.bumpSeq === 'function') game.bumpSeq();
       broadcastGame(io, game, gameId);
       return;
@@ -225,7 +191,7 @@ export async function handleWardPaymentOptionChoice(
         code: 'INSUFFICIENT_LIFE',
         message: `Not enough life to pay ${lifeAmount}.`,
       });
-      counterStackItem(ctx, triggeredBy, wardPermanentController);
+      applyWardCounter(io, game, gameId, triggeredBy, wardPermanentController, wardPermanentName, String(playerId || ''), "couldn't pay ward");
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
@@ -273,7 +239,7 @@ export async function handleWardPaymentOptionChoice(
         code: 'INSUFFICIENT_CARDS',
         message: `Not enough cards in hand to discard ${discardCount || 1}.`,
       });
-      counterStackItem(ctx, triggeredBy, wardPermanentController);
+      applyWardCounter(io, game, gameId, triggeredBy, wardPermanentController, wardPermanentName, String(playerId || ''), "couldn't pay ward");
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
@@ -343,7 +309,7 @@ export async function handleWardPaymentOptionChoice(
         code: 'INSUFFICIENT_PERMANENTS',
         message: `Not enough permanents to sacrifice to pay ward.`,
       });
-      counterStackItem(ctx, triggeredBy, wardPermanentController);
+      applyWardCounter(io, game, gameId, triggeredBy, wardPermanentController, wardPermanentName, String(playerId || ''), "couldn't pay ward");
       io.to(gameId).emit('chat', {
         id: `m_${Date.now()}`,
         gameId,
@@ -389,7 +355,7 @@ export async function handleWardPaymentOptionChoice(
     code: 'UNSUPPORTED_COST',
     message: `Unsupported ward cost (${wardCost || 'unknown'}).`,
   });
-  counterStackItem(ctx, triggeredBy, wardPermanentController);
+  applyWardCounter(io, game, gameId, triggeredBy, wardPermanentController, wardPermanentName, String(playerId || ''), "couldn't pay ward");
   if (typeof game.bumpSeq === 'function') game.bumpSeq();
   broadcastGame(io, game, gameId);
 }

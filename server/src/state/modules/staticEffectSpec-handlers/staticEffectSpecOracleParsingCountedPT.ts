@@ -20,7 +20,7 @@ import {
 
 const CARD_TYPES = ['artifact', 'creature', 'land', 'enchantment', 'planeswalker'];
 /** "Mountain you control" (Earth Servant); the count reads effective land types (Evil Presence, Blood Moon). */
-const LAND_SUBTYPE_YOU_CONTROL_RE = /^(plains|island|swamp|mountain|forest|desert|gate|cave|town|sphere|locus|lair|mine|tower)(?:e?s)? you control$/;
+const LAND_SUBTYPE_YOU_CONTROL_RE = /^(?:(basic) )?(plains|island|swamp|mountain|forest|desert|gate|cave|town|sphere|locus|lair|mine|tower)(?:e?s)? you control$/;
 
 function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   const p = phrase.trim();
@@ -121,7 +121,7 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   m = p.match(/^([a-z]+) cards? in your graveyard$/);
   if (m && !/^(?:other|nonland|noncreature)$/.test(m[1])) return { countBasis: 'controller_graveyard_cards_of_type', countCardType: m[1] };
   m = p.match(LAND_SUBTYPE_YOU_CONTROL_RE);
-  if (m) return { countBasis: 'controller_lands_of_subtype', countCardType: m[1] };
+  if (m) return { countBasis: 'controller_lands_of_subtype', countCardType: m[2], ...(m[1] ? { countQualifier: { basic: true } } : {}) };
   if (p === 'basic land type among lands you control') return { countBasis: 'controller_basic_land_types' };
   // Creature/artifact subtypes ("other Rat you control", "Equipment you control"): word-bounded type-line match.
   // R32: "for each Officer token you control" (Academy Instructor): subtype tokens.
@@ -191,6 +191,15 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   if (/^lands? on the battlefield with the same name as the exiled card$/.test(p)) {
     return { countBasis: 'lands_matching_effect_source_exiled_name' };
   }
+  // B90: Umbris / Greven / Tangleweave / Hancock / Gornog count phrases.
+  if (/^cards? your opponents own in exile$/.test(p)) return { countBasis: 'opponents_owned_cards_in_exile' };
+  if (/^(?:the amount of )?life you(?:'ve| have)? lost this turn$/.test(p)) return { countBasis: 'controller_life_lost_this_turn' };
+  if (/^(?:the )?greatest mana value among your commanders$/.test(p)) return { countBasis: 'greatest_mana_value_among_controller_commanders' };
+  if (/^counters? on (?:~|this creature|it)$/.test(p)) return { countBasis: 'source_counters', countCounterType: '' };
+  m = p.match(/^([a-z][a-z'-]*)s? (?:your opponents control|an opponent controls)$/);
+  if (m && !/^(artifact|creature|land|enchantment|planeswalker|permanent)$/.test(m[1])) {
+    return { countBasis: 'controller_permanents_of_type', countCardType: m[1], countWho: 'opponents' };
+  }
   return null;
 }
 
@@ -211,7 +220,10 @@ function whereXBasis(phrase: string): Partial<StaticEffectGrant> | null {
   // B83: greatest-mana phrases are not "the number of …".
   const greatest = countGrant(p);
   if (greatest?.countBasis === 'greatest_mana_value_among_controller_permanents') return greatest;
+  if (greatest?.countBasis === 'greatest_mana_value_among_controller_commanders') return greatest;
   if (greatest?.countBasis === 'controller_cards_drawn_this_turn') return greatest;
+  if (greatest?.countBasis === 'controller_life_lost_this_turn') return greatest;
+  if (greatest?.countBasis === 'opponents_owned_cards_in_exile') return greatest;
   const m = p.match(/^the number of (.+?)s?$/);
   if (!m) return countGrant(p);
   return countGrant(m[1]) || countGrant(m[1].replace(/^cards in your (hand|graveyard)$/, 'card in your $1'));

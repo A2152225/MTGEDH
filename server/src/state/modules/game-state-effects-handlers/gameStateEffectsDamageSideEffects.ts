@@ -11,6 +11,16 @@ import { applyBatch18NoncombatPrevention } from "../replacementBatch18NoncombatP
 import { applyBatch63DamageSideEffects, collectBatch63DamageSideEffectSpecsFromState } from "../replacementBatch63DamageReplacements.js";
 import { applyBatch66DamageRedirect, collectBatch66DamageRedirectSpecs } from "../replacementBatch66DamageRedirect.js";
 import { collectDamageSideEffectSpecsFromState } from "../replacementEffectSpec-handlers/replacementEffectSpecDamageSideEffectTemplates.js";
+import { applyBatch91DamageSideEffects } from "../replacementBatch91DamageReplacements.js";
+import { applyShieldOfTheAvatarPrevention } from "../batch101LongTailApply.js";
+import { applyBatch92DamageSideEffects } from "../replacementBatch92DamageReplacements.js";
+import { applyBatch93DamageSideEffects } from "../replacementBatch93DamageReplacements.js";
+import { applyBatch94DamageSideEffects } from "../replacementBatch94DamageReplacements.js";
+import { applyBatch95DamageSideEffects } from "../replacementBatch95DamageReplacements.js";
+import { applyBatch96DamageSideEffects } from "../replacementBatch96DamageReplacements.js";
+import { applyBatch103DamageSideEffects, combatDamageCantBePreventedFor } from "../batch103Apply.js";
+import { applyBatch104DamageSideEffects } from "../batch104Apply.js";
+import { applyBatch108DamagePrevention } from "../batch108Apply.js";
 
 function markDamage(perm: any, amount: number): void {
   perm.markedDamage = (Number(perm.markedDamage) || 0) + amount;
@@ -41,14 +51,35 @@ export function applyDamageSideEffectReplacements(
   const state = (ctx as any)?.state || ctx;
   const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
   if (!battlefield.length) return null;
+  if (combatDamageCantBePreventedFor(state, { damageDealer, isCombatDamage, damageSourcePermanentId })) return null;
+  const b103 = applyBatch103DamageSideEffects(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
+  if (b103) return b103;
+  const b104 = applyBatch104DamageSideEffects(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
+  if (b104) return b104;
   const b17 = applyBatch17DamagePrevention(ctx, damageAmount, damageReceiver, targetPermanentId);
   if (b17) return b17;
+  const b108 = applyBatch108DamagePrevention(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
+  if (b108) return b108;
   const b18 = applyBatch18NoncombatPrevention(state, damageAmount, damageReceiver, targetPermanentId, isCombatDamage);
   if (b18) return b18;
   const b63 = applyBatch63DamageSideEffects(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
   if (b63) return b63;
   const b66 = applyBatch66DamageRedirect(state, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId);
   if (b66) return b66;
+  const b91 = applyBatch91DamageSideEffects(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
+  if (b91) return b91;
+  const b101 = applyShieldOfTheAvatarPrevention(state, damageAmount, targetPermanentId);
+  if (b101) return b101;
+  const b92 = applyBatch92DamageSideEffects(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
+  if (b92) return b92;
+  const b93 = applyBatch93DamageSideEffects(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
+  if (b93) return b93;
+  const b94 = applyBatch94DamageSideEffects(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
+  if (b94) return b94;
+  const b95 = applyBatch95DamageSideEffects(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
+  if (b95) return b95;
+  const b96 = applyBatch96DamageSideEffects(ctx, damageAmount, damageDealer, damageReceiver, damageSourcePermanentId, targetPermanentId, isCombatDamage);
+  if (b96) return b96;
   const specs = [
     ...collectDamageSideEffectSpecsFromState(state),
     ...collectBatch63DamageSideEffectSpecsFromState(state),

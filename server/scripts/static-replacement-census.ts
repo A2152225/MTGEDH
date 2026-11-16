@@ -168,7 +168,7 @@ async function main() {
   const docPath = path.join(repoRoot, 'docs', 'static-replacement-census.md');
   const previous = fs.existsSync(docPath) ? fs.readFileSync(docPath, 'utf8') : '';
   const historySection = previous.split('## Run history')[1] || '';
-  const historyRows = historySection.split('\n').filter((row) => /^\| (?:\d{4}-|B\d+ )/.test(row)).slice(0, 200);
+  const historyRows = historySection.split('\n').filter((row) => /^\| (?:\d{4}-|B\d+ )/.test(row)); // keep all history rows (a first-200 cap was dropping the newest end-of-batch entries)
   historyRows.push(`| ${json.generatedAt.slice(0, 16).replace('T', ' ')}Z | ${lines} | ${handled} | ${elsewhere} | ${scopeTotals.static} | ${scopeTotals.replacement} |`);
   const md = [
     '# Phase 5 static/replacement census (owned_but_unhandled)',

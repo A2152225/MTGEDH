@@ -12,6 +12,7 @@ import type { PaymentItem } from "../../../../shared/src/index.js";
 import { stampReplayedGraveyardCastStackFlags } from "../../state/modules/stackReplayUtils.js";
 import { parseImpendingInfo } from "../../state/modules/alternate-costs.js";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
+import { applyOnCastKeywordsAfterSpellStacked } from "../../state/modules/onCastKeywordsAfterStack.js";
 
 export type StampCastSpellStackItemFromHandArgs = {
   game: any;
@@ -469,6 +470,12 @@ export function stampCastSpellStackItemFromHand(
               if (topStackItemAfterCast?.card && typeof topStackItemAfterCast.card === 'object') {
                 delete topStackItemAfterCast.card.pendingAdditionalCostSacrificeIds;
               }
+              applyOnCastKeywordsAfterSpellStacked({
+                game,
+                gameId: String((game as any).id || (game as any).gameId || ''),
+                playerId: String(playerId),
+                stackItem: topStackItemAfterCast,
+              });
             } catch { /* ignore */ }
             debug(2, `[castSpell] Player ${playerId} cast ${cardInHand.name} (${cardId}) from ${castSourceZone} via applyEvent`);
 

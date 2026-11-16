@@ -195,13 +195,13 @@ describe("God-Pharaoh's Gift beginning-of-combat copy token", () => {
     expect(outcome.handled).toBe(true);
 
     const queued = ResolutionQueueManager.getStepsForPlayer(gameId, p1);
-    const graveyardStep = queued.find((step) => step.type === ResolutionStepType.LIBRARY_SEARCH);
+    const graveyardStep = queued.find((step) => step.type === ResolutionStepType.GRAVEYARD_SELECTION);
     expect(graveyardStep).toBeTruthy();
     expect(queued.some((step) => step.type === ResolutionStepType.OPTION_CHOICE)).toBe(false);
     expect((graveyardStep as any)?.mandatory).toBe(false);
     expect((graveyardStep as any)?.destination).toBe('exile');
-    expect((graveyardStep as any)?.selectableCardIds || (graveyardStep as any)?.availableCards?.map((c: any) => c.id))
-      .toEqual(expect.arrayContaining(['gy_grizzly_queue']));
+    // GRAVEYARD_SELECTION reads the chosen graveyard live, so the step names whose graveyard to pick from.
+    expect((graveyardStep as any)?.targetPlayerId).toBe(p1);
 
     const player = (g.state as any).players.find((entry: any) => entry.id === p1);
     expect((player.graveyard || []).map((card: any) => card.id)).toEqual(['gy_grizzly_queue']);
@@ -209,7 +209,7 @@ describe("God-Pharaoh's Gift beginning-of-combat copy token", () => {
     expect(((g.state.battlefield as any[]) || []).filter((perm) => perm.isCopyToken)).toHaveLength(0);
   });
 
-  it('exiles chosen graveyard creature and creates 4/4 Zombie copy after LIBRARY_SEARCH resume', () => {
+  it('exiles chosen graveyard creature and creates 4/4 Zombie copy after graveyard-selection resume', () => {
     const gameId = 'god_pharaohs_gift_optional_exile_resume';
     const g = createInitialGameState(gameId);
     const p1 = 'p1' as PlayerID;
@@ -259,7 +259,7 @@ describe("God-Pharaoh's Gift beginning-of-combat copy token", () => {
     expect(outcome.handled).toBe(true);
 
     const choiceStep = ResolutionQueueManager.getStepsForPlayer(gameId, p1)
-      .find((step) => step.type === ResolutionStepType.LIBRARY_SEARCH);
+      .find((step) => step.type === ResolutionStepType.GRAVEYARD_SELECTION);
     expect(choiceStep).toBeTruthy();
 
     const completedStep = ResolutionQueueManager.completeStep(gameId, String(choiceStep!.id), {

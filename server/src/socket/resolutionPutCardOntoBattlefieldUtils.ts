@@ -12,10 +12,15 @@ import { ResolutionQueueManager } from "../state/resolution/index.js";
 import { queueShockLandPaymentStep } from "./optional-payment-prompts.js";
 import { queueTributeChoiceOnEntry } from "../state/modules/triggerTributeChoiceUtils.js";
 import { queueSelfETBTriggersForPermanent } from "../state/modules/triggerEtbEntryEffects.js";
+import { maybeCreateOffspringToken } from "../state/modules/offspringCast.js";
 import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../rules-engine/src/permanentTimestamps.js';
+import { applyNontokenEntersAsCopyOfEnchanted } from '../state/modules/batch93EtbCopy.js';
+import { applyEssenceEnterAsCopy } from '../state/modules/batch101EnterCopyAndTokens.js';
+import { maybeQueueLandEquilibriumSacrifice } from '../state/modules/batch101LandRecoverSurveil.js';
 import { resolveAndApplyEnterFace } from "../state/modules/enterBattlefieldFaceApplication.js";
 import { restoreRejectedBattlefieldEntries } from '../../../rules-engine/src/oracleIRExecutorZoneOpsBattlefieldEntry.js';
 import { applyGraveyardTypeEntryCounterGrants } from "../state/modules/graveyardTypeEntryCounterBonus.js";
+import { applyBatch105HistoricPermanentEntersBecomesToCard } from '../state/modules/batch105Apply.js';
 import { applyBattlefieldTypeEntryCounterGrants } from "../state/modules/battlefieldTypeEntryCounterBonus.js";
 
 /**
@@ -44,6 +49,7 @@ export async function putCardOntoBattlefield(
   ownerId?: string,
   sourceIndex?: number
 ): Promise<string> {
+  card = applyBatch105HistoricPermanentEntersBecomesToCard(card, controller, state) || card;
   const tl = (card.type_line || '').toLowerCase();
   const isCreature = tl.includes('creature');
   const isPlaneswalker = tl.includes('planeswalker');
@@ -87,6 +93,14 @@ export async function putCardOntoBattlefield(
     ...(!/\bland\b/.test(tl) ? { enteredThisTurn: true } : {}),
     card: { ...card, zone: "battlefield" },
   } as any;
+
+  try { applyNontokenEntersAsCopyOfEnchanted(state, newPermanent); } catch {}
+  try { applyEssenceEnterAsCopy(state, newPermanent); } catch {}
+  try {
+    if (/\bland\b/i.test(String(newPermanent?.card?.type_line || newPermanent?.type_line || ''))) {
+      maybeQueueLandEquilibriumSacrifice({ ...(null as any), state, gameId: String((state as any)?.gameId || '') } as any, String(newPermanent.controller || ''), String(newPermanent.id || ''));
+    }
+  } catch {}
   
   const enterFace = resolveAndApplyEnterFace(newPermanent, {
     sourceZone: 'other',
@@ -153,6 +167,7 @@ export async function putCardOntoBattlefield(
   if (!tributeChoiceDeferred) {
     queueSelfETBTriggersForPermanent(ctx as any, newPermanent, controller as any);
     triggerETBEffectsForPermanent(ctx as any, newPermanent, controller, false);
+    maybeCreateOffspringToken(ctx as any, newPermanent, controller);
   } else {
     debug(2, `[putCardOntoBattlefield] ${cardName} tribute choice queued before ETB triggers are created`);
   }

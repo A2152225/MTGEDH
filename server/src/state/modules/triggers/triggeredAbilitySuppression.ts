@@ -15,6 +15,7 @@
 
 import { permanentKeywordLossTimestamp } from '../../../../../rules-engine/src/permanentKeywordAbilities.js';
 import { GRANT_LIST_FIELDS, readAbilityGrantTimestamp } from '../../../../../rules-engine/src/abilityEffectTimestamps.js';
+import { shouldSuppressOpponentEtbTriggers } from '../batch93TriggerSuppression.js';
 
 const TRIGGER_TEXT_RE = /^\s*(?:when|whenever|at)\b/i;
 
@@ -129,6 +130,7 @@ export function permanentHasTriggeredAbilities(
   const event = options.event;
   // Event suppressors need the real event object (entering / dying permanent), not the observer.
   if (event && options.eventSubject && findTriggerEventSuppressor(gameState, event, options.eventSubject)) return false;
+  if (event === 'etb' && shouldSuppressOpponentEtbTriggers(gameState, event, permanent)) return false;
   if (isLastKnownEvent(event) && permanent[ABILITY_LOSS_STAMP] === true) return false;
   const battlefield = battlefieldOf(gameState);
   // No loss text on the board: only the permanent's own flags / temporary effects can remove abilities.
