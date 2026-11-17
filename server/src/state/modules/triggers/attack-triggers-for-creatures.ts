@@ -6,6 +6,7 @@
 
 import type { GameContext } from "../../context.js";
 import { getTurnScopedSpellTriggerSources } from "./turnScopedSpellTriggers.js";
+import { noteExactlyTwoAttackers } from "./round67GameTriggers.js";
 import { debug } from "../../../utils/debug.js";
 import { primeDerivedContinuousEffectsForScan } from "../staticEffectSpec.js";
 import { detectAttackTriggers } from "./attack-detection.js";
@@ -44,6 +45,7 @@ export function getAttackTriggersForCreatures(
   defendingPlayer: string
 ): CombatTriggeredAbility[] {
   const triggers: CombatTriggeredAbility[] = [];
+  noteExactlyTwoAttackers(ctx, attackingCreatures);
   // Spell-created "whenever a creature attacks this turn" sources (Ondu Rising) watch too.
   const battlefield = [...(ctx.state?.battlefield || []), ...getTurnScopedSpellTriggerSources(ctx.state)];
   const detectGameState = ctx.state
@@ -284,6 +286,7 @@ export function getAttackTriggersForCreatures(
           playerLives: Array.isArray((ctx.state as any)?.players)
             ? (ctx.state as any).players.map((p: any) => ({ id: String(p?.id || ''), life: Number(p?.life) }))
             : [],
+          crewedByPermanentIds: Array.isArray(attacker?.crewedByPermanentIdsThisTurn) ? attacker.crewedByPermanentIdsThisTurn.map(String) : [],
           attackerEquipped: Boolean(
             attacker?.isEquipped === true
             || (Array.isArray(attacker?.attachedEquipment) && attacker.attachedEquipment.length > 0)

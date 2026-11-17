@@ -7,6 +7,7 @@
  */
 
 import { playerBindingsMatch } from './matchPlayerBindings.js';
+import { matchRound67Filters } from './matchRound67.js';
 import type {
   TriggerConditionIR,
   TriggerMatchContext,
@@ -316,6 +317,7 @@ function qualifiersMatch(
   if (condition.abilityWord) {
     if (String(context?.abilityWord || '').trim().toLowerCase() !== String(condition.abilityWord).toLowerCase()) return false;
   }
+  if (condition.notTapCost && context?.notTapCost !== true) return false;
 
   if (condition.requiresSaddled && !source.saddled) return false;
   if (condition.requiresUntapped && source.tapped !== false) return false;
@@ -341,6 +343,9 @@ function qualifiersMatch(
     if (condition.damageRecipient === 'creature' && !context?.damageRecipientIsCreature) return false;
     if (condition.damageRecipient === 'player' && !recipientPlayer) return false;
     if (condition.damageRecipient === 'opponent' && (!recipientPlayer || recipientPlayer === String(source.controllerId || '').trim())) return false;
+    if (condition.damageRecipient === 'planeswalker') {
+      if (!/\bplaneswalker\b/i.test(String(context?.damagedTypeLine || ''))) return false;
+    }
     if (condition.damageRecipient === 'player_or_planeswalker') {
       const pw = /\bplaneswalker\b/i.test(String(context?.damagedTypeLine || ''));
       if (!recipientPlayer && !pw) return false;
@@ -439,6 +444,8 @@ function qualifiersMatch(
       if (!fromZone || fromZone === 'battlefield') return false;
     } else if (condition.fromZone === 'not_graveyard_or_exile') {
       if (fromZone === 'graveyard' || fromZone === 'exile') return false;
+    } else if (condition.fromZone === 'hand_or_library') {
+      if (fromZone !== 'hand' && fromZone !== 'library') return false;
     } else if (condition.fromZone === 'hand_or_battlefield') {
       if (fromZone !== 'hand' && fromZone !== 'battlefield') return false;
       const sourceController = String(source.controllerId || '').trim();
@@ -484,6 +491,11 @@ function qualifiersMatch(
     if (!Number.isFinite(d) || d < condition.minDamageAmount) return false;
   }
   if (condition.naturalRoll != null && Number(context?.naturalRoll) !== condition.naturalRoll) return false;
+  if (condition.losesGame === 'not_you') {
+    const loser = String((context as any)?.loserPlayerId || subject.controllerId || '').trim();
+    const you = String(source.controllerId || '').trim();
+    if (!loser || !you || loser === you) return false;
+  }
   if (condition.lifeMaximum != null) {
     const life = Number(context?.playerLife);
     if (!Number.isFinite(life) || life > condition.lifeMaximum) return false;
@@ -524,6 +536,44 @@ function qualifiersMatch(
     const cc = Number(context?.chargeCountersOnSource);
     if (!Number.isFinite(mv) || !Number.isFinite(cc) || mv !== cc) return false;
   }
+  if (condition.manaValueEqualsSourceCounter) {
+    const mv = Number(context?.spellManaValue);
+    const wanted = condition.manaValueEqualsSourceCounter.toLowerCase();
+    const counters = context?.sourceCounters;
+    let found = false;
+    let count = 0;
+    if (counters && typeof counters === 'object') {
+      for (const [key, value] of Object.entries(counters)) {
+        if (key.toLowerCase() === wanted) {
+          found = true;
+          count = Number(value) || 0;
+          break;
+        }
+      }
+    }
+    if (!found || !Number.isFinite(mv) || mv !== count) return false;
+  }
+  if (condition.teamworkCast && context?.teamworkWasPaid !== true) return false;
+  if (condition.damageEqualsRecipientToughness) {
+    const amount = Number(context?.damageAmount);
+    const toughness = Number(context?.damagedToughness);
+    if (!Number.isFinite(amount) || !Number.isFinite(toughness) || amount !== toughness) return false;
+  }
+  if (condition.scryToBottom && !(Number(context?.scryBottomCount) > 0)) return false;
+  if (condition.damageSourceIsSpell && context?.damageSourceIsSpell !== true) return false;
+  if (condition.requiresChosenDrawnName) {
+    const chosen = String(source.chosenCardName || context?.chosenCardName || '').trim().toLowerCase();
+    const drawn = String(context?.drawnCardName || '').trim().toLowerCase();
+    if (!chosen || !drawn || chosen !== drawn) return false;
+  }
+  if (condition.damagedPlayerMissingCounter) {
+    const counters = context?.damagedPlayerCounters;
+    if (!counters || typeof counters !== 'object') return false;
+    const wanted = condition.damagedPlayerMissingCounter.toLowerCase();
+    for (const [key, value] of Object.entries(counters)) {
+      if (key.toLowerCase() === wanted && (Number(value) || 0) > 0) return false;
+    }
+  }
   if (condition.withoutBeingPlayed && !context?.withoutBeingPlayed) return false;
   if (condition.upkeepOrdinal) {
     const want = condition.upkeepOrdinal === 'first' ? 1 : condition.upkeepOrdinal === 'second' ? 2 : Number(condition.upkeepOrdinal);
@@ -554,7 +604,11 @@ function qualifiersMatch(
     const tl = String(context?.abilitySourceTypeLine || '');
     if (!new RegExp('\\b' + condition.abilitySourceType + '\\b', 'i').test(tl)) return false;
   }
-  if ((condition.linkedWithSource || condition.putOntoBattlefieldWithSource) && !context?.linkedToSource) return false;
+  if (condition.linkedWithSource && !context?.linkedToSource) return false;
+  if (condition.putOntoBattlefieldWithSource && !context?.linkedToSource) {
+    const by = String(context?.enteredBySourceId || '');
+    if (!by || by !== String(source.id || '')) return false;
+  }
   if (condition.whileExiled && !(context as any)?.whileExiled && !(source as any)?.zone?.toString?.().includes?.("exile")) {
     // Fail closed unless caller asserts whileExiled.
     if (!(context as any)?.whileExiled) return false;
@@ -688,6 +742,7 @@ export function triggerConditionMatches(
     const ctrl = String(subject.controllerId || '').trim();
     if (!owner || !ctrl || owner === ctrl) return false;
   }
+  if (!matchRound67Filters(condition, subject, source, context)) return false;
   if (!playerBindingsMatch(condition, subject, source, context)) return false;
   if (condition.alternatives.length === 0) return Boolean(condition.whoseTurn);
   return condition.alternatives.some((alternative) => alternativeMatches(alternative, subject, source, context));

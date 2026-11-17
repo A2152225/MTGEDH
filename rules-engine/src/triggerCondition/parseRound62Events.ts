@@ -20,6 +20,14 @@ function num(word: string): number {
   return WORD_N[word] ?? Number(word);
 }
 
+/** heroes → hero, pirates → pirate, flies → fly. */
+function singularType(word: string): string {
+  if (word.endsWith('ies') && word.length > 4) return word.slice(0, -3) + 'y';
+  if (/(?:s|x|z|ch|sh|o)es$/.test(word) && word.length > 3) return word.slice(0, -2);
+  if (word.endsWith('s') && word.length > 2) return word.slice(0, -1);
+  return word;
+}
+
 function withFields(base: Parsed | null, fields: Record<string, unknown>): Parsed | null {
   return base ? { ...base, condition: { ...base.condition, ...fields } as TriggerConditionIR } : null;
 }
@@ -185,14 +193,19 @@ export function parseRound62TriggerSentence(text: string, reparse: Reparse): Par
   const defPlayer = /^(whenever|when) (.+?) deals combat damage to defending player,\s*(.+)$/.exec(text);
   if (defPlayer) return reparse(defPlayer[1] + ' ' + defPlayer[2] + ' deals combat damage to a player, ' + defPlayer[3]);
 
-  const pirateDmg = /^(whenever|when) one or more ([a-z]+)s you control deal(?:s)? (combat )?damage to (a player|your opponents),\s*(.+)$/.exec(text);
+  const pirateDmg = /^(whenever|when) one or more ([a-z]+s) you control deal(?:s)? (combat )?damage to (a player|your opponents),\s*(.+)$/.exec(text);
   if (pirateDmg) {
     const dest = pirateDmg[4] === 'your opponents' ? 'an opponent' : 'a player';
+    const stem = singularType(pirateDmg[2]);
     // Keep "combat": dropping it shadows the older deals_combat_damage_to_player parse.
-    return withFields(
-      reparse('whenever a ' + pirateDmg[2] + ' you control deals ' + (pirateDmg[3] ? 'combat ' : '') + 'damage to ' + dest + ', ' + pirateDmg[5]),
-      { quantity: 'one_or_more' } as any,
-    );
+    const ev = 'deals ' + (pirateDmg[3] ? 'combat ' : '') + 'damage to ' + dest + ', ' + pirateDmg[5];
+    const typed = reparse('whenever a ' + stem + ' you control ' + ev);
+    const base = typed || stampSubject(reparse('whenever a creature you control ' + ev), {
+      typeGroups: [['creature']],
+      subtypeGroups: [[stem]],
+      groups: [{ types: ['creature'], subtypes: [stem] }],
+    });
+    if (base) return withFields(base, { quantity: 'one_or_more' } as any);
   }
 
   const bothColors = /^(whenever|when) you cast a spell that's both (white|blue|black|red|green) and (white|blue|black|red|green),\s*(.+)$/.exec(text);

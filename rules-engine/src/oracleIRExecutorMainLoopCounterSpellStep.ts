@@ -3,9 +3,10 @@
 // (and isPlayerStillInGame, which the lose_game family also uses).
 // Public entry symbols: applyCounterSpellStep, isPlayerStillInGame.
 
-import type { GameState } from '../../shared/src';
+import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import type { OracleIRReplayMutation } from './oracleIRReplayMutations';
 import { getStateGrantedCounterImmunityForSpell } from './futureSpellEffects';
 import { stampCardsPutIntoGraveyardThisTurn } from './oracleIRExecutorPlayerUtils';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
@@ -227,6 +228,27 @@ function isStackAbilityStackType(type: string): boolean {
   return normalized === 'ability' || normalized === 'activated_ability' || normalized === 'triggered_ability';
 }
 
+function counterStackObjectReplayMutation(
+  item: any,
+  destination: 'graveyard' | 'exile' | 'cease',
+  card?: unknown,
+): OracleIRReplayMutation | null {
+  const stackItemId = String(item?.id || '').trim();
+  if (!stackItemId) return null;
+  const ownerId = String(
+    item?.owner || item?.ownerId || item?.controller || item?.controllerId || '',
+  ).trim();
+  const wasSpell = !isStackAbilityStackType(String(item?.type || ''));
+  return {
+    kind: 'counterStackObject',
+    stackItemId,
+    ownerId: (ownerId || '') as PlayerID,
+    destination: wasSpell ? destination : 'cease',
+    wasSpell,
+    ...(card && typeof card === 'object' ? { card } : {}),
+  };
+}
+
 function isStackManaAbilityItem(stackItem: any): boolean {
   return Boolean((stackItem as any)?.isManaAbility);
 }
@@ -332,7 +354,13 @@ export function applyCounterSpellStep(
   step: Extract<OracleEffectStep, { kind: 'counter_spell' }>,
   ctx: OracleIRExecutionContext & { readonly skipBulkStackWipe?: boolean },
 ):
-  | { readonly applied: true; readonly state: GameState; readonly log: readonly string[]; readonly lastMovedCards: readonly any[] }
+  | {
+      readonly applied: true;
+      readonly state: GameState;
+      readonly log: readonly string[];
+      readonly lastMovedCards: readonly any[];
+      readonly replayMutations?: readonly OracleIRReplayMutation[];
+    }
   | {
       readonly applied: false;
       readonly message: string;
@@ -371,6 +399,7 @@ export function applyCounterSpellStep(
     let current = state;
     const logs: string[] = [];
     const moved: any[] = [];
+    const replayMutations: OracleIRReplayMutation[] = [];
     for (const item of bulkItems) {
       const itemId = String(item?.id || '').trim();
       if (!itemId) continue;
@@ -387,6 +416,9 @@ export function applyCounterSpellStep(
       current = nested.state;
       logs.push(...nested.log);
       moved.push(...nested.lastMovedCards);
+      if (Array.isArray(nested.replayMutations) && nested.replayMutations.length > 0) {
+        replayMutations.push(...nested.replayMutations);
+      }
     }
     const emptyLog = eachOpponentStack
       ? `Countered no opponent spells or abilities: ${step.raw}`
@@ -396,6 +428,7 @@ export function applyCounterSpellStep(
       state: current,
       log: logs.length > 0 ? logs : [emptyLog],
       lastMovedCards: moved,
+      replayMutations,
     };
   }
   const targetLabel = targetKind === 'ability' ? 'ability' : targetKind === 'spell_or_ability' ? 'spell or ability' : 'spell';
@@ -482,11 +515,13 @@ export function applyCounterSpellStep(
         targetStackItemId,
     ).trim() || targetStackItemId;
 
+    const abilityMutation = counterStackObjectReplayMutation(targetStackItem, 'cease');
     return {
       applied: true,
       state: withUpdatedCounterSpellStack(state, updatedStack),
       log: [`Countered ability ${abilityDesc}`],
       lastMovedCards: [],
+      ...(abilityMutation ? { replayMutations: [abilityMutation] } : {}),
     };
   }
 
@@ -514,11 +549,13 @@ export function applyCounterSpellStep(
 
   // Copied spells can cease instead of changing zones (ceaseOnCounter).
   if ((movedCard as any)?.ceaseOnCounter === true || (targetStackItem as any)?.ceaseOnCounter === true) {
+    const ceaseMutation = counterStackObjectReplayMutation(targetStackItem, 'cease', movedCard);
     return {
       applied: true,
       state: withUpdatedCounterSpellStack(state, updatedStack),
       log: [`Countered copied spell ${targetName} (ceased to exist)`],
       lastMovedCards: [],
+      ...(ceaseMutation ? { replayMutations: [ceaseMutation] } : {}),
     };
   }
 
@@ -572,6 +609,14 @@ export function applyCounterSpellStep(
     };
   });
 
+  const zoneCard = shouldExile
+    ? { ...(movedCard as any), zone: 'exile' }
+    : movedCard;
+  const spellMutation = counterStackObjectReplayMutation(
+    targetStackItem,
+    shouldExile ? 'exile' : 'graveyard',
+    zoneCard,
+  );
   return {
     applied: true,
     state: {
@@ -584,6 +629,7 @@ export function applyCounterSpellStep(
         : `Countered spell ${targetName}`,
     ],
     lastMovedCards: [movedCard],
+    ...(spellMutation ? { replayMutations: [spellMutation] } : {}),
   };
 }
 

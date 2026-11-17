@@ -71,6 +71,7 @@ import { applyLibraryGambleChoiceEvents } from "./apply-event-handlers/applyEven
 import { applyPriorityMulliganLifeEvents } from "./apply-event-handlers/applyEventPriorityMulliganLifeEvents.js";
 import { applyTapSacrificeCounterEvents } from "./apply-event-handlers/applyEventTapSacrificeCounterEvents.js";
 import { applyCombatEvents } from "./apply-event-handlers/applyEventCombatEvents.js";
+import { applyExtraCombatEvents } from "./apply-event-handlers/applyEventExtraCombatEvents.js";
 import { applyManaPoolEvents } from "./apply-event-handlers/applyEventManaPoolEvents.js";
 import { applyRevealLandChoiceEvents } from "./apply-event-handlers/applyEventRevealLandChoiceEvents.js";
 import { applyActivateAbilityEvents } from "./apply-event-handlers/applyEventActivateAbilityEvents.js";
@@ -122,6 +123,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     if (applyPriorityMulliganLifeEvents(ctx, e)) return;
     if (applyTapSacrificeCounterEvents(ctx, e)) return;
     if (applyCombatEvents(ctx, e)) return;
+    if (applyExtraCombatEvents(ctx, e)) return;
     if (applyManaPoolEvents(ctx, e)) return;
     if (applyRevealLandChoiceEvents(ctx, e)) return;
     if (applyActivateAbilityEvents(ctx, e)) return;

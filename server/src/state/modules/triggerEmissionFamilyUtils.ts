@@ -204,6 +204,9 @@ export function queueGenericTriggeredAbility(
       (perm: any) => String(perm?.id || '') === String(trigger.permanentId || ''),
     ) || (trigger._sourceSnapshot ? trigger._sourceSnapshot : undefined),
   );
+  const linkedStackItemId = String(
+    (effectData as any)?.triggeringStackItemId || trigger?.triggeringStackItemId || '',
+  ).trim();
   const stackItem = {
     id: triggerId,
     type: 'triggered_ability',
@@ -222,6 +225,7 @@ export function queueGenericTriggeredAbility(
     ...(trigger.reflexiveWhenYouDo ? { reflexiveWhenYouDo: trigger.reflexiveWhenYouDo } : null),
     ...(trigger.delayedEndStep ? { delayedEndStep: trigger.delayedEndStep } : null),
     ...(effectData ? { effectData } : null),
+    ...(linkedStackItemId ? { triggeringStackItemId: linkedStackItemId } : null),
   };
 
   state.stack = Array.isArray(state.stack) ? state.stack : [];
@@ -251,6 +255,7 @@ export function queueGenericTriggeredAbility(
         ...(sourcePermanentSnapshot?.card ? { card: sourcePermanentSnapshot.card } : null),
         ...(sourcePermanentSnapshot ? { sourcePermanentSnapshot } : null),
         ...(effectData ? { effectData } : null),
+        ...(linkedStackItemId ? { triggeringStackItemId: linkedStackItemId } : null),
       });
     } catch (err) {
       debugWarn(1, `[triggerEmissionFamilyUtils] appendEvent(${triggerType}) failed:`, err);
@@ -693,6 +698,8 @@ export function processLTBTriggers(
     }
     for (const trigger of detected) {
       const triggerType = String(trigger.triggerType || 'ltb');
+      // These wordings name a specific object. The parsed leaves/loses-control lines own them.
+      if (triggerType === 'chosen_creature_ltb' || triggerType === 'lose_control_that') continue;
       const controllerId = String(permanent.controller || leftController || '');
       const isSelf = String(permanent.id || '') === leftId;
 
@@ -749,6 +756,7 @@ export function processLTBTriggers(
     triggerType: 'ltb',
     includeSubject: true,
     effectData: { leftPermanentId: leftId, leftController, cause },
+    matchContext: { enteredBySourceId: String(leftPermanent?.enteredBySourceId || '') },
   }));
   return queued;
 }

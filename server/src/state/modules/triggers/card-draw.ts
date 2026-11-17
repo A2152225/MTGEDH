@@ -345,6 +345,9 @@ export function getCardDrawTriggers(
       subjectControllerId: drawingPlayerId,
       sourcePermanent: permanent,
       spellOrdinal: drawNumber,
+      matchContext: {
+        drawnCardName: String(drawnCard?.name || drawnCard?.card?.name || ''),
+      },
     })) {
       // This emitter runs per card drawn; "draw one or more cards" is batched and stays legacy-owned.
       if (line.condition?.quantity === 'one_or_more') continue;

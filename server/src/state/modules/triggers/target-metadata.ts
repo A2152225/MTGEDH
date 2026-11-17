@@ -30,7 +30,12 @@ export function inferGenericTriggeredAbilityTargetMetadata(effectText: string): 
   if (/\breselect\s+(?:the\s+|its\s+)?targets?\s+at\s+random/i.test(lower)) {
     return {};
   }
-  if (!/\btarget\b/.test(lower)) {
+  // "Change the target" talks about targets that were already chosen. It is not
+  // a new target the trigger's controller must pick before the ability resolves.
+  const withoutExistingTargetTalk = lower
+    .replace(/\bchang(?:e|ing)(?: the)? targets?\b/g, ' ')
+    .replace(/\bthe targets?(?: or targets)? remain unchanged\b/g, ' ');
+  if (!/\btarget\b/.test(withoutExistingTargetTalk)) {
     return {};
   }
 

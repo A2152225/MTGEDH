@@ -4,6 +4,7 @@ export { reset, skip, unskip, remove } from "./applyEventLifecycleResetHandlers.
 export { applyLobbySetupEvents } from "./applyEventLobbySetupEvents.js"; // lobby/session/seating/deck import
 export { applyCommanderCounterDamageEvents } from "./applyEventCommanderCounterDamageEvents.js"; // commander, counters, damage
 export { applyStackCoreEvents } from "./applyEventStackCoreEvents.js"; // resolveSpell, stack push/pop, playLand
+export { applyCounterStackObjectReplay } from "./applyEventCounterStackObject.js"; // IR counter_spell replay
 export { applyCastSpellEvents } from "./applyEventCastSpellEvents.js"; // castSpell
 export { applyStackPromptEvents } from "./applyEventStackPromptEvents.js"; // cast continuation and stack prompts
 export { applyReflexivePromptEvents } from "./applyEventReflexivePromptEvents.js"; // reflexive when-you-do prompts

@@ -9,6 +9,7 @@ import type { GameContext } from "../../context.js";
 import { getBoundTurnScopedSpellTriggerSources, getTurnScopedSpellTriggerSources } from "../triggers/turnScopedSpellTriggers.js";
 import { detectCombatDamageTriggers } from "../triggered-abilities.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates } from "../triggers/triggerConditionFamilyMatch.js";
+import { linkedAttackerIdsFor } from "../triggers/round67GameTriggers.js";
 import { isInterveningIfSatisfied } from "../triggers/intervening-if.js";
 import { uid } from "../../utils.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
@@ -22,6 +23,20 @@ import { collectRecipientVariantCombatDamageTriggers } from "./turnCombatDamageR
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
   return new Date().toISOString();
+}
+
+function playerCounterMap(state: any, playerId: string): Record<string, number> {
+  const player = (Array.isArray(state?.players) ? state.players : []).find((entry: any) => String(entry?.id || '') === playerId);
+  const out: Record<string, number> = {};
+  for (const source of [state?.playerCounters?.[playerId], player?.counters]) {
+    if (!source || typeof source !== 'object') continue;
+    for (const [key, value] of Object.entries(source)) {
+      if (out[key] == null) out[key] = Number(value) || 0;
+    }
+  }
+  const contract = state?.contractCounters?.[playerId] ?? player?.contractCounters;
+  if (contract != null && out.contract == null) out.contract = Number(contract) || 0;
+  return out;
 }
 
 function shouldUsePersistedCombatDamageTriggersDuringReplay(ctx: GameContext): boolean {
@@ -64,6 +79,7 @@ export function applyDealCombatDamageTriggerQueue(
           if (!attackerPerm?.card) continue;
 
           const triggers = detectCombatDamageTriggers(attackerPerm.card, attackerPerm, state);
+          const damagedPlayerCounters = playerCounterMap(state, String(defendingPlayerId));
           for (const line of collectMatchingParsedEventLines({
             ctx,
             oracleText: String(attackerPerm.card.oracle_text || ''),
@@ -71,6 +87,11 @@ export function applyDealCombatDamageTriggerQueue(
             subjectPermanent: attackerPerm,
             subjectControllerId: String(attackerPerm.controller || ''),
             sourcePermanent: attackerPerm,
+            matchContext: {
+              damagedPlayerId: String(defendingPlayerId),
+              damageRecipientPlayerId: String(defendingPlayerId),
+              damagedPlayerCounters,
+            },
           })) {
             // "one or more creatures ... deal combat damage" is batched; the batched pass below owns it.
             if (line.condition?.quantity === 'one_or_more') continue;
@@ -163,7 +184,7 @@ export function applyDealCombatDamageTriggerQueue(
                 subjectPermanent: attackerPerm,
                 subjectControllerId: String(attackerPerm.controller || ''),
                 sourcePermanent: watcher,
-                matchContext: { damagedPlayerId: String(defendingPlayerId), damageRecipientPlayerId: String(defendingPlayerId), causeControllerId: String(attackerPerm.controller || '') },
+                matchContext: { damagedPlayerId: String(defendingPlayerId), damageRecipientPlayerId: String(defendingPlayerId), causeControllerId: String(attackerPerm.controller || ''), damagedPlayerCounters: playerCounterMap(state, String(defendingPlayerId)), linkedAttackerIds: linkedAttackerIdsFor(watcher, state) },
               })) {
                 // Batched "one or more" wordings fire once from the batched pass, not per attacker.
                 if (line.condition?.quantity === 'one_or_more') continue;

@@ -18,6 +18,7 @@
 import type { Server } from "socket.io";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { appendEvent } from "../../db/index.js";
+import { rememberChosenCreature } from "../../state/modules/triggers/round67GameTriggers.js";
 import type { GameContext } from "../../state/context.js";
 import { executeTriggerEffect } from "../../state/modules/stackExecuteTriggerEffectUtils.js";
 import { resolveTriggerStackItemEffectText } from "../../state/modules/stackResolveTriggeredAbilityOrchestratorUtils.js";
@@ -93,6 +94,10 @@ export function handleTargetedTriggeredAbilityTargetSelection(
   const stepAny = step as any;
 
   const triggerTargets = selections.map((value: any) => String(value)).filter(Boolean);
+  if (triggerTargets.length === 1) {
+    const sourcePermanentId = String(stepAny?.triggerItem?.permanentId || stepAny?.permanentId || '').trim();
+    rememberChosenCreature(game.state, sourcePermanentId, triggerTargets[0]);
+  }
   const sourceName = String(stepAny?.targetedTriggeredAbilitySourceName || step.sourceName || stepAny?.triggerItem?.sourceName || 'Triggered ability');
   const description = String(stepAny?.targetedTriggeredAbilityDescription || stepAny?.triggerItem?.description || '');
   const controller = String(stepAny?.targetedTriggeredAbilityController || stepAny?.triggerItem?.controller || pid);

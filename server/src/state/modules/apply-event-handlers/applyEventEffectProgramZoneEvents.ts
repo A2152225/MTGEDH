@@ -214,9 +214,11 @@ export function applyEffectProgramZoneEvents(ctx: GameContext, e: GameEvent): bo
               const typeLine = String(card.type_line || '').toLowerCase();
               const isCreature = typeLine.includes('creature');
               const faceDown = isFaceDownBattlefieldPermanentFlags(e, card);
+              const enteredBySourceId = String((e as any).effectProgramSourceId || (e as any).oracleIrSourceId || '').trim();
               battlefield.push({
                 id: permanentId,
                 controller: String((e as any).controllerId || playerId).trim() || playerId,
+                ...(enteredBySourceId ? { enteredBySourceId } : {}),
                 owner: String((e as any).ownerId || (e as any).fromPlayerId || playerId).trim() || playerId,
                 tapped: (e as any).tapped === true || (e as any).entersTapped === true,
                 counters: {},

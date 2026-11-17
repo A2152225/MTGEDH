@@ -40,7 +40,7 @@ cd rules-engine ; npx vitest run test/attackRestrictionText.test.ts test/oracleI
 
 Next work (priority):
 1. Do not flip vitest.setup.ts unless explicitly asked. Keep categorizeSpell / executeSpellEffect for PRIMARY=0 opt-out until that flip. Real EDH tables → GET /api/oracle-ir/telemetry.
-2. Phase 5 remaining depth: replay CounterSpell / CounterAbility dual-path (keep until asked); drive static:/replacement:owned_but_unhandled toward zero. Live player damage still uses calculateModifiedDamage first; registry now matches for floor caps.
+2. Phase 5 census is 0/0 owned_but_unhandled (2026-11-16). IR counter_spell now persists `counterStackObject` (spell to graveyard or exile, ability or copy ceases) and replay applies that event once. Live player damage still uses calculateModifiedDamage for Furnace/Gisela amount changes; the replacement registry stays cap-only so those modifiers are not applied twice.
 3. Alchemy stays unwired. TRIGGER_PRIMARY census is a later mountain.
 ```
 

@@ -12,6 +12,7 @@ import { exchangePermanentOracleText } from "../../utils";
 import { syncPreparedPermanentAfterControlChange } from "../prepared.js";
 import { clearReplayQueuedSteps, clearReplayQueuedStepById } from "../applyEventReplayZoneCommanderManaHelpers.js";
 import { resolveReplayPermanentByEvent } from "../applyEventReplayCardMoveLibraryHelpers.js";
+import { armBlockColorWatch } from "../triggers/round67GameTriggers.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 import { ResolutionStepType } from "../../resolution/index.js";
 import { executeTriggeredAbilityEffectWithOracleIR } from "../../../../../rules-engine/src/triggeredAbilities.js";
@@ -101,6 +102,7 @@ export function applyPlayerChoiceEvents(ctx: GameContext, e: GameEvent): boolean
               if (permanent.card && typeof permanent.card === 'object') {
                 (permanent.card as any).chosenColor = color;
               }
+              armBlockColorWatch(permanent, ctx.state);
               const colorWord = String((e as any).colorWord || '').trim().toLowerCase();
               if (colorWord) {
                 (permanent as any).chosenColorWord = colorWord;

@@ -77,6 +77,11 @@ export function selfNameVariants(cardName: string | undefined): string[] {
     // A one-letter legendary short name ("Q, Stacking the Deck" -> "Q") is still capitalized and unambiguous.
     if ((short.length >= 3 || /^[A-Z]$/.test(short)) && short !== name) variants.add(short);
     for (const extra of titledShortNames(short)) variants.add(extra);
+    const words = short.split(/\s+/).filter(Boolean);
+    if (words.length >= 3) {
+      const first = words[0];
+      if (first.length >= 3 && !isTypalTypeWord(first) && !/^(?:the|a|an)$/i.test(first)) variants.add(first);
+    }
   }
   // Longest first so "Greta, Sweettooth Scourge" wins over "Greta".
   return [...variants].sort((a, b) => b.length - a.length);

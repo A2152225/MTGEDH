@@ -35,6 +35,7 @@ import { removeLeavingPlayerGameObjects } from "../playerLeavingGame.js";
 import { runWithSimultaneousEntryBatch } from "../triggers/simultaneousEntryBatch.js";
 import { queueControlsNoneStateTriggers } from "../triggerStateAndLevelEmitters.js";
 import { queueLifeThresholdStateTriggers } from "../triggers/lifeThresholdStateTriggers.js";
+import { queueRound67StateTriggers } from "../triggers/round67GameTriggers.js";
 import { pollIrEventWatchers } from "../triggers/irEventWatchers.js";
 import { queueBecomesUnattachedTriggers } from "../triggerBecomesUnattached.js";
 import { queueSagaEntryChapterTriggers } from "../triggerSagaEntryChapters.js";
@@ -184,6 +185,7 @@ function runSBAUnbatched(ctx: GameContext) {
   try {
     if (queueControlsNoneStateTriggers(ctx).length > 0) bumpSeq();
     try { if (queueLifeThresholdStateTriggers(ctx).length > 0) bumpSeq(); } catch { /* best-effort */ }
+    try { if (queueRound67StateTriggers(ctx).length > 0) bumpSeq(); } catch { /* best-effort */ }
     try { if (pollIrEventWatchers(ctx) > 0) bumpSeq(); } catch { /* best-effort */ }
     try { if (queueBecomesUnattachedTriggers(ctx) > 0) bumpSeq(); } catch { /* best-effort */ }
     try { if (queueSagaEntryChapterTriggers(ctx) > 0) bumpSeq(); } catch { /* best-effort */ }

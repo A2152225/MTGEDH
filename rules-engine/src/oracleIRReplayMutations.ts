@@ -85,6 +85,15 @@ export type OracleIRReplayMutation =
       readonly permanentId: string;
       readonly goaderId: PlayerID;
       readonly expiryTurn?: number;
+    }
+  | {
+      /** Countered stack object. `cease` removes an ability or a copied spell with no zone. */
+      readonly kind: 'counterStackObject';
+      readonly stackItemId: string;
+      readonly ownerId: PlayerID;
+      readonly destination: 'graveyard' | 'exile' | 'cease';
+      readonly wasSpell: boolean;
+      readonly card?: unknown;
     };
 
 function normalizeReplayZone(value: unknown): EffectProgramCardZone | null {

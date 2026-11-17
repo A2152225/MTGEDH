@@ -212,6 +212,7 @@ export function getSpellCastTriggers(
         spellPower: Number(spellCard?.power ?? spellCard?.card?.power),
         sourcePower: Number(permanent?.power ?? permanent?.card?.power),
         sourceCounters: permanent?.counters,
+        teamworkWasPaid: spellCard?.teamworkWasPaid === true,
       },
     })) {
       const irSharesType = Boolean((line.condition?.alternatives || []).some((alt) => (alt?.subject as { sharesCreatureTypeWithSource?: boolean } | undefined)?.sharesCreatureTypeWithSource === true));

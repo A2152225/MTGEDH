@@ -52,6 +52,7 @@ export function runNextTurnStartOfTurn(
 
         // Crew: per-turn support fields written by the persisted 'crewVehicle' event.
         if ((perm as any).crewedByCreatureCountThisTurn !== undefined) delete (perm as any).crewedByCreatureCountThisTurn;
+        if ((perm as any).crewedByPermanentIdsThisTurn !== undefined) delete (perm as any).crewedByPermanentIdsThisTurn;
         if ((perm as any).crewedByCreatureTypesThisTurn !== undefined) delete (perm as any).crewedByCreatureTypesThisTurn;
         if ((perm as any).crewedBySubtypesThisTurn !== undefined) delete (perm as any).crewedBySubtypesThisTurn;
 

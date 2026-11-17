@@ -268,7 +268,7 @@ function dealShareToCreature(ctx: GameContext, args: any, creature: any, amount:
   const damageResult = applyCreatureCombatDamageFromSource(ctx, attacker, creature, remaining);
   const applied = Number((damageResult as any)?.appliedAmount ?? remaining);
   if (applied > 0) {
-    queueDamageReceivedTrigger(ctx, creature, applied);
+    queueDamageReceivedTrigger(ctx, creature, applied, attacker);
     if (keywords?.lifelink) {
       const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, applied, `${card.name || 'Attacker'} (lifelink)`);
       result.lifeGainForPlayers[attackerController] = (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;

@@ -143,6 +143,7 @@ export function emitTriggersAfterOracleIRApply(
     const sourcePermanentId = String(options?.sourcePermanentId || '').trim();
     const noncombatDamagedPlayerIds: string[] = [];
     const noncombatDamagedPermanentIds: string[] = [];
+    const noncombatDamageByPermanent: Record<string, number> = {};
 
     // Life gain / loss
     const playerIds = new Set<string>([
@@ -201,7 +202,10 @@ export function emitTriggersAfterOracleIRApply(
         }
         if (nowDamage > prev.damage) {
           const amount = nowDamage - prev.damage;
-          if (kinds.has('deal_damage')) noncombatDamagedPermanentIds.push(id);
+          if (kinds.has('deal_damage')) {
+            noncombatDamagedPermanentIds.push(id);
+            noncombatDamageByPermanent[id] = amount;
+          }
           processDamageReceivedTriggers(ctx, perm, amount, (triggerInfo) => {
             if (dispatchDamageReceivedTrigger(ctx, triggerInfo)) return;
             const stateAny = state as any;
@@ -240,6 +244,7 @@ export function emitTriggersAfterOracleIRApply(
         controller: irController,
         playerIds: noncombatDamagedPlayerIds,
         permanentIds: noncombatDamagedPermanentIds,
+        permanentDamage: noncombatDamageByPermanent,
       });
     }
     if (sourcePermanentId && damageSourceOnBattlefield && anyNoncombatDamage) {
@@ -253,6 +258,7 @@ export function emitTriggersAfterOracleIRApply(
       queueNoncombatDealsDamageTriggers(ctx, sourcePermanentId, {
         playerIds: noncombatDamagedPlayerIds,
         permanentIds: noncombatDamagedPermanentIds,
+        permanentDamage: noncombatDamageByPermanent,
         legacyEffects,
       });
     }

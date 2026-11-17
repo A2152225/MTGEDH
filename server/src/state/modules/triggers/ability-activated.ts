@@ -219,6 +219,8 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
 
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
+    const activationCost = abilityText.split(':')[0] || '';
+    const abilityWord = /\bpower-up\b/i.test(abilityText) ? 'power-up' : undefined;
     const lines = collectMatchingParsedEventLines({
       ctx,
       oracleText: String(permanent.card.oracle_text || ''),
@@ -227,7 +229,11 @@ export function triggerAbilityActivatedTriggers(ctx: GameContext, e: AbilityActi
       subjectPermanent: sourcePermanent,
       subjectControllerId: String(e.activatedBy),
       sourcePermanent: permanent,
-      matchContext: { isManaAbility: e.isManaAbility === true },
+      matchContext: {
+        isManaAbility: e.isManaAbility === true,
+        notTapCost: !/\{t\}/i.test(activationCost),
+        ...(abilityWord ? { abilityWord } : {}),
+      },
     });
     if (lines.length === 0) continue;
     irOwnedIds.add(String(permanent.id || ''));

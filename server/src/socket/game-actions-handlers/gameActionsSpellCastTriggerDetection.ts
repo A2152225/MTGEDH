@@ -225,6 +225,11 @@ export function getSpellCastTriggersForCard(
     const oracleForLines = hasStationThresholdMarkers(printedOracle)
       ? filterOracleTextToActiveStationAbilities(printedOracle, readChargeCounterCount(permanent))
       : printedOracle;
+    const spellId = String(spellCard?.id || '');
+    const stack = Array.isArray(game.state?.stack) ? game.state.stack : [];
+    const stacked = spellId
+      ? [...stack].reverse().find((item: any) => String(item?.card?.id || item?.cardId || '') === spellId)
+      : undefined;
     for (const line of collectMatchingParsedEventLines({
       ctx: game,
       oracleText: oracleForLines,
@@ -233,6 +238,14 @@ export function getSpellCastTriggersForCard(
       subjectControllerId: casterId,
       sourcePermanent: permanent,
       castFromZone: castSourceZone,
+      matchContext: {
+        spellManaValue: Number(spellCard?.mana_value ?? spellCard?.cmc ?? spellCard?.manaValue),
+        sourceCounters: permanent?.counters,
+        teamworkWasPaid: spellCard?.teamworkWasPaid === true
+          || spellCard?.card?.teamworkWasPaid === true
+          || stacked?.teamworkWasPaid === true
+          || stacked?.card?.teamworkWasPaid === true,
+      },
     })) {
       if (line.condition?.event !== 'spell_cast' || line.condition?.ordinal || line.interveningIf) continue;
       if (line.condition.alternatives.some((alt: any) => alt.controller !== 'you')) continue;

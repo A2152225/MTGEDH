@@ -250,7 +250,7 @@ export function executeSpellEffect(
             })();
         if (damageResult.prevented || damageResult.appliedAmount <= 0) break;
         markPermanentDealtDamage(ctx, sourcePermanentId);
-        emitNoncombatDamageEvent(ctx, { sourcePermanentId, sourceId, controller: String(caster || ''), sourceName: spellName, permanentIds: [String((perm as any).id)] });
+        emitNoncombatDamageEvent(ctx, { sourcePermanentId, sourceId, controller: String(caster || ''), sourceName: spellName, permanentIds: [String((perm as any).id)], permanentDamage: { [String((perm as any).id)]: damageResult.appliedAmount } });
         applySpellLifelinkGain(ctx, { sourcePermanentId, sourceId, caster: String(caster || ''), amount: damageResult.appliedAmount });
 
         debug(2, `[resolveSpell] ${spellName} dealt ${damageResult.appliedAmount} damage to ${(perm as any).card?.name || effect.id}`);

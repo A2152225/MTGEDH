@@ -6,6 +6,7 @@
 
 import type { GameContext } from "../../context.js";
 import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from "../triggers/damage-received.js";
+import { queueRound67CombatDamage } from "../triggers/round67GameTriggers.js";
 import { debug } from "../../../utils/debug.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -24,7 +25,7 @@ function ts() {
  */
 const COMBAT_DAMAGE_BATCH_KEY = '__combatDamageReceivedBatch';
 
-type CombatDamageBatch = Map<string, { permanent: any; amount: number }>;
+type CombatDamageBatch = Map<string, { permanent: any; amount: number; sources: any[] }>;
 
 /**
  * Combat damage is dealt simultaneously (rules 120.3 / 510.2): a creature dealt damage by two
@@ -40,22 +41,26 @@ export function runWithCombatDamageReceivedBatch<T>(ctx: GameContext, run: () =>
     return run();
   } finally {
     delete holder[COMBAT_DAMAGE_BATCH_KEY];
-    for (const { permanent, amount } of batch.values()) {
+    for (const { permanent, amount, sources } of batch.values()) {
+      for (const source of sources) queueRound67CombatDamage(ctx, permanent, source);
       queueDamageReceivedTrigger(ctx, permanent, amount);
     }
   }
 }
 
-export function queueDamageReceivedTrigger(ctx: GameContext, permanent: any, damageAmount: number): void {
+export function queueDamageReceivedTrigger(ctx: GameContext, permanent: any, damageAmount: number, damageSource?: any): void {
   if (!permanent || damageAmount <= 0) return;
   const batch = (ctx as any)[COMBAT_DAMAGE_BATCH_KEY] as CombatDamageBatch | undefined;
   const batchKey = String(permanent?.id || '').trim();
   if (batch && batchKey) {
     const entry = batch.get(batchKey);
-    if (entry) entry.amount += damageAmount;
-    else batch.set(batchKey, { permanent, amount: damageAmount });
+    if (entry) {
+      entry.amount += damageAmount;
+      if (damageSource) entry.sources.push(damageSource);
+    } else batch.set(batchKey, { permanent, amount: damageAmount, sources: damageSource ? [damageSource] : [] });
     return;
   }
+  if (damageSource) queueRound67CombatDamage(ctx, permanent, damageSource);
   
   // Use the centralized damage trigger system
   processDamageReceivedTriggers(ctx, permanent, damageAmount, (triggerInfo) => {

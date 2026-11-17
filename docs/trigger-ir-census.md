@@ -1,52 +1,23 @@
 # Trigger IR census (TRIGGER_PRIMARY coverage)
 
-Generated 2026-11-12T21:22:37.504Z by `npm run census:triggers` (server/scripts/trigger-ir-census.ts).
+Generated 2026-11-16T11:54:49.607Z by `npm run census:triggers` (server/scripts/trigger-ir-census.ts).
 
-A clause counts as IR when `parseTriggerClause` returns a condition and an effect; otherwise
-it falls back to the legacy family detectors. Unique Commander-legal oracle cards; each face scanned.
+A clause counts as IR when `parseTriggerClause` returns a condition and an effect.
+A delayed or reflexive rider counts as that effect when the main clause text is empty.
+Otherwise it falls back to the legacy family detectors. Unique Commander-legal oracle cards; each face scanned.
 
 | Metric | Count |
 |---|---|
 | Commander-legal cards with trigger clauses | 12533 |
 | Trigger clauses | 14359 |
-| Parsed by trigger IR | 14305 (99.6%) |
-| Legacy fallback | 54 (0.4%) |
+| Parsed by trigger IR | 14359 (100.0%) |
+| Legacy fallback | 0 (0.0%) |
 | Reflexive/delayed riders excluded ("when you do", "next end step") | 350 |
 
 ## Top 30 legacy-fallback wordings (by cards affected)
 
 | # | Trigger condition | Cards | Clauses | Examples |
 |---|---|---|---|---|
-| 1 | when excess damage is dealt to the creature an opponent controls this way | 1 | 1 | Rhino's Rampage |
-| 2 | when you remove a counter this way | 1 | 1 | Immard, the Stormcleaver |
-| 3 | when you have N or less life | 1 | 1 | Opal Avenger |
-| 4 | whenever you choose to put one or more cards on the bottom of your library while scrying | 1 | 1 | The Temporal Anchor |
-| 5 | whenever a source you control deals noncombat damage to a creature equal to that creature's toughness | 1 | 1 | Taii Wakeen, Perfect Shot |
-| 6 | when there are N | 1 | 1 | The Millennium Calendar |
-| 7 | whenever ezio deals combat damage to a player | 1 | 1 | Ezio Auditore da Firenze |
-| 8 | whenever a creature you control with deathtouch deals damage to a planeswalker | 1 | 1 | Hooded Blightfang |
-| 9 | when the chosen player draws a card with the chosen name | 1 | 1 | Booby Trap |
-| 10 | whenever a land enters under an opponent's control | 1 | 1 | Tunnel Ignus |
-| 11 | when you control no permanents with phylactery counters on them | 1 | 1 | Phylactery Lich |
-| 12 | whenever a vehicle crewed by ~ this turn attacks | 1 | 1 | Balthier and Fran |
-| 13 | whenever a spell deals damage to this creature | 1 | 1 | Tephraderm |
-| 14 | whenever enchanted artifact becomes tapped or a player activates an ability of enchanted artifact without {t} in its activation cost | 1 | 1 | Artifact Possession |
-| 15 | whenever either of those creatures deals combat damage to a player this combat | 1 | 1 | Love on the Battlefield |
-| 16 | whenever you cast a spell using teamwork | 1 | 1 | Virtual Assistant |
-| 17 | when an exiled card enters under your control this way | 1 | 1 | Lagrella, the Magpie |
-| 18 | whenever a source an opponent controls deals damage to this creature | 1 | 1 | Archfiend of Spite |
-| 19 | whenever you cast a spell with mana value equal to the number of doom counters on this enchantment | 1 | 1 | Imminent Doom |
-| 20 | when the chosen color isn't the most common color among nontoken permanents the chosen player controls or is tied for most common | 1 | 1 | Call to Arms |
-| 21 | whenever one or more creatures you control with flying deal combat damage to a player this turn | 1 | 1 | The Raven's Warning |
-| 22 | whenever ~ deals combat damage to a player who doesn't have a contract counter | 1 | 1 | Miss Highwater |
-| 23 | whenever a player chooses one or more targets | 1 | 1 | Psychic Battle |
-| 24 | when this creature is put into your graveyard from the battlefield | 1 | 1 | Brood of Cockroaches |
-| 25 | whenever another creature you control enters and whenever you activate a power-up ability | 1 | 1 | Marvel Boy, Noh-Varr |
-| 26 | when there are four or more page counters on this artifact | 1 | 1 | Mazemind Tome |
-| 27 | whenever one or more creatures you control that entered this turn deal combat damage to a player | 1 | 1 | Goro-Goro and Satoru |
-| 28 | whenever an artifact an opponent controls becomes tapped or an opponent activates an artifact's ability without {t} in its activation cost | 1 | 1 | Powerleech |
-| 29 | when you put a creature card onto the battlefield this way | 1 | 1 | Hans Eriksson |
-| 30 | when the chosen creature leaves the battlefield | 1 | 1 | Zenos yae Galvus // Shinryu, Transcendent Rival |
 
 ## Before/after
 
@@ -70,6 +41,12 @@ it falls back to the legacy family detectors. Unique Commander-legal oracle card
 | After round 25 | 13023 / 14016 | 92.9% | 993 |
 | After round 27 (census rerun 2026-10-25) | 13023 / 14016 | 92.9% | 993 |
 | After round 28 (census rerun 2026-10-25; runtime-only fixes, parser unchanged) | 13023 / 14016 | 92.9% | 993 |
+| After round 66 (census rerun 2026-11-16) | 14328 / 14359 | 99.8% | 31 |
+| After round 66 (room, power-up, phylactery, artifact tap) | 14333 / 14359 | 99.8% | 26 |
+| After round 66 (doom counters, teamwork, tenuous truce) | 14336 / 14359 | 99.8% | 23 |
+| After round 66 (toughness damage, mentor, scry to bottom) | 14339 / 14359 | 99.9% | 20 |
+| After round 66 (chosen draw, spell damage to self, no contract) | 14342 / 14359 | 99.9% | 17 |
+| After round 67 (last 17: thresholds, links, caused abilities) | 14359 / 14359 | 100.0% | 0 |
 
 ### Runtime buckets (round 17 audit)
 

@@ -25,6 +25,7 @@ import {
   legacyPrefaceNotHandled,
   type TriggerPrefaceResult,
 } from './oracleIrTriggerLegacyHandlerTelemetry.js';
+import { tryResolveRound67QueuedEffect } from './triggers/round67EffectResolution.js';
 
 export type { TriggerPrefaceResult };
 
@@ -37,6 +38,10 @@ export function tryApplyTriggerEffectPrefaceHandlers(
   state: any,
   battlefield: any[],
 ): TriggerPrefaceResult {
+  if (tryResolveRound67QueuedEffect(ctx, controller, sourceName, description, triggerItem)) {
+    return legacyPrefaceHandled('tryResolveRound67QueuedEffect');
+  }
+
   if (applyPlaneswalkerLoyaltyCountersFromTriggerMetadata({
     ctx,
     sourceName,

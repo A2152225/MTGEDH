@@ -383,11 +383,12 @@ export function parseRound64TriggerSentence(text: string, incoming: Reparse): Pa
     const combat = /combat damage/.test(text);
     const ev = combat ? ' deals combat damage to a player, ' : ' deals damage to a player, ';
     const noun = /you control/.test(who) || /you control/.test(text) ? who.replace(/you control$/, '').trim() + ' you control' : who;
-    return withFields(reparse('whenever a ' + noun.replace(/^one or more /, '') + ev + oneOrMoreDmg[4]), {
+    const dealt = withFields(reparse('whenever a ' + noun.replace(/^one or more /, '') + ev + oneOrMoreDmg[4]), {
       quantity: 'one_or_more',
       damageRecipient: recipient,
       ...( /this turn/.test(text) && !/this turn,$/.test(text) ? { thisTurn: true } : {}),
     } as any);
+    if (dealt) return dealt;
   }
 
   const enchantedDmg = /^(whenever|when) an enchanted creature you control deals combat damage to a player,\s*(.+)$/.exec(text);
@@ -402,15 +403,17 @@ export function parseRound64TriggerSentence(text: string, incoming: Reparse): Pa
 
   const keywordDmg = /^(whenever|when) a creature you control with (flying|deathtouch|skulk) deals(?: combat)? damage to (a player|a planeswalker|a player or planeswalker),\s*(.+)$/.exec(text);
   if (keywordDmg) {
-    const dest = keywordDmg[3].includes('player or planeswalker') ? 'a player'
-      : keywordDmg[3] === 'a planeswalker' ? 'a planeswalker' : 'a player';
+    const planeswalkerOnly = keywordDmg[3] === 'a planeswalker';
+    const both = keywordDmg[3].includes('player or planeswalker');
     const combat = /combat damage/.test(text);
-    return stampSubject(
-      withFields(reparse('whenever a creature you control ' + (combat ? 'deals combat damage to ' : 'deals damage to ') + dest + ', ' + keywordDmg[4]), {
-        ...(dest.includes('planeswalker') && dest.includes('player') ? { damageRecipient: 'player_or_planeswalker' } : {}),
-      } as any),
+    const fields: Record<string, unknown> = {};
+    if (planeswalkerOnly) fields.damageRecipient = 'planeswalker';
+    else if (both) fields.damageRecipient = 'player_or_planeswalker';
+    const base = stampSubject(
+      withFields(reparse('whenever a creature you control ' + (combat ? 'deals combat damage to ' : 'deals damage to ') + 'a player, ' + keywordDmg[4]), fields as any),
       { keywordsWith: [keywordDmg[2]] },
     );
+    if (base) return base;
   }
 
   const oppDealt = /^(whenever|when) (?:your opponents are dealt combat damage|an opponent is dealt combat damage by one or more creatures you control),\s*(.+)$/.exec(text);
@@ -440,7 +443,8 @@ export function parseRound64TriggerSentence(text: string, incoming: Reparse): Pa
   const dmgToYouOrThis = /^(whenever|when) (a creature|a permanent|a spell|enchanted creature) deals damage to (you|this creature|enchanted planeswalker),\s*(.+)$/.exec(text);
   if (dmgToYouOrThis) {
     const dest = dmgToYouOrThis[3] === 'you' ? 'you' : dmgToYouOrThis[3].includes('planeswalker') ? 'enchanted_planeswalker' : 'source';
-    return withFields(reparse('whenever ' + dmgToYouOrThis[2] + ' deals damage to a player, ' + dmgToYouOrThis[4]), { damageRecipient: dest } as any);
+    const dealt = withFields(reparse('whenever ' + dmgToYouOrThis[2] + ' deals damage to a player, ' + dmgToYouOrThis[4]), { damageRecipient: dest } as any);
+    if (dealt) return dealt;
   }
 
   const selfDmgCreatures = /^(whenever|when) (this creature|~) deals(?: combat)? damage to (one or more (?:blocking )?creatures|a creature or opponent|one or more blocking creatures),\s*(.+)$/.exec(text);
@@ -529,8 +533,12 @@ export function parseRound64TriggerSentence(text: string, incoming: Reparse): Pa
 
   const entersThisWay = /^(whenever|when) (it|this creature|an exiled card|a creature card) enters(?: under your control)? this way,\s*(.+)$/.exec(text);
   if (entersThisWay) {
-    const who = entersThisWay[2] === 'it' ? 'a creature' : entersThisWay[2];
-    return withFields(reparse('whenever ' + who + ' enters, ' + entersThisWay[3]), { thisWay: true, delayedRider: true } as any);
+    const who = entersThisWay[2];
+    const rewritten = who === 'it' ? 'a creature enters' : who === 'an exiled card' ? 'a permanent enters under your control' : who + ' enters';
+    const fields: Record<string, unknown> = { thisWay: true, delayedRider: true };
+    if (who === 'an exiled card') fields.fromZone = 'exile';
+    const entered = withFields(reparse('whenever ' + rewritten + ', ' + entersThisWay[3]), fields as any);
+    if (entered) return entered;
   }
 
   const entersAttached = /^(whenever|when) this aura enters attached to a creature,\s*(.+)$/.exec(text);
@@ -544,7 +552,7 @@ export function parseRound64TriggerSentence(text: string, incoming: Reparse): Pa
 
   const manaTapLand = /^(whenever|when) (a basic land|a forest|a mountain|a land you control|a land an opponent controls|a land|fortified land|a land with the same name as the exiled card) is tapped for mana(?: of the chosen color)?,\s*(.+)$/.exec(text);
   if (manaTapLand) {
-    const phrase = manaTapLand[2] === 'fortified land' ? 'a land' : manaTapLand[2];
+    const phrase = manaTapLand[2] === 'fortified land' || /same name as the exiled/.test(manaTapLand[2]) ? 'a land' : manaTapLand[2];
     const fields: Record<string, unknown> = { event: 'tapped_for_mana' };
     if (manaTapLand[2].startsWith('a basic')) fields.basicLand = true;
     if (/chosen color/.test(text)) fields.chosenColor = true;

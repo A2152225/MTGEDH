@@ -51,8 +51,14 @@ import { applyDamageToPermanentWithCounterEffects } from "../counter-common-effe
 import { applyCreatureDamageFromSource, resolvePlayerDamage } from "../combat-damage-processing.js";
 import { adjustScryCount } from '../replacementBatch91ScryReplacements.js';
 import { applyEligethReplacementAtScryQueue } from '../batch94ScryQueue.js';
+import { applyCounterStackObjectReplay } from './applyEventCounterStackObject.js';
 
 export function applyStackCoreEvents(ctx: GameContext, e: GameEvent): boolean {
+  if (e.type === 'counterStackObject') {
+    applyCounterStackObjectReplay(ctx, e);
+    return true;
+  }
+
   switch (e.type) {
 
       case "resolveSpell": {
@@ -62,8 +68,10 @@ export function applyStackCoreEvents(ctx: GameContext, e: GameEvent): boolean {
         const caster = (e as any).caster as PlayerID;
         
         // P1a: COUNTER_TARGET_* categorize resolve + former special-case path deleted.
-        // Countering goes through Oracle IR → executeSpellEffect CounterSpell/CounterAbility
-        // (or counterStackItem / applyEvent effect switch when those effects are emitted).
+        // Live countering is Oracle IR counter_spell. Replay of that removal is
+        // counterStackObject (see applyEventCounterStackObject.ts), not this switch.
+        // The CounterSpell / CounterAbility cases below only run if a resolveSpell
+        // event still carries those effect objects.
         if (spec && typeof resolveSpell === 'function') {
           try {
             const categorizedEffects = resolveSpell(spec, chosen, ctx.state, caster);

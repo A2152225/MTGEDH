@@ -5,6 +5,7 @@ import { uid } from '../utils.js';
 import { debug } from '../../utils/debug.js';
 import { getETBTriggersForPermanent } from './triggered-abilities.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
+import { reactToCausedTrigger } from './triggers/round67GameTriggers.js';
 import { orderTriggersByAPNAP } from './triggers/ordering.js';
 import { stampPermanentControlEntryForEcho } from './upkeep-triggers.js';
 import { ensureInitialDayNightDesignationFromBattlefield, enterPermanentTransformed } from './day-night.js';
@@ -197,6 +198,7 @@ export function queueGraveyardResidentCreatureEntryTriggers(
   for (const stackItem of orderedGraveyardResidentTriggers) {
     state.stack.push(stackItem);
     persistTriggeredAbilityPush(ctx, stackItem);
+    try { reactToCausedTrigger(ctx, stackItem, { event: 'etb', permanent: enteringPermanent }); } catch { /* best-effort */ }
   }
 }
 export function triggerETBEffectsForPermanent(
@@ -785,6 +787,7 @@ export function triggerETBEffectsForPermanent(
       stampWatcherEtbTriggerTargetMetadata(state, stackItem);
       state.stack.push(stackItem);
       persistTriggeredAbilityPush(ctx, stackItem);
+      try { reactToCausedTrigger(ctx, stackItem, { event: 'etb', permanent }); } catch { /* best-effort */ }
     }
   }
 

@@ -4,11 +4,12 @@
 // combat phases.
 // Public entry symbols: scheduleStepsAfterCurrent, scheduleStepsAtEndOfTurn,
 // clearScheduledSteps, getScheduledSteps, removeScheduledSteps, addExtraTurn,
-// getExtraTurns, addExtraCombat, hasExtraCombat, consumeExtraCombat,
+// getExtraTurns, recordExtraCombat, addExtraCombat, hasExtraCombat, consumeExtraCombat,
 // skipExtraTurn.
 // Leaf must not import turn.ts or turn-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
+import { appendEvent } from "../../../db/index.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -133,28 +134,39 @@ export function getExtraTurns(ctx: GameContext): Array<{ playerId: string; sourc
  * @param source - Optional source description (e.g., "Aurelia, the Warleader")
  * @param untapAttackers - Whether to untap attacking creatures (Aurelia does this)
  */
-export function addExtraCombat(ctx: GameContext, source?: string, untapAttackers?: boolean): void {
+/** Push one extra combat. Does not write the event log; replay calls this directly. */
+export function recordExtraCombat(ctx: GameContext, source?: string, untapAttackers?: boolean): void {
   try {
     const state = (ctx as any).state;
     if (!state) return;
-    
-    // Initialize extra combats array if needed
+
     state.extraCombats = state.extraCombats || [];
-    
-    // Track which combat phase we're on for this turn
     state.combatNumber = (state.combatNumber || 1);
-    
-    // Add the extra combat phase
     state.extraCombats.push({
       source: source || 'Unknown',
       untapAttackers: untapAttackers || false,
       createdAt: Date.now(),
     });
-    
+
     debug(2, `${ts()} [addExtraCombat] Extra combat added from "${source || 'Unknown'}" (untap: ${untapAttackers})`);
     ctx.bumpSeq();
   } catch (err) {
     debugWarn(1, `${ts()} addExtraCombat failed:`, err);
+  }
+}
+
+export function addExtraCombat(ctx: GameContext, source?: string, untapAttackers?: boolean): void {
+  recordExtraCombat(ctx, source, untapAttackers);
+  if ((ctx as any).isReplaying) return;
+  const gameId = String((ctx as any).gameId || '').trim();
+  if (!gameId || gameId === 'unknown') return;
+  try {
+    appendEvent(gameId, Number((ctx as any).seq?.value ?? (ctx as any).seq ?? (ctx as any).state?.seq ?? 0), 'scheduleExtraCombat', {
+      source: source || 'Unknown',
+      untapAttackers: untapAttackers === true,
+    });
+  } catch (err) {
+    debugWarn(1, `${ts()} addExtraCombat appendEvent failed:`, err);
   }
 }
 

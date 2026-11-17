@@ -1,5 +1,6 @@
 /** Round 65 leftover promotions. */
 import { type Parsed65 as Parsed, withFields65 as withFields, stampSubject65 as stampSubject, combineDual65 as combineDual, splitOrList65 as splitOrList, norm65 as norm, emptySubject65 as EMPTY_SUBJECT, parseDelayed65, compose65 } from './parseRound65Helpers.js';
+import { parseRound66TriggerSentence } from './parseRound66Events.js';
 
 type Reparse=(s:string)=>Parsed|null;
 
@@ -103,7 +104,10 @@ export function parseRound65TriggerSentence(text: string, incoming: Reparse): Pa
     );
   }
   const etbOrUnlock = /^(whenever|when) (this creature or another enchantment you control) enters and whenever you fully unlock a room,\s*(.+)$/.exec(text);
-  if (etbOrUnlock) return combineDual(reparse('whenever ' + etbOrUnlock[2] + ' enters, ' + etbOrUnlock[3]), reparse('whenever you fully unlock a room, ' + etbOrUnlock[3]));
+  if (etbOrUnlock) {
+    const combined = combineDual(reparse('whenever ' + etbOrUnlock[2] + ' enters, ' + etbOrUnlock[3]), reparse('whenever you fully unlock a room, ' + etbOrUnlock[3]));
+    if (combined) return combined;
+  }
   const entersAndPlay = /^(when|whenever) (this creature|this permanent|~|[a-z][a-z0-9' ,.-]{0,40}?) enters and whenever you play a card with two or more card types,\s*(.+)$/.exec(text);
   if (entersAndPlay) {
     return combineDual(
@@ -148,9 +152,15 @@ export function parseRound65TriggerSentence(text: string, incoming: Reparse): Pa
     return acc;
   }
   const etbAndActivate = /^(whenever|when) another creature you control enters and whenever you activate a ([a-z-]+) ability,\s*(.+)$/.exec(text);
-  if (etbAndActivate) return combineDual(reparse('whenever another creature you control enters, ' + etbAndActivate[3]), reparse('whenever you activate a ' + etbAndActivate[2] + ' ability, ' + etbAndActivate[3]));
+  if (etbAndActivate) {
+    const combined = combineDual(reparse('whenever another creature you control enters, ' + etbAndActivate[3]), reparse('whenever you activate a ' + etbAndActivate[2] + ' ability, ' + etbAndActivate[3]));
+    if (combined) return combined;
+  }
   const etbAndLose = /^(when|whenever) this enchantment enters and whenever an opponent loses the game,\s*(.+)$/.exec(text);
-  if (etbAndLose) return combineDual(reparse('whenever this enchantment enters, ' + etbAndLose[2]), reparse('whenever an opponent loses the game, ' + etbAndLose[2]));
+  if (etbAndLose) {
+    const combined = combineDual(reparse('whenever this enchantment enters, ' + etbAndLose[2]), reparse('whenever an opponent loses the game, ' + etbAndLose[2]));
+    if (combined) return combined;
+  }
   const selfOrEnchantedDmg = /^(whenever|when) (~|[a-z][a-z0-9' ,.-]{0,40}?|this creature) or an enchanted creature you control deals combat damage to a player,\s*(.+)$/.exec(text);
   if (selfOrEnchantedDmg) {
     return combineDual(
@@ -167,9 +177,11 @@ export function parseRound65TriggerSentence(text: string, incoming: Reparse): Pa
   }
   const kwDmg = /^(whenever|when) a creature (?:you control )?with (skulk|deathtouch|flying) deals(?: combat)? damage to (?:one of your opponents|a planeswalker|a player),\s*(.+)$/.exec(text);
   if (kwDmg) {
-    const dest = text.includes('planeswalker') ? 'a planeswalker' : text.includes('opponents') ? 'an opponent' : 'a player';
+    const toPlaneswalker = text.includes('planeswalker');
+    const dest = toPlaneswalker ? 'a player' : text.includes('opponents') ? 'an opponent' : 'a player';
     const ev = /combat damage/.test(text) ? 'deals combat damage to ' : 'deals damage to ';
-    return stampSubject(reparse('whenever a creature you control ' + ev + dest + ', ' + kwDmg[3]), { keywordsWith: [kwDmg[2]] });
+    const base = stampSubject(reparse('whenever a creature you control ' + ev + dest + ', ' + kwDmg[3]), { keywordsWith: [kwDmg[2]] });
+    if (base) return withFields(base, toPlaneswalker ? { damageRecipient: 'planeswalker' } as any : {});
   }
   const chosenNameDmg = /^(whenever|when) a creature with the chosen name deals combat damage to a player(?: this turn)?,\s*(.+)$/.exec(text);
   if (chosenNameDmg) {
@@ -203,9 +215,18 @@ export function parseRound65TriggerSentence(text: string, incoming: Reparse): Pa
   const oneOrMoreOpp = /^(whenever|when) one or more ([a-z]+) you control deal combat damage to one or more of your opponents,\s*(.+)$/.exec(text);
   if (oneOrMoreOpp) return withFields(reparse('whenever a ' + oneOrMoreOpp[2] + ' you control deals combat damage to an opponent, ' + oneOrMoreOpp[3]), { quantity: 'one_or_more' } as any);
   const thisTurnDmg = /^(whenever|when) one or more creatures you control with flying deal combat damage to a player this turn,\s*(.+)$/.exec(text);
-  if (thisTurnDmg) return withFields(reparse('whenever a creature you control with flying deals combat damage to a player, ' + thisTurnDmg[2]), { delayedRider: true, thisTurn: true, quantity: 'one_or_more' } as any);
+  if (thisTurnDmg) {
+    const flying = stampSubject(
+      withFields(reparse('whenever a creature you control deals combat damage to a player, ' + thisTurnDmg[2]), { delayedRider: true, thisTurn: true, quantity: 'one_or_more' } as any),
+      { keywordsWith: ['flying'] },
+    );
+    if (flying) return flying;
+  }
   const spellHitsThis = /^(whenever|when) a spell deals damage to this creature,\s*(.+)$/.exec(text);
-  if (spellHitsThis) return withFields(reparse('whenever a spell deals damage to a creature, ' + spellHitsThis[2]), { damageRecipient: 'source' } as any);
+  if (spellHitsThis) {
+    const hit = withFields(reparse('whenever a spell deals damage to a creature, ' + spellHitsThis[2]), { damageRecipient: 'source' } as any);
+    if (hit) return hit;
+  }
   const eqBlocking = /^(whenever|when) equipped creature deals damage to a blocking creature,\s*(.+)$/.exec(text);
   if (eqBlocking) return withFields(reparse('whenever equipped creature deals damage to a creature, ' + eqBlocking[2]), { damageRecipient: 'blocking_creature' } as any);
   const orNontokenLtb = /^(whenever|when) (~|[a-z][a-z0-9' ,.-]{0,40}?|this creature) or another nontoken creature you control leaves the battlefield,\s*(.+)$/.exec(text);
@@ -236,11 +257,20 @@ export function parseRound65TriggerSentence(text: string, incoming: Reparse): Pa
   const cycleSelfOrOther = /^(whenever|when) you cycle this card or cycle another card(?: while this enchantment is on the battlefield)?,\s*(.+)$/.exec(text);
   if (cycleSelfOrOther) return withFields(reparse('whenever you cycle a card, ' + cycleSelfOrOther[2]), { includeOther: true } as any);
   const curseGy = /^(whenever|when) a curse is put into your graveyard from the battlefield,\s*(.+)$/.exec(text);
-  if (curseGy) return reparse('whenever a curse is put into a graveyard from the battlefield, ' + curseGy[2]);
+  if (curseGy) {
+    const cursed = stampSubject(
+      reparse('whenever an enchantment is put into your graveyard from the battlefield, ' + curseGy[2]),
+      { subtypeGroups: [['curse']] },
+    );
+    if (cursed) return cursed;
+  }
   const unblockedCombat = /^(whenever|when) a creature attacks and isn't blocked this combat,\s*(.+)$/.exec(text);
   if (unblockedCombat) return withFields(reparse("whenever a creature attacks and isn't blocked, " + unblockedCombat[2]), { thisCombat: true } as any);
   const enchantedAttacksOpp = /^(whenever|when) an enchanted creature attacks one of your opponents,\s*(.+)$/.exec(text);
-  if (enchantedAttacksOpp) return withFields(reparse('whenever an enchanted creature attacks, ' + enchantedAttacksOpp[2]), { attackedPlayer: 'opponent' } as any);
+  if (enchantedAttacksOpp) {
+    const attacked = withFields(reparse('whenever enchanted creature attacks, ' + enchantedAttacksOpp[2]), { attackedPlayer: 'opponent' } as any);
+    if (attacked) return attacked;
+  }
   const enchOrEnchCr = /^(whenever|when) an enchanted creature or enchantment creature you control attacks,\s*(.+)$/.exec(text);
   if (enchOrEnchCr) {
     return combineDual(
@@ -265,10 +295,15 @@ export function parseRound65TriggerSentence(text: string, incoming: Reparse): Pa
   const typeAttackPlayer = /^(whenever|when) one or more (non-)?([a-z]+) you control attack a player,\s*(.+)$/.exec(text);
   if (typeAttackPlayer) {
     const fields: Record<string, unknown> = { quantity: 'one_or_more', attackedPlayer: 'player' };
+    const base = reparse('whenever a creature you control attacks a player, ' + typeAttackPlayer[4]);
     const stamped = typeAttackPlayer[2]
-      ? stampSubject(reparse('whenever a creature you control attacks a player, ' + typeAttackPlayer[4]), { excludedWords: [typeAttackPlayer[3]] })
-      : reparse('whenever a ' + typeAttackPlayer[3] + ' you control attacks a player, ' + typeAttackPlayer[4]);
-    return withFields(stamped, fields as any);
+      ? stampSubject(base, { excludedWords: [typeAttackPlayer[3]] })
+      : stampSubject(base, {
+          typeGroups: [['creature']],
+          subtypeGroups: [[typeAttackPlayer[3]]],
+          groups: [{ types: ['creature'], subtypes: [typeAttackPlayer[3]] }],
+        });
+    if (stamped) return withFields(stamped, fields as any);
   }
   const typesInGyAtk = /^(whenever|when) this creature attacks while there are (\w+) or more card types among cards in your graveyard,\s*(.+)$/.exec(text);
   if (typesInGyAtk) {
@@ -340,10 +375,11 @@ export function parseRound65TriggerSentence(text: string, incoming: Reparse): Pa
   const artifactTapOrActivate = /^(whenever|when) (an artifact(?: an opponent controls)?|enchanted artifact) becomes tapped or (?:an opponent|a player) activates (?:an artifact's ability|an ability of enchanted artifact) without \{t\} in its activation cost,\s*(.+)$/.exec(text);
   if (artifactTapOrActivate) {
     const subj = artifactTapOrActivate[2].includes('opponent') ? 'an artifact an opponent controls' : artifactTapOrActivate[2] === 'enchanted artifact' ? 'enchanted artifact' : 'an artifact';
-    return combineDual(
+    const combined = combineDual(
       reparse('whenever ' + subj + ' becomes tapped, ' + artifactTapOrActivate[3]),
       withFields(reparse('whenever a player activates an ability of ' + subj + ', ' + artifactTapOrActivate[3]), { notTapCost: true } as any),
     );
+    if (combined) return combined;
   }
   const dealtFirst = /^(whenever|when) (~|[a-z][a-z0-9' ,.-]{0,40}?|this creature) is dealt damage for the first time each turn,\s*(.+)$/.exec(text);
   if (dealtFirst) return withFields(reparse('whenever ' + dealtFirst[2] + ' is dealt damage, ' + dealtFirst[3]), { onceEachTurn: true } as any);
@@ -353,8 +389,8 @@ export function parseRound65TriggerSentence(text: string, incoming: Reparse): Pa
     if (youHalf) return withFields(youHalf, { damageRecipient: 'you_or_permanent_you_control' } as any);
     return compose65('deals_damage', oppSrcYouOrPerm[2], { damageRecipient: 'you_or_permanent_you_control' }, {});
   }
-  const oppSrcThis = /^(whenever|when) a source an opponent controls deals damage to this creature,\s*(.+)$/.exec(text);
-  if (oppSrcThis) return withFields(reparse('whenever a source an opponent controls deals damage to this creature, ' + oppSrcThis[2]), { damageRecipient: 'source' } as any);
+  // "a source an opponent controls deals damage to this creature" is owned by round 67.
+  // Reparsing it as damage to a creature drops the opponent filter.
   const chosenColorDmg = /^(whenever|when) a source of the chosen color deals damage to you,\s*(.+)$/.exec(text);
   if (chosenColorDmg) return withFields(reparse('whenever a source deals damage to you, ' + chosenColorDmg[2]), { sourceChosenColor: true, damageRecipient: 'you' } as any);
   const enchPlayerDmg = /^(whenever|when) enchanted player is dealt damage,\s*(.+)$/.exec(text);
@@ -366,8 +402,6 @@ export function parseRound65TriggerSentence(text: string, incoming: Reparse): Pa
       withFields(reparse('whenever this creature is dealt damage, ' + tapOrDmg[2]), { requiresEnchantedSubject: true } as any),
     );
   }
-  const blocksColor = /^(whenever|when) a creature blocks a (black or red|red or black) creature,\s*(.+)$/.exec(text);
-  if (blocksColor) return withFields(reparse('whenever a creature blocks a creature, ' + blocksColor[3]), { blockPartnerColors: ['b', 'r'] } as any);
   const blocksThis = /^(whenever|when) a creature blocks this creature,\s*(.+)$/.exec(text);
   if (blocksThis) return withFields(reparse('whenever a creature blocks, ' + blocksThis[2]), { blockPartnerIsSource: true } as any);
   const enchBlocked = /^(whenever|when) a creature you control that's enchanted becomes blocked,\s*(.+)$/.exec(text);
@@ -423,5 +457,5 @@ export function parseRound65TriggerSentence(text: string, incoming: Reparse): Pa
     effect: roomEtb[2],
   }, {} as any);
 
-  return null;
+  return parseRound66TriggerSentence(text, reparse);
 }

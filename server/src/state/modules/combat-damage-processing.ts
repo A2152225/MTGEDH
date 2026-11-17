@@ -411,13 +411,13 @@ export function applyFightDamageBetweenCreatures(
   if (creatureA && creatureB && damageAToB > 0) {
     const dealt = applyCreatureDamageFromSource(ctx, creatureA, creatureB, damageAToB, damageField);
     if (dealt && !dealt.prevented && dealt.appliedAmount > 0) {
-      emitNoncombatDamageEvent(ctx, { sourcePermanentId: String(creatureA.id || ''), permanentIds: [String(creatureB.id || '')] });
+      emitNoncombatDamageEvent(ctx, { sourcePermanentId: String(creatureA.id || ''), permanentIds: [String(creatureB.id || '')], permanentDamage: { [String(creatureB.id || '')]: dealt.appliedAmount } });
     }
   }
   if (creatureB && creatureA && damageBToA > 0) {
     const dealt = applyCreatureDamageFromSource(ctx, creatureB, creatureA, damageBToA, damageField);
     if (dealt && !dealt.prevented && dealt.appliedAmount > 0) {
-      emitNoncombatDamageEvent(ctx, { sourcePermanentId: String(creatureB.id || ''), permanentIds: [String(creatureA.id || '')] });
+      emitNoncombatDamageEvent(ctx, { sourcePermanentId: String(creatureB.id || ''), permanentIds: [String(creatureA.id || '')], permanentDamage: { [String(creatureA.id || '')]: dealt.appliedAmount } });
     }
   }
 }

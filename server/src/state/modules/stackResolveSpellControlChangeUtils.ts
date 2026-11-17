@@ -139,6 +139,11 @@ export function applyInstantSorceryControlChangeAndMassZoneEffects(
         subjectControllerId: originalController,
         triggerType: 'lose_control',
       });
+      if (/\bequipment\b/i.test(String(permanent?.card?.type_line || ''))) {
+        const thiefId = String((item as any)?.permanentId || (item as any)?.source || '').trim();
+        const thief = (Array.isArray(state?.battlefield) ? state.battlefield : []).find((perm: any) => String(perm?.id || '') === thiefId);
+        if (thief) thief.linkedEquipmentId = String(permanent.id || '');
+      }
     } else {
       const stateAny = state as any;
       const trackedEffect = (Array.isArray(stateAny.controlChangeEffects) ? stateAny.controlChangeEffects : [])

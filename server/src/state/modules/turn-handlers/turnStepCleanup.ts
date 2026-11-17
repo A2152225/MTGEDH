@@ -14,6 +14,7 @@ import { clearTemporaryEtbTriggers } from '../triggerEtbEntryEffects.js';
 import { clearMarkedPermanentDamage } from "../counter-common-effects.js";
 import { syncPreparedPermanentAfterControlChange } from "../prepared.js";
 import { removeControlEffects, syncControlFromRegistry } from "../continuousEffectRegistry.js";
+import { queueParsedSubjectEvent } from "../triggerEmissionFamilyUtils.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { clearTemporaryGraveyardKeywordGrants, clearTemporaryPlayableFromGraveyardPermissions } from "../graveyard-permissions.js";
 import { expireDelayedDealtDamageWatchers } from "../triggers/dealt-damage-watchers.js";
@@ -321,6 +322,15 @@ function endTemporaryEffects(ctx: GameContext) {
       if (removed > 0) {
         for (const change of syncControlFromRegistry(state)) {
           syncPreparedPermanentAfterControlChange(state, change.permanent, change.previousController);
+          const previous = String(change.previousController || '').trim();
+          if (previous && change.permanent) {
+            queueParsedSubjectEvent(ctx, {
+              event: 'loses_control',
+              subjectPermanent: { ...change.permanent, controller: previous },
+              subjectControllerId: previous,
+              triggerType: 'lose_control',
+            });
+          }
           endedCount++;
         }
       }

@@ -155,7 +155,7 @@ export function applyBlockersCombatDamageToAttacker(
             debug(2, `${ts()} [COMBAT_DAMAGE] Blocker ${blockerCard.name || blockerId} dealt ${damageResult.appliedAmount} damage to attacker ${card.name || attacker.id}`);
             
             // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
-            queueDamageReceivedTrigger(ctx, attacker, damageResult.appliedAmount);
+            queueDamageReceivedTrigger(ctx, attacker, damageResult.appliedAmount, blocker);
             
             // Check if attacker dies
             const attackerToughness = attackerStats.toughness;

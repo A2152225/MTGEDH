@@ -23,6 +23,7 @@ import { uid, cardManaValue } from "../state/utils.js";
 import { debugWarn } from "../utils/debug.js";
 import type { GameContext } from "../state/context.js";
 import { inferTriggeredAbilityTargetMetadata } from "../state/modules/inferTriggeredAbilityTargetMetadata.js";
+import { queueParsedSubjectEvent } from "../state/modules/triggerEmissionFamilyUtils.js";
 import {
   extractControlledExploitTriggeredEffects,
   extractSelfExploitTriggeredEffects,
@@ -635,6 +636,24 @@ export function handleMentorTargetResponse(
   }
 
   updateCounters(game as any, String(targetPermanent.id), { '+1/+1': 1 });
+  if (!(game as any)?.isReplaying) {
+    queueParsedSubjectEvent({
+      state: game.state,
+      gameId,
+      isReplaying: false,
+      libraries: (game as any).libraries,
+      players: game.state?.players || [],
+      bumpSeq: () => game.bumpSeq?.(),
+      commandZone: (game as any).commandZone || {},
+    } as any, {
+      event: 'performs',
+      action: 'mentor',
+      subjectPermanent: sourcePermanent,
+      subjectControllerId: String(sourcePermanent.controller || ''),
+      triggerType: 'mentor',
+      effectData: { mentorTargetId: targetId },
+    });
+  }
 
   const sourceName = String(step.sourceName || sourcePermanent.card?.name || 'Mentor');
   emitKeywordChoiceChat(

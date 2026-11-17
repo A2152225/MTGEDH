@@ -87,7 +87,19 @@ export type TriggerConditionEvent =
   | 'room_fully_unlocked'
   | 'performs'
   /** A creature fights (CR 701.14). Needs a fights emitter. */
-  | 'fights';
+  | 'fights'
+  /** "When you have N or less/more life". State trigger; the life-threshold emitter owns it. */
+  | 'life_threshold'
+  /** "When there are N or more [kind] counters on this". State trigger. */
+  | 'source_counter_threshold'
+  /** Chosen color is not strictly the most common among the chosen player's nontoken permanents. */
+  | 'color_rank'
+  /** One or more other nontoken permanents with a name first printed in a set are on the battlefield. */
+  | 'set_presence'
+  /** A player finishes choosing one or more targets. */
+  | 'chooses_targets'
+  /** An entering permanent or an attack caused a triggered ability to trigger. */
+  | 'caused_trigger';
 
 export type TriggerControllerRelation = 'any' | 'you' | 'not_you' | 'enchanted_player';
 
@@ -197,7 +209,7 @@ export interface TriggerConditionAlternative {
 
 export interface TriggerConditionIR {
   readonly event: TriggerConditionEvent;
-  readonly fromZone?: 'battlefield' | 'anywhere' | 'library' | 'hand' | 'graveyard' | 'exile' | 'not_hand' | 'not_battlefield' | 'not_graveyard_or_exile' | 'hand_or_battlefield' | 'battlefield_or_graveyard' | 'library_or_graveyard';
+  readonly fromZone?: 'battlefield' | 'anywhere' | 'library' | 'hand' | 'graveyard' | 'exile' | 'not_hand' | 'not_battlefield' | 'not_graveyard_or_exile' | 'hand_or_battlefield' | 'hand_or_library' | 'battlefield_or_graveyard' | 'library_or_graveyard';
   /** A second event in "create or sacrifice". The sacrifice emitter also queues it. */
   readonly pairedEvent?: TriggerConditionEvent;
   /** Zone the paired event must come from (graveyard half of "enters or is put into a graveyard from the battlefield"). */
@@ -378,6 +390,45 @@ export interface TriggerConditionIR {
   readonly naturalRoll?: number;
   readonly exiledWithSource?: boolean;
   readonly manaValueEqualsChargeCounters?: boolean;
+  /** Spell mana value equals this counter type on the source ("doom counters on this enchantment"). */
+  readonly manaValueEqualsSourceCounter?: string;
+  /** The spell was cast for its teamwork cost. */
+  readonly teamworkCast?: boolean;
+  /** Noncombat damage amount equals the damaged creature's toughness. */
+  readonly damageEqualsRecipientToughness?: boolean;
+  /** One or more cards were put on the bottom of the library during this scry. */
+  readonly scryToBottom?: boolean;
+  /** The damage source is a spell on the stack, not a permanent. */
+  readonly damageSourceIsSpell?: boolean;
+  /** The drawn card's name is the source's chosen card name. */
+  readonly requiresChosenDrawnName?: boolean;
+  /** The damaged player does not have this counter ("a contract counter"). */
+  readonly damagedPlayerMissingCounter?: string;
+  /** "When you have N or less life". */
+  readonly lifeAtMost?: number;
+  /** "When you have N or more life". */
+  readonly lifeAtLeast?: number;
+  /** Counter kind for a "N or more counters on this" state trigger. */
+  readonly sourceCounterKind?: string;
+  readonly sourceCounterAtLeast?: number;
+  /** The attacking vehicle was crewed by the source this turn. */
+  readonly crewedBySourceThisTurn?: boolean;
+  /** Chosen color is missing, tied, or not the unique most common color. */
+  readonly chosenColorNotStrictlyMostCommon?: boolean;
+  /** Card name's first printing is this set code ("arn"). */
+  readonly originallyPrintedInSet?: string;
+  /** The spell's only target is one creature, and that creature was dealt the damage. */
+  readonly spellTargetsSingleCreature?: boolean;
+  /** What caused the triggered ability this permanent is watching. */
+  readonly causedKind?: 'attack_own_creature' | 'etb' | 'etb_opponent_creature';
+  /** The leaving permanent is the source's chosen creature. */
+  readonly chosenCreatureLeaves?: boolean;
+  /** The permanent whose control was lost is the equipment this source gained. */
+  readonly linkedEquipment?: boolean;
+  /** The attacker is one of the creatures noted for this combat. */
+  readonly eitherOfLinkedAttackers?: boolean;
+  /** Blocked by a creature of the color chosen this turn. */
+  readonly blockedByChosenColor?: boolean;
   readonly damagePrevented?: boolean;
   readonly cumulativeUpkeepUnpaid?: boolean;
   readonly losesGame?: 'chosen_player' | 'enchanted_player' | 'any' | 'not_you';
@@ -405,7 +456,7 @@ export interface TriggerConditionIR {
   /** Ability word / keyword ability name on the targeting ability ("backup"). */
   readonly abilityWord?: string;
   /** "deals damage to an opponent / a player / a creature". */
-  readonly damageRecipient?: 'any' | 'player' | 'opponent' | 'creature' | 'player_or_planeswalker' | 'you' | 'source' | 'enchanted_planeswalker' | 'creature_or_opponent' | 'blocking_creature' | 'you_or_permanent_you_control' | 'permanent_you_control';
+  readonly damageRecipient?: 'any' | 'player' | 'opponent' | 'creature' | 'planeswalker' | 'player_or_planeswalker' | 'you' | 'source' | 'enchanted_planeswalker' | 'creature_or_opponent' | 'blocking_creature' | 'you_or_permanent_you_control' | 'permanent_you_control';
   readonly damageRecipientSubtypes?: readonly string[];
   readonly minRoll?: number;
   readonly rollValues?: readonly number[];
@@ -613,8 +664,10 @@ export interface TriggerMatchContext {
   readonly damageRecipientIsBlocking?: boolean;
   /** Player dealt combat damage (deals_combat_damage_to_player watchers). */
   readonly damagedPlayerId?: string;
-  /** Ability word on the ability that targeted ("backup"). */
+  /** Ability word on the ability that targeted ("backup") or was activated ("power-up"). */
   readonly abilityWord?: string;
+  /** The activated ability's cost does not include {T}. */
+  readonly notTapCost?: boolean;
   /** Level a Class just reached (class_level). */
   readonly classLevel?: number;
   /** The event subject is a player (pseudo-subject), not a permanent. */
@@ -638,6 +691,37 @@ export interface TriggerMatchContext {
   readonly opponentControlsNamed?: readonly string[];
   readonly totalAttackerPower?: number;
   readonly damageAmount?: number;
+  /** Toughness of the permanent that was dealt the damage. */
+  readonly damagedToughness?: number;
+  /** Cards put on the bottom during the scry that just resolved. */
+  readonly scryBottomCount?: number;
+  /** Name of the card just drawn. */
+  readonly drawnCardName?: string;
+  /** Counters on the player who was dealt damage. A missing key means zero. */
+  readonly damagedPlayerCounters?: Readonly<Record<string, number>>;
+  /** The damage came from a spell on the stack. */
+  readonly damageSourceIsSpell?: boolean;
+  /** Permanent ids that crewed the subject vehicle this turn. */
+  readonly crewedByPermanentIds?: readonly string[];
+  /** The spell's only target, when that target is one creature. */
+  readonly singleCreatureTargetId?: string;
+  /** Permanent that was dealt this damage. */
+  readonly damagedPermanentId?: string;
+  /** Source permanent that put the subject onto the battlefield. */
+  readonly enteredBySourceId?: string;
+  /** Attackers recorded for "either of those creatures" this combat. */
+  readonly linkedAttackerIds?: readonly string[];
+  /** Cause of the ability that just triggered. */
+  readonly causedKind?: 'attack_own_creature' | 'etb' | 'etb_opponent_creature';
+  /** Coarse cause. Lines derive attack-own-creature and opponent-creature from the facts. */
+  readonly causeEvent?: 'attack' | 'etb';
+  readonly causedSourceId?: string;
+  readonly causedSourceControllerId?: string;
+  readonly causedSourceIsCreature?: boolean;
+  /** Permanent whose triggered ability just went on the stack. */
+  readonly causedAbilitySourceId?: string;
+  /** Turn number, for "this turn" watches armed by an activation. */
+  readonly turnNumber?: number;
   readonly atRandom?: boolean;
   readonly causeControllerId?: string;
   readonly naturalRoll?: number;
@@ -645,6 +729,10 @@ export interface TriggerMatchContext {
   readonly damagePrevented?: boolean;
   readonly loyaltyCounters?: number;
   readonly spellManaValue?: number;
+  /** Counters on the trigger source at the moment the spell was cast. */
+  readonly sourceCounters?: Readonly<Record<string, number>>;
+  /** The cast paid a teamwork cost. */
+  readonly teamworkWasPaid?: boolean;
   readonly spellColors?: readonly string[];
   readonly abilityResolveCount?: number;
   readonly revealedManaValue?: number;

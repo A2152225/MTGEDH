@@ -15,6 +15,7 @@ import {
 } from "../state/resolution/index.js";
 import { debug, debugWarn } from "../utils/debug.js";
 import { rememberCommanderPregameColor } from "../state/modules/commanderPregameColorChoice.js";
+import { armBlockColorWatch } from "../state/modules/triggers/round67GameTriggers.js";
 import { appendCastSpellContinuationEvent } from "./resolutionSyntheticCastSocketUtils.js";
 import { emitToPlayer, getPlayerName, persistAndResolveTopOfStack } from "./util.js";
 
@@ -127,6 +128,7 @@ export async function handleColorChoiceResponse(
   
   // Store the chosen color on the permanent
   permanent.chosenColor = colorLower;
+  armBlockColorWatch(permanent, state);
   const reason = String((step as any).reason || (step as any).description || '').toLowerCase();
   const oracleLower = String(permanent.card?.oracle_text || '').toLowerCase();
   if (reason.includes('color word') || /choose a colou?r word/i.test(oracleLower)) {

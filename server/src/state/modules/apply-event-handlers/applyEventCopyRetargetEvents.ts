@@ -17,6 +17,7 @@ import { consumeRecordedManaCostFromPool } from "../applyEventReplayCardMoveLibr
 import { debugWarn } from "../../../utils/debug.js";
 import { persistNamedSpellCastThisGame } from "../namedSpellsCastThisGame.js";
 import { ResolutionStepType } from "../../resolution/index.js";
+import { rememberChosenCreature } from "../triggers/round67GameTriggers.js";
 
 export function applyCopyRetargetEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -314,6 +315,9 @@ export function applyCopyRetargetEvents(ctx: GameContext, e: GameEvent): boolean
           const stackItem = stack.find((item: any) => item && String(item?.id || '') === triggerStackItemId);
           if (stackItem) {
             stackItem.targets = targets.slice();
+            if (targets.length === 1) {
+              rememberChosenCreature((ctx as any).state, String(stackItem.permanentId || stackItem.source || ''), targets[0]);
+            }
           }
           if (replayGameId && resolvedStepId) {
             clearReplayQueuedStepById(replayGameId, resolvedStepId);

@@ -47,6 +47,7 @@ const REPLAY_CAUSAL_ORDER: Record<string, number> = {
   shuffleLibrary: 38,
   drawCards: 40,
   moveResolvedInstantOrSorcery: 45,
+  counterStackObject: 45,
 };
 
 function replayCausalRank(eventType: string): number {

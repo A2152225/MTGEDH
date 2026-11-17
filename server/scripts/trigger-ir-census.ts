@@ -78,7 +78,8 @@ async function main() {
         if (!counted) { cards += 1; counted = true; }
         clauses += 1;
         const parsed = parseTriggerClause(sentence, name);
-        if (parsed && parsed.effect) { ir += 1; continue; }
+        const riderEffect = parsed?.delayed?.effect || parsed?.reflexive?.effect;
+        if (parsed && (parsed.effect || riderEffect)) { ir += 1; continue; }
         if (parsed) irNoEffect += 1;
         const key = triggerFamilyKey(sentence, name);
         const entry = fallback.get(key) || { count: 0, cards: new Set<string>(), example: '' };
@@ -117,8 +118,9 @@ async function main() {
     '',
     `Generated ${json.generatedAt} by \`npm run census:triggers\` (server/scripts/trigger-ir-census.ts).`,
     '',
-    'A clause counts as IR when `parseTriggerClause` returns a condition and an effect; otherwise',
-    'it falls back to the legacy family detectors. Unique Commander-legal oracle cards; each face scanned.',
+    'A clause counts as IR when `parseTriggerClause` returns a condition and an effect.',
+    'A delayed or reflexive rider counts as that effect when the main clause text is empty.',
+    'Otherwise it falls back to the legacy family detectors. Unique Commander-legal oracle cards; each face scanned.',
     '',
     `| Metric | Count |`,
     `|---|---|`,

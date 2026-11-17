@@ -27,6 +27,10 @@ export type NoncombatDamageRecipients = {
   readonly pseudoSource?: any;
   /** Damage amount for exact-N and at-least-N conditions. */
   readonly amount?: number;
+  /** Applied damage for each permanent recipient, keyed by permanent id. */
+  readonly permanentDamage?: Readonly<Record<string, number>>;
+  /** The spell's only target, when that target is one creature. */
+  readonly singleCreatureTargetId?: string;
 };
 
 /**
@@ -42,6 +46,7 @@ export function emitNoncombatDamageEvent(ctx: any, event: {
   sourceName?: string;
   playerIds?: readonly string[];
   permanentIds?: readonly string[];
+  permanentDamage?: Readonly<Record<string, number>>;
 }): any[] {
   try {
     if (!ctx || ctx.isReplaying) return [];
@@ -59,6 +64,15 @@ export function emitNoncombatDamageEvent(ctx: any, event: {
       sourceId = sourceId || `spell-source:${controller}:${String(event.sourceName || '')}`;
       const card = stackItem?.card || { name: String(event.sourceName || ''), type_line: '' };
       pseudoSource = { id: sourceId, controller, card: { ...card, oracle_text: '' } };
+      const targetIds = Array.isArray(stackItem?.targets)
+        ? stackItem.targets.map((target: any) => String(typeof target === 'string' ? target : target?.id || '')).filter(Boolean)
+        : [];
+      if (targetIds.length === 1) {
+        const only = battlefield.find((perm: any) => String(perm?.id || '') === targetIds[0]);
+        if (only && /\bcreature\b/i.test(String(only?.card?.type_line || ''))) {
+          (pseudoSource as any).singleCreatureTargetId = targetIds[0];
+        }
+      }
     }
     const legacyEffects = onBattlefield
       ? stack.filter((item: any) => String(item?.source || '') === permId && /damage/i.test(String(item?.triggerType || '')))
@@ -68,7 +82,9 @@ export function emitNoncombatDamageEvent(ctx: any, event: {
       playerIds: (event.playerIds || []).map(String),
       permanentIds: (event.permanentIds || []).map(String),
       legacyEffects,
+      ...(event.permanentDamage ? { permanentDamage: event.permanentDamage } : {}),
       ...(pseudoSource ? { pseudoSource } : {}),
+      ...(pseudoSource?.singleCreatureTargetId ? { singleCreatureTargetId: String(pseudoSource.singleCreatureTargetId) } : {}),
     });
   } catch (err) {
     debugWarn(1, '[deals-damage] emitNoncombatDamageEvent failed:', err);
@@ -87,7 +103,18 @@ export function queueNoncombatDealsDamageTriggers(ctx: any, damageSourceId: stri
     ...recipients.playerIds.map((playerId) => ({ damageKind: 'noncombat', damageRecipientPlayerId: String(playerId), damagedPlayerId: String(playerId), causeControllerId: String(damageSource.controller || ''), ...(recipients.amount != null ? { damageAmount: recipients.amount } : {}) })),
     ...recipients.permanentIds.map((permanentId) => {
       const perm = battlefield.find((entry: any) => String(entry?.id || '') === String(permanentId));
-      return { damageKind: 'noncombat', damageRecipientIsCreature: /\bcreature\b/i.test(String(perm?.card?.type_line || perm?.type_line || '')), damagedPermanentControllerId: String(perm?.controller || ''), causeControllerId: String(damageSource.controller || '') };
+      const rawTough = perm?.toughness ?? perm?.card?.toughness;
+      const toughness = Number(rawTough);
+      const dealt = recipients.permanentDamage?.[String(permanentId)] ?? recipients.amount;
+      return {
+        damageKind: 'noncombat',
+        damageRecipientIsCreature: /\bcreature\b/i.test(String(perm?.card?.type_line || perm?.type_line || '')),
+        damagedPermanentControllerId: String(perm?.controller || ''),
+        causeControllerId: String(damageSource.controller || ''),
+        ...(dealt != null ? { damageAmount: dealt } : {}),
+        ...(Number.isFinite(toughness) ? { damagedToughness: toughness } : {}),
+        damagedPermanentId: String(permanentId),
+      };
     }),
   ];
   if (recipientContexts.length === 0) return [];
@@ -106,7 +133,13 @@ export function queueNoncombatDealsDamageTriggers(ctx: any, damageSourceId: stri
         sourcePermanent: permanent,
         damageKind: 'noncombat',
         thatPlayerId: (matchContext as any).damageRecipientPlayerId,
-        matchContext,
+        matchContext: {
+          ...matchContext,
+          damageSourceIsSpell: Boolean(recipients.pseudoSource),
+          singleCreatureTargetId: recipients.singleCreatureTargetId,
+          damageRecipientIsSource: String((matchContext as any).damagedPermanentId || '') !== ''
+            && String((matchContext as any).damagedPermanentId) === String(permanent.id || ''),
+        },
       })) {
         const key = line.effect.toLowerCase();
         if (fired.has(key)) continue;

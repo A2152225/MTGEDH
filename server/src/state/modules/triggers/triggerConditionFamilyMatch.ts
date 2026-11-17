@@ -587,53 +587,60 @@ export function collectMatchingParsedEventLines(options: {
       && (parsed.condition as any).pairedCondition
       ? (parsed.condition as any).pairedCondition
       : parsed.condition;
-    const matched = triggerConditionMatches(
-      matchCondition,
-      permanentToTriggerMatch(options.subjectPermanent, options.subjectControllerId, options.ctx?.state),
-      {
-        id: String(options.sourcePermanent?.id || '').trim(),
-        controllerId: String(options.sourcePermanent?.controller || '').trim(),
-        attachedToId: String(options.sourcePermanent?.attachedTo || '').trim(),
-        chosenCreatureType: String(options.sourcePermanent?.chosenCreatureType || '').trim() || undefined,
-        chosenColor: String(options.sourcePermanent?.chosenColor || options.sourcePermanent?.card?.chosenColor || '').trim() || undefined,
-        chosenCardName: String(options.sourcePermanent?.chosenCardName || options.sourcePermanent?.card?.chosenCardName || options.sourcePermanent?.chosenName || '').trim() || undefined,
-        saddled: Boolean(options.sourcePermanent?.saddled),
-        tapped: options.sourcePermanent?.tapped === true,
-        counters: options.sourcePermanent?.counters,
-        power: Number(options.sourcePermanent?.power ?? options.sourcePermanent?.card?.power),
-        zone: options.sourcePermanent?.zone,
-      } as any,
-      {
-        activePlayerId: options.activePlayerId ?? (String(options.ctx?.state?.turnPlayer || '').trim() || undefined),
-        enchantedPlayerId: resolveEnchantedPlayerId(options.sourcePermanent, options.ctx?.state),
-        monarchPlayerId: String(options.ctx?.state?.monarch || '').trim(),
-        chosenPlayerId: String(
-          options.sourcePermanent?.chosenPlayer
-          || options.sourcePermanent?.chosenPlayerId
-          || options.sourcePermanent?.card?.chosenPlayer
-          || '',
-        ).trim(),
-        spellOrdinal: options.spellOrdinal,
-        castFromZone: options.castFromZone,
-        libraryOwnerId: options.libraryOwnerId,
-        zoneOwnerId: options.zoneOwnerId,
-        fromZone: options.fromZone,
-        damageKind: options.damageKind,
-        targetPermanentIds: options.targetPermanentIds,
-        inCombat: inCombatNow(options.ctx?.state),
-        ...(options.matchContext || {}),
-        ...(options.blockPartnerPermanent
-          ? { blockPartner: permanentToTriggerMatch(options.blockPartnerPermanent, String(options.blockPartnerPermanent?.controller || ''), options.ctx?.state) }
-          : {}),
-        enchantedControllerId: resolveEnchantedControllerId(options.sourcePermanent, options.ctx?.state),
-        exiledCardOwnerId: String(
-          options.sourcePermanent?.exiledCardOwner
-          || options.sourcePermanent?.linkedExileOwner
-          || options.sourcePermanent?.exiledOwner
-          || '',
-        ).trim(),
-      },
-    );
+    const sameEventPair = parsed.condition.pairedEvent === options.event
+      && parsed.condition.event === options.event
+      ? (parsed.condition as any).pairedCondition
+      : undefined;
+    const matchSubject = permanentToTriggerMatch(options.subjectPermanent, options.subjectControllerId, options.ctx?.state);
+    const matchSource = {
+      id: String(options.sourcePermanent?.id || '').trim(),
+      controllerId: String(options.sourcePermanent?.controller || '').trim(),
+      attachedToId: String(options.sourcePermanent?.attachedTo || '').trim(),
+      chosenCreatureType: String(options.sourcePermanent?.chosenCreatureType || '').trim() || undefined,
+      chosenColor: String(options.sourcePermanent?.chosenColor || options.sourcePermanent?.card?.chosenColor || '').trim() || undefined,
+      chosenCardName: String(options.sourcePermanent?.chosenCardName || options.sourcePermanent?.card?.chosenCardName || options.sourcePermanent?.chosenName || '').trim() || undefined,
+      chosenCreatureId: String(options.sourcePermanent?.chosenCreatureId || options.sourcePermanent?.card?.chosenCreatureId || '').trim() || undefined,
+      linkedEquipmentId: String(options.sourcePermanent?.linkedEquipmentId || '').trim() || undefined,
+      blockColorWatchTurn: Number.isFinite(Number(options.sourcePermanent?.blockColorWatchTurn)) ? Number(options.sourcePermanent.blockColorWatchTurn) : undefined,
+      saddled: Boolean(options.sourcePermanent?.saddled),
+      tapped: options.sourcePermanent?.tapped === true,
+      counters: options.sourcePermanent?.counters,
+      power: Number(options.sourcePermanent?.power ?? options.sourcePermanent?.card?.power),
+      zone: options.sourcePermanent?.zone,
+    } as any;
+    const matchCtx = {
+      activePlayerId: options.activePlayerId ?? (String(options.ctx?.state?.turnPlayer || '').trim() || undefined),
+      turnNumber: Number(options.ctx?.state?.turnNumber ?? options.ctx?.state?.turn ?? 0),
+      enchantedPlayerId: resolveEnchantedPlayerId(options.sourcePermanent, options.ctx?.state),
+      monarchPlayerId: String(options.ctx?.state?.monarch || '').trim(),
+      chosenPlayerId: String(
+        options.sourcePermanent?.chosenPlayer
+        || options.sourcePermanent?.chosenPlayerId
+        || options.sourcePermanent?.card?.chosenPlayer
+        || '',
+      ).trim(),
+      spellOrdinal: options.spellOrdinal,
+      castFromZone: options.castFromZone,
+      libraryOwnerId: options.libraryOwnerId,
+      zoneOwnerId: options.zoneOwnerId,
+      fromZone: options.fromZone,
+      damageKind: options.damageKind,
+      targetPermanentIds: options.targetPermanentIds,
+      inCombat: inCombatNow(options.ctx?.state),
+      ...(options.matchContext || {}),
+      ...(options.blockPartnerPermanent
+        ? { blockPartner: permanentToTriggerMatch(options.blockPartnerPermanent, String(options.blockPartnerPermanent?.controller || ''), options.ctx?.state) }
+        : {}),
+      enchantedControllerId: resolveEnchantedControllerId(options.sourcePermanent, options.ctx?.state),
+      exiledCardOwnerId: String(
+        options.sourcePermanent?.exiledCardOwner
+        || options.sourcePermanent?.linkedExileOwner
+        || options.sourcePermanent?.exiledOwner
+        || '',
+      ).trim(),
+    };
+    const matched = triggerConditionMatches(matchCondition, matchSubject, matchSource, matchCtx)
+      || (sameEventPair ? triggerConditionMatches(sameEventPair, matchSubject, matchSource, matchCtx) : false);
     if (!matched) continue;
     seen.add(key);
     effects.push({

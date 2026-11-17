@@ -441,7 +441,7 @@ function dealCombatDamageAttackerLoopUnbatched(
               debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageResult.appliedAmount} damage to blocker ${blockerCard.name || blockerId}`);
               
               // Check for damage-received triggers (Brash Taunter, Boros Reckoner, etc.)
-              queueDamageReceivedTrigger(ctx, blocker, damageResult.appliedAmount);
+              queueDamageReceivedTrigger(ctx, blocker, damageResult.appliedAmount, attacker);
               
               // Check if blocker dies
               const totalDamageOnBlocker = blocker.markedDamage || 0;

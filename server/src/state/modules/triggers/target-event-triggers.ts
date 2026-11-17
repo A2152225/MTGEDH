@@ -5,6 +5,7 @@
  * Public: queueTargetEventTriggersForStackItem.
  */
 import { queueCrimeTriggersForStackItem } from './crime-triggers.js';
+import { queueChoosesTargetsTrigger } from './round67GameTriggers.js';
 import {
   extractStackItemTargetIds,
   persistTargetedTriggeredStackItems,
@@ -27,6 +28,7 @@ export function queueTargetEventTriggersForStackItem(
   const targetIds = extractStackItemTargetIds(item);
   const controller = String(item.controller || '').trim();
   if (targetIds.length === 0 || !controller) return out;
+  out.push(...queueChoosesTargetsTrigger(ctx, controller, itemId));
   const created = String(item.type || 'spell').toLowerCase() === 'spell'
     ? triggerPermanentTargetedTriggersFromSpell(ctx, { castBy: controller as any, stackItemId: itemId, targetIds })
     : triggerPermanentTargetedTriggersFromAbility(ctx, {

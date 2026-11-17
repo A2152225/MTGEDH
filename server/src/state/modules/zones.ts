@@ -17,7 +17,7 @@ import { recordCardPutIntoGraveyardThisTurn, recordPermanentPutIntoHandFromBattl
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
 import { pushCardToGraveyardFromLibrary } from "./graveyardEntryUtils.js";
-import { queueParsedKeywordAction } from "./triggerEmissionFamilyUtils.js";
+import { queueParsedKeywordAction, queueParsedSubjectEvent } from "./triggerEmissionFamilyUtils.js";
 import { queueCreatureExploresTriggers } from "./triggers/eventSpecificLegacyTriggers.js";
 import { processLinkedExileReturns } from "./triggers/linked-exile.js";
 import { queueExiledFromBattlefieldTriggers } from "./triggers/zone-change.js";
@@ -560,7 +560,16 @@ export function applyScry(ctx: GameContext, playerId: PlayerID, keepTopOrder: st
   zones[playerId]!.libraryCount = lib.length;
   ctx.libraries.set(playerId, lib);
   ctx.bumpSeq();
-  queueParsedKeywordAction(ctx, String(playerId), 'scry');
+  const bottomed = bottomOrder.length;
+  queueParsedSubjectEvent(ctx, {
+    event: 'performs',
+    action: 'scry',
+    subjectPermanent: { id: '', controller: playerId },
+    subjectControllerId: String(playerId),
+    triggerType: 'scry',
+    ...(bottomed > 0 ? { matchContext: { scryBottomCount: bottomed } } : {}),
+    effectData: { actorId: String(playerId), action: 'scry', ...(bottomed > 0 ? { scryBottomCount: bottomed } : {}) },
+  });
 }
 
 export function applySurveil(ctx: GameContext, playerId: PlayerID, toGraveyard: string[], keepTopOrder: string[]) {

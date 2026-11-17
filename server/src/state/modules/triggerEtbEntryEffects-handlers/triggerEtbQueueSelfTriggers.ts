@@ -13,6 +13,7 @@ import { debugWarn } from '../../../utils/debug.js';
 import { uid } from '../../utils.js';
 import { queueSelfEtbGraveyardTargetPrompt } from '../triggerEtbGraveyardTargetPrompt.js';
 import { getETBTriggersForPermanent } from '../triggered-abilities.js';
+import { reactToCausedTrigger } from '../triggers/round67GameTriggers.js';
 import { isFaceUpTriggerType } from '../triggerEmissionFamilyUtils.js';
 import { isInterveningIfSatisfied } from '../triggers/intervening-if.js';
 import {
@@ -243,6 +244,7 @@ export function queueSelfETBTriggersForPermanent(
     } as any;
     recordTurnLimitedEtbTriggerQueued(state, trigger, String(permanent.id || ''));
     state.stack.push(stackItem);
+    try { reactToCausedTrigger(ctx, stackItem, { event: 'etb', permanent }); } catch { /* best-effort */ }
     pushTriggerDoublerCopies(state, stackItem);
 
     // Prevent game-actions queueSelfEtbBattlefieldTutorSearch from also enqueueing

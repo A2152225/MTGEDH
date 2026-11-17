@@ -1,6 +1,7 @@
 import { alreadyAttackedPlayerRestrictionReason } from "./combatBatch37Restrictions.js"; // B37
 import { cantAttackAloneReason } from "./combatBatch53AttackAlone.js"; // B53
 import { hallsOfMistPreventsAttack } from "../../state/modules/batch93AttackRestrictions.js";
+import { reactToCausedTrigger } from "../../state/modules/triggers/round67GameTriggers.js";
 import { controlTypeAttackRestrictionReason } from "./combatBatch36Restrictions.js"; // B36
 import { castThisTurnAttackRestrictionReason } from "./combatBatch34AttackRestrictions.js"; // B34
 import { controlCountAttackRestrictionReason } from "./combatBatch33AttackRestrictions.js"; // B33 count
@@ -233,6 +234,7 @@ export function processAttackTriggersAfterDeclaration(
       // Create a minimal context for trigger detection
       const ctx = {
         state: game.state,
+        gameId,
         bumpSeq: () => {
           if (typeof (game as any).bumpSeq === "function") {
             (game as any).bumpSeq();
@@ -484,6 +486,11 @@ export function processAttackTriggersAfterDeclaration(
             }
             
             game.state.stack.push(stackItem);
+            try {
+              const abilitySourceId = String(trigger.permanentId || '');
+              const attacker = attackingCreatures.find((entry: any) => String(entry?.id || '') === abilitySourceId);
+              if (attacker) reactToCausedTrigger(ctx as any, stackItem, { event: 'attack', permanent: attacker });
+            } catch { /* best-effort */ }
             persistTriggeredAbilityPush(gameId, game, {
               triggerId,
               sourceId: trigger.permanentId,

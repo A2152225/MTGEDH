@@ -157,6 +157,16 @@ function persistReplayMutation(
         ...mutationPayload,
       });
       return;
+    case 'counterStackObject':
+      appendMutationEvent(ctx, 'counterStackObject', {
+        stackItemId: mutation.stackItemId,
+        ownerId: mutation.ownerId,
+        destination: mutation.destination,
+        wasSpell: mutation.wasSpell,
+        ...(mutation.card ? { card: mutation.card } : {}),
+        ...mutationPayload,
+      });
+      return;
     default:
       return;
   }

@@ -346,6 +346,10 @@ export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boo
 
           // Intervening-if support fields (best-effort today, but now deterministic when this event exists).
           (vehicle as any).crewedByCreatureCountThisTurn = crewerIds.length;
+          const previousCrew = Array.isArray((vehicle as any).crewedByPermanentIdsThisTurn)
+            ? (vehicle as any).crewedByPermanentIdsThisTurn.map(String)
+            : [];
+          (vehicle as any).crewedByPermanentIdsThisTurn = Array.from(new Set([...previousCrew, ...crewerIds.map(String)]));
           queueParsedSubjectEvent(ctx, {
             event: 'becomes_crewed',
             subjectPermanent: vehicle,
