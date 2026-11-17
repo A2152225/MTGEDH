@@ -12,6 +12,10 @@ import {
   commitLookSelectRestZoneChanges,
 } from './oracleIRExecutorCardZoneTransitionCommit';
 import { putLookChosenCardsOntoBattlefield } from './oracleIRExecutorLookChooseBattlefieldEntry';
+import {
+  applyLookChooseControllerManaValueLifeLoss,
+  resolveLookChooseBattlefieldControllerId,
+} from './oracleIRExecutorLookChooseControlTransfer';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import {
@@ -103,6 +107,8 @@ function lookChooseFromTopRequiresPlayerChoice(
   runtime?: ModifyPtRuntime
 ): boolean {
   if (ctx.interactivePlayerChoices === false) return false;
+  // "You put that card onto the battlefield under your control": the first match is deterministic.
+  if (step.putUnderYourControl) return false;
 
   if (
     usedOracleIrServerBridge(ctx)
@@ -326,6 +332,7 @@ export function applyLookChooseFromTopStep(
         state: nextState,
         playerId,
         player,
+        controllerId: resolveLookChooseBattlefieldControllerId(step, ctx),
         cards: chosenCards,
         entersTapped: Boolean((step as { entersTapped?: boolean }).entersTapped),
         ctx: bridgeOptions?.ctx,
@@ -341,6 +348,9 @@ export function applyLookChooseFromTopStep(
       }
       nextState = entered.state;
       movedCards.push(...entered.movedCards);
+      const controllerLifeLoss = applyLookChooseControllerManaValueLifeLoss(nextState, step, ctx, entered.movedCards);
+      nextState = controllerLifeLoss.state;
+      log.push(...controllerLifeLoss.log);
       if (canBridgeZone) {
         ledgerRecordedViaBridge = true;
         if (bridgeLookChooseRest()) {

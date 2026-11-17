@@ -28,6 +28,7 @@ import {
 import type { GameState, PlayerID } from '../../shared/src/index.js';
 import type { OracleEffectStep } from '../../rules-engine/src/oracleIR.js';
 import type { OracleIRExecutionResult } from '../../rules-engine/src/oracleIRExecutionTypes.js';
+import { enrichExecutorCoverageGapFixtureSeeds } from './executorCoverageAuditFixtureSeeds.js';
 import {
   applyOracleIRStepsToGameState,
   buildOracleIRExecutionContext,
@@ -17562,6 +17563,10 @@ export function enrichAuditStateAndContextForTargets(
       },
     } as typeof nextCtx;
   }
+
+  const gapSeeded = enrichExecutorCoverageGapFixtureSeeds(steps, nextState, nextCtx, options);
+  nextState = gapSeeded.state;
+  nextCtx = gapSeeded.ctx;
 
   return { state: nextState, ctx: nextCtx };
 }

@@ -206,4 +206,19 @@ describe('trigger IR round 67 leftovers', () => {
     expect(city?.condition.event).toBe('set_presence');
     expect(city?.condition.originallyPrintedInSet).toBe('arn');
   });
+
+  it('parses a milled-this-way rider as a mill event, not a legacy enters stub', () => {
+    const parsed = parseTriggerClause(
+      'When one or more cards are milled this way, exile target enchantment, instant, or sorcery card with equal or lesser mana value than that spell from among the milled cards. You may cast that card without paying its mana cost.',
+      'Saruman of Many Colors',
+    );
+    expect(parsed?.condition.event).toBe('mills');
+    expect(parsed?.condition.thisWay).toBe(true);
+    expect(parsed?.condition.delayedRider).toBe(true);
+    expect(parsed?.condition.legacyRuntimeOnly).toBeUndefined();
+    expect(parsed?.condition.quantity).toBe('one_or_more');
+    expect(parsed?.effect).toMatch(/exile target enchantment, instant, or sorcery card/i);
+    expect(parsed?.effect).toMatch(/you may cast that card/i);
+    expect(triggerConditionMatches(parsed!.condition, perm({ typeLine: 'Instant' }), src, { thisWay: true })).toBe(false);
+  });
 });

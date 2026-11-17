@@ -145,5 +145,12 @@ export function parseRound67TriggerSentence(text: string): Parsed | null {
     });
   }
 
+  // "When one or more cards are milled this way" reparses to this sentence, then the
+  // this-way wrapper stamps thisWay + delayedRider. A permanent mill detector must not fire it.
+  const millBatch = /^(whenever|when) one or more cards are milled,\s*(.+)$/.exec(text);
+  if (millBatch) {
+    return compose65('mills', millBatch[2], { quantity: 'one_or_more', controller: 'any' });
+  }
+
   return null;
 }

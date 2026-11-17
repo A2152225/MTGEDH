@@ -399,6 +399,15 @@ export function resolveTokenAmount(
     if (Number.isFinite(boundCmc) && boundCmc > 0) return Math.floor(boundCmc) * twiceXMultiplier;
   }
 
+  if (/^x is the number of unlocked doors among rooms you control$/.test(normalizedWhere)) {
+    return (
+      (state.battlefield || []).reduce((sum: number, perm: any) => {
+        if (String(perm?.controller || '').trim() !== String(controllerId || '').trim()) return sum;
+        return sum + (Array.isArray(perm?.unlockedDoors) ? perm.unlockedDoors.length : 0);
+      }, 0) * twiceXMultiplier
+    );
+  }
+
   const sacrificed = Array.isArray(runtime?.lastSacrificedPermanents)
     ? runtime.lastSacrificedPermanents
     : Array.isArray((ctx as any).lastSacrificedPermanents)

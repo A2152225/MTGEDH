@@ -284,6 +284,16 @@ export function applyRemoveCounterStep(
       normalizedTargetText === 'them' ||
       normalizedTargetText === 'among creatures you control' ||
       /^any number of \+1\/\+1 counters from among creatures you control$/i.test(normalizedTargetText));
+  // "another target creature or planeswalker": an unbound/ambiguous target is a player's choice, not a gap.
+  const needsTargetChoice = /\btarget\b/.test(normalizedTargetText);
+  if (needsTargetChoice && (targets.length > 1 || targets.length === 0) && !allowMultipleDeterministicTargets) {
+    return {
+      applied: false,
+      message: `Skipped remove counter (requires choosing a target): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
   if (targets.length > 1 && !allowMultipleDeterministicTargets) {
     return {
       applied: false,

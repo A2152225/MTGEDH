@@ -84,6 +84,7 @@ import {
   parseWindCounterUntap,
   parseOtherCreaturesSpeed,
 } from './batch112Parsers.js';
+import { nameFirstPrintedInArabianNights } from './triggers/arabianNightsOriginalNames.js';
 
 function textOf(perm: any): string {
   return normalizeBatch112Oracle(String(perm?.card?.oracle_text || ''), String(perm?.card?.name || ''));
@@ -288,10 +289,23 @@ export function batch112AttackerChoosesBlockers(state: any): boolean {
   return board(state).some((source) => source && !source.phasedOut && parseAttackerChoosesBlockers(textOf(source)));
 }
 
+/** "Originally printed in Arabian Nights" is the card's name, not this copy's set code. */
+export function arabianNightsOriginalNameLockReason(state: any, card: any): string | null {
+  const cardName = String(card?.name || card?.card?.name || '').trim();
+  if (!cardName || !nameFirstPrintedInArabianNights(cardName)) return null;
+  for (const source of board(state)) {
+    if (!source || source.phasedOut) continue;
+    if (!parseArabianNightsLock(textOf(source))) continue;
+    return `${source.card?.name || 'A permanent'} stops Arabian Nights cards`;
+  }
+  return null;
+}
+
 export function batch112CastRestriction(state: any, playerId: string, spell: any): string | null {
   const type = String(spell?.type_line || spell?.card?.type_line || '').toLowerCase();
-  const setCode = String(spell?.set || spell?.card?.set || spell?.set_name || spell?.card?.set_name || '').toLowerCase();
   const phase = String(state?.phase || state?.step || '').toLowerCase();
+  const arabianNightsLock = arabianNightsOriginalNameLockReason(state, spell);
+  if (arabianNightsLock) return arabianNightsLock;
   for (const source of board(state)) {
     if (!source || source.phasedOut) continue;
     const line = textOf(source);
@@ -304,9 +318,6 @@ export function batch112CastRestriction(state: any, playerId: string, spell: any
     if (parseCantCastDuringCombat(line) && /combat/.test(phase)) return `${source.card?.name || 'A permanent'} stops spells during combat`;
     if (parseAttackersCantCast(line) && ctrl(source) !== playerId && state?.attackedPlayersThisTurn?.[playerId]?.[ctrl(source)]) {
       return `${source.card?.name || 'A permanent'} stops spells from a player who attacked its controller`;
-    }
-    if (parseArabianNightsLock(line) && (setCode === 'arn' || setCode.includes('arabian'))) {
-      return `${source.card?.name || 'City in a Bottle'} stops Arabian Nights cards`;
     }
   }
   return null;

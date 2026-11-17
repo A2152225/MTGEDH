@@ -240,9 +240,20 @@ export function parseResidualAttackerTokenAndMetadataGuardsTwo(
     return staticMetadata('damage prevention', raw);
   }
 
-  const ownerLibraryChoice = raw.match(/^the\s+owner\s+of\s+target\s+(nonland\s+)?permanent\s+puts\s+it\s+(?:into\s+their\s+library\s+second\s+from\s+the\s+top\s+or\s+on\s+the\s+bottom|on\s+their\s+choice\s+of\s+the\s+top\s+or\s+bottom\s+of\s+their\s+library)$/i);
+  const ownerLibraryChoice = raw.match(/^the\s+owner\s+of\s+(up\s+to\s+one\s+)?(other\s+)?target\s+(nonland\s+)?permanent\s+puts\s+it\s+(?:into\s+their\s+library\s+second\s+from\s+the\s+top\s+or\s+on\s+the\s+bottom|on\s+their\s+choice\s+of\s+the\s+top\s+or\s+bottom\s+of\s+their\s+library)$/i);
   if (ownerLibraryChoice) {
-    return [{ kind: 'move_zone', what: parseObjectSelector(`target ${ownerLibraryChoice[1] ? 'nonland ' : ''}permanent`), to: 'library', toRaw: 'top or bottom of their library', raw, ...sequence } as unknown as OracleEffectStep];
+    const upToOne = Boolean(ownerLibraryChoice[1]);
+    const other = Boolean(ownerLibraryChoice[2]);
+    const nonland = Boolean(ownerLibraryChoice[3]);
+    return [{
+      kind: 'move_zone',
+      what: parseObjectSelector(`${upToOne ? 'up to one ' : ''}${other ? 'other ' : ''}target ${nonland ? 'nonland ' : ''}permanent`),
+      to: 'library',
+      toRaw: 'top or bottom of their library',
+      ...(upToOne ? { optional: true } : {}),
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
   }
   return null;
 }

@@ -8,7 +8,7 @@
  */
 
 import type { BattlefieldPermanent, GameState } from '../../../shared/src';
-import { permanentHasCreatureType } from '../../../shared/src/creatureTypes.js';
+import { normalizeCreatureTypeWord, permanentHasCreatureType } from '../../../shared/src/creatureTypes.js';
 import type { OracleIRExecutionContext } from '../oracleIRExecutionTypes';
 import { getCounterCountOnObject } from '../oracleIRExecutorModifyPtWhereUtils';
 import { isExecutorCreature } from '../oracleIRExecutorPermanentUtils';
@@ -74,8 +74,10 @@ export function isMassTapOrUntapSelectorText(text: string): boolean {
 }
 
 export function permanentHasSubtype(permanent: any, subtype: string | undefined): boolean {
-  const needle = String(subtype || '').trim();
-  if (!needle) return false;
+  const raw = String(subtype || '').trim();
+  if (!raw) return false;
+  // Plural team text ("other Humans you control", "Elves") singularizes to the real creature type.
+  const needle = normalizeCreatureTypeWord(raw) ?? raw;
   return permanentHasCreatureType(permanent, needle);
 }
 

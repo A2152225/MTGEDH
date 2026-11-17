@@ -100,7 +100,8 @@ export function resolveDirectBattlefieldPermanents(
   if (targetPrefixedMatches !== null) return targetPrefixedMatches;
 
   const armyMatches = resolveDeterministicArmyCreatureSelection(battlefield, normalizedTarget, ctx);
-  if (armyMatches) return armyMatches;
+  // Empty array is a miss (multiple/zero named matches defer); only a singleton is deterministic.
+  if (armyMatches && armyMatches.length > 0) return armyMatches;
   const selector = parseSimpleBattlefieldSelector(normalizedTarget as any);
   if (selector) {
     if (/^target\b/i.test(targetText)) {

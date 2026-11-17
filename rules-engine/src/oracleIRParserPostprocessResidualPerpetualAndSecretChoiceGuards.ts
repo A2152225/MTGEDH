@@ -712,10 +712,6 @@ export function parseResidualPerpetualAndSecretChoiceGuardsFour(
     return staticMetadata('you', raw);
   }
 
-  if (/^this permanent(?:'s)? owner shuffles this permanent into their library$/i.test(raw)) {
-    return staticMetadata("this permanent's owner", raw);
-  }
-
   if (/^this permanent's power and toughness are each equal to /i.test(raw)) {
     return staticMetadata('this permanent', raw);
   }

@@ -573,6 +573,15 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
+  if (/^(?:you\s+)?puts?\s+a\s+card\s+from\s+among\s+them\s+that\s+wasn'?t\s+cast\s+this\s+way\s+into\s+your\s+hand$/i.test(clause)) {
+    return parseMoveZoneStep({
+      whatRaw: "a card from among them that wasn't cast this way",
+      toRaw: 'your hand',
+      rawClause,
+      withMeta,
+    });
+  }
+
   const putIntoMatch = clause.match(/^(?:otherwise,\s*)?put\s+(.+?)\s+into\s+(.+)$/i);
   if (putIntoMatch) {
     return parseMoveZoneStep({
@@ -625,7 +634,7 @@ export function tryParseZoneAndRemovalClause(args: {
     });
   }
 
-  const subjectOwnerShufflesIntoLibraryMatch = clause.match(/^(this\s+creature|this\s+permanent|that\s+creature|it)(?:'|â€™)?s\s+owner\s+shuffles?\s+it\s+into\s+their\s+library$/i);
+  const subjectOwnerShufflesIntoLibraryMatch = clause.match(/^(this\s+creature|this\s+permanent|that\s+creature|it)(?:'|â€™)?s\s+owner\s+shuffles?\s+(?:it|him|her|them|this\s+permanent|this\s+creature)\s+into\s+their\s+library$/i);
   if (subjectOwnerShufflesIntoLibraryMatch) {
     return parseMoveZoneStep({
       whatRaw: String(subjectOwnerShufflesIntoLibraryMatch[1] || 'it').trim(),

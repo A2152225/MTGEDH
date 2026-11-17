@@ -121,6 +121,16 @@ export function tryParseSimpleActionDrawTurnClauses(args: SimpleActionClausePars
         });
     }
 
+    const drawForEvery = drawClause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+a\\s+card\\s+for\\s+every\\s+(.+)$`, 'i'));
+    if (drawForEvery) {
+      return withMeta({
+        kind: 'draw',
+        who: parsePlayerSelector(drawForEvery[1]),
+        amount: { kind: 'reference_amount', raw: `a card for every ${String(drawForEvery[2] || '').trim()}` },
+        raw: rawClause,
+        });
+    }
+
     const drawAdditional = drawClause.match(
       new RegExp(
         `^${PLAYER_SUBJECT_PREFIX}(?:may\\s+)?draws?\\s+(?:(\\d+|one|two|three|four|five|six|seven|eight|nine|ten|an?)\\s+)?additional\\s+cards?\\b`,

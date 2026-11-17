@@ -11,6 +11,7 @@ import type { GameState } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { isAttackingPermanent, permanentIsCreature } from './oracleIRExecutorCreatureStepUtils';
+import { permanentDealtDamageToSource } from './oracleIRExecutorCreaturesThatDealtDamageToSource';
 import { getColorsFromObject } from './oracleIRExecutorManaUtils';
 import { normalizeOracleText } from './oracleIRExecutorPlayerUtils';
 
@@ -27,20 +28,7 @@ function sourceIdOf(ctx: OracleIRExecutionContext): string {
   return String(ctx.sourceId || '').trim();
 }
 
-function dealtDamageToSourceThisTurn(permanent: unknown, sourceId: string): boolean {
-  if (!sourceId) return false;
-  const perm = permanent as {
-    dealtCombatDamageTo?: unknown;
-    damagedPermanentIds?: unknown;
-    combatDamageDealtTo?: unknown;
-  };
-  const bags = [perm.dealtCombatDamageTo, perm.damagedPermanentIds, perm.combatDamageDealtTo];
-  for (const bag of bags) {
-    if (bag instanceof Set && bag.has(sourceId)) return true;
-    if (Array.isArray(bag) && bag.some((entry) => String(entry || '').trim() === sourceId)) return true;
-  }
-  return false;
-}
+const dealtDamageToSourceThisTurn = permanentDealtDamageToSource;
 
 function matchesForEachText(
   permanent: unknown,

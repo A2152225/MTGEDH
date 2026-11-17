@@ -30,6 +30,7 @@ import { emitNoncombatDamageEvent, queueNoncombatDealsDamageTriggers } from './t
 import { markPermanentDealtDamage } from './damageDealtFlag.js';
 import { detectCombatDamageTriggers } from './triggers/index.js';
 import { processMillTriggers } from './zones.js';
+import { queueSourceMillThisWayRiders } from './triggers/millThisWayRiders.js';
 import { queueDiesTriggersForOracleIrRemovals } from './oracleIrDiesTriggers.js';
 
 export type BattlefieldTriggerSnapshot = {
@@ -310,6 +311,7 @@ export function emitTriggersAfterOracleIRApply(
     }
     // Mill — new graveyard cards that did not come from hand.
     if (kinds.has('mill')) {
+      const milledThisResolution: any[] = [];
       for (const player of Array.isArray(state?.players) ? state.players : []) {
         const playerId = String(player?.id || '').trim();
         if (!playerId) continue;
@@ -327,7 +329,11 @@ export function emitTriggersAfterOracleIRApply(
           // clears the graveyard, then the sync copies the unshuffled IR
           // graveyard and post-mill library back over that shuffle.
           processMillTriggers(ctx, playerId, milledCards, irController || undefined);
+          milledThisResolution.push(...milledCards);
         }
+      }
+      if (sourcePermanentId && milledThisResolution.length > 0) {
+        queueSourceMillThisWayRiders(ctx, sourcePermanentId, milledThisResolution);
       }
     }
 

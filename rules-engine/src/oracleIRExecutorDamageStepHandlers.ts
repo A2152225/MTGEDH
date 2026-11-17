@@ -33,6 +33,9 @@ import { resolveSinglePermanentDamageTargetId } from './oracleIRExecutorDamageSt
 import { findSourceObject } from './oracleIRExecutorDamageStepHandlers-handlers/oracleIRExecutorDamagePreventionLookups';
 import type { PreventDamageStepHandlerResult } from './oracleIRExecutorDamageStepHandlers-handlers/oracleIRExecutorDamagePreventionStepTypes';
 import { resolveControlledPermanentCountDamageAmount } from './oracleIRExecutorDamageStepHandlers-handlers/oracleIRExecutorDamageControlledCountAmount';
+import { pronounDamageSourceId } from './oracleIRExecutorDamagePronounSource';
+import { resolveDamageTargetFallback } from './oracleIRExecutorDamageExtendedTargetFallback';
+import { permanentIsExcludedAntecedentCreature } from './oracleIRSelectorExclusionQualifier';
 export type { PreventDamageStepHandlerResult };
 
 type StepApplyResult = {
@@ -302,7 +305,9 @@ function resolveDamageAmount(
   if (amount.kind === 'object_stat') {
     const sourceObjects =
       amount.subject === 'the_sacrificed_creature'
-        ? (Array.isArray(runtime?.lastSacrificedPermanents) ? [...runtime.lastSacrificedPermanents] : [])
+        ? (Array.isArray(runtime?.lastSacrificedPermanents) && runtime.lastSacrificedPermanents.length > 0
+            ? [...runtime.lastSacrificedPermanents]
+            : Array.isArray((ctx as any).lastSacrificedPermanents) ? [...(ctx as any).lastSacrificedPermanents] : [])
         :
       amount.subject === 'that_card' || amount.subject === 'that_creature' || amount.subject === 'that_spell'
         ? dedupeReferencedCards([
@@ -648,35 +653,6 @@ function resolveBridgedDamageAmount(
   };
 }
 
-function antecedentIdsFromContext(ctx: OracleIRExecutionContext): string[] {
-  return [
-    ...(Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds) ? ctx.lastAntecedentBattlefieldPermanentIds : []),
-    ...(Array.isArray(ctx.selectorContext?.lastAntecedentBattlefieldPermanentIds)
-      ? ctx.selectorContext.lastAntecedentBattlefieldPermanentIds
-      : []),
-  ]
-    .map((id) => String(id || '').trim())
-    .filter(Boolean);
-}
-
-/** "it / that creature deals damage" uses the entering permanent, not the ability source. */
-function pronounDamageSourceId(
-  state: GameState,
-  step: Extract<OracleEffectStep, { kind: 'deal_damage' }>,
-  ctx: OracleIRExecutionContext,
-): string {
-  const sourceText = String((step.source as any)?.kind === 'raw' ? (step.source as any).text : '')
-    .replace(/\u2019/g, "'")
-    .trim()
-    .toLowerCase();
-  if (sourceText !== 'it' && sourceText !== 'that creature' && sourceText !== 'that permanent') return '';
-  const battlefield = (state.battlefield || []) as any[];
-  for (const id of antecedentIdsFromContext(ctx)) {
-    if (battlefield.some((permanent) => String(permanent?.id || '').trim() === id)) return id;
-  }
-  return '';
-}
-
 export function applyDealDamageStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'deal_damage' }>,
@@ -967,7 +943,8 @@ export function applyDealDamageStep(
         nextState,
         amount,
         damageCtx,
-        permanent => permanentMatchesSelector(permanent as any, selector, ctx),
+        permanent => permanentMatchesSelector(permanent as any, selector, ctx)
+          && !permanentIsExcludedAntecedentCreature(permanent, selector, ctx as any),
         sourceKeywords
       );
       nextState = result.state;
@@ -994,16 +971,13 @@ export function applyDealDamageStep(
     }
   }
 
-  return {
-    applied: false,
-    message: `Skipped deal damage (unsupported target): ${step.raw}`,
-    reason: /\bany target\b/i.test(String((step.target as any)?.text || step.raw || ''))
-      ? 'player_choice_required'
-      : 'unsupported_target',
-    ...(/\bany target\b/i.test(String((step.target as any)?.text || step.raw || ''))
-      ? { options: { classification: 'player_choice' as const } }
-      : {}),
-  };
+  return resolveDamageTargetFallback({
+    state: nextState,
+    step,
+    ctx,
+    amount,
+    applyBoundTarget: (boundState, boundStep, boundCtx) => applyDealDamageStep(boundState, boundStep, boundCtx, runtime),
+  });
 }
 
 export { applyPreventDamageStep } from './oracleIRExecutorDamageStepHandlers-handlers/oracleIRExecutorPreventDamageStep';

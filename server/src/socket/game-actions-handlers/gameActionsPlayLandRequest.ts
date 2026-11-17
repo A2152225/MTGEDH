@@ -17,6 +17,7 @@ import { landPlayTimingBlockReason } from "../../state/modules/can-respond-handl
 import { buildPersistedCastPermissionFields } from "../../state/modules/castIntent.js";
 import { calculateMaxLandsPerTurn, canPlayLandsFromTop } from "../../state/modules/game-state-effects";
 import { landPlaySameNameAsNontokenViolation } from "../../state/modules/landPlaySameNameRestriction.js";
+import { arabianNightsOriginalNameLockReason } from "../../state/modules/batch112Apply.js";
 import { opponentsCantPlayLandCardsFromGraveyards } from "../../state/modules/batch100CombatAndKeywords.js";
 import { getEffectiveBasicLandTypes } from "../../state/modules/mana-abilities.js";
 import {
@@ -687,6 +688,17 @@ export function handlePlayLandRequest(
       emitPlayLandError({
         code: "NOT_A_LAND",
         message: `${cardName || "This card"} is not a land and cannot be played with playLand.`,
+      });
+      return;
+    }
+
+    const playedName = selectedFaceName || cardName;
+    const arabianNightsLock = arabianNightsOriginalNameLockReason(game.state, { name: playedName });
+    if (arabianNightsLock) {
+      debugWarn(2, `[playLand] ${playedName} blocked: ${arabianNightsLock}`);
+      emitPlayLandError({
+        code: "ARABIAN_NIGHTS_LOCK",
+        message: arabianNightsLock,
       });
       return;
     }

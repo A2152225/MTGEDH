@@ -615,6 +615,8 @@ export function parseMoveZoneCardFromAmongThoseCards(what: {
 export type AllExiledWithThisPermanentSpec = {
   readonly cardType: SimpleCardType;
   readonly excludeCreatureCards?: boolean;
+  /** "cards you own exiled with it": only cards in the controller's own exile zone. */
+  readonly ownedByController?: boolean;
 };
 
 export function parseMoveZoneAllExiledWithThisPermanent(what: {

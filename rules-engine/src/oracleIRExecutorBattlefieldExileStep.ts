@@ -36,6 +36,7 @@ import {
   isStackSpellExileTarget,
 } from './oracleIRExecutorBattlefieldStackExileHelpers';
 import { resolveSubtypeOrCompoundBattlefieldPermanents } from './oracleIRExecutorBattlefieldSubtypeCompoundResolvers';
+import { resolveMassBattlefieldSelector } from './oracleIRExecutorMassBattlefieldSelectorResolver';
 import { normalizeBattlefieldTargetReferenceText } from './oracleIRExecutorBattlefieldTargetReferenceText';
 import {
   finalizeBattlefieldRemoval,
@@ -721,7 +722,15 @@ export function applyExileStep(
     if (chosenExile) return chosenExile;
   }
 
-  const toRemove = resolveDirectBattlefieldPermanents(battlefield, normalizedExileTarget as any, ctx);
+  const directToRemove = resolveDirectBattlefieldPermanents(battlefield, normalizedExileTarget as any, ctx);
+  // Generic mass selectors (tokens created with this permanent, same-name tokens): recognized-empty is a no-op.
+  const massExile = directToRemove.length === 0
+    ? resolveMassBattlefieldSelector(state, String((normalizedExileTarget as any)?.text || ''), ctx)
+    : null;
+  const toRemove = directToRemove.length > 0 ? directToRemove : massExile ?? [];
+  if (toRemove.length === 0 && massExile) {
+    return { applied: true, state, log: ['No matching permanents to exile'] };
+  }
   if (toRemove.length === 0) {
     const contextualTarget = parseContextualBattlefieldReference(normalizedExileTarget as any);
     const selfExileTarget =

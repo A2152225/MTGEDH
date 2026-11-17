@@ -21,6 +21,8 @@ import {
 export function putLookChosenCardsOntoBattlefield(args: {
   readonly state: GameState;
   readonly playerId: PlayerID;
+  /** Controller of the entering permanents when it differs from the library owner (Jhoira). */
+  readonly controllerId?: PlayerID;
   readonly player: any;
   readonly cards: readonly any[];
   readonly entersTapped?: boolean;
@@ -47,7 +49,7 @@ export function putLookChosenCardsOntoBattlefield(args: {
     const resolved = resolveBattlefieldEntryFromOracleIrContext(
       args.state,
       card,
-      args.playerId,
+      args.controllerId ?? args.playerId,
       { entersTapped: Boolean(args.entersTapped), entersTransformed: Boolean(args.entersTransformed) },
       args.ctx ? { ctx: args.ctx, stepKind: args.stepKind, cause: 'oracle_ir:look_choose_from_top' } : undefined,
     );
@@ -57,7 +59,7 @@ export function putLookChosenCardsOntoBattlefield(args: {
       createBattlefieldPermanentsFromCards(
         [{ ...card, ownerId: args.playerId, owner: args.playerId }],
         args.playerId,
-        args.playerId,
+        args.controllerId ?? args.playerId,
         resolved.entersTapped, resolved.entersFaceDown, resolved.withCounters, resolved.entersTransformed,
         'library',
       ),

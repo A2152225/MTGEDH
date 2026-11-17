@@ -2,6 +2,9 @@ import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { OracleEffectStep } from './oracleIR';
 import { findObjectByIdInState } from './oracleIRExecutorModifyPtWhereUtils';
+import { resolveMassBattlefieldSelector } from './oracleIRExecutorMassBattlefieldSelectorResolver';
+import { isCreaturesThatDealtDamageToSourceSelectorText } from './oracleIRExecutorCreaturesThatDealtDamageToSource';
+import { resolveSetBasePtToughnessAmount } from './oracleIRExecutorSetBasePtToughnessAmount';
 import { getAmountOfSpecificManaSymbolSpent } from './oracleIRExecutorManaUtils';
 import {
   applyTemporaryPowerToughnessModifier,
@@ -50,6 +53,20 @@ type StepUnrecordedSkipResult = {
 };
 
 export type ModifyPtStepHandlerResult = StepApplyResult | StepRecordedSkipResult | StepUnrecordedSkipResult;
+
+/** A fully understood mass selector ("each modified creature you control") that matches nothing is a no-op, not a gap. */
+function isRecognizedEmptyMassSelector(
+  state: GameState,
+  target: unknown,
+  ctx: OracleIRExecutionContext
+): boolean {
+  if ((target as any)?.kind !== 'raw') return false;
+  const text = String((target as any)?.text || '').trim();
+  // "...token.Landfall - Whenever a land you control enters, creatures you control get +1/+1": two abilities
+  // merged into one clause; the conditional rider belongs to its own trigger and is not applied here.
+  if (/^(?:whenever|when|at the beginning of)\b/i.test(text)) return true;
+  return resolveMassBattlefieldSelector(state, text, ctx) !== null;
+}
 
 export function applyModifyPtStep(
   state: GameState,
@@ -229,6 +246,11 @@ export function applyModifyPtStep(
   }
 
   if (targetCreatureIds.length === 0) {
+    // A fully understood mass selector ("each other Dragon you control", "green creatures") that matches
+    // nothing is a legitimate no-op, not a missing target.
+    if (isRecognizedEmptyMassSelector(state, step.target, ctx)) {
+      return { kind: 'applied', state, log: [`No creatures match the mass selector: ${step.raw}`] };
+    }
     return {
       kind: 'recorded_skip',
       message: `Skipped P/T modifier (no deterministic creature target): ${step.raw}`,
@@ -669,6 +691,12 @@ export function applySetBasePtStep(
 
   const targetCreatureIds = resolveCreatureTargetIds(state, step.target, ctx);
   if (targetCreatureIds.length === 0) {
+    if (
+      isRecognizedEmptyMassSelector(state, step.target, ctx)
+      || (step.target.kind === 'raw' && isCreaturesThatDealtDamageToSourceSelectorText(step.target.text))
+    ) {
+      return { kind: 'applied', state, log: [`No creatures match the mass selector: ${step.raw}`] };
+    }
     return {
       kind: 'recorded_skip',
       message: `Skipped base P/T setter (no deterministic creature target): ${step.raw}`,
@@ -685,8 +713,26 @@ export function applySetBasePtStep(
     };
   }
 
-  const power = (step as any).powerUsesX ? ((step.power | 0) * (xValue ?? 0)) : (step.power | 0);
-  const toughness = (step as any).toughnessUsesX ? ((step.toughness | 0) * (xValue ?? 0)) : (step.toughness | 0);
+  const amountToughness = step.toughnessAmount ? resolveSetBasePtToughnessAmount(state, step.toughnessAmount, ctx) : null;
+  if (step.toughnessAmount && amountToughness === null) {
+    return {
+      kind: 'recorded_skip',
+      message: `Skipped base P/T setter (unresolved toughness amount): ${step.raw}`,
+      reason: 'unsupported_scaler',
+    };
+  }
+
+  const power: number | null = typeof step.power === 'number'
+    ? ((step as any).powerUsesX ? ((step.power | 0) * (xValue ?? 0)) : (step.power | 0))
+    : null;
+  const toughness: number | null = amountToughness !== null
+    ? amountToughness
+    : typeof step.toughness === 'number'
+      ? ((step as any).toughnessUsesX ? ((step.toughness | 0) * (xValue ?? 0)) : (step.toughness | 0))
+      : null;
+  const duration = step.duration === 'static' ? 'static' : 'end_of_turn';
+  const durationLabel = duration === 'static' ? 'indefinitely' : 'until end of turn';
+  const ptLabel = `${power ?? '-'}/${toughness ?? '-'}`;
 
   let nextState = state;
   for (const targetCreatureId of targetCreatureIds) {
@@ -695,7 +741,8 @@ export function applySetBasePtStep(
       targetCreatureId,
       ctx,
       power,
-      toughness
+      toughness,
+      duration,
     );
     if (!updatedState) {
       return {
@@ -712,8 +759,8 @@ export function applySetBasePtStep(
     state: nextState,
     log: [
       targetCreatureIds.length === 1
-        ? `${targetCreatureIds[0]} has base power and toughness ${power}/${toughness} until end of turn`
-        : `${targetCreatureIds.length} creatures have base power and toughness ${power}/${toughness} until end of turn`,
+        ? `${targetCreatureIds[0]} has base power and toughness ${ptLabel} ${durationLabel}`
+        : `${targetCreatureIds.length} creatures have base power and toughness ${ptLabel} ${durationLabel}`,
     ],
   };
 }

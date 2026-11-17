@@ -124,6 +124,10 @@ export function resolveBlockingCreatureIds(state: GameState): string[] {
     }
     if (typeof blocking === 'string' && blocking.trim()) {
       blockerIds.add(permanentId);
+      continue;
+    }
+    if (blocking === true || (permanent as any)?.isBlocking === true) {
+      blockerIds.add(permanentId);
     }
   }
 

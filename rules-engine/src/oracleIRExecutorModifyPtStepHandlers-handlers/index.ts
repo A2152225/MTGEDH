@@ -12,6 +12,9 @@ export type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepTypes';
 // Reference scaler for modify_pt "for each ..." amounts.
 export { resolveReferenceScalerScale } from './oracleIRExecutorModifyPtReferenceScaler';
 
+// "for each creature you control with <keyword> [or <keyword>]" scaler (Tsagan).
+export { tryResolveControlledCreatureKeywordScaler } from './oracleIRExecutorModifyPtKeywordScaler';
+
 // Battlefield scaler counts used by resolveReferenceScalerScale and applyModifyPtStep.
 export {
   countAttackingCreaturesMatching,

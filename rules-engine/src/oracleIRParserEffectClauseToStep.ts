@@ -17,6 +17,7 @@ import {
   tryParseTemporaryModifyPtClause,
   tryParseTemporarySetBasePtClause,
 } from './oracleIRParserModifyPtClauses';
+import { tryParseIndefiniteSetBasePtClause } from './oracleIRParserSetBasePtIndefiniteClauses';
 import { tryParseForAsLongAsPtStep } from './oracleIRParserForAsLongAsPtClauses';
 import { tryParseSimpleActionClause } from './oracleIRParserSimpleActionClauses';
 import {
@@ -268,6 +269,11 @@ export function parseEffectClauseToStep(rawClause: string): OracleEffectStep {
   // Temporary P/T modification (composable: target + base delta + duration + optional scaler)
   {
     const parsed = tryParseTemporarySetBasePtClause({ clause, rawClause, withMeta });
+    if (parsed) return parsed;
+  }
+
+  {
+    const parsed = tryParseIndefiniteSetBasePtClause({ clause, rawClause, withMeta });
     if (parsed) return parsed;
   }
 

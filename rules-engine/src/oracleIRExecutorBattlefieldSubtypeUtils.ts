@@ -3,6 +3,7 @@
 // Public entries: normalizePluralSubtype, typeLineHasSubtype.
 
 import type { BattlefieldPermanent } from '../../shared/src';
+import { normalizeCreatureTypeWord } from '../../shared/src/creatureTypes.js';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 
 export function normalizePluralSubtype(raw: string): string {
@@ -12,6 +13,8 @@ export function normalizePluralSubtype(raw: string): string {
     .replace(/\s+/g, ' ')
     .trim();
   if (!normalized) return '';
+  const knownCreatureType = normalizeCreatureTypeWord(normalized);
+  if (knownCreatureType) return knownCreatureType;
   if (/ies$/i.test(normalized)) return `${normalized.slice(0, -3)}y`;
   if (/s$/i.test(normalized) && !/ss$/i.test(normalized)) return normalized.slice(0, -1);
   return normalized;

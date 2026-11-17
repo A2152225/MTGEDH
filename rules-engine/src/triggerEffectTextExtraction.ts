@@ -5,6 +5,7 @@
 
 import { normalizeGameplayEffectText } from './oracleReminderText.js';
 import { resolveGlobalTimingMatchIndex } from './oracleLineRegexMatch.js';
+import { shouldSkipSentencePeriodSplit } from './oracleIRAbbreviationPeriodGuard.js';
 
 const ABILITY_LINE_BOUNDARY =
   /\n\s*(?=(?:whenever|at the beginning of)\b|(?:when(?!\s+you\s+do(?:\s+so)?\b))|\{[0-9WUBRGC/P]+\}|[A-Za-z][A-Za-z0-9' ,-]*\{[0-9WUBRGC/P]+\}\s*:|(?:[A-Za-z]+(?: [A-Za-z]+)*—))/i;
@@ -65,6 +66,7 @@ function splitSentences(text: string): string[] {
       char === '.'
       && parenDepth === 0
       && (i === source.length - 1 || /\s/.test(source[i + 1] || ''))
+      && !shouldSkipSentencePeriodSplit(current, source.slice(i + 1))
     ) {
       current += char;
       const trimmed = current.trim();

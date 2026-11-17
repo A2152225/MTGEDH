@@ -23,6 +23,7 @@ import { getCounterCountOnObject } from '../oracleIRExecutorModifyPtWhereUtils';
 import { tryResolveForEachReferenceAmount } from '../oracleIRExecutorForEachQuantity';
 import { resolveCommanderCastsFromCommandZoneThisGame } from '../oracleIRExecutorCommanderCastCount';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepTypes';
+import { tryResolveControlledCreatureKeywordScaler } from './oracleIRExecutorModifyPtKeywordScaler';
 import {
   countArtifactsYouControl,
   countAttackingCreaturesMatching,
@@ -135,6 +136,8 @@ export function resolveReferenceScalerScale(
       return /\bcreature\b/i.test(typeLine);
     }).length;
   }
+  const keywordCreatureScale = tryResolveControlledCreatureKeywordScaler(state, controllerId, normalized);
+  if (keywordCreatureScale !== null) return keywordCreatureScale;
   const otherSubtypeYouControlMatch = normalized.match(/^for each other ([a-z][a-z -]+?) you control$/);
   if (otherSubtypeYouControlMatch) {
     const subtype = String(otherSubtypeYouControlMatch[1] || '').trim();

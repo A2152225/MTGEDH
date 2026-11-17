@@ -55,6 +55,12 @@ import { normalizeAnimatePermanentTargetText } from './oracleIRExecutorBattlefie
 import { annotateBattlefieldExilesWithSource } from './oracleIRExecutorBattlefieldAnnotateExiles';
 import { resolveAddCounterAmount } from './oracleIRExecutorBattlefieldAddCounterAmount';
 import {
+  applyAddCounterMassSelectorCompanion,
+  isEntersWithAdditionalCounterReplacementText,
+  resolveAddCounterMassSelector,
+  resolveAddCounterUpToNTargets,
+} from './oracleIRExecutorBattlefieldAddCounterMassSelector';
+import {
   addCountersToZoneCardsById,
   isContextualMovedCardReference,
   normalizeWhereQualifiedTarget,
@@ -315,6 +321,10 @@ export function applyAddCounterStep(
 
   const distributeResult = tryApplyDistributeCountersAmong(state, step, ctx, runtime);
   if (distributeResult) return distributeResult;
+
+  if (isEntersWithAdditionalCounterReplacementText(String(step.raw || ''))) {
+    return { applied: true, state, log: ['Enters-with-additional-counter replacement is static; no counters placed now'] };
+  }
 
   if (
     isPerPlayerOptionalOracleStep(step) &&
@@ -708,12 +718,41 @@ export function applyAddCounterStep(
         permanent => String((permanent as any)?.id || '').trim() === fallbackSingleCreatureId
       )
     : [];
+  const massSelectorResolution =
+    targets.length === 0 && anotherCreatureTargets.length === 0 && fallbackCreatureTargets.length === 0
+    && !shouldPreferMovedCards && !isContextualMovedCardReference(normalizedTarget as any)
+      ? resolveAddCounterMassSelector(state, String((normalizedTarget as any)?.text || ''), ctx, runtime)
+      : null;
+  const upToNTargets =
+    targets.length === 0 && anotherCreatureTargets.length === 0 && fallbackCreatureTargets.length === 0
+    && !massSelectorResolution
+      ? resolveAddCounterUpToNTargets(state, String((normalizedTarget as any)?.text || ''), ctx)
+      : null;
+  if (upToNTargets === 'choice_required') {
+    return {
+      applied: false,
+      message: `Skipped add counter (requires choosing targets): ${step.raw}`,
+      reason: 'player_choice_required',
+      options: { classification: 'player_choice' },
+    };
+  }
   const resolvedTargets =
     targets.length > 0
       ? targets
       : anotherCreatureTargets.length > 0
         ? anotherCreatureTargets.slice(0, 1)
-        : fallbackCreatureTargets;
+        : fallbackCreatureTargets.length > 0
+          ? fallbackCreatureTargets
+          : upToNTargets ?? massSelectorResolution?.targets ?? [];
+
+  if (resolvedTargets.length === 0 && massSelectorResolution) {
+    const companionOnly = applyAddCounterMassSelectorCompanion(state, massSelectorResolution, ctx);
+    return {
+      applied: true,
+      state: companionOnly.state,
+      log: companionOnly.log.length > 0 ? companionOnly.log : ['No matching permanents for mass counter selector'],
+    };
+  }
 
   if (resolvedTargets.length === 0 && isContextualMovedCardReference(normalizedTarget as any)) {
     const movedCardIds = Array.isArray(runtime?.lastMovedCards)
@@ -814,10 +853,14 @@ export function applyAddCounterStep(
     };
   }
 
+  const companionResult = massSelectorResolution && massSelectorResolution.targets === resolvedTargets
+    ? applyAddCounterMassSelectorCompanion(counterResult.state, massSelectorResolution, ctx)
+    : null;
+
   return {
     applied: true,
-    state: counterResult.state,
-    log: counterResult.log,
+    state: companionResult ? companionResult.state : counterResult.state,
+    log: companionResult ? [...counterResult.log, ...companionResult.log] : counterResult.log,
     lastMovedBattlefieldPermanentIds: targetIds,
     ...(counterResult.skipLedgerFlush ? { skipLedgerFlush: true } : {}),
   };

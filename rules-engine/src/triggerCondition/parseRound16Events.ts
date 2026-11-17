@@ -28,7 +28,7 @@ const LEGACY_ONLY: readonly RegExp[] = [
   /^whenever you roll a \d+,\s*(.+)$/,
   /^when it connives this way,\s*(.+)$/,
   // promoted to IR: whenever you put +N/+N counters on ...
-  /^whenever one or more (?:nonland )?cards are milled,\s*(.+)$/,
+  // promoted: one or more cards are milled (round 67; "this way" stamps the rider)
   // promoted: when you spend this mana to cast ...
   // promoted R52: no creatures on the battlefield
   /^whenever this creature (?:crews a vehicle|saddles a mount or crews a vehicle[^,]*),\s*(.+)$/,

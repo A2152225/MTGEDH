@@ -246,5 +246,24 @@ export function tryEvaluateModifyPtWhereZoneCardCounts(args: {
     }
   }
 
+  {
+    // "x is [N plus] the number of <type> cards in your graveyard" (Wall of Tombstones: 1 plus creature cards).
+    const m = raw.match(
+      /^x is (?:(\d+) plus )?the number of (artifact|creature|enchantment|instant|land|planeswalker|sorcery|battle) cards? in your graveyard$/i,
+    );
+    if (m) {
+      const base = m[1] ? Number(m[1]) : 0;
+      const wantedType = String(m[2] || '').toLowerCase();
+      const controller = findPlayerById(controllerId);
+      if (!controller || !Number.isFinite(base)) return null;
+      const gy = Array.isArray(controller.graveyard) ? controller.graveyard : [];
+      const count = gy.filter((card: any) => {
+        const typeLine = String(card?.type_line ?? card?.card?.type_line ?? '').toLowerCase();
+        return typeLine.split(/[\s\u2014-]+/).includes(wantedType);
+      }).length;
+      return base + count;
+    }
+  }
+
   return null;
 }

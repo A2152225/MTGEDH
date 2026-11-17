@@ -313,6 +313,8 @@ export function parseMoveZoneTheNonlandCard(what: {
 export type ExiledThisWayNotCastCriteria = {
   readonly cardType: 'any' | 'instant_or_sorcery';
   readonly withRestToLibraryBottom: boolean;
+  /** Singular "a card from among them that wasn't cast this way": the player picks one when several remain. */
+  readonly chooseOne?: boolean;
 };
 
 export function parseMoveZoneExiledThisWayNotCast(
@@ -331,6 +333,9 @@ export function parseMoveZoneExiledThisWayNotCast(
     raw === 'cards exiled this way that were not cast'
   ) {
     return { cardType: 'any', withRestToLibraryBottom: false };
+  }
+  if (/^an?\s+card\s+from\s+among\s+them\s+that\s+(?:wasn'?t|was\s+not)\s+cast\s+this\s+way$/i.test(raw)) {
+    return { cardType: 'any', withRestToLibraryBottom: false, chooseOne: true };
   }
   if (
     /^the exiled instant and sorcery cards? that weren'?t cast this way$/i.test(raw) ||

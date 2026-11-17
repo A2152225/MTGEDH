@@ -10,6 +10,7 @@ import type { GameContext } from '../../context.js';
 import { batch105CannotCastOrPlayForWardOfBones } from '../batch105Apply.js';
 import { landPlaySameNameAsNontokenViolation } from '../landPlaySameNameRestriction.js';
 import { isLandPlayProhibitedByBatch107ChosenNames } from '../batch107Apply.js';
+import { arabianNightsOriginalNameLockReason } from '../batch112Apply.js';
 import type { PlayerID } from '../../../../../shared/src/index.js';
 import { debug, debugWarn } from '../../../utils/debug.js';
 import { calculateMaxLandsPerTurn } from '../game-state-effects.js';
@@ -163,6 +164,7 @@ export function getPlayableLandCandidates(
       // B61: Cornered Market ? nonbasic same-name as nontoken permanent.
       if (landPlaySameNameAsNontokenViolation(state.battlefield, card)) return;
       if (isLandPlayProhibitedByBatch107ChosenNames(state, String(card?.name || card?.card?.name || ''))) return;
+      if (arabianNightsOriginalNameLockReason(state, card)) return;
 
       const cardId = String(card?.id || '');
       if (skipBattlefieldDuplicates && cardId && battlefieldCardIds.has(cardId)) {

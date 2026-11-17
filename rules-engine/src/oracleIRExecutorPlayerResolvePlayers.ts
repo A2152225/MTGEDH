@@ -385,6 +385,22 @@ export function resolvePlayersFromDamageTarget(
   if (t === 'each player') return resolvePlayers(state, { kind: 'each_player' }, ctx);
   if (t === 'each of your opponents' || t === 'each of the opponents') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
   if (t === 'each opponent') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
+  if (t === 'each other opponent' || t === 'each of your other opponents' || t === 'all other opponents') {
+    // "that much damage to each other opponent": opponents minus the already damaged / bound player(s).
+    const damaged = new Set(
+      [
+        (ctx.selectorContext as any)?.damagedPlayerId,
+        (ctx as any)?.damagedPlayerId,
+        ctx.selectorContext?.targetOpponentId,
+        ctx.selectorContext?.targetPlayerId,
+        ctx.targetOpponentId,
+        ctx.targetPlayerId,
+      ]
+        .map(normalizeId)
+        .filter((id): id is PlayerID => Boolean(id)),
+    );
+    return resolvePlayers(state, { kind: 'each_opponent' }, ctx).filter((id) => !damaged.has(id));
+  }
   if (t === 'your opponents') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);
   if (t === 'all opponents' || t === 'all of your opponents' || t === 'all of the opponents') {
     return resolvePlayers(state, { kind: 'each_opponent' }, ctx);

@@ -627,10 +627,23 @@ export function tryApplyMoveZoneGuardsFromExileGySplitTwoPiles(args: MoveZoneGua
         log: [`No uncast exiled-this-way cards: ${step.raw}`],
       });
     }
+    let idsToMove: readonly string[] = matchingIds;
+    if (parsedExiledThisWayNotCast.chooseOne && matchingIds.length > 1) {
+      const chosenIds = getChosenObjectIds(ctx).filter((id) => matchingIds.includes(id));
+      if (chosenIds.length === 0) {
+        return {
+          applied: false,
+          message: `Skipped move zone (needs player card selection): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: { classification: 'player_choice' },
+        };
+      }
+      idsToMove = chosenIds.slice(0, 1);
+    }
     let workingState = nextState;
     const combinedLog: string[] = [];
     const movedCardIds: string[] = [];
-    for (const cardId of matchingIds) {
+    for (const cardId of idsToMove) {
       const location = findBoundCardZoneLocation(workingState, cardId);
       if (!location || location.zone !== 'exile') continue;
       const result = moveTargetedCardFromExile(

@@ -10,11 +10,15 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { cardHasCreatureType, normalizeCreatureTypeWord } from '../../shared/src/creatureTypes';
 import type { GameState, PlayerID } from '../../shared/src';
 import { getCardTypeLineLower, normalizeOracleText } from './oracleIRExecutorPlayerCardInspect';
+import { cardMatchesHistoric } from './oracleIRExecutorZoneOpsCardTypeMatchers';
 
 function cardMatchesRevealUntilCriterion(card: any, criterion: string): boolean {
   const normalized = normalizeOracleText(criterion).replace(/^an?\s+/i, '').trim();
   const typeLine = getCardTypeLineLower(card);
   if (!typeLine) return false;
+  if (/^historic(?: permanent)?(?: card)?$/i.test(normalized)) {
+    return cardMatchesHistoric(card) && !typeLine.includes('instant') && !typeLine.includes('sorcery');
+  }
   if (normalized === 'nonland card') return !typeLine.includes('land');
   if (normalized === 'land card') return typeLine.includes('land');
   if (/^creature card\b/i.test(normalized)) return typeLine.includes('creature');

@@ -197,6 +197,10 @@ export type OracleEffectStepB =
       readonly nonMatchRest?: 'library_top' | 'graveyard' | 'library_bottom';
       /** Optional graveyard when an optional hand selection is declined (Gathering Stone). */
       readonly declinedRest?: 'graveyard';
+      /** Library owner (`who`) reveals; the chosen card enters under the ability controller's control. */
+      readonly putUnderYourControl?: boolean;
+      /** Controller loses life equal to the mana value of the card put onto the battlefield. */
+      readonly loseLifeEqualToManaValue?: boolean;
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;
@@ -360,9 +364,11 @@ export type OracleEffectStepB =
   | {
       readonly kind: 'set_base_pt';
       readonly target: OracleObjectSelector;
-      readonly power: number;
-      readonly toughness: number;
-      readonly duration: 'end_of_turn';
+      readonly power?: number;
+      readonly toughness?: number;
+      /** Indefinite "base toughness becomes equal to <amount>" (Wall of Tombstones); resolved at execution time. */
+      readonly toughnessAmount?: OracleQuantity;
+      readonly duration: 'end_of_turn' | 'static';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

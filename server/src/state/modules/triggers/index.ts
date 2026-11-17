@@ -209,6 +209,7 @@ export * from "./devotion.js";
 export * from "./transform.js";
 export * from "./discard.js";
 export * from "./mill.js";
+export { queueSourceMillThisWayRiders } from "./millThisWayRiders.js";
 export * from "./life-loss.js";
 export * from "./pay-life.js";
 export * from "./sacrifice.js";

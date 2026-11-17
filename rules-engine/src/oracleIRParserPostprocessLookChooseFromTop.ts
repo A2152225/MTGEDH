@@ -25,6 +25,7 @@ import {
   parseLookTopReorderAllOnLibrary,
   parseRevealTopAnyNumberPermanentsToBattlefieldTriple,
 } from './oracleIRParserPostprocessLookChooseFromTopCensus';
+import { parseTargetOpponentRevealUntilControlSequence } from './oracleIRParserPostprocessTargetOpponentRevealUntilControl';
 
 function appendFollowupSentence(base: string | undefined, followup: string | null): string {
   const trimmedBase = String(base || '')
@@ -512,6 +513,13 @@ export function mergeLookChooseFromTopAbilities(
       if (reorderAllOnLibrary) {
         merged.push(reorderAllOnLibrary.step);
         i += reorderAllOnLibrary.consumed - 1;
+        continue;
+      }
+
+      const opponentRevealUntilControl = parseTargetOpponentRevealUntilControlSequence(current, next, after);
+      if (opponentRevealUntilControl) {
+        merged.push(opponentRevealUntilControl.step);
+        i += opponentRevealUntilControl.consumed - 1;
         continue;
       }
 

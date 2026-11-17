@@ -8,6 +8,34 @@ import {
 import { permanentMatchesSelector, permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
 import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
+import { typeLineHasSubtype } from './oracleIRExecutorBattlefieldSubtypeUtils';
+import { permanentMatchesSelectorKeywords } from './oracleIRSelectorKeywordQualifier';
+
+const BASIC_LAND_TYPES = ['plains', 'island', 'swamp', 'mountain', 'forest'] as const;
+
+function countBasicLandTypesOnBattlefield(
+  battlefield: readonly BattlefieldPermanent[],
+  controllerId: string,
+): number {
+  const seen = new Set<string>();
+  for (const perm of battlefield) {
+    if (String((perm as any)?.controller || '').trim() !== controllerId) continue;
+    if (!permanentMatchesType(perm, 'land')) continue;
+    const typeLine = getExecutorTypeLineLower(perm);
+    for (const basic of BASIC_LAND_TYPES) {
+      if (new RegExp(`(^|[^a-z])${basic}($|[^a-z])`, 'i').test(typeLine)) seen.add(basic);
+    }
+  }
+  return seen.size;
+}
+
+function readToughness(perm: any): number {
+  for (const candidate of [perm?.effectiveToughness, perm?.baseToughness, perm?.toughness, perm?.card?.toughness]) {
+    const parsed = Number(candidate);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
 
 export function normalizeExtendedTargetText(value: string): string {
   return String(value || '')
@@ -285,6 +313,64 @@ export function resolveMassCreatureRestrictionTargets(
       const manaValue = getCardManaValue((perm as any)?.card || perm);
       if (manaValue === null) return false;
       return greater ? manaValue >= threshold : manaValue <= threshold;
+    });
+  }
+
+  const withKeywordAny = text.match(
+    /^each (?:other )?creature you control with ((?:[a-z][a-z -]*?)(?:\s+or\s+[a-z][a-z -]*?)+)$/i,
+  );
+  if (withKeywordAny) {
+    const excludeSource = /^each other creature you control/i.test(text);
+    const sourceId = String(ctx.sourceId || '').trim();
+    const keywords = String(withKeywordAny[1] || '')
+      .split(/\s+or\s+/i)
+      .map((part) => part.trim().toLowerCase())
+      .filter(Boolean);
+    return battlefield.filter((perm) => {
+      if (!isCreature(perm) || !controlledByYou(perm)) return false;
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (excludeSource && sourceId && permanentId === sourceId) return false;
+      return permanentMatchesSelectorKeywords(perm, { keywordsAny: keywords }, battlefield);
+    });
+  }
+
+  if (
+    /^each creature you control with toughness less than the number of basic land types among lands you control$/i.test(text)
+  ) {
+    const domain = countBasicLandTypesOnBattlefield(battlefield, controllerId);
+    return battlefield.filter(
+      (perm) => isCreature(perm) && controlledByYou(perm) && readToughness(perm) < domain,
+    );
+  }
+
+  if (/^(?:all\s+|each\s+)?land creatures?(?:\s+you control)?$/i.test(text)) {
+    const youOnly = /\byou control\b/i.test(text);
+    return battlefield.filter((perm) => {
+      if (!isCreature(perm) || !permanentMatchesType(perm, 'land')) return false;
+      return youOnly ? controlledByYou(perm) : true;
+    });
+  }
+
+  if (/^each creature you control that has a \+1\/\+1 counter on it$/i.test(text)) {
+    return battlefield.filter((perm) => {
+      if (!isCreature(perm) || !controlledByYou(perm)) return false;
+      return Number(((perm as any)?.counters || {})['+1/+1'] ?? 0) > 0;
+    });
+  }
+
+  if (/^each tapped creature you control$/i.test(text)) {
+    return battlefield.filter((perm) => isCreature(perm) && controlledByYou(perm) && (perm as any)?.tapped === true);
+  }
+
+  if (/^each other creature you control that(?:'s| is) a token or a ([a-z]+)$/i.test(text)) {
+    const subtype = String(text.match(/token or a ([a-z]+)$/i)?.[1] || '').trim();
+    const sourceId = String(ctx.sourceId || '').trim();
+    return battlefield.filter((perm) => {
+      const permanentId = String((perm as any)?.id || '').trim();
+      if (!isCreature(perm) || !controlledByYou(perm)) return false;
+      if (sourceId && permanentId === sourceId) return false;
+      const isToken = Boolean((perm as any)?.isToken) || /\btoken\b/i.test(getExecutorTypeLineLower(perm));
+      return isToken || (subtype ? typeLineHasSubtype(perm, subtype) : false);
     });
   }
 

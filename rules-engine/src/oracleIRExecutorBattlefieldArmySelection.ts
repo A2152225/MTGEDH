@@ -100,13 +100,16 @@ function normalizeNamedControlSelectorText(
   }
 
   // Named type phrases: "Army creature", "Jace planeswalker" (no bare plurals like "Clues").
+  // Mass quantifiers ("each other creature", "all tapped creatures", "each land creature")
+  // must return null so the generic battlefield selector can match many permanents.
   const typed = lowered.match(
     /^([a-z][a-z' -]*?)\s+(creature|planeswalker|artifact|enchantment|land|battle|vehicle|permanent)s?$/i,
   );
   if (!typed) return null;
   const nameOrSubtype = String(typed[1] || '').trim();
   if (!nameOrSubtype) return null;
-  if (/^(?:another|target|nonland|other|each|all|any)$/i.test(nameOrSubtype)) return null;
+  if (/^(?:another|target|nonland|other|each|all|any)\b/i.test(nameOrSubtype)) return null;
+  if (/\b(?:each|all|every|any|other|another)\b/i.test(nameOrSubtype)) return null;
   return descriptor;
 }
 

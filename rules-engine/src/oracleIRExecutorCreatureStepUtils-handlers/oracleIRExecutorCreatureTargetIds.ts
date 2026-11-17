@@ -5,8 +5,13 @@
  */
 
 import type { BattlefieldPermanent, GameState } from '../../../shared/src';
+import { normalizeCreatureTypeWord } from '../../../shared/src/creatureTypes.js';
 import type { OracleObjectSelector } from '../oracleIR';
 import type { OracleIRExecutionContext } from '../oracleIRExecutionTypes';
+import {
+  isCreaturesThatDealtDamageToSourceSelectorText,
+  resolveCreatureIdsThatDealtDamageToSource,
+} from '../oracleIRExecutorCreaturesThatDealtDamageToSource';
 import { getCounterCountOnObject } from '../oracleIRExecutorModifyPtWhereUtils';
 import { getExecutorTypeLineLower, isExecutorCreature } from '../oracleIRExecutorPermanentUtils';
 import { normalizeOracleText } from '../oracleIRExecutorPlayerUtils';
@@ -24,6 +29,8 @@ import {
   permanentHasSubtype,
 } from './oracleIRExecutorCreatureBattlefieldLookup';
 import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureSingleTarget';
+import { resolveSubtypeOrCompoundBattlefieldPermanents } from '../oracleIRExecutorBattlefieldSubtypeCompoundResolvers';
+import { resolveMassBattlefieldSelector } from '../oracleIRExecutorMassBattlefieldSelectorResolver';
 
 function permanentMatchesControlledQualifier(
   permanent: BattlefieldPermanent | undefined,
@@ -32,6 +39,13 @@ function permanentMatchesControlledQualifier(
   if (!permanent) return false;
   const qualifier = String(qualifierRaw || '').trim().toLowerCase();
   if (qualifier === 'flying') return permanentHasKeyword(permanent, 'flying');
+  if (/^(?:flash or haste|haste or flash)$/i.test(qualifier)) {
+    return permanentHasKeyword(permanent, 'flash') || permanentHasKeyword(permanent, 'haste');
+  }
+  const orKeywords = qualifier.split(/\s+or\s+/i).map((part) => part.trim()).filter(Boolean);
+  if (orKeywords.length > 1 && orKeywords.every((part) => /^[a-z][a-z -]*$/i.test(part))) {
+    return orKeywords.some((keyword) => permanentHasKeyword(permanent, keyword));
+  }
   if (qualifier === 'defender') {
     return (
       /\bdefender\b/i.test(getExecutorTypeLineLower(permanent))
@@ -124,6 +138,10 @@ export function resolveCreatureTargetIds(
     }
   }
 
+  if (isCreaturesThatDealtDamageToSourceSelectorText(targetText)) {
+    return resolveCreatureIdsThatDealtDamageToSource(state, ctx);
+  }
+
   const controlledBy = (playerId: string): string[] =>
     battlefield
       .filter(permanent => String((permanent as any)?.controller || '').trim() === playerId)
@@ -170,12 +188,46 @@ export function resolveCreatureTargetIds(
       .filter(Boolean);
   }
 
-  const attackingKeywordMatch = targetText.match(/^all attacking creatures with (.+)$/i);
+  if (
+    targetText === 'attacking creatures'
+    || targetText === 'each attacking creature'
+    || targetText === 'all attacking creatures'
+  ) {
+    return battlefield
+      .filter((permanent) => isAttackingPermanent(permanent))
+      .map((permanent) => String((permanent as any)?.id || '').trim())
+      .filter(Boolean);
+  }
+
+  const attackingKeywordMatch = targetText.match(/^(?:all )?attacking creatures with (.+)$/i);
   if (attackingKeywordMatch) {
     const requiredKeyword = String(attackingKeywordMatch[1] || '').trim();
+    const anyKeywords = requiredKeyword.split(/\s+or\s+/i).map((part) => part.trim()).filter(Boolean);
     return battlefield
-      .filter(permanent => isAttackingPermanent(permanent) && permanentHasKeyword(permanent, requiredKeyword))
-      .map(permanent => String((permanent as any)?.id || '').trim())
+      .filter((permanent) => {
+        if (!isAttackingPermanent(permanent)) return false;
+        return anyKeywords.length > 1
+          ? anyKeywords.some((keyword) => permanentHasKeyword(permanent, keyword))
+          : permanentHasKeyword(permanent, requiredKeyword);
+      })
+      .map((permanent) => String((permanent as any)?.id || '').trim())
+      .filter(Boolean);
+  }
+
+  const blockingKeywordMatch = targetText.match(/^(?:all )?blocking creatures with (.+)$/i);
+  if (blockingKeywordMatch) {
+    const requiredKeyword = String(blockingKeywordMatch[1] || '').trim();
+    const blockingIds = new Set(resolveBlockingCreatureIds(state));
+    const anyKeywords = requiredKeyword.split(/\s+or\s+/i).map((part) => part.trim()).filter(Boolean);
+    return battlefield
+      .filter((permanent) => {
+        const permanentId = String((permanent as any)?.id || '').trim();
+        if (!blockingIds.has(permanentId)) return false;
+        return anyKeywords.length > 1
+          ? anyKeywords.some((keyword) => permanentHasKeyword(permanent, keyword))
+          : permanentHasKeyword(permanent, requiredKeyword);
+      })
+      .map((permanent) => String((permanent as any)?.id || '').trim())
       .filter(Boolean);
   }
 
@@ -350,6 +402,16 @@ export function resolveCreatureTargetIds(
       .filter(Boolean);
   }
 
+  const nonSubtypeMatch = targetText.match(/^all non-([a-z][a-z-]*) creatures$/i)
+    || targetText.match(/^non-([a-z][a-z-]*) creatures$/i);
+  if (nonSubtypeMatch) {
+    const excluded = String(nonSubtypeMatch[1] || '').trim().toLowerCase();
+    return battlefield
+      .filter((permanent) => isExecutorCreature(permanent) && !permanentHasSubtype(permanent, excluded))
+      .map((permanent) => String((permanent as any)?.id || '').trim())
+      .filter(Boolean);
+  }
+
   if (targetText === 'other target creatures you control') {
     const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
       ? ctx.selectorContext.chosenObjectIds.map((id) => String(id || '').trim()).filter(Boolean)
@@ -477,7 +539,7 @@ export function resolveCreatureTargetIds(
   }
 
   const subtypeCreaturesMatch = targetText.match(/^([a-z][a-z -]+) creatures you control$/i);
-  if (subtypeCreaturesMatch) {
+  if (subtypeCreaturesMatch && normalizeCreatureTypeWord(String(subtypeCreaturesMatch[1] || ''))) {
     const subtype = String(subtypeCreaturesMatch[1] || '').trim();
     return controlledCreatureIds.filter((permanentId) => {
       const permanent = findControlledCreature(permanentId);
@@ -487,13 +549,34 @@ export function resolveCreatureTargetIds(
 
   const eachSubtypeTeamMatch = targetText.match(/^each ([a-z][a-z -]+?) you control$/i);
   if (eachSubtypeTeamMatch) {
-    const subtype = String(eachSubtypeTeamMatch[1] || '').trim().toLowerCase();
-    if (subtype !== 'creature' && subtype !== 'permanent' && subtype !== 'other creature') {
+    const subtype = String(eachSubtypeTeamMatch[1] || '').trim().toLowerCase().replace(/\s+creatures?$/, '');
+    if (subtype && normalizeCreatureTypeWord(subtype)) {
       return controlledCreatureIds.filter((permanentId) => {
         const permanent = findControlledCreature(permanentId);
         return permanent ? permanentHasSubtype(permanent, subtype) : false;
       });
     }
+  }
+
+  // Generic subtype teams: "Elf creatures", "other Humans you control", "each other Dragon creature you control",
+  // "Dinosaurs you control other than this creature", and/or subtype unions.
+  const subtypeTeam = resolveSubtypeOrCompoundBattlefieldPermanents(
+    battlefield,
+    { kind: 'raw', text: targetText },
+    ctx
+  );
+  if (subtypeTeam && subtypeTeam.length > 0) {
+    return subtypeTeam
+      .map((permanent) => String((permanent as any)?.id || '').trim())
+      .filter(Boolean);
+  }
+
+  // Generic mass selectors: colors, modified/face-down, counters, keywords, "other than this creature", etc.
+  const massSelector = resolveMassBattlefieldSelector(state, targetText, ctx);
+  if (massSelector && massSelector.length > 0) {
+    return massSelector
+      .map((permanent) => String((permanent as any)?.id || '').trim())
+      .filter(Boolean);
   }
 
   return [];

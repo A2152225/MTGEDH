@@ -1,3 +1,5 @@
+import { shouldSkipSentencePeriodSplit } from './oracleIRAbbreviationPeriodGuard';
+
 function escapeRegex(value: string): string {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -122,7 +124,10 @@ function splitAbilityLineIntoSentences(line: string): string[] {
 
     if ((current === '.' || current === '!') && parenthesisDepth === 0) {
       const next = line[index + 1] ?? '';
-      if (!next || /\s/.test(next)) {
+      if (
+        (!next || /\s/.test(next))
+        && !(current === '.' && shouldSkipSentencePeriodSplit(buffer.slice(0, -1), line.slice(index + 1)))
+      ) {
         flush();
         while (index + 1 < line.length && /\s/.test(line[index + 1])) {
           index += 1;

@@ -3,6 +3,7 @@ import {
   isThoseOpponentsSelector,
 } from './oracleIRExecutorPlayerUtils';
 import { splitSelectorKeywordQualifier } from './oracleIRSelectorKeywordQualifier';
+import { splitSelectorExclusions } from './oracleIRSelectorExclusionQualifier';
 
 export type SimpleBattlefieldSelector = {
   readonly kind: 'battlefield_selector';
@@ -23,6 +24,15 @@ export type SimpleBattlefieldSelector = {
   /** "creatures with flying" / "creatures without flying" (creature-only selectors). */
   readonly keywordsAll?: readonly string[];
   readonly keywordsNone?: readonly string[];
+  /** "creatures with flash or haste". */
+  readonly keywordsAny?: readonly string[];
+  /** "nonwhite" / "nonlegendary" / "non-Zombie" creature selectors. */
+  readonly colorsNoneOf?: readonly string[];
+  readonly typeLineTermsNoneOf?: readonly string[];
+  /** "each blocking creature". */
+  readonly blockingOnly?: boolean;
+  /** "each other creature defending player controls": also exclude the creature just damaged. */
+  readonly excludeAntecedentCreature?: boolean;
 };
 
 const BASIC_LAND_BATTLEFIELD_TYPE_NAMES = new Set([
@@ -235,6 +245,8 @@ export function parseSimpleBattlefieldSelector(
   if (/\b(?:each opponent|an opponent)\s+controls\b/i.test(remainder)) controllerFilter = 'opponents';
   if (/\btarget player controls\b/i.test(remainder)) controllerFilter = 'target_player';
   if (/\bthat player controls\b/i.test(remainder)) controllerFilter = 'target_player';
+  const defendingPlayerControls = /\b(?:the\s+)?defending player controls\b/i.test(remainder);
+  if (defendingPlayerControls) controllerFilter = 'target_player';
   if (/\b(?:that|target)\s+opponent\s+controls\b/i.test(remainder)) controllerFilter = 'target_player';
   if (/\bthey control\b/i.test(remainder)) controllerFilter = 'target_player';
   if (/\byou\s+(?:don'?t|do not)\s+control\b/i.test(remainder)) controllerFilter = 'opponents';
@@ -245,6 +257,7 @@ export function parseSimpleBattlefieldSelector(
     .replace(/\b(?:each opponent|an opponent)\s+controls\b/i, '')
     .replace(/\btarget player controls\b/i, '')
     .replace(/\bthat player controls\b/i, '')
+    .replace(/\b(?:the\s+)?defending player controls\b/i, '')
     .replace(/\b(?:that|target)\s+opponent\s+controls\b/i, '')
     .replace(/\bthey control\b/i, '')
     .replace(/\byou\s+(?:don'?t|do not)\s+control\b/i, '')
@@ -252,6 +265,8 @@ export function parseSimpleBattlefieldSelector(
 
   if (!remainder) return null;
   const excludeSourceId = /^(?:another|other)\b/i.test(remainder);
+  // "each other creature defending player controls": "other" = other than the creature just damaged.
+  const excludeAntecedentCreature = excludeSourceId && defendingPlayerControls;
   remainder = remainder.replace(/^(?:a|an|the|another|other)\s+/i, '').trim();
   remainder = remainder.replace(/^target\s+/i, '').trim();
   if (/^tapped\s+/i.test(remainder)) {
@@ -334,11 +349,25 @@ export function parseSimpleBattlefieldSelector(
 
   const keywordSplit = splitSelectorKeywordQualifier(remainder);
   remainder = keywordSplit.remainder;
+  const exclusionSplit = splitSelectorExclusions(remainder);
+  remainder = exclusionSplit.remainder;
   const keywordFilter = {
     ...(keywordSplit.keywordsAll ? { keywordsAll: keywordSplit.keywordsAll } : {}),
     ...(keywordSplit.keywordsNone ? { keywordsNone: keywordSplit.keywordsNone } : {}),
+    ...(keywordSplit.keywordsAny ? { keywordsAny: keywordSplit.keywordsAny } : {}),
+    ...(exclusionSplit.colorsNoneOf ? { colorsNoneOf: exclusionSplit.colorsNoneOf } : {}),
+    ...(exclusionSplit.typeLineTermsNoneOf ? { typeLineTermsNoneOf: exclusionSplit.typeLineTermsNoneOf } : {}),
+    ...(exclusionSplit.blockingOnly ? { blockingOnly: true } : {}),
+    ...(excludeAntecedentCreature ? { excludeAntecedentCreature: true } : {}),
   };
-  const hasKeywordFilter = Boolean(keywordSplit.keywordsAll || keywordSplit.keywordsNone);
+  const hasKeywordFilter = Boolean(
+    keywordSplit.keywordsAll
+      || keywordSplit.keywordsNone
+      || keywordSplit.keywordsAny
+      || exclusionSplit.colorsNoneOf
+      || exclusionSplit.typeLineTermsNoneOf
+      || exclusionSplit.blockingOnly,
+  );
 
   const cleaned = remainder.replace(/\bpermanents?\b/g, '').trim();
   if (!cleaned) return null;
@@ -362,6 +391,18 @@ export function parseSimpleBattlefieldSelector(
       controllerFilter,
       excludeSourceId,
       tokenOnly: true,
+      ...(tappedOnly ? { tappedOnly: true } : {}),
+    };
+  }
+
+  if (/^land creatures?$/i.test(cleaned)) {
+    return {
+      kind: 'battlefield_selector',
+      types: ['creature', 'land'],
+      controllerFilter,
+      excludeSourceId,
+      ...keywordFilter,
+      ...(parsedNontokenOnly ? { nontokenOnly: true } : {}),
       ...(tappedOnly ? { tappedOnly: true } : {}),
     };
   }

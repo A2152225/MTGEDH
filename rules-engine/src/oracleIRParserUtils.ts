@@ -1,6 +1,7 @@
 import { parseNumberFromText } from '../../shared/src/textUtils';
 import type { OracleObjectSelector, OraclePlayerSelector, OracleQuantity } from './oracleIR';
 import { stripLeadingCastKeywordPrefix, stripTrailingCastKeywordSuffix } from './oracleIRParserLeadingCastKeywordPrefix';
+import { shouldSkipSentencePeriodSplit } from './oracleIRAbbreviationPeriodGuard';
 import { tryParseQuantityEarlyReferences } from './oracleIRParserUtils-handlers/oracleIRParserUtilsQuantityEarlyReferences';
 
 export function normalizeOracleText(text: string): string {
@@ -66,6 +67,10 @@ export function splitIntoClauses(line: string): string[] {
       const next = line[i + 1] ?? '';
       const afterNext = line[i + 2] ?? '';
       if (ch === '.' && next === ')' && (afterNext === '' || /\s/.test(afterNext))) {
+        current += ch;
+        continue;
+      }
+      if (ch === '.' && shouldSkipSentencePeriodSplit(current, line.slice(i + 1))) {
         current += ch;
         continue;
       }

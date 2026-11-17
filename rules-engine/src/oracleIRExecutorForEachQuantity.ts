@@ -161,6 +161,41 @@ export function tryResolveForEachReferenceAmount(
     );
   }
 
+  const cardForEveryN = normalized.match(
+    /^(?:a\s+)?cards?\s+for\s+every\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(.+)$/i,
+  );
+  if (cardForEveryN) {
+    const divisor = parseCountWord(String(cardForEveryN[1] || '').toLowerCase());
+    if (divisor === null || divisor <= 0) return null;
+    const everyCount = evaluateCountExpression(
+      state,
+      controllerId,
+      String(cardForEveryN[2] || '').trim(),
+      ctx,
+      options?.runtime,
+      options?.targetPlayerId,
+    );
+    return everyCount === null ? null : Math.floor(everyCount / divisor);
+  }
+
+  const forEveryN = normalized.match(
+    /^(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+for\s+every\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(.+)$/i,
+  );
+  if (forEveryN) {
+    const multiplier = parseCountWord(String(forEveryN[1] || '').toLowerCase());
+    const divisor = parseCountWord(String(forEveryN[2] || '').toLowerCase());
+    if (multiplier === null || divisor === null || divisor <= 0) return null;
+    const everyCount = evaluateCountExpression(
+      state,
+      controllerId,
+      String(forEveryN[3] || '').trim(),
+      ctx,
+      options?.runtime,
+      options?.targetPlayerId,
+    );
+    return everyCount === null ? null : multiplier * Math.floor(everyCount / divisor);
+  }
+
   const forEachMatch = normalized.match(
     /^(?:(\d+)|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|x)\s+(?:cards?\s+)?for\s+each\s+(.+)$/i
   );

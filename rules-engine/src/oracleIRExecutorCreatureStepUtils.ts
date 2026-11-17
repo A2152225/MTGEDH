@@ -130,8 +130,8 @@ export function applyTemporarySetBasePowerToughness(
   state: GameState,
   creatureId: string,
   ctx: OracleIRExecutionContext,
-  power: number,
-  toughness: number,
+  power: number | null,
+  toughness: number | null,
   duration: 'end_of_turn' | 'until_next_turn' | 'static' = 'end_of_turn',
 ): GameState | null {
   // Exact layer 7b ordering: every permanent already on the battlefield gets its real timestamp first, so this
@@ -143,11 +143,24 @@ export function applyTemporarySetBasePowerToughness(
   const setterTimestamp = stamped.timestampCounter + 1;
 
   const permanent: any = battlefield[index] as any;
-  const modifiers = Array.isArray(permanent.modifiers) ? [...permanent.modifiers] : [];
+  const priorModifiers = Array.isArray(permanent.modifiers) ? [...permanent.modifiers] : [];
+  // An indefinite setter re-applied by the same source (e.g. an upkeep "base toughness becomes equal to ...")
+  // replaces that source's previous indefinite setter instead of stacking another one.
+  const modifiers = duration === 'static' && ctx.sourceId
+    ? priorModifiers.filter(
+        (mod: any) =>
+          !(
+            mod?.type === 'setPowerToughness'
+            && mod?.indefiniteSetter === true
+            && String(mod?.sourceId || '') === String(ctx.sourceId || '')
+          ),
+      )
+    : priorModifiers;
   modifiers.push({
     type: 'setPowerToughness',
-    setPower: power,
-    setToughness: toughness,
+    ...(power === null ? {} : { setPower: power }),
+    ...(toughness === null ? {} : { setToughness: toughness }),
+    ...(duration === 'static' ? { indefiniteSetter: true } : {}),
     sourceId: ctx.sourceId,
     duration,
     // Layer 7b ordering (CR 613.7): last timestamp wins; see oracleIRExecutorEffectTimestamps.

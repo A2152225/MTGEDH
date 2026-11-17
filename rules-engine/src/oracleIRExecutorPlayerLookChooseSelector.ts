@@ -106,6 +106,10 @@ export function cardMatchesLookChooseSelector(
     });
   }
 
+  if (structuredCriteria?.requiresHistoric) {
+    return cardMatchesMoveZoneSingleTargetCriteria(card, structuredCriteria, undefined, 0);
+  }
+
   const manaValueMatch = normalizedSelector.match(/^(.+?)\s+with\s+mana\s+value\s+(x|\d+)\s+or\s+less$/i);
   const selectorWithoutManaLimit = manaValueMatch
     ? String(manaValueMatch[1] || '').trim()

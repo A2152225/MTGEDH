@@ -28,6 +28,7 @@ import {
 import { findBoundCardZoneLocation, getChosenObjectIds, getTargetPlayerId } from './oracleIRExecutorMoveZoneReferenceResolvers';
 import { getLibraryPlacement, resolveContextualCardIdsInZones } from './oracleIRExecutorMoveZoneContextualCardResolvers';
 import { buildAppliedResult } from './oracleIRExecutorMoveZoneStepResultBuilders';
+import { exiledCardMatchesType, parseMoveZoneAllTypedCardsExiledThisWay } from './oracleIRExecutorZoneOpsExiledTypedCardParsers';
 
 export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: MoveZoneGuardArgs): MoveZoneStepHandlerResult | undefined {
   const { state, step, ctx, runtime, nextState, log, controllerId, effectiveWithCounters, battlefieldEntryOverrides, finalizeAppliedResult, attachmentResolution, sourcePermanentPower } = args;
@@ -575,6 +576,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
     (step.to === 'battlefield' || step.to === 'hand' || step.to === 'graveyard')
   ) {
     const candidateIds = resolveContextualCardIdsInZones(nextState, ctx, runtime, ['exile']);
+    const typedExiledThisWay = parseMoveZoneAllTypedCardsExiledThisWay(step.what as any);
     if (candidateIds.length === 0) {
       return buildAppliedResult({ state: nextState, log: [`No cards exiled this way: ${step.raw}`] });
     }
@@ -584,6 +586,7 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
     for (const cardId of candidateIds) {
       const location = findBoundCardZoneLocation(workingState, cardId);
       if (!location || location.zone !== 'exile') continue;
+      if (typedExiledThisWay && !exiledCardMatchesType(workingState, location.playerId, cardId, typedExiledThisWay.cardType)) continue;
       const battlefieldControllerId =
         step.battlefieldController?.kind === 'owner_of_moved_cards' ? location.playerId : controllerId;
       const result =
@@ -628,6 +631,9 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
         const card = exile.find((entry: any) => String(entry?.id || '').trim() === match.cardId);
         return card ? !cardMatchesType(card, 'creature') : true;
       });
+    }
+    if (parsedAllExiledWithThisPermanent?.ownedByController) {
+      matches = matches.filter(match => String(match.playerId) === String(controllerId));
     }
     if (matches.length === 0) {
       return buildAppliedResult({ state: nextState, log: [`No cards exiled with source: ${step.raw}`] });

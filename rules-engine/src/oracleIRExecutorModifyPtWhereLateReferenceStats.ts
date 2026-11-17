@@ -168,6 +168,40 @@ export function tryEvaluateModifyPtWhereLateReferenceStats(args: {
   }
 
   {
+    // Plural (Quartzwood Crasher): "the amount of damage those creatures dealt to that player".
+    // Sums creaturesThatDealtDamageToPlayer[player][creatureId].totalDamage, limited to the
+    // triggering creatures when the trigger recorded them.
+    const m = raw.match(/^x is the amount of damage (?:those|these|the) creatures (?:you control )?dealt to that player(?: this combat| this turn)?$/i);
+    if (m) {
+      const playerId = String(
+        ctx?.selectorContext?.targetPlayerId ||
+        ctx?.selectorContext?.targetOpponentId ||
+        (ctx as any)?.targetPlayerId ||
+        (ctx as any)?.targetOpponentId ||
+        ''
+      ).trim();
+      if (!playerId) return null;
+
+      const byPlayer = (state as any)?.creaturesThatDealtDamageToPlayer;
+      if (!byPlayer || typeof byPlayer !== 'object' || Array.isArray(byPlayer)) return null;
+      const perPlayer = (byPlayer as Record<string, any>)[playerId];
+      if (!perPlayer || typeof perPlayer !== 'object' || Array.isArray(perPlayer)) return 0;
+
+      const triggering = ctx?.triggeringCombatCreatureIds;
+      const limitTo = Array.isArray(triggering) && triggering.length > 0
+        ? new Set(triggering.map((id: unknown) => String(id || '').trim()).filter(Boolean))
+        : null;
+      let total = 0;
+      for (const [creatureId, entry] of Object.entries(perPlayer as Record<string, any>)) {
+        if (limitTo && !limitTo.has(String(creatureId))) continue;
+        const dealt = Number(entry?.totalDamage ?? 0);
+        if (Number.isFinite(dealt) && dealt > 0) total += dealt;
+      }
+      return total;
+    }
+  }
+
+  {
     const m = raw.match(/^x is how (?:far below 0|much less than 0) its power is$/i);
     if (m) {
       const refId = getExcludedId();

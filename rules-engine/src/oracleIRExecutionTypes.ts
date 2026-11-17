@@ -47,6 +47,14 @@ export interface OracleIRSelectorContext {
   readonly targetSpellId?: string;
   /** Bound antecedent set for selectors parsed as "each of those opponents". */
   readonly eachOfThoseOpponents?: readonly PlayerID[];
+  /** Player already damaged/bound earlier in the clause; "each other opponent" excludes this player. */
+  readonly damagedPlayerId?: PlayerID;
+  /** Name of the object "that creature" refers to, including last-known name after it left the battlefield. */
+  readonly referencedObjectName?: string;
+  /** Players who performed the preceding "this way" action; "each opponent who didn't ... this way" excludes them. */
+  readonly playersWhoDidThisWay?: readonly PlayerID[];
+  /** Creatures tapped to convoke the source spell ("each creature that convoked it"). */
+  readonly convokedCreatureIds?: readonly string[];
   /** Bound chosen objects for multi-selection antecedents such as "the chosen creatures". */
   readonly chosenObjectIds?: readonly string[];
   /** Combat trigger subject for pronouns like "that creature" in block/become-blocked effects. */
@@ -449,6 +457,11 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
    * deterministically in multiplayer when the antecedent set is known.
    */
   readonly selectorContext?: OracleIRSelectorContext;
+  /**
+   * Creatures that caused a combat-damage trigger ("one or more creatures you control ... deal combat
+   * damage to a player"), so "the amount of damage those creatures dealt" sums only them.
+   */
+  readonly triggeringCombatCreatureIds?: readonly string[];
   /**
    * When true, choice-requiring library steps queue UI instead of auto-binding.
    * Set by server-side Oracle IR execution; dry-run/audit callers leave this unset.

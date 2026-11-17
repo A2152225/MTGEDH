@@ -129,6 +129,10 @@ import {
   parseMoveZoneOneOfThemBfTappedOtherHand,
 } from './oracleIRExecutorZoneOps';
 import {
+  parseMoveZoneAllTypedCardsExiledThisWay,
+  parseMoveZoneEachTypedCardYouOwnExiledWithIt,
+} from './oracleIRExecutorZoneOpsExiledTypedCardParsers';
+import {
   getOneOfThemSplitKind,
   isOneOfThemReference,
   isOneOfThemToHandBounce,
@@ -155,7 +159,8 @@ export function parseMoveZoneWhatReferenceQueries(step: Extract<OracleEffectStep
   const parsedSingleCardFromHand = parseMoveZoneSingleCardFromYourHand(step.what as any);
   const parsedThemFromGraveyard = parseMoveZoneThemFromYourGraveyard(step.what as any);
   const parsedTheCardsExiledWithIt = parseMoveZoneTheCardsExiledWithIt(step.what as any);
-  const parsedAllCardsTheyExiledThisWay = parseMoveZoneAllCardsTheyExiledThisWay(step.what as any);
+  const parsedAllCardsTheyExiledThisWay =
+    parseMoveZoneAllCardsTheyExiledThisWay(step.what as any) || parseMoveZoneAllTypedCardsExiledThisWay(step.what as any);
   const parsedNonlandCardFromIt = parseMoveZoneNonlandCardFromIt(step.what as any);
   const parsedThisCardFromExile = parseMoveZoneThisCardFromExile(step.what as any);
   const parsedThatSpell = parseMoveZoneThatSpell(step.what as any);
@@ -166,7 +171,8 @@ export function parseMoveZoneWhatReferenceQueries(step: Extract<OracleEffectStep
   const parsedCardFromAmongThoseCards = parseMoveZoneCardFromAmongThoseCards(step.what as any);
   const parsedAllExiledWithThisPermanent =
     parseMoveZoneAllExiledWithThisPermanent(step.what as any) ||
-    (parseMoveZoneEachPermanentExiledWithSource(step.what as any) ? { cardType: 'permanent' as const } : null);
+    (parseMoveZoneEachPermanentExiledWithSource(step.what as any) ? { cardType: 'permanent' as const } : null) ||
+    parseMoveZoneEachTypedCardYouOwnExiledWithIt(step.what as any);
   const parsedCreatureCardExiledWithSource = parseMoveZoneCreatureCardExiledWithSource(step.what as any);
   const parsedCreatureCardExiledThisWay = parseMoveZoneCreatureCardExiledThisWay(step.what as any);
   const parsedAllFromLibrary = parseMoveZoneAllFromYourLibrary(step.what as any);
