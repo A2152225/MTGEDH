@@ -277,6 +277,8 @@ describe('v2 stall subtype probe', () => {
         }
         vi.useRealTimers();
       }
-    }, 900_000);
+      // Must exceed advanceLiveGame maxWallClockMs (MAX_TURNS*15s ≈ 22.5m) plus cleanup.
+      // At 900s vitest tore down fake timers mid-tick → false "timers APIs are not mocked" stalls.
+    }, 1_600_000);
   }
 });

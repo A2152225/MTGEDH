@@ -14,6 +14,7 @@ import {
 } from "./db/index.js";
 import { addSuggestion, loadSuggestions } from "./db/houseRuleSuggestions.js";
 import { ensureLocalCardLookupIndex, lookupLocalCards } from "./services/localCardLookup.js";
+import { getVariantCardCatalog } from "./services/variantCardCatalog.js";
 import { clearPlaneswalkerCache, normalizeName } from "./services/scryfall";
 import { registerAuthHttpRoutes } from "./auth/authHttp.js";
 import { isLoopbackSocket } from "./auth/loopback.js";
@@ -411,6 +412,19 @@ app.post("/api/cards/lookup", (req, res) => {
     debugError(1, "POST /api/cards/lookup failed:", err);
     res.status(500).json({ error: "Failed to look up cards" });
   }
+});
+
+/** Every plane, phenomenon and scheme, from the local oracle dump. Cached after the first read. */
+app.get("/api/cards/variant-catalog", (_req, res) => {
+  res.set({ "Cache-Control": "public, max-age=86400" });
+  void getVariantCardCatalog()
+    .then((catalog) => {
+      res.json(catalog);
+    })
+    .catch((err) => {
+      debugError(1, "GET /api/cards/variant-catalog failed:", err);
+      if (!res.headersSent) res.status(500).json({ error: "Failed to load the planar and scheme catalog" });
+    });
 });
 
 // API: submit a house rule suggestion

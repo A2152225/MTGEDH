@@ -281,6 +281,7 @@ Coordinator merges owed extract-family rows there.
 | `state/modules/turn-handlers/turnStepArchenemySchemeInMotion.ts` | Archenemy set-in-motion turn-based action at precombat main (CR 904.9); skipped on replay (`setSchemeInMotion` event replays it). |
 | `socket/deck-handlers/deckImportVariantCards.ts` | Precon import: reads stored planes / schemes and resolves them to cards (gated on house rules). |
 | `services/mtgJsonDeckVariantCards.ts` / `services/preconDeckVariantCardStore.ts` | MTGJSON deck `planes` / `schemes` extraction; precon SQLite tables for them (filled by `bake-precon-decklists.ts --backfill-variants`). |
+| `services/variantCardCatalog.ts` | Full plane / phenomenon / scheme catalog for the deck builder (`GET /api/cards/variant-catalog`), cached from the local oracle dump. |
 | `state/modules/planarDie.ts` / `ichorPlanarDiceChoice.ts` | Planar die roll; hooks `applyPlanarDieFaceEffects` when `enablePlanechase`. |
 | IR `planeswalk` / `chaos_ensues` / `abandon_scheme` / `set_in_motion` | Parser + executor (phenomena skipped to bottom; chaos/encounter/planeswalk-here abilities replayed). |
 

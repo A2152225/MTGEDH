@@ -22,7 +22,7 @@ import {
 
 export type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
 
-export type DeckManagerModalTab = 'local' | 'server' | 'preview' | 'precons';
+export type DeckManagerModalTab = 'local' | 'server' | 'preview' | 'precons' | 'variants';
 
 export type DeckManagerModalSaveCacheHandlerDeps = {
   localText: string;

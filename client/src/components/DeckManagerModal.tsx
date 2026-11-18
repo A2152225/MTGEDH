@@ -21,8 +21,12 @@ import { DeckResolvePreviewPanel } from './DeckResolvePreviewPanel';
 import { DeckListTextarea } from './DeckListTextarea';
 import { useDeckResolvePreview } from '../hooks/useDeckResolvePreview';
 import { useDeckManagerModalRandomImportHandlers } from './DeckManagerModal-handlers/deckManagerModalRandomImportHandlers';
-import { createDeckManagerModalSaveCacheHandlers } from './DeckManagerModal-handlers/deckManagerModalSaveCacheHandlers';
+import {
+  createDeckManagerModalSaveCacheHandlers,
+  type DeckManagerModalTab,
+} from './DeckManagerModal-handlers/deckManagerModalSaveCacheHandlers';
 import { renderDeckManagerModalServerPanel } from './DeckManagerModal-handlers/deckManagerModalServerPanel';
+import { VariantDeckBuilder } from './VariantDeckBuilder';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
 
@@ -62,7 +66,7 @@ export function DeckManagerModal({
 }: DeckManagerModalProps) {
   const isTouch = useIsTouch();
   const useSheet = isTouch;
-  const [tab, setTab] = useState<'local' | 'server' | 'preview' | 'precons'>('local');
+  const [tab, setTab] = useState<DeckManagerModalTab>('local');
   const [serverScope, setServerScope] = useState<'mine' | 'public'>('public');
   const [saveVisibility, setSaveVisibility] = useState<'public' | 'private'>('private');
 
@@ -553,6 +557,9 @@ export function DeckManagerModal({
             <button type="button" onClick={() => { setTab('precons'); setDetail(null); }} disabled={tab === 'precons'} style={tabButtonStyle(tab === 'precons', '#22c55e')}>
               📦 Precons
             </button>
+            <button type="button" onClick={() => { setTab('variants'); setDetail(null); }} disabled={tab === 'variants'} style={tabButtonStyle(tab === 'variants', '#38bdf8')}>
+              Planes & Schemes
+            </button>
             {detail && (
               <button type="button" onClick={() => setTab('preview')} disabled={tab === 'preview'} style={tabButtonStyle(tab === 'preview')}>
                 Preview
@@ -819,6 +826,17 @@ export function DeckManagerModal({
               onSelectDeck={(commanders, deckName, setName, year, setCode, colorIdentity) => {
                 importPreconDeck(commanders, deckName, setName, year, setCode, colorIdentity);
               }}
+            />
+          )}
+
+          {tab === 'variants' && (
+            <VariantDeckBuilder
+              deckText={localText}
+              onChangeDeckText={(next) => {
+                setLocalText(next);
+                syncPreviewToText(next);
+              }}
+              onImport={importPastedText}
             />
           )}
         </div>
