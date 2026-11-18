@@ -126,6 +126,18 @@ export function getCastFromGraveyardActivationCost(card: any, abilityId: string,
       : { hasAbility: false };
   }
 
+  if (normalizedAbilityId === 'aftermath') {
+    const faces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+    const aftermathFace = faces.find((face: any) => /\baftermath\b/i.test(String(face?.oracle_text || '')));
+    if (!aftermathFace && !/\baftermath\b/i.test(oracleText)) {
+      return { hasAbility: false };
+    }
+    const aftermathCost = String(
+      aftermathFace?.mana_cost || aftermathFace?.manaCost || printedManaCost || '',
+    ).trim();
+    return aftermathCost ? { manaCost: aftermathCost, hasAbility: true } : { hasAbility: true };
+  }
+
   const keywordPatterns: Record<string, RegExp> = {
     flashback: /flashback\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i,
     'jump-start': /jump-start\s*[—-]?\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)/i,

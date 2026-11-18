@@ -2374,6 +2374,17 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     ]);
   });
 
+  it('parses chaos ensues clauses into executable steps', () => {
+    const ir = parseOracleTextToIR('Chaos ensues.', 'Vote Result');
+
+    expect(ir.abilities[0].steps).toEqual([
+      expect.objectContaining({
+        kind: 'chaos_ensues',
+        who: { kind: 'you' },
+      }),
+    ]);
+  });
+
   it('parses assemble contraption clauses into executable steps', () => {
     const ir = parseOracleTextToIR('Assemble a Contraption.', 'Finders, Keepers');
 

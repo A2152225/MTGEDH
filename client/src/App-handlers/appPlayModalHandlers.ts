@@ -667,6 +667,7 @@ export function useAppPlayModalHandlers(p: Record<string, any>) {
     gameId: string;
     cardId: string;
     faceIndex?: number;
+    fused?: boolean;
     fromZone?: 'exile' | 'hand' | 'graveyard' | 'library' | 'command';
   }) => {
     socket.emit('requestCastSpell', payload);

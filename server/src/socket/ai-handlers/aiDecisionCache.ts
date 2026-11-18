@@ -55,6 +55,7 @@ export function aiCandidateStableKey(c: AIActionCandidate): string {
     const id = String(c.land?.card?.id || '');
     return `land:${id}`;
   }
+  if (c.kind === 'roll_planar_die') return 'roll_planar_die';
   return `other:${(c as { kind: string }).kind}`;
 }
 

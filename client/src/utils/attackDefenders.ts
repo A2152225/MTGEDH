@@ -15,7 +15,13 @@ export function buildAttackDefenders(players: readonly any[] | undefined, battle
     const isPlaneswalker = /\bplaneswalker\b/.test(typeLine);
     const isBattle = /\bbattle\b/.test(typeLine);
     if (!isPlaneswalker && !isBattle) continue;
-    const defendingPlayerId = String((isBattle ? perm.protector || perm.protectorId : null) || perm.controller || '');
+    const defendingPlayerId = String(
+      (isBattle
+        ? perm.protector || perm.protectorId || perm.chosenOpponentId || perm.chosenPlayer
+        : null)
+      || perm.controller
+      || '',
+    );
     const defenderName = nameById.get(defendingPlayerId);
     if (!defenderName) continue;
     const cardName = String(perm?.card?.name || (isBattle ? 'Battle' : 'Planeswalker'));

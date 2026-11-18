@@ -75,11 +75,17 @@ function canUseAlternateCostForSpellCandidate(sourceZone: SharedSpellSourceZone,
   return false;
 }
 
-type GraveyardCastKeyword = 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'mayhem';
+type GraveyardCastKeyword = 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'mayhem' | 'aftermath';
 
 function getPrintedGraveyardCastKeywordInfo(card: any, keyword: GraveyardCastKeyword): { hasIt: boolean; cost?: string; additionalExileCount?: number } {
   const oracleText = String(card?.oracle_text || card?.oracleText || '');
   const manaCost = String(card?.mana_cost || card?.manaCost || '').trim();
+
+  if (keyword === 'aftermath') {
+    // Aftermath is printed on the castable GY half (often a split face).
+    if (!/\baftermath\b/i.test(oracleText)) return { hasIt: false };
+    return { hasIt: true, cost: manaCost || undefined };
+  }
 
   if (keyword === 'flashback') {
     if (!/\bflashback\b/i.test(oracleText)) return { hasIt: false };
@@ -130,7 +136,7 @@ function getAvailableGraveyardCastKeywordInfo(
   playerId: PlayerID,
   card: any,
 ): { keyword: GraveyardCastKeyword; cost?: string; additionalExileCount?: number } | undefined {
-  for (const keyword of ['flashback', 'jump-start', 'retrace', 'escape', 'harmonize', 'mayhem'] as GraveyardCastKeyword[]) {
+  for (const keyword of ['flashback', 'jump-start', 'retrace', 'escape', 'harmonize', 'mayhem', 'aftermath'] as GraveyardCastKeyword[]) {
     const printedInfo = getPrintedGraveyardCastKeywordInfo(card, keyword);
     if (printedInfo.hasIt) {
       if (keyword === 'mayhem' && !cardMayBeCastWithMayhem((ctx as any).state, playerId, card)) {
@@ -328,7 +334,7 @@ function collectCastableSpellCandidates(
               continue;
             }
             castMethod = graveyardKeywordInfo.keyword;
-            exileAfterResolution = ['flashback', 'jump-start', 'escape', 'harmonize'].includes(graveyardKeywordInfo.keyword);
+            exileAfterResolution = ['flashback', 'jump-start', 'escape', 'harmonize', 'aftermath'].includes(graveyardKeywordInfo.keyword);
             if (graveyardKeywordInfo.cost) {
               manaCost = graveyardKeywordInfo.cost;
             } else {

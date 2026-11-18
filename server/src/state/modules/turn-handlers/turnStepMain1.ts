@@ -14,6 +14,7 @@ import { processSagaLoreCountersAtPrecombatMain } from "../triggerSagaLoreUtils.
 import { processRadCountersAtPrecombatMain } from "../triggers/rad-counters.js";
 import { processAttractionVisitRollAtPrecombatMain } from "../triggers/attraction-visit.js";
 import { persistTurnStepTriggeredAbility } from "./turnStepTriggerPersist.js";
+import { runArchenemySchemeInMotionTurnAction } from "./turnStepArchenemySchemeInMotion.js";
 import { debug } from "../../../utils/debug.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
@@ -31,6 +32,9 @@ export function runTurnStepMain1(
   usePersistedTurnStepTriggers: boolean,
   pushTriggersToStack: (triggers: any[], triggerType: string, idPrefix: string) => void,
 ): void {
+          // CR 904.9: the archenemy sets a scheme in motion as the precombat main phase begins.
+          runArchenemySchemeInMotionTurnAction(ctx, turnPlayer);
+
           const playerZone = (ctx as any).state?.zones?.[turnPlayer];
           if (playerZone && playerZone.exile) {
             const paradigmCards = playerZone.exile.filter((c: any) =>

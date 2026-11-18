@@ -31,6 +31,7 @@ import {
   createDeckResolutionStatusReporter,
   MIN_PRECON_DECK_SIZE,
 } from "./deckImportResolutionSupport.js";
+import { resolvePreconVariantCards } from "./deckImportVariantCards.js";
 
 export function registerImportPreconDeckHandler(io: Server, socket: Socket) {
   // importPreconDeck - import a preconstructed Commander deck
@@ -315,6 +316,16 @@ export function registerImportPreconDeckHandler(io: Server, socket: Socket) {
           debugWarn(2, "importPreconDeck: could not set _lastImportedDecks", e);
         }
 
+        // Planes / phenomena / schemes that ship with this precon (Planechase / Archenemy only).
+        const variantCards = fetchedFullDeck
+          ? await resolvePreconVariantCards(io, socket, game, {
+              gameId,
+              playerId: pid,
+              setCode: preconSetCode,
+              deckName,
+            })
+          : undefined;
+
         // If we got a full deck, apply it like a normal import
         if (fetchedFullDeck && resolvedCards.length >= MIN_PRECON_DECK_SIZE) {
           const rawPhase = (game.state && (game.state as any).phase) ?? "";
@@ -362,6 +373,7 @@ export function registerImportPreconDeckHandler(io: Server, socket: Socket) {
                   ? (game.state as any).phase
                   : null,
               applyImporterOnly: true,
+              variantCards,
             };
             pendingImportConfirmations.set(confirmId, pending);
 

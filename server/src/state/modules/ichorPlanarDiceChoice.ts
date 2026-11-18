@@ -10,6 +10,7 @@ import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import type { PlanarDieFace } from './planarDie.js';
 import { queueParsedKeywordAction } from './triggerEmissionFamilyUtils.js';
+import { applyPlanarDieFaceEffects, isPlanechaseEnabled } from './planechaseRuntime.js';
 
 export type IchorPlanarDicePending = {
   playerId: string;
@@ -17,14 +18,8 @@ export type IchorPlanarDicePending = {
   faces: PlanarDieFace[];
 };
 
-function activePlaneName(state: any): string {
-  const plane = state?.activePlane || state?.currentPlane;
-  return String(plane?.name || plane || '').trim().toLowerCase();
-}
-
 export function isChaosPlanarDieFace(state: any, face: PlanarDieFace): boolean {
-  const chaoticAether = activePlaneName(state) === 'chaotic aether';
-  return face === 'chaos' || (chaoticAether && face === 'blank');
+  return face === 'chaos' || (state?.chaoticAetherActive === true && face === 'blank');
 }
 
 export function formatPlanarDieFaceLabel(face: PlanarDieFace, index: number, total: number): string {
@@ -148,5 +143,8 @@ export function applyIchorPlanarDiceIgnoredIndexes(
   if (!pending) return [];
   const kept = keptPlanarDieFacesAfterIgnore(pending.faces, ignoredIndexes);
   applyPlanarDieFaces(ctx, pending.playerId, kept);
+  if (isPlanechaseEnabled((ctx as any)?.state)) {
+    applyPlanarDieFaceEffects(ctx, pending.playerId, kept);
+  }
   return kept;
 }

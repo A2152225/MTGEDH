@@ -10,6 +10,8 @@
  *   npx tsx scripts/bake-precon-decklists.ts --mtgjson-only
  *   npx tsx scripts/bake-precon-decklists.ts --sets=CMD,AFC
  *   npx tsx scripts/bake-precon-decklists.ts --sets=MSC --force
+ *   npx tsx scripts/bake-precon-decklists.ts --mtgjson-only --backfill-variants --sets=WHO
+ *     (store Planechase planes/phenomena + Archenemy schemes for decks whose decklist is already baked)
  *   PRECON_BAKE_DELAY_MS=4000 npx tsx scripts/bake-precon-decklists.ts
  */
 import fs from 'node:fs';
@@ -35,6 +37,11 @@ import {
   listLocalDeckEntriesMissingFromIndex,
   type MtgJsonDeckListEntry,
 } from '../src/services/mtgJsonDeckIndex.js';
+import { extractMtgJsonVariantCards } from '../src/services/mtgJsonDeckVariantCards.js';
+import {
+  hasCheckedPreconVariantCards,
+  upsertPreconVariantCards,
+} from '../src/services/preconDeckVariantCardStore.js';
 
 const MIN_UNIQUE = 50;
 const MIN_TOTAL = 90;
@@ -49,6 +56,8 @@ const localMtgJsonDecksDir = path.join(repoRoot, 'AllDeckFiles');
 type MtgJsonDeckCard = {
   name?: string;
   count?: number;
+  type?: string;
+  identifiers?: { scryfallOracleId?: string };
 };
 
 type MtgJsonDeckPayload = {
@@ -58,6 +67,10 @@ type MtgJsonDeckPayload = {
   commander?: MtgJsonDeckCard[];
   mainBoard?: MtgJsonDeckCard[];
   sideBoard?: MtgJsonDeckCard[];
+  /** Planechase planes + phenomena (layout "planar"); not part of the playable deck. */
+  planes?: MtgJsonDeckCard[];
+  /** Archenemy schemes; not part of the playable deck. */
+  schemes?: MtgJsonDeckCard[];
 };
 
 function importLegacyJsonPreconDecklists(): { imported: number; skipped: number } {
@@ -109,6 +122,7 @@ function parseArgs(argv: string[]) {
   const moxfieldOnly = argv.includes('--moxfield-only');
   const mtgjsonOnly = argv.includes('--mtgjson-only');
   const force = argv.includes('--force');
+  const backfillVariants = argv.includes('--backfill-variants');
   const setsArg = argv.find((arg) => arg.startsWith('--sets='));
   const setFilter = setsArg
     ? new Set(
@@ -120,7 +134,7 @@ function parseArgs(argv: string[]) {
       )
     : null;
   const delayMs = Math.max(0, Number.parseInt(process.env.PRECON_BAKE_DELAY_MS || '3000', 10) || 3000);
-  return { jsonOnly, wizardsOnly, moxfieldOnly, mtgjsonOnly, setFilter, delayMs, force };
+  return { jsonOnly, wizardsOnly, moxfieldOnly, mtgjsonOnly, setFilter, delayMs, force, backfillVariants };
 }
 
 function deckNeedsBake(setCode: string, deckName: string, force: boolean): boolean {
@@ -277,7 +291,7 @@ function pickMtgJsonEntry(
   );
 }
 
-async function fetchMtgJsonDeckLines(fileName: string): Promise<ParsedLine[]> {
+async function fetchMtgJsonDeckPayload(fileName: string): Promise<MtgJsonDeckPayload> {
   const localDeckPath = path.join(localMtgJsonDecksDir, `${fileName}.json`);
   let body: { data?: MtgJsonDeckPayload } | MtgJsonDeckPayload;
   if (fs.existsSync(localDeckPath)) {
@@ -291,37 +305,59 @@ async function fetchMtgJsonDeckLines(fileName: string): Promise<ParsedLine[]> {
     }
     body = (await response.json()) as { data?: MtgJsonDeckPayload } | MtgJsonDeckPayload;
   }
-  const deck = (body as { data?: MtgJsonDeckPayload }).data || (body as MtgJsonDeckPayload);
+  return (body as { data?: MtgJsonDeckPayload }).data || (body as MtgJsonDeckPayload);
+}
+
+/**
+ * Playable cards only: `commander` array + `mainBoard`. Planes/schemes are stored separately
+ * (see preconDeckVariantCardStore). Commanders come from the file's `commander` array;
+ * `leadershipSkills.commander` is just "legal as commander" and is ignored here.
+ */
+function mtgJsonDeckLines(deck: MtgJsonDeckPayload): ParsedLine[] {
   return mergeCardLines([...(deck.commander || []), ...(deck.mainBoard || [])]);
 }
 
-async function bakeFromMtgJson(setFilter: Set<string> | null, delayMs: number, force: boolean) {
+async function bakeFromMtgJson(
+  setFilter: Set<string> | null,
+  delayMs: number,
+  force: boolean,
+  backfillVariants: boolean,
+) {
   let fetchedDecks = 0;
   let failedDecks = 0;
   let skipped = 0;
   let unmapped = 0;
+  let variantDecks = 0;
+  let variantCards = 0;
 
   console.log('[mtgjson] loading DeckList index...');
   const index = await loadMtgJsonCommanderIndex();
   console.log(`[mtgjson] indexed ${index.size} commander deck names`);
 
-  const targets: Array<{ setCode: string; deckName: string; fileName: string }> = [];
+  // linesNeeded=false: decklist already baked, only the planar/scheme cards are (back)filled.
+  const targets: Array<{ setCode: string; deckName: string; fileName: string; linesNeeded: boolean }> = [];
   for (const yearData of COMMANDER_PRECONS) {
     for (const set of yearData.sets) {
       const setCode = String(set.code || '').trim().toUpperCase();
       if (setFilter && !setFilter.has(setCode)) continue;
       for (const deck of set.decks) {
-        if (!deckNeedsBake(setCode, deck.name, force)) {
+        const linesNeeded = deckNeedsBake(setCode, deck.name, force);
+        const variantsNeeded =
+          force || (backfillVariants && !hasCheckedPreconVariantCards(setCode, deck.name));
+        if (!linesNeeded && !variantsNeeded) {
           skipped += 1;
           continue;
         }
         const entry = pickMtgJsonEntry(index, setCode, deck.name);
         if (!entry?.fileName) {
-          unmapped += 1;
-          console.warn(`[unmapped-mtgjson] ${setCode} / ${deck.name}`);
+          // Variant-only backfill of a deck MTGJSON does not map is expected (Wizards/Moxfield decks).
+          if (linesNeeded) {
+            unmapped += 1;
+            console.warn(`[unmapped-mtgjson] ${setCode} / ${deck.name}`);
+          }
           continue;
         }
-        targets.push({ setCode, deckName: deck.name, fileName: entry.fileName });
+        targets.push({ setCode, deckName: deck.name, fileName: entry.fileName, linesNeeded });
       }
     }
   }
@@ -329,28 +365,43 @@ async function bakeFromMtgJson(setFilter: Set<string> | null, delayMs: number, f
   console.log(`[mtgjson] ${targets.length} decks to fetch`);
 
   for (let i = 0; i < targets.length; i += 1) {
-    const { setCode, deckName, fileName } = targets[i];
+    const { setCode, deckName, fileName, linesNeeded } = targets[i];
     if (i > 0 && delayMs > 0) await sleep(Math.min(delayMs, 500));
     try {
-      const parsed = await fetchMtgJsonDeckLines(fileName);
-      if (!parsed.length) {
-        console.warn(`[missing-mtgjson] ${setCode} / ${deckName}`);
-        failedDecks += 1;
-        continue;
+      const payload = await fetchMtgJsonDeckPayload(fileName);
+      const isLocal = fs.existsSync(path.join(localMtgJsonDecksDir, `${fileName}.json`));
+
+      if (linesNeeded) {
+        const parsed = mtgJsonDeckLines(payload);
+        if (!parsed.length) {
+          console.warn(`[missing-mtgjson] ${setCode} / ${deckName}`);
+          failedDecks += 1;
+          continue;
+        }
+        if (
+          upsertParsedDeck(setCode, deckName, parsed, {
+            source: isLocal ? 'mtgjson-local' : 'mtgjson',
+            sourceUrl: isLocal
+              ? `file://${path.join(localMtgJsonDecksDir, `${fileName}.json`)}`
+              : MTGJSON_DECK_URL(fileName),
+          })
+        ) {
+          fetchedDecks += 1;
+        } else {
+          failedDecks += 1;
+          continue;
+        }
       }
-      if (
-        upsertParsedDeck(setCode, deckName, parsed, {
-          source: fs.existsSync(path.join(localMtgJsonDecksDir, `${fileName}.json`))
-            ? 'mtgjson-local'
-            : 'mtgjson',
-          sourceUrl: fs.existsSync(path.join(localMtgJsonDecksDir, `${fileName}.json`))
-            ? `file://${path.join(localMtgJsonDecksDir, `${fileName}.json`)}`
-            : MTGJSON_DECK_URL(fileName),
-        })
-      ) {
-        fetchedDecks += 1;
-      } else {
-        failedDecks += 1;
+
+      const variants = extractMtgJsonVariantCards(payload);
+      upsertPreconVariantCards(setCode, deckName, variants);
+      const variantTotal = variants.planar.length + variants.schemes.length;
+      if (variantTotal > 0) {
+        variantDecks += 1;
+        variantCards += variantTotal;
+        console.log(
+          `[ok-variants] ${setCode} / ${deckName}: ${variants.planar.length} planar / ${variants.schemes.length} scheme`,
+        );
       }
     } catch (err) {
       console.warn(
@@ -361,7 +412,7 @@ async function bakeFromMtgJson(setFilter: Set<string> | null, delayMs: number, f
     }
   }
 
-  return { fetchedDecks, failedDecks, skipped, unmapped };
+  return { fetchedDecks, failedDecks, skipped, unmapped, variantDecks, variantCards };
 }
 
 /** Optional Moxfield fill — often 403 from automated clients; keep as last resort. */
@@ -418,9 +469,8 @@ async function bakeFromMoxfield(setFilter: Set<string> | null, delayMs: number, 
 }
 
 async function main() {
-  const { jsonOnly, wizardsOnly, moxfieldOnly, mtgjsonOnly, setFilter, delayMs, force } = parseArgs(
-    process.argv.slice(2),
-  );
+  const { jsonOnly, wizardsOnly, moxfieldOnly, mtgjsonOnly, setFilter, delayMs, force, backfillVariants } =
+    parseArgs(process.argv.slice(2));
 
   console.log(`Precon SQLite path: ${getPreconDecklistDatabasePath()}`);
 
@@ -437,11 +487,11 @@ async function main() {
     );
   }
 
-  let mtgjsonStats = { fetchedDecks: 0, failedDecks: 0, skipped: 0, unmapped: 0 };
+  let mtgjsonStats = { fetchedDecks: 0, failedDecks: 0, skipped: 0, unmapped: 0, variantDecks: 0, variantCards: 0 };
   if (!jsonOnly && !wizardsOnly && !moxfieldOnly) {
-    mtgjsonStats = await bakeFromMtgJson(setFilter, delayMs, force);
+    mtgjsonStats = await bakeFromMtgJson(setFilter, delayMs, force, backfillVariants);
     console.log(
-      `MTGJSON bake: decks=${mtgjsonStats.fetchedDecks} failed=${mtgjsonStats.failedDecks} skipped=${mtgjsonStats.skipped} unmapped=${mtgjsonStats.unmapped}`,
+      `MTGJSON bake: decks=${mtgjsonStats.fetchedDecks} failed=${mtgjsonStats.failedDecks} skipped=${mtgjsonStats.skipped} unmapped=${mtgjsonStats.unmapped} planar/scheme decks=${mtgjsonStats.variantDecks} (${mtgjsonStats.variantCards} cards)`,
     );
   }
 

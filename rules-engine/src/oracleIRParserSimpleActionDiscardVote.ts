@@ -461,6 +461,17 @@ export function tryParseSimpleActionDiscardVoteClauses(args: SimpleActionClauseP
   }
 
   {
+    const chaosEnsuesMatch = clause.match(new RegExp(`^(?:${PLAYER_SUBJECT_PREFIX})?chaos\\s+ensues$`, 'i'));
+    if (chaosEnsuesMatch) {
+      return withMeta({
+        kind: 'chaos_ensues',
+        who: parsePlayerSelector(chaosEnsuesMatch[1] || 'you'),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const assembleMatch = clause.match(new RegExp(`^${PLAYER_SUBJECT_PREFIX}assemble(?:s)?(?:\\s+a\\s+contraption)?$`, 'i'));
     if (assembleMatch) {
       return withMeta({

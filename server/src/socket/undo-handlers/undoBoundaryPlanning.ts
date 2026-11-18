@@ -75,6 +75,9 @@ const ORACLE_IR_MUTATION_TAIL_EVENT_TYPES = new Set([
   'putCardFromHandOntoBattlefield',
   'counterStackObject',
   'scheduleExtraCombat',
+  'planeswalk',
+  'setSchemeInMotion',
+  'abandonScheme',
 ]);
 
 const PROMPT_ONLY_TAIL_EVENT_TYPES = new Set([

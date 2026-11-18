@@ -80,6 +80,7 @@ import { getSeatBrain, takeShadow } from "./aiBrain.js";
 import { applyTurnPlanToMainCandidates } from "./aiTurnPlanHook.js";
 import { getLegalAttackers, getGoadedAttackers } from "../../../../rules-engine/src/actions/combat.js";
 import { planAttacks } from "../../../../rules-engine/src/ai/attackPlanner.js";
+import { tryAIFreePlanarDieRoll } from "./aiPlanarDieRoll.js";
 
 async function tryAIResponseActions(io: Server, gameId: string, playerId: PlayerID, game: any): Promise<boolean> {
   return getAIHandlerDeps().tryAIResponseActions(io, gameId, playerId, game);
@@ -595,7 +596,17 @@ export async function handleAIPriority(
       } else {
         debug(1, '[AI] No supported land candidate available in hand, library, graveyard, or exile');
       }
-      
+
+      // Free planar die roll, once per turn, precombat main only. A blank face stays in this
+      // wake so casts still happen; chaos or a planeswalk leaves the stack for the next wake.
+      if (await tryAIFreePlanarDieRoll(io, game, gameId, playerId)) {
+        noteMainPhaseAction(game, playerId);
+        if (Array.isArray(game.state?.stack) && game.state.stack.length > 0) {
+          scheduleAIPriority(io, gameId, playerId, AI_FAST_CONTINUE_MS);
+          return;
+        }
+      }
+
       // A doesn't-untap rock that Unwinding Clock (or similar) will untap on other
       // players' turns is tapped for mana every turn, including this one.
       if (stackEmpty && await tryAITapManaRocksOtherPlayersWillUntap(io, gameId, playerId, game)) {

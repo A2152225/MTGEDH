@@ -254,12 +254,12 @@ export function continueCastFromGraveyardAbility(params: {
   const normalizedTargets = normalizeSelectedTargetIds(params.targets);
   const activationCost = getCastFromGraveyardActivationCost(card, params.abilityId, { game: params.game, playerId: params.playerId });
   const normalizedAbilityId = String(params.abilityId || '').trim().toLowerCase();
-  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast', 'beam-me-up'].includes(normalizedAbilityId) && activationCost.hasAbility === false) {
+  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'aftermath', 'graveyard-cast', 'beam-me-up'].includes(normalizedAbilityId) && activationCost.hasAbility === false) {
     params.emitError({ code: 'ABILITY_NOT_AVAILABLE', message: `${cardName} does not currently have ${normalizedAbilityId}.` });
     return 'error';
   }
   if (
-    ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast', 'harmonize', 'beam-me-up'].includes(normalizedAbilityId)
+    ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'aftermath', 'graveyard-cast', 'harmonize', 'beam-me-up'].includes(normalizedAbilityId)
     && !enforceGraveyardSpellCastTiming({
       game: params.game,
       playerId: String(params.playerId),
@@ -270,7 +270,7 @@ export function continueCastFromGraveyardAbility(params: {
   ) {
     return 'error';
   }
-  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast', 'harmonize', 'beam-me-up'].includes(normalizedAbilityId)) {
+  if (['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'aftermath', 'graveyard-cast', 'harmonize', 'beam-me-up'].includes(normalizedAbilityId)) {
     const b31GraveLock = zoneCastProhibitionReason(params.game.state, String(params.playerId), 'graveyard')
       || opponentTurnCastProhibitionReason(params.game.state, String(params.playerId));
     if (b31GraveLock) {

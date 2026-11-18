@@ -23,6 +23,7 @@ import {
   parseKeywordAlternateManaCost,
   parseWarpCost,
   parseImpendingInfo,
+  parsePrototypeInfo,
 } from "../../state/modules/alternate-costs.js";
 import { getGrantedBlitzAlternateCost } from "../../state/modules/batch91BlitzCastGrants.js";
 import { resolveGrantedKeywordAlternateCost } from "../../state/modules/batch96GrantedKeywordHooks.js";
@@ -183,8 +184,18 @@ export function buildAlternateCostPaymentExtrasForCast(
     });
   }
 
+  const prototypeInfo = parsePrototypeInfo(normalizedOracleText);
+  if (prototypeInfo) {
+    handKeywordAlternateCosts.push({
+      id: 'prototype',
+      label: 'Prototype',
+      description: `Cast as ${prototypeInfo.power}/${prototypeInfo.toughness}`,
+      rawCost: prototypeInfo.cost,
+    });
+  }
+
   // Hand-cast payment extras only. Graveyard-only keywords (flashback, disturb,
-  // escape, retrace, harmonize, jump-start) must not appear here � those are
+  // escape, retrace, harmonize, jump-start) must not appear here — those are
   // offered when casting from the graveyard via the shared GY cast path.
   const genericKeywordIds = [
     'dash', 'blitz', 'mutate', 'surge', 'spectacle', 'prowl', 'bestow', 'emerge', 'evoke',

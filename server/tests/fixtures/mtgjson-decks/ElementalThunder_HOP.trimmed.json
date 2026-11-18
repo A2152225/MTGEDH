@@ -1,0 +1,148 @@
+{
+    "meta":  {
+                 "note":  "Trimmed MTGJSON deck fixture (structure only); cards beyond the first few are omitted."
+             },
+    "data":  {
+                 "code":  "HOP",
+                 "name":  "Elemental Thunder",
+                 "type":  "Planechase Deck",
+                 "releaseDate":  "2009-09-04",
+                 "commander":  [
+
+                               ],
+                 "mainBoard":  [
+                                   {
+                                       "name":  "Flamekin Harbinger",
+                                       "count":  2,
+                                       "type":  "Creature — Elemental Shaman",
+                                       "layout":  "normal",
+                                       "identifiers":  {
+                                                           "scryfallOracleId":  "d6585e30-4ca0-4701-b274-b24f3508dd97"
+                                                       },
+                                       "leadershipSkills":  {
+                                                                "brawl":  false,
+                                                                "commander":  false,
+                                                                "oathbreaker":  false,
+                                                                "pauper_commander":  true,
+                                                                "predh":  false
+                                                            }
+                                   },
+                                   {
+                                       "name":  "Smokebraider",
+                                       "count":  2,
+                                       "type":  "Creature — Elemental Shaman",
+                                       "layout":  "normal",
+                                       "identifiers":  {
+                                                           "scryfallOracleId":  "e970f2df-90cb-45b8-8ae5-71b762908925"
+                                                       }
+                                   },
+                                   {
+                                       "name":  "Bogardan Firefiend",
+                                       "count":  1,
+                                       "type":  "Creature — Elemental Spirit",
+                                       "layout":  "normal",
+                                       "identifiers":  {
+                                                           "scryfallOracleId":  "1d61f3a7-5861-479b-8312-f2d308c35b68"
+                                                       }
+                                   }
+                               ],
+                 "sideBoard":  [
+
+                               ],
+                 "planes":  [
+                                {
+                                    "name":  "Eloren Wilds",
+                                    "count":  1,
+                                    "type":  "Plane — Shandalar",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "23fe1c21-c396-4ebf-a8b0-22d697952b34"
+                                                    }
+                                },
+                                {
+                                    "name":  "Feeding Grounds",
+                                    "count":  1,
+                                    "type":  "Plane — Muraganda",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "b1eff630-b56c-48a5-ac21-836a60157b35"
+                                                    }
+                                },
+                                {
+                                    "name":  "The Great Forest",
+                                    "count":  1,
+                                    "type":  "Plane — Lorwyn",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "8c56bb41-a8d8-4b0f-bbb7-be8466dc9ed1"
+                                                    }
+                                },
+                                {
+                                    "name":  "Immersturm",
+                                    "count":  1,
+                                    "type":  "Plane — Valla",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "ece3b5ed-3c07-4586-bf99-72bc1aa6ccef"
+                                                    }
+                                },
+                                {
+                                    "name":  "Isle of Vesuva",
+                                    "count":  1,
+                                    "type":  "Plane — Dominaria",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "f017380f-97db-4a36-b111-b257aa17ebaf"
+                                                    }
+                                },
+                                {
+                                    "name":  "Llanowar",
+                                    "count":  1,
+                                    "type":  "Plane — Dominaria",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "11b3fcb2-0b66-4d8b-8e66-a21a5da1c1f5"
+                                                    }
+                                },
+                                {
+                                    "name":  "Murasa",
+                                    "count":  1,
+                                    "type":  "Plane — Zendikar",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "07cc253d-e23c-450c-bfaf-5cb6a3a588ce"
+                                                    }
+                                },
+                                {
+                                    "name":  "Naya",
+                                    "count":  1,
+                                    "type":  "Plane — Alara",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "5ed6be01-af06-4f3d-8b43-ef8993c52c97"
+                                                    }
+                                },
+                                {
+                                    "name":  "Turri Island",
+                                    "count":  1,
+                                    "type":  "Plane — Ir",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "1300b5e7-d741-4723-bb15-dabd04cb0c11"
+                                                    }
+                                },
+                                {
+                                    "name":  "Velis Vel",
+                                    "count":  1,
+                                    "type":  "Plane — Lorwyn",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "1c4e174e-19fb-4c0a-b762-ef6d927392c9"
+                                                    }
+                                }
+                            ],
+                 "schemes":  [
+
+                             ]
+             }
+}

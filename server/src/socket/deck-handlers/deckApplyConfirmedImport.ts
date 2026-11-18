@@ -31,6 +31,10 @@ import {
   buildShuffleLibraryEventPayload,
   readHandCardIds,
 } from "../shuffleLibraryEventPayload.js";
+import {
+  commitImportedVariantDecks,
+  splitResolvedDeckVariants,
+} from "../../state/modules/variantDeckImportCommit.js";
 
 /**
  * applyConfirmedImport - idempotent / reentrancy-safe application of confirmed import.
@@ -116,6 +120,18 @@ export async function applyConfirmedImport(
       (game as any)._importApplying = true;
     } catch (e) {
       debugWarn(2, "applyConfirmedImport: could not set _importApplying guard", e);
+    }
+
+    // Planes / phenomena / schemes are never library cards. Strip them from the playable deck and
+    // seed the planar / scheme decks once the deckImportResolved event is saved (below). A precon's
+    // stored planar cards arrive separately on p.variantCards.
+    const variantSplit = splitResolvedDeckVariants(p.resolvedCards, p.variantCards);
+    const strippedFromDeck = Array.isArray(p.resolvedCards)
+      ? p.resolvedCards.length - variantSplit.playable.length
+      : 0;
+    if (strippedFromDeck > 0) {
+      p.resolvedCards = variantSplit.playable as typeof p.resolvedCards;
+      p.parsedCount = Math.max(0, (p.parsedCount || 0) - strippedFromDeck);
     }
 
     debug(1, "[import] applyConfirmedImport start", {
@@ -245,6 +261,29 @@ export async function applyConfirmedImport(
       });
     } catch (err) {
       debugWarn(1, "applyConfirmedImport: appendEvent failed", err);
+    }
+
+    // Seed the shared planar deck / the archenemy's scheme deck (saved as importVariantDecks).
+    if (variantSplit.planar.length > 0 || variantSplit.schemes.length > 0) {
+      try {
+        const { messages } = commitImportedVariantDecks(
+          game,
+          p.initiator,
+          { planar: variantSplit.planar, schemes: variantSplit.schemes },
+          { gameId: p.gameId },
+        );
+        for (const message of messages) {
+          io.to(p.gameId).emit("chat", {
+            id: `m_${Date.now()}`,
+            gameId: p.gameId,
+            from: "system",
+            message,
+            ts: Date.now(),
+          });
+        }
+      } catch (err) {
+        debugWarn(1, "applyConfirmedImport: seedVariantDecks failed", err);
+      }
     }
 
     // Flag pendingInitialDraw and emit suggestions/candidates

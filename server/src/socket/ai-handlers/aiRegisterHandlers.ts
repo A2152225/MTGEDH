@@ -23,6 +23,7 @@ import { AI_FAST_CONTINUE_MS, AI_THINK_TIME_MS } from "./aiConstants.js";
 import { handleAIGameFlow } from "./aiGameFlowHandlers.js";
 import { createConfiguredGame } from "./aiGameSetupHandlers.js";
 import { persistAIPlayerDeckSource, resolveAIDeckEntries } from "./aiPregameHandlers.js";
+import { importAIResolvedDeck } from "./aiVariantDeckImport.js";
 import { clearHumanAutopilotSeat, registerAIPlayer, unregisterAIPlayer } from "./aiPlayerRegistry.js";
 import { joinAiPlayerSeat } from "../join-handlers/playerSeatIds.js";
 import {
@@ -216,46 +217,25 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           // This ensures shuffle/draw operations work correctly later.
           
           deckLoaded = true;
-          
-          // Use the game's importDeckResolved function to properly populate the libraries Map
-          // This is critical for shuffle/draw operations to work correctly
-          if (typeof (game as any).importDeckResolved === 'function') {
-            (game as any).importDeckResolved(aiPlayerId, resolvedCards);
-            debug(1, '[AI] Deck imported via importDeckResolved for AI:', { 
-              aiPlayerId, 
-              deckName: finalDeckName, 
-              resolvedCount: resolvedCards.length,
-            });
-            
-            // CRITICAL: Persist the deck import to event log for replay after server restart / undo
-            try {
-              await appendEvent(gameId, (game as any).seq || 0, 'deckImportResolved', {
-                playerId: aiPlayerId,
-                cards: resolvedCards,
-              });
-              debug(1, '[AI] Persisted deckImportResolved event for AI:', { aiPlayerId, cardCount: resolvedCards.length });
-            } catch (e) {
-              debugWarn(1, '[AI] Failed to persist deckImportResolved event:', e);
-            }
-          } else {
-            // Fallback: manually initialize zones (this may cause issues with shuffle/draw)
-            debugWarn(2, '[AI] importDeckResolved not available, using fallback zone initialization');
-            game.state.zones = game.state.zones || {};
-            (game.state.zones as any)[aiPlayerId] = {
-              hand: [],
-              handCount: 0,
-              libraryCount: resolvedCards.length,
-              graveyard: [],
-              graveyardCount: 0,
-            };
-            // Note: We don't set library in zones - the authoritative source is ctx.libraries
-          }
+          const imported = await importAIResolvedDeck({
+            game,
+            gameId,
+            playerId: aiPlayerId,
+            resolvedCards,
+            logLabel: '[AI] Loading AI deck',
+            io,
+          });
+          debug(1, '[AI] Deck imported via importDeckResolved for AI:', {
+            aiPlayerId,
+            deckName: finalDeckName,
+            resolvedCount: imported.libraryCount,
+          });
           
           // Store deck metadata on the player object
-          debug(1, '[AI] Deck resolved for AI:', { 
-            aiPlayerId, 
-            deckName: finalDeckName, 
-            resolvedCount: resolvedCards.length,
+          debug(1, '[AI] Deck resolved for AI:', {
+            aiPlayerId,
+            deckName: finalDeckName,
+            resolvedCount: imported.libraryCount,
             missingCount: missing.length,
           });
           
@@ -468,35 +448,14 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
           if (resolvedCards.length > 0) {
             deckLoaded = true;
             
-            if (typeof (game as any).importDeckResolved === 'function') {
-              (game as any).importDeckResolved(aiPlayerId, resolvedCards);
-              debug(1, `[AI] Deck imported for ${aiName}:`, { 
-                aiPlayerId, 
-                deckName: finalDeckName, 
-                resolvedCount: resolvedCards.length,
-              });
-              
-              // CRITICAL: Persist the deck import to event log for replay after server restart / undo
-              try {
-                await appendEvent(gameId, (game as any).seq || 0, 'deckImportResolved', {
-                  playerId: aiPlayerId,
-                  cards: resolvedCards,
-                });
-                debug(1, `[AI] Persisted deckImportResolved event for ${aiName}:`, { aiPlayerId, cardCount: resolvedCards.length });
-              } catch (e) {
-                debugWarn(1, `[AI] Failed to persist deckImportResolved event for ${aiName}:`, e);
-              }
-            } else {
-              debugWarn(2, `[AI] importDeckResolved not available for ${aiName}, using fallback`);
-              game.state.zones = game.state.zones || {};
-              (game.state.zones as any)[aiPlayerId] = {
-                hand: [],
-                handCount: 0,
-                libraryCount: resolvedCards.length,
-                graveyard: [],
-                graveyardCount: 0,
-              };
-            }
+            await importAIResolvedDeck({
+              game,
+              gameId,
+              playerId: aiPlayerId,
+              resolvedCards,
+              logLabel: `[AI] Loading deck for ${aiName}`,
+              io,
+            });
             
             // Store deck metadata on the player object
           }

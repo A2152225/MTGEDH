@@ -632,8 +632,26 @@ export function parseLateTriggerSentence(text: string): LateTriggerSentence | nu
   const day = /^whenever day becomes night or night becomes day,\s*(.+)$/.exec(text);
   if (day) return subjectEvent('performs', 'a permanent', day[1], { action: 'day_night' });
 
-  const chaos = /^whenever chaos ensues,\s*(.+)$/.exec(text);
+  const chaos = /^whenever chaos ensues,\s*(.+)$/.exec(text)
+    || /^whenever you roll \{CHAOS\},\s*(.+)$/.exec(text);
   if (chaos) return subjectEvent('performs', 'a permanent', chaos[1], { action: 'chaos' });
+
+  const planeswalkHere = /^whenever you planeswalk here,\s*(.+)$/.exec(text)
+    || /^when you planeswalk here,\s*(.+)$/.exec(text)
+    || /^when you planeswalk to [^,]+,\s*(.+)$/.exec(text);
+  if (planeswalkHere) {
+    return subjectEvent('performs', 'a permanent', planeswalkHere[1], { action: 'planeswalk_here' });
+  }
+
+  const schemeMotion = /^when you set this scheme in motion,\s*(.+)$/.exec(text);
+  if (schemeMotion) {
+    return subjectEvent('performs', 'a permanent', schemeMotion[1], { action: 'scheme_in_motion' });
+  }
+
+  const encounter = /^when you encounter [^,]+,\s*(.+)$/.exec(text);
+  if (encounter) {
+    return subjectEvent('performs', 'a permanent', encounter[1], { action: 'encounter' });
+  }
 
   const vote = /^whenever players finish voting,\s*(.+)$/.exec(text);
   if (vote) return subjectEvent('performs', 'a permanent', vote[1], { action: 'vote' });

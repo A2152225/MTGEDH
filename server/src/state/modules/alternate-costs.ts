@@ -588,6 +588,24 @@ export function parseImpendingCost(oracleText: string): string | undefined {
   return parseImpendingInfo(oracleText)?.cost;
 }
 
+/** Prototype {cost} — P/T: alternate cast with smaller base power/toughness (CR 702.160). */
+export function parsePrototypeInfo(oracleText: string): { cost: string; power: number; toughness: number } | null {
+  const normalized = String(oracleText || '').replace(/\r?\n/g, ' ');
+  const match = normalized.match(
+    /\bprototype\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*[-–—]\s*(\d+)\s*\/\s*(\d+)/i,
+  );
+  if (!match) return null;
+  const cost = String(match[1] || '').replace(/\s+/g, '').trim();
+  const power = Number.parseInt(String(match[2] || ''), 10);
+  const toughness = Number.parseInt(String(match[3] || ''), 10);
+  if (!cost || !Number.isFinite(power) || !Number.isFinite(toughness)) return null;
+  return { cost, power, toughness };
+}
+
+export function parsePrototypeCost(oracleText: string): string | undefined {
+  return parsePrototypeInfo(oracleText)?.cost;
+}
+
 /** Parse mana cost for keyword alternate costs (dash, warp, blitz, etc.). */
 export function parseKeywordAlternateManaCost(
   oracleText: string,

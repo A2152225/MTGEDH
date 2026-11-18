@@ -29,7 +29,7 @@ function previewSource(card: any): any {
 /** Cast option for a may-cast-from-exile prompt, including a hoverable card image. */
 export function buildCastFromExilePromptOptions(
   exiledCard: any,
-  extras?: { castLabel?: string; declineLabel?: string },
+  extras?: { castLabel?: string; declineLabel?: string; omitDecline?: boolean },
 ): Array<Record<string, unknown>> {
   const source = previewSource(exiledCard);
   const cardName = String(source?.name || exiledCard?.name || 'that card');
@@ -58,15 +58,19 @@ export function buildCastFromExilePromptOptions(
       }
     : undefined;
 
+  const castOption: Record<string, unknown> = {
+    id: 'cast',
+    label: extras?.castLabel || `Cast ${cardName}`,
+    cardName,
+    ...(typeLine ? { description: typeLine } : {}),
+    ...(imageUrl ? { imageUrl } : {}),
+    ...(previewCard ? { previewCard } : {}),
+  };
+  if (extras?.omitDecline === true) {
+    return [castOption];
+  }
   return [
-    {
-      id: 'cast',
-      label: extras?.castLabel || `Cast ${cardName}`,
-      cardName,
-      ...(typeLine ? { description: typeLine } : {}),
-      ...(imageUrl ? { imageUrl } : {}),
-      ...(previewCard ? { previewCard } : {}),
-    },
+    castOption,
     { id: 'decline', label: extras?.declineLabel || 'Decline' },
   ];
 }
@@ -85,6 +89,9 @@ export function queueCastFromExileResolutionPrompt(
     castLabel?: string;
     description?: string;
     mandatory?: boolean;
+    omitDecline?: boolean;
+    castAsTransformed?: boolean;
+    castWithoutPayingManaCost?: boolean;
   },
 ): void {
   const stateAny = (ctx as any)?.state as any;
@@ -95,6 +102,14 @@ export function queueCastFromExileResolutionPrompt(
     || (exiledCard as any)?.castFromExileDeclineDestination
     || 'library_bottom_random',
   );
+  const castWithoutPaying =
+    extras?.castWithoutPayingManaCost === true
+    || (exiledCard as any)?.castWithoutPayingManaCost === true;
+  const castAsTransformed =
+    extras?.castAsTransformed === true
+    || (exiledCard as any)?.castAsTransformed === true
+    || String((exiledCard as any)?.castWithAbility || '').toLowerCase() === 'siege-defeat';
+  const omitDecline = extras?.omitDecline === true || extras?.mandatory === true;
   if (stateAny && exiledCardId) {
     upsertDurablePermission(stateAny, buildDurablePlayableFromExilePermission({
       playerId,
@@ -123,6 +138,7 @@ export function queueCastFromExileResolutionPrompt(
     options: buildCastFromExilePromptOptions(exiledCard, {
       castLabel: extras?.castLabel,
       declineLabel: extras?.declineLabel,
+      omitDecline,
     }),
     minSelections: 1,
     maxSelections: 1,
@@ -130,5 +146,7 @@ export function queueCastFromExileResolutionPrompt(
     castFromExileCard: exiledCard,
     castFromExileDeclineDestination: declineDestination,
     castFromExileIgnoreTimingRestrictions: true,
+    ...(castWithoutPaying ? { castFromExileCastWithoutPayingManaCost: true } : {}),
+    ...(castAsTransformed ? { castFromExileAsTransformed: true, castFromExileFaceIndex: 1 } : {}),
   } as any);
 }

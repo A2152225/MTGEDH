@@ -19134,6 +19134,7 @@ function skippedStepIsBenignForAudit(step: OracleEffectStep): boolean {
   if (kind === 'prevent_damage') return true;
   if (kind === 'vote') return true;
   if (kind === 'planeswalk') return true;
+  if (kind === 'chaos_ensues') return true;
   if (kind === 'paradigm') return true;
   if (
     kind === 'grant_static_ability' &&

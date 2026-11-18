@@ -50,7 +50,7 @@ type StoredCandidate = {
 
 const serviceDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(serviceDir, '../../..');
-const schemaVersion = '3';
+const schemaVersion = '4'; // 4: planar/scheme/vanguard cards prefer their oracle-cards record (images)
 const defaultDbFile = path.join(repoRoot, 'server', 'data', 'card-lookup.sqlite');
 
 let db: DB | null = null;
@@ -395,7 +395,11 @@ function shouldIndexOracleCard(card: LocalCardLookupRecord): boolean {
   return true;
 }
 
-function candidateQuality(card: LocalCardLookupRecord): number {
+// Planes, phenomena, schemes and vanguards are never commander-legal (and never in a library), so a
+// "not_legal" Scryfall record must not rank below an image-less AtomicCards record for them.
+const NON_DECK_LAYOUTS = new Set(['planar', 'scheme', 'vanguard']);
+
+export function candidateQuality(card: LocalCardLookupRecord): number {
   const faces = Array.isArray(card.card_faces) ? card.card_faces : [];
   const faceOracleTexts = faces.map((face) => String(face?.oracle_text || '').trim()).filter(Boolean);
   const distinctFaceNames = new Set(
@@ -417,7 +421,7 @@ function candidateQuality(card: LocalCardLookupRecord): number {
   if (card.legalities?.commander === 'legal') {
     quality += 4;
   }
-  if (card.legalities?.commander === 'not_legal') {
+  if (card.legalities?.commander === 'not_legal' && !NON_DECK_LAYOUTS.has(String(card.layout || ''))) {
     quality -= 8;
   }
   if (card.layout === 'art_series' || card.layout === 'token' || card.layout === 'double_faced_token') {

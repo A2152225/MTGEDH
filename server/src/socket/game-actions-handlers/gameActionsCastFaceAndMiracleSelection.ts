@@ -26,6 +26,7 @@ import { isCardOnAdventureForPlayer } from "../../state/modules/playable-from-ex
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
+import { buildFusedSpellCard } from "../../state/modules/splitFuseSpellFace.js";
 
 export const WUBRG_ALTERNATE_MANA_COST = '{W}{U}{B}{R}{G}';
 export function resolveEffectiveSpellBaseManaCost(pendingCast: any): string {
@@ -252,7 +253,11 @@ export function resolveAdventureAwareFaceIndex(
   return { faceIndex };
 }
 
-export function resolveSelectedSpellCard(card: any, faceIndex?: number): { card: any; faceIndex?: number; castAsAdventure?: boolean } {
+export function resolveSelectedSpellCard(
+  card: any,
+  faceIndex?: number,
+  options?: { fused?: boolean },
+): { card: any; faceIndex?: number; castAsAdventure?: boolean; castAsFused?: boolean } {
   if (!card || typeof card === 'string') {
     return { card, faceIndex };
   }
@@ -260,7 +265,33 @@ export function resolveSelectedSpellCard(card: any, faceIndex?: number): { card:
   const layout = String(card?.layout || '').toLowerCase();
   const cardFaces = Array.isArray(card?.card_faces) ? card.card_faces : [];
 
+  if (options?.fused === true) {
+    const fusedCard = buildFusedSpellCard(card);
+    if (!fusedCard) {
+      return { card, faceIndex };
+    }
+    return {
+      card: fusedCard,
+      faceIndex: undefined,
+      castAsFused: true,
+    };
+  }
+
   if ((layout === 'transform' || layout === 'double_faced_token') && cardFaces.length >= 1) {
+    const castTransformed =
+      card?.castAsTransformed === true
+      || String(card?.castWithAbility || '').toLowerCase() === 'siege-defeat'
+      || faceIndex === 1;
+    if (castTransformed && cardFaces[1]) {
+      return {
+        card: buildSelectedSpellFace(card, cardFaces[1], 1, {
+          transformed: true,
+          castAsTransformed: true,
+          castWithAbility: card?.castWithAbility || 'siege-defeat',
+        }),
+        faceIndex: 1,
+      };
+    }
     return {
       card: buildSelectedSpellFace(card, cardFaces[0], 0),
       faceIndex: 0,

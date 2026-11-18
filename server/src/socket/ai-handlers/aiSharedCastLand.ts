@@ -56,6 +56,7 @@ export async function requestAISharedCast(
     cardName?: string;
     sourceZone: AICastRequestSourceZone;
     faceIndex?: number;
+    fused?: boolean;
     timesKicked?: number;
   },
 ): Promise<boolean> {
@@ -116,6 +117,7 @@ export async function requestAISharedCast(
       gameId,
       cardId,
       faceIndex: request.faceIndex,
+      ...(request.fused === true ? { fused: true } : {}),
       fromZone: request.sourceZone,
     }, {
       ...(Number.isFinite(request.timesKicked)

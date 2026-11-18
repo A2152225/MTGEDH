@@ -1,15 +1,21 @@
 /**
  * Planar die (Planechase).
  * Faces: chaos, planeswalk, and four blanks.
- * Public: rollPlanarDie.
+ * Public: rollPlanarDie, pickPlanarDieFace.
  */
 import type { GameContext } from '../context.js';
 import { applyPlanarDieFaces, queueIchorPlanarDiceIgnoreChoice } from './ichorPlanarDiceChoice.js';
 import { ichorPlanarDiceAdjustment } from './replacementBatch98Collect.js';
+import { applyPlanarDieFaceEffects, isPlanechaseEnabled } from './planechaseRuntime.js';
 
 export type PlanarDieFace = 'chaos' | 'planeswalk' | 'blank';
 
 const FACES: readonly PlanarDieFace[] = ['chaos', 'planeswalk', 'blank', 'blank', 'blank', 'blank'];
+
+/** Pick a face without applying it, so callers can save the face before its effects run. */
+export function pickPlanarDieFace(random: () => number = Math.random): PlanarDieFace {
+  return FACES[Math.floor(random() * FACES.length)]!;
+}
 
 export function rollPlanarDie(
   ctx: GameContext,
@@ -35,5 +41,8 @@ export function rollPlanarDie(
     return rolled;
   }
   applyPlanarDieFaces(ctx, playerId, faces);
+  if (isPlanechaseEnabled((ctx as any)?.state)) {
+    applyPlanarDieFaceEffects(ctx, playerId, faces);
+  }
   return rolled;
 }

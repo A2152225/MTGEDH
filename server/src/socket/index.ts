@@ -17,6 +17,7 @@ import { registerOpeningHandHandlers } from "./opening-hand.js";
 import { registerUndoHandlers } from "./undo.js";
 import { registerGameManagementHandlers } from "./game-management.js";
 import { registerRandomnessHandlers } from "./randomness.js";
+import { registerPlanarDieHandlers } from "./planarDieSocketHandlers.js";
 import { registerReplayHandlers } from "./replay.js";
 import { registerOpponentMayPayHandlers } from "./opponent-may-pay.js";
 import { registerIssueReportHandlers } from "./issueReport.js";
@@ -152,6 +153,7 @@ export function registerSocketHandlers(
     registerUndoHandlers(io, socket);
     registerGameManagementHandlers(io, socket);
     registerRandomnessHandlers(io, socket);
+    registerPlanarDieHandlers(io, socket);
     registerReplayHandlers(io, socket);
     registerOpponentMayPayHandlers(io, socket);
     registerIssueReportHandlers(io, socket);

@@ -15,6 +15,7 @@ import { collectBattlefieldAbilityBadgesForView } from "./battlefieldAbilityBadg
 import { computePermanentRulesStatus } from "./viewPermanentRulesStatus.js";
 import { applyRevealedInformationToZones } from "./viewRevealedInformation.js";
 import { applyFirstDrawRevealToZones } from "./viewFirstDrawReveal.js";
+import { redactVariantDecksForView } from "./viewVariantDeckRedaction.js";
 import { detectDamageReplacementEffects, canLookAtTopOfLibrary } from "./game-state-effects.js";
 import { maskFaceDownExileCardForViewer, applyCurrentExiledWithSourcePlayLook } from "./impulse-exile-utils.js";
 import { maskFaceDownPermanentForViewer, maskFaceDownStackItemForViewer } from "./faceDownViewMasking.js";
@@ -389,7 +390,8 @@ function viewForUnindexed(
     ),
   });
 
-  return {
+  // Planar / scheme decks are face-down hidden zones: clients get counts only (see viewVariantDeckRedaction.ts).
+  return redactVariantDecksForView({
     ...state,
     battlefield: filteredBattlefield.map((p: any) => maskFaceDownPermanentForViewer(p, viewer, (state as any).gameOver === true)),
     stack: state.stack.map((it: any) => maskFaceDownStackItemForViewer(it, viewer, (state as any).gameOver === true)),
@@ -410,6 +412,6 @@ function viewForUnindexed(
     viewer: viewer === "spectator:judge" ? undefined : viewer,
     // Include max lands per turn for client-side validation
     maxLandsPerTurn: (state as any).maxLandsPerTurn || {},
-  } as any;
+  } as any);
 }
 

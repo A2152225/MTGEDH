@@ -8,6 +8,10 @@
 import { parseManaCost } from '../mana-check.js';
 import { isLandTypeLine } from './canRespondSplitSecondLandPredicates.js';
 import { isTransformBackFace } from './canRespondTransformBackFace.js';
+import {
+  buildFusedSpellCard,
+  cardHasFuseKeyword,
+} from '../splitFuseSpellFace.js';
 
 function buildCastEvaluationFace(card: any, face: any, faceIndex: number, extras?: Record<string, unknown>): any {
   const manaCost = face?.mana_cost ?? face?.manaCost ?? card?.mana_cost ?? card?.manaCost;
@@ -90,7 +94,12 @@ export function getHandCastEvaluationCards(card: any): any[] {
   }
 
   if (layout === 'split' && cardFaces.length >= 2) {
-    return cardFaces.map((face: any, index: number) => buildCastEvaluationFace(card, face, index));
+    const halves = cardFaces.map((face: any, index: number) => buildCastEvaluationFace(card, face, index));
+    if (cardHasFuseKeyword(card)) {
+      const fused = buildFusedSpellCard(card);
+      if (fused) halves.push(fused);
+    }
+    return halves;
   }
 
   return [card];

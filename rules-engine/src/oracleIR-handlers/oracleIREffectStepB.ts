@@ -108,6 +108,13 @@ export type OracleEffectStepB =
       readonly raw: string;
     }
   | {
+      readonly kind: 'chaos_ensues';
+      readonly who: OraclePlayerSelector;
+      readonly optional?: boolean;
+      readonly sequence?: 'then';
+      readonly raw: string;
+    }
+  | {
       readonly kind: 'assemble';
       readonly who: OraclePlayerSelector;
       readonly optional?: boolean;

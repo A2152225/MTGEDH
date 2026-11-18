@@ -747,6 +747,10 @@ export function runNextTurnStartOfTurn(
     }
     delete (ctx as any).state._pendingAttractionVisitRollPlayer;
 
+    // Reset planar die tracking for this turn (CR 901.9: roll cost = rolls already taken this turn).
+    (ctx as any).state.planarDieSpecialActionsThisTurn = {};
+    (ctx as any).state.planarDieRollsThisTurn = [];
+
     // Reset dungeon completion tracking for this turn.
     (ctx as any).state.completedDungeonThisTurn = {};
     (ctx as any).state.dungeonCompletedThisTurn = {};

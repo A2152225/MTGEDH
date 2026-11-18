@@ -23,6 +23,8 @@ const INTERACTION_EVENT_SOURCE_PATHS = [
 ];
 
 const REPLAY_GUARDED_EVENT_TYPES = new Set([
+  'importVariantDecks',
+  'planarDieRoll',
   'equipDiscardCostPaid',
   'equipSacrificeCostPaid',
   'activateBattlefieldAbility',
@@ -88,6 +90,7 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'enlist',
   'exertChoice',
   'roomDoorChoice',
+  'unlockRoomDoorPaid',
   'executeEffect',
   'effectProgramZoneMove',
   'exploreResolve',
@@ -229,6 +232,9 @@ const REPLAY_GUARD_EXEMPTIONS: Record<string, string> = {
   unkeepHand: 'opening-hand progression primitive; the replay guard focuses on completion events instead',
   basicLandTypeChoice: 'applyEvent already clears BASIC_LAND_TYPE_CHOICE; covered by color/type choice replay siblings rather than a dedicated replay-named file',
   reflexiveExileToOwnersGraveyardResolve: 'follow-up stack object is persisted as pushTriggeredAbility; this event is the prompt-response companion without a standalone replay contract yet',
+  planeswalk: 'Planechase zone mutation; covered by planechase-archenemy.unit.test.ts applyEvent restore (deck UI later)',
+  setSchemeInMotion: 'Archenemy zone mutation; covered by planechase-archenemy.unit.test.ts applyEvent restore (deck UI later)',
+  abandonScheme: 'Archenemy zone mutation; covered by planechase-archenemy.unit.test.ts applyEvent restore (deck UI later)',
 };
 
 const PROMPT_RESPONSE_CLEANUP_EVENT_TYPES = [

@@ -84,8 +84,12 @@ export function resolveStackItemEffectiveCard(
     const alreadyBack = (card as any).transformed === true
       || (card as any).currentFace === 'back'
       || Number((card as any).faceIndex) === 1
+      || (card as any).castAsTransformed === true
       || (stackItem as any)?.transformed === true
-      || String((stackItem as any)?.castWithAbility || '').toLowerCase() === 'disturb';
+      || (stackItem as any)?.castAsTransformed === true
+      || String((stackItem as any)?.castWithAbility || '').toLowerCase() === 'disturb'
+      || String((stackItem as any)?.castWithAbility || '').toLowerCase() === 'siege-defeat'
+      || String((card as any)?.castWithAbility || '').toLowerCase() === 'siege-defeat';
     const face = alreadyBack && faces[1] ? faces[1] : faces[0];
     if (face) {
       effectiveTypeLine = face.type_line || effectiveTypeLine;

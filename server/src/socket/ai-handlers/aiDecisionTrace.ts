@@ -129,6 +129,8 @@ export function candidatesFromAIActionList(candidates: readonly any[]): Decision
       name = String(c.ability?.action?.cardName || c.ability?.action?.permanentId || '') || undefined;
     } else if (c?.kind === 'play_land') {
       name = String(c.land?.card?.name || '') || undefined;
+    } else if (c?.kind === 'roll_planar_die') {
+      name = 'planar die';
     }
     const entry: DecisionTraceCandidate = {
       kind: String(c?.kind || 'unknown'),

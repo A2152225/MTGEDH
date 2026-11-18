@@ -10,7 +10,7 @@ import type { PlayerID, GameEvent } from "../../types";
 import { nextTurnNumberForPlayer } from "../../../../../rules-engine/src/goadNextTurn.js";
 import { updateCounters, movePermanentToGraveyard } from "../counters_tokens";
 import { pushCardToPlayerGraveyardWithReplacements } from "../graveyardEntryUtils.js";
-import { applyRoomDoorLockOrUnlockChoice } from "../triggers/room.js";
+import { applyRoomDoorLockOrUnlockChoice, unlockRoomDoorPermanent } from "../triggers/room.js";
 import { applyTemporaryGraveyardKeywordGrantFromText } from "../graveyard-permissions.js";
 import {
   getCurrentCombatPowerSnapshot,
@@ -596,6 +596,25 @@ export function applyPermanentKeywordEvents(ctx: GameContext, e: GameEvent): boo
           ctx.bumpSeq();
         } catch (err) {
           debugWarn(1, 'applyEvent(roomDoorChoice): failed', err);
+        }
+        break;
+      }
+
+      case "unlockRoomDoorPaid": {
+        try {
+          const playerId = String((e as any).playerId || '').trim();
+          const permanentId = String((e as any).permanentId || '').trim();
+          const faceIndexRaw = Number((e as any).faceIndex);
+          const faceIndex = faceIndexRaw === 1 ? 1 : 0;
+          if (!playerId || !permanentId) break;
+          const battlefield = (ctx.state.battlefield || []) as any[];
+          const permanent = battlefield.find((p: any) => p && String(p.id) === permanentId);
+          if (!permanent) break;
+          // Mana was consumed live; on replay only restore door state + triggers.
+          unlockRoomDoorPermanent(ctx as any, permanent, playerId as any, faceIndex as 0 | 1);
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(unlockRoomDoorPaid): failed', err);
         }
         break;
       }

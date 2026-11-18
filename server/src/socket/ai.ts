@@ -733,6 +733,7 @@ async function executeAICastSpell(
     cardName: candidate.castCard?.name || card?.name,
     sourceZone,
     faceIndex,
+    ...(candidate.fused === true ? { fused: true } : {}),
     timesKicked: candidate.timesKicked,
   });
 }

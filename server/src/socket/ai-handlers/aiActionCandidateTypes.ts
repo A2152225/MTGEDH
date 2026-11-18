@@ -8,6 +8,7 @@
  * AIPlayableLandCandidate, AICastableSpellCandidate, AICastableCommanderCandidate,
  * AIActivatedAbilityCandidate, AIActionCandidate, AIActionSelectionMode,
  * AIActionCandidateQuery, AICastAttemptDescriptor.
+ * `roll_planar_die` is the free once-per-turn planar die roll (main phase 1 only).
  */
 import type {
   SharedCommanderCastCandidate,
@@ -25,6 +26,7 @@ export type AICastableSpellCandidate = {
   castCard: any;
   sourceZone: AISupportedCardSourceZone;
   faceIndex?: number;
+  fused?: boolean;
   cost: any;
   paymentCost?: any;
   timesKicked?: number;
@@ -45,7 +47,8 @@ export type AIActionCandidate =
   | { kind: 'play_land'; priority: number; land: AIPlayableLandCandidate }
   | { kind: 'cast_spell'; priority: number; spell: AICastableSpellCandidate }
   | { kind: 'cast_commander'; priority: number; commander: AICastableCommanderCandidate }
-  | { kind: 'activate_ability'; priority: number; ability: AIActivatedAbilityCandidate };
+  | { kind: 'activate_ability'; priority: number; ability: AIActivatedAbilityCandidate }
+  | { kind: 'roll_planar_die'; priority: number };
 
 export type AIActionSelectionMode = 'main' | 'response';
 

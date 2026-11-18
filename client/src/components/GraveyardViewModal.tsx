@@ -126,6 +126,27 @@ export function parseGraveyardAbilities(card: KnownCardRef): GraveyardAbility[] 
       cost: card.mana_cost,
     });
   }
+
+  // Aftermath - cast the aftermath half from graveyard, then exile
+  const faces = Array.isArray((card as any)?.card_faces) ? (card as any).card_faces : [];
+  const aftermathFace = faces.find((face: any) => /\baftermath\b/i.test(String(face?.oracle_text || '')));
+  const hasAftermath =
+    /\baftermath\b/i.test(oracleText)
+    || Boolean(aftermathFace);
+  if (hasAftermath) {
+    const aftermathCost = String(
+      aftermathFace?.mana_cost
+      || aftermathFace?.manaCost
+      || card.mana_cost
+      || '',
+    ).trim();
+    abilities.push({
+      id: 'aftermath',
+      label: 'Aftermath',
+      description: `Cast ${aftermathFace?.name || 'aftermath half'} from graveyard, then exile`,
+      cost: aftermathCost || card.mana_cost,
+    });
+  }
   
   // Generic activated abilities from graveyard
   // Look for patterns like "Tap X [creatures/permanents]: Return ~ from your graveyard"
@@ -260,14 +281,14 @@ function isLandCard(card: KnownCardRef): boolean {
 
 export function getGraveyardAbilitiesForCard(card: KnownCardRef, options?: { isPlayable?: boolean; abilityHints?: GraveyardAbility[] }): GraveyardAbility[] {
   const abilities = parseGraveyardAbilities(card);
-  const hasPrintedCastKeywordAbility = abilities.some((ability) => ['flashback', 'jump-start', 'retrace', 'escape', 'disturb'].includes(ability.id));
+  const hasPrintedCastKeywordAbility = abilities.some((ability) => ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'aftermath'].includes(ability.id));
   for (const hint of options?.abilityHints || []) {
     if (hint?.id === 'graveyard-cast' && hasPrintedCastKeywordAbility) continue;
     if (hint?.id === 'play-land' && abilities.some((ability) => ability.id === 'play-land')) continue;
     if (!hint?.id || abilities.some((ability) => ability.id === hint.id)) continue;
     abilities.push(hint);
   }
-  const hasCastFromGraveyardAbility = abilities.some((ability) => ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'graveyard-cast'].includes(ability.id));
+  const hasCastFromGraveyardAbility = abilities.some((ability) => ['flashback', 'jump-start', 'retrace', 'escape', 'disturb', 'aftermath', 'graveyard-cast'].includes(ability.id));
 
   if (options?.isPlayable && isLandCard(card) && !abilities.some((ability) => ability.id === 'play-land')) {
     abilities.push({

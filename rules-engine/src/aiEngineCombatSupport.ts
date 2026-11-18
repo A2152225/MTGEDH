@@ -14,7 +14,16 @@ import { playerIsLegalAttackTarget } from './playerInGameStatus';
 import { planAIBlocks } from './aiEngineBlockPlanning';
 import { aiRandom } from './aiRandom';
 import { planAttacks } from './ai/attackPlanner.js';
+import { planAttacksFast, shouldUseAttackPlannerFast } from './ai/attackPlannerFast.js';
 import { planBlocks } from './ai/blockPlanner.js';
+import {
+  filterStickyAttacksToLegal,
+  filterStickyBlocksToLegal,
+  readStickyAttackPlan,
+  readStickyBlockPlan,
+  writeStickyAttackPlan,
+  writeStickyBlockPlan,
+} from './ai/combatDecisionSticky.js';
 
 type CombatDeckModifiers = { attackBias: number; preserveBias: number };
 type CombatValueEvaluation = { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number };
@@ -234,6 +243,20 @@ export function makeBasicAttackDecision(
     };
   }
 
+  const stickyAttacks = readStickyAttackPlan(context.gameState, context.playerId);
+  if (stickyAttacks && stickyAttacks.length > 0) {
+    const filtered = filterStickyAttacksToLegal(stickyAttacks, legalAttackerIds);
+    if (filtered.length > 0) {
+      return {
+        type: AIDecisionType.DECLARE_ATTACKERS,
+        playerId: context.playerId,
+        action: { attackers: filtered },
+        reasoning: `sticky attack plan (${filtered.length})`,
+        confidence: 0.9,
+      };
+    }
+  }
+
   const player = context.gameState.players.find(p => p.id === context.playerId);
   const globalBattlefield = deps.getProcessedBattlefield(context.gameState);
   const findPermanent = (id: string) => globalBattlefield.find((p: any) => p.id === id);
@@ -289,40 +312,80 @@ export function makeBasicAttackDecision(
     || (player as any)?.aiBrain
     || (typeof process !== 'undefined' ? process.env?.AI_BRAIN : undefined);
   if (seatBrain === 'v2') {
-    // planAttacks×resolveCombat can hang the exclusive AI action on huge boards
-    // (self-play DECLARE_ATTACKERS soft-locks / multi-GB RSS). Skip before running.
+    // planAttacks×resolveCombat can hang the exclusive AI action on huge boards.
+    // Use a bounded greedy fast path instead of falling into full v0 evaluation.
     const boardSize = Array.isArray(globalBattlefield) ? globalBattlefield.length : 0;
     const attackPool = legalAttackerIds.length + goadedAttackers.length;
-    if (boardSize > 24 || attackPool > 8) {
-      console.warn(
-        `[ai] v2 attack planner skipped (board=${boardSize}, attackers=${attackPool}); using v0`,
-      );
-    } else {
-      try {
-        const planned = planAttacks({
+    if (shouldUseAttackPlannerFast(boardSize, attackPool)) {
+      const planned = planAttacksFast({
+        gameState: context.gameState,
+        playerId: context.playerId,
+        legalAttackerIds,
+        goaded: goadedAttackers,
+        battlefield: globalBattlefield,
+      });
+      writeStickyAttackPlan(context.gameState, context.playerId, planned.attackers);
+      return {
+        type: AIDecisionType.DECLARE_ATTACKERS,
+        playerId: context.playerId,
+        action: { attackers: planned.attackers },
+        reasoning: `v2 attack planner fast (${planned.reason}, ${planned.ms.toFixed(1)}ms, board=${boardSize}, pool=${attackPool})`,
+        confidence: 0.8,
+      };
+    }
+    try {
+      const planned = planAttacks({
+        gameState: context.gameState,
+        playerId: context.playerId,
+        legalAttackerIds,
+        goaded: goadedAttackers,
+        battlefield: globalBattlefield,
+      });
+      if (planned.ms > 2_500) {
+        console.warn(
+          `[ai] v2 attack planner too slow (${planned.ms.toFixed(0)}ms); using fast path`,
+        );
+        const fast = planAttacksFast({
           gameState: context.gameState,
           playerId: context.playerId,
           legalAttackerIds,
           goaded: goadedAttackers,
           battlefield: globalBattlefield,
         });
-        if (planned.ms > 2_500) {
-          console.warn(
-            `[ai] v2 attack planner too slow (${planned.ms.toFixed(0)}ms); using v0`,
-          );
-        } else {
-          return {
-            type: AIDecisionType.DECLARE_ATTACKERS,
-            playerId: context.playerId,
-            action: { attackers: planned.attackers },
-            reasoning: `v2 attack planner (${planned.reason}, ${planned.ms.toFixed(1)}ms)`,
-            confidence: 0.85,
-          };
-        }
-      } catch (err) {
-        // Fall through to v0 heuristics on planner failure.
-        console.warn('[ai] v2 attack planner failed, using v0', err);
+        writeStickyAttackPlan(context.gameState, context.playerId, fast.attackers);
+        return {
+          type: AIDecisionType.DECLARE_ATTACKERS,
+          playerId: context.playerId,
+          action: { attackers: fast.attackers },
+          reasoning: `v2 attack planner fast-after-slow (${fast.reason}, ${fast.ms.toFixed(1)}ms)`,
+          confidence: 0.8,
+        };
       }
+      writeStickyAttackPlan(context.gameState, context.playerId, planned.attackers);
+      return {
+        type: AIDecisionType.DECLARE_ATTACKERS,
+        playerId: context.playerId,
+        action: { attackers: planned.attackers },
+        reasoning: `v2 attack planner (${planned.reason}, ${planned.ms.toFixed(1)}ms)`,
+        confidence: 0.85,
+      };
+    } catch (err) {
+      console.warn('[ai] v2 attack planner failed, using fast path', err);
+      const fast = planAttacksFast({
+        gameState: context.gameState,
+        playerId: context.playerId,
+        legalAttackerIds,
+        goaded: goadedAttackers,
+        battlefield: globalBattlefield,
+      });
+      writeStickyAttackPlan(context.gameState, context.playerId, fast.attackers);
+      return {
+        type: AIDecisionType.DECLARE_ATTACKERS,
+        playerId: context.playerId,
+        action: { attackers: fast.attackers },
+        reasoning: `v2 attack planner fast-after-error (${fast.reason}, ${fast.ms.toFixed(1)}ms)`,
+        confidence: 0.75,
+      };
     }
   }
 
@@ -475,6 +538,7 @@ export function makeBasicAttackDecision(
     return { creatureId: id, defendingPlayerId };
   });
   const allAttackers = [...goadedAttackers, ...voluntaryAttackers];
+  writeStickyAttackPlan(context.gameState, context.playerId, allAttackers);
 
   let reasoning = `Attacking with ${allAttackers.length} creatures`;
   if (goadedCreatureIds.length > 0) {
@@ -541,6 +605,24 @@ export function makeBasicBlockDecision(
     };
   }
 
+  const stickyBlocks = readStickyBlockPlan(context.gameState, context.playerId);
+  if (stickyBlocks && stickyBlocks.length > 0) {
+    const filtered = filterStickyBlocksToLegal(
+      stickyBlocks,
+      legalBlockerIds,
+      attackerCreatures.map((c) => c.id),
+    );
+    if (filtered.length > 0) {
+      return {
+        type: AIDecisionType.DECLARE_BLOCKERS,
+        playerId: context.playerId,
+        action: { blockers: filtered },
+        reasoning: `sticky block plan (${filtered.length})`,
+        confidence: 0.9,
+      };
+    }
+  }
+
   const blockerEvaluations = blockerPermanents.map((perm: BattlefieldPermanent) => {
     const activeOpponents = context.gameState.players.filter((candidate: any) =>
       playerIsLegalAttackTarget(candidate, context.playerId)
@@ -563,21 +645,26 @@ export function makeBasicBlockDecision(
     || (context.gameState.players.find((p: any) => p?.id === context.playerId) as any)?.aiBrain
     || (typeof process !== 'undefined' ? process.env?.AI_BRAIN : undefined);
 
+  // Large combat: skip candidate explosion; reuse the lighter v0 block assignment.
+  const largeCombat =
+    attackerCreatures.length > 8 || blockerEvaluations.length > 8 || globalBattlefield.length > 24;
   const planned =
-    seatBrain === 'v2'
+    seatBrain === 'v2' && !largeCombat
       ? planBlocks(context, attackerCreatures, blockerEvaluations)
       : {
           ...planAIBlocks(context, attackerCreatures, blockerEvaluations),
           ms: 0,
-          reason: 'v0-planAIBlocks',
+          reason: largeCombat && seatBrain === 'v2' ? 'v2-fast-planAIBlocks' : 'v0-planAIBlocks',
         };
+
+  writeStickyBlockPlan(context.gameState, context.playerId, planned.assignments);
 
   let reasoning = `Blocking ${planned.assignments.length}/${attackerCreatures.length} attackers`;
   if (planned.deathTriggerBlocks > 0) {
     reasoning += ` (${planned.deathTriggerBlocks} with beneficial death triggers!)`;
   }
   if (seatBrain === 'v2') {
-    reasoning = `v2 block planner (${planned.reason}, ${planned.ms.toFixed(1)}ms); ${reasoning}`;
+    reasoning = `v2 block planner (${planned.reason}, ${Number(planned.ms || 0).toFixed(1)}ms); ${reasoning}`;
   }
 
   return {

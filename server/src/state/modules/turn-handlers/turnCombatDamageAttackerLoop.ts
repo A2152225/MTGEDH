@@ -21,7 +21,7 @@ import { applyLifeGainViaProcessLifeChange } from "./turnCombatDamageLifeGain.js
 import { applyCombatDamagePreventionEffects, getCombatCreatureStats } from "./turnCombatDamageStatsPrevention.js";
 import { combatDamageAssignmentAmount } from "./turnCombatDamageByToughness.js";
 import { combatDamagePreventedThisTurnLogged } from "./turnCombatDamagePreventedThisTurnLog.js";
-import { modifyCombatDamageToPermanentAmount, applyCombatDamageToPlaneswalker } from "./turnCombatDamagePermanentApply.js";
+import { modifyCombatDamageToPermanentAmount, applyCombatDamageToPlaneswalker, applyCombatDamageToBattle } from "./turnCombatDamagePermanentApply.js";
 import { queueDamageReceivedTrigger, runWithCombatDamageReceivedBatch } from "./turnCombatDamageReceivedQueue.js";
 import { trackCommanderDamage, trackCreatureDamageToPlayer } from "./turnCombatDamageTracking.js";
 import { assignsCombatDamageAsThoughUnblocked } from "./combatAssignAsThoughUnblocked.js";
@@ -115,6 +115,7 @@ function dealCombatDamageAttackerLoopUnbatched(
       const defendingPermanent = battlefield.find((perm: any) => perm && String(perm.id || '') === String(defendingTarget || ''));
       const defendingTypeLine = String(defendingPermanent?.card?.type_line || defendingPermanent?.type_line || '').toLowerCase();
       const isPlaneswalkerTarget = defendingTypeLine.includes('planeswalker');
+      const isBattleTarget = defendingTypeLine.includes('battle');
       const isPermanentCombatTarget = Boolean(defendingPermanent);
       
       // Check if this attacker should deal damage in this phase based on first strike rules
@@ -177,6 +178,23 @@ function dealCombatDamageAttackerLoopUnbatched(
             }
           } else if (damageResult.prevented) {
             debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${attackerPower} combat damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} was prevented`);
+          }
+        } else if (isBattleTarget && defendingPermanent) {
+          const damageResult = applyCombatDamageToBattle(ctx, defendingPermanent, attackerPower, card, attacker);
+
+          if (damageResult.appliedAmount > 0) {
+            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} dealt ${damageResult.appliedAmount} combat damage to battle ${defendingPermanent.card?.name || defendingPermanent.id} (${damageResult.remainingDefense} defense remaining)`);
+
+            if (keywords.lifelink) {
+              const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageResult.appliedAmount, `${card.name || 'Attacker'} (lifelink)`);
+
+              result.lifeGainForPlayers[attackerController] =
+                (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
+
+              debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} lifelink: ${lifeGainResult.message}`);
+            }
+          } else if (damageResult.prevented) {
+            debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${attackerPower} combat damage to battle ${defendingPermanent.card?.name || defendingPermanent.id} was prevented`);
           }
         } else if (!isPermanentCombatTarget && defendingTarget) {
           // UNBLOCKED ATTACKER: Deal damage to defending player
@@ -471,7 +489,7 @@ function dealCombatDamageAttackerLoopUnbatched(
             if (remainingDamage <= 0 && !keywords.trample) break;
           }
           
-          // Trample: Excess damage goes to defending player or planeswalker
+          // Trample: Excess damage goes to defending player, planeswalker, or battle
           if (keywords.trample && remainingDamage > 0) {
             if (isPlaneswalkerTarget && defendingPermanent) {
               const damageResult = applyCombatDamageToPlaneswalker(ctx, defendingPermanent, remainingDamage, card, attacker);
@@ -487,6 +505,21 @@ function dealCombatDamageAttackerLoopUnbatched(
                 }
               } else if (damageResult.prevented) {
                 debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${remainingDamage} trample damage to planeswalker ${defendingPermanent.card?.name || defendingPermanent.id} was prevented`);
+              }
+            } else if (isBattleTarget && defendingPermanent) {
+              const damageResult = applyCombatDamageToBattle(ctx, defendingPermanent, remainingDamage, card, attacker);
+
+              if (damageResult.appliedAmount > 0) {
+                debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'} trample: dealt ${damageResult.appliedAmount} excess damage to battle ${defendingPermanent.card?.name || defendingPermanent.id} (${damageResult.remainingDefense} defense remaining)`);
+
+                if (keywords.lifelink) {
+                  const lifeGainResult = applyLifeGainViaProcessLifeChange(ctx, attackerController as PlayerID, damageResult.appliedAmount, `${card.name || 'Attacker'} (lifelink trample)`);
+
+                  result.lifeGainForPlayers[attackerController] =
+                    (result.lifeGainForPlayers[attackerController] || 0) + lifeGainResult.actualChange;
+                }
+              } else if (damageResult.prevented) {
+                debug(2, `${ts()} [dealCombatDamage] ${card.name || 'Attacker'}'s ${remainingDamage} trample damage to battle ${defendingPermanent.card?.name || defendingPermanent.id} was prevented`);
               }
             } else if (!isPermanentCombatTarget && defendingTarget) {
               const defendingPlayerId = defendingTarget;

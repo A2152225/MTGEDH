@@ -31,6 +31,7 @@ export { applyLibrarySearchEvents } from "./applyEventLibrarySearchEvents.js"; /
 export { applyGroupVoteEvents } from "./applyEventGroupVoteEvents.js"; // Kynaios, Join Forces, Tempting Offer
 export { applyTriggerQueueEvents } from "./applyEventTriggerQueueEvents.js"; // push/order/delay triggers
 export { applyDungeonVoteEvents } from "./applyEventDungeonVoteEvents.js"; // dungeon venture and vote batches
+export { applyPlanechaseArchenemyEvents } from "./applyEventPlanechaseArchenemyEvents.js"; // planeswalk / setSchemeInMotion / abandonScheme
 export { applyExecuteEffectEvents } from "./applyEventExecuteEffectEvents.js"; // executeEffect, foretell, suspend, morph
 export { applyAttachmentEvents } from "./applyEventAttachmentEvents.js"; // equip, mutate, reconfigure, concede
 export { applyGraveyardTargetConfirmEvents } from "./applyEventGraveyardTargetConfirmEvents.js"; // GY targets and additional costs

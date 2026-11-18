@@ -222,6 +222,7 @@ export const GRAVEYARD_ALTERNATE_CAST_ABILITY_IDS = [
   'retrace',
   'escape',
   'disturb',
+  'aftermath',
   'graveyard-cast',
   'beam-me-up',
 ] as const;

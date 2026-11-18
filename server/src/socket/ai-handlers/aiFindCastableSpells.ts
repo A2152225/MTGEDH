@@ -263,6 +263,7 @@ function findCastableSpellsUncached(
         castCard: candidate.castCard,
         sourceZone: candidate.sourceZone,
         faceIndex: typeof candidate.castCard?.faceIndex === 'number' ? candidate.castCard.faceIndex : undefined,
+        fused: candidate.castCard?.castAsFused === true ? true : undefined,
         cost: candidate.cost,
         paymentCost,
         timesKicked,

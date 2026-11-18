@@ -66,13 +66,19 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
       landsPlayedThisTurn: you ? Number((safeView as any)?.landsPlayedThisTurn?.[you] || 0) : 0,
       maxLandsPerTurn: you ? Number((safeView as any)?.maxLandsPerTurn?.[you] || 1) : 1,
     }) == null;
+    const aftermathIndexes = cardFaces
+      .map((face, idx) => ({ face, idx }))
+      .filter(({ face }) => /\baftermath\b/i.test(String((face as any)?.oracle_text || (face as any)?.oracleText || '')))
+      .map(({ idx }) => idx);
     const offeredIndexes = layout === 'modal_dfc'
       ? modalDfcOfferedFaceIndexes(cardFaces, canPlayLandNow)
-      : cardFaces.map((_, idx) => idx);
-    if (layout === 'modal_dfc' && offeredIndexes.length === 0) {
+      : sourceZone === 'graveyard' && aftermathIndexes.length > 0
+        ? aftermathIndexes
+        : cardFaces.map((_, idx) => idx);
+    if (offeredIndexes.length === 0) {
       return;
     }
-    if (layout === 'modal_dfc' && offeredIndexes.length === 1 && safeView?.id) {
+    if (offeredIndexes.length === 1 && safeView?.id && (layout === 'modal_dfc' || sourceZone === 'graveyard')) {
       const faceIndex = offeredIndexes[0];
       const face = cardFaces[faceIndex];
       const fromZone = sourceZone !== 'hand' && sourceZone !== 'command' ? sourceZone : undefined;
@@ -191,20 +197,11 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
     let faceIndex: number | undefined;
     
     if (fused && sourceZone === 'hand' && cardFaces && cardFaces.length >= 2) {
-      // Fuse: special case - for now use legacy flow
-      // TODO: Implement fuse handling in requestCastSpell
-      const manaCost =
-        (cardFaces[0]?.mana_cost || '') +
-        (cardFaces[1]?.mana_cost || '');
-      const displayName = `${cardFaces[0]?.name || 'Left'} // ${cardFaces[1]?.name || 'Right'}`;
-      setSpellToCast({
+      requestCastSpellWithPromptSync({
+        gameId: safeView.id,
         cardId: splitCardData.cardId,
-        cardName: displayName,
-        manaCost: manaCost || (card as any).mana_cost,
-        title: `Cast ${displayName}`,
-        manualFloatingManaSelection: true,
+        fused: true,
       });
-      setCastSpellModalOpen(true);
       return;
     } else if (faceId.startsWith('face_') && cardFaces) {
       faceIndex = parseInt(faceId.replace('face_', ''), 10);
@@ -257,11 +254,40 @@ export function useAppPlayCombatHandlers(p: Record<string, any>) {
   const handleGraveyardAbility = (cardId: string, abilityId: string) => {
     if (!safeView?.id) return;
 
+    const zones = safeView.zones?.[you || ''];
+    const gyCard = ((zones?.graveyard || []) as KnownCardRef[]).find((c: any) => c?.id === cardId);
+    const layout = String((gyCard as any)?.layout || '').toLowerCase();
+    const cardFaces = Array.isArray((gyCard as any)?.card_faces) ? (gyCard as any).card_faces : [];
+    const needsFaceChoice = gyCard
+      && cardFaces.length >= 2
+      && (layout === 'split' || layout === 'adventure' || layout === 'modal_dfc');
+
     if (abilityId === 'graveyard-cast') {
-      socket.emit('requestCastSpell', {
+      if (needsFaceChoice && gyCard) {
+        openSplitCardChoice(cardId, gyCard, 'graveyard');
+        return;
+      }
+      requestCastSpellWithPromptSync({
         gameId: safeView.id,
         cardId,
         fromZone: 'graveyard',
+      });
+      return;
+    }
+
+    if (abilityId === 'aftermath') {
+      const aftermathFaceIndex = cardFaces.findIndex((face: any) =>
+        /\baftermath\b/i.test(String(face?.oracle_text || '')),
+      );
+      if (needsFaceChoice && gyCard && aftermathFaceIndex < 0) {
+        openSplitCardChoice(cardId, gyCard, 'graveyard');
+        return;
+      }
+      requestCastSpellWithPromptSync({
+        gameId: safeView.id,
+        cardId,
+        fromZone: 'graveyard',
+        ...(aftermathFaceIndex >= 0 ? { faceIndex: aftermathFaceIndex } : {}),
       });
       return;
     }

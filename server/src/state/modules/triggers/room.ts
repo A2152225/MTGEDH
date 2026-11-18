@@ -16,6 +16,13 @@ import { ResolutionStepType } from '../../resolution/index.js';
 import { queueResolveTopOfStackPrompt } from '../resolutionPromptEvents.js';
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 import { queueRoomFullyUnlockedTriggers } from '../triggerStateAndLevelEmitters.js';
+import {
+  initializeDualRoomDoorsOnEnter,
+  isDualDoorRoomCard,
+  listLockedRoomDoors,
+  syncRoomDoorGrantedUnlockAbilities,
+  unlockSpecificRoomDoor,
+} from '../roomOtherDoorUnlock.js';
 
 export interface RoomUnlockDoorTrigger {
   permanentId: string;
@@ -146,11 +153,16 @@ function queueRoomUnlockDoorTriggers(
   ctx: GameContext,
   permanent: any,
   controller: PlayerID,
+  faceOracleOverride?: string,
+  faceNameOverride?: string,
 ): void {
   const state = (ctx as any).state;
   if (!state || !permanent?.card) return;
 
-  const triggers = detectRoomUnlockDoorTriggers(permanent.card, permanent, state);
+  const oracleSource = faceOracleOverride != null
+    ? { ...permanent.card, oracle_text: faceOracleOverride, name: faceNameOverride || permanent.card.name }
+    : permanent.card;
+  const triggers = detectRoomUnlockDoorTriggers(oracleSource, permanent, state);
   if (triggers.length === 0) return;
 
   state.stack = state.stack || [];
@@ -160,7 +172,7 @@ function queueRoomUnlockDoorTriggers(
     const enrichedMetadata = inferTriggeredAbilityTargetMetadata(effectText, {
       gameState: state,
       controllerId: String(controller),
-      sourceName: String(trigger.cardName || permanent.card?.name || ''),
+      sourceName: String(trigger.cardName || faceNameOverride || permanent.card?.name || ''),
       sourcePermanent: permanent,
     } as any);
 
@@ -170,7 +182,7 @@ function queueRoomUnlockDoorTriggers(
       type: 'triggered_ability',
       controller,
       source: permanent.id,
-      sourceName: trigger.cardName || permanent.card?.name,
+      sourceName: trigger.cardName || faceNameOverride || permanent.card?.name,
       description: `When you unlock this door, ${effectText}`,
       triggerType: 'unlock_door',
       mandatory: trigger.mandatory,
@@ -192,13 +204,38 @@ function queueRoomUnlockDoorTriggers(
 /**
  * Unlock a Room door and queue its "When you unlock this door" triggers once.
  * Returns true when the door transitioned from locked to unlocked.
+ * Dual-door Rooms unlock one locked half (the first locked face).
  */
 export function unlockRoomDoorPermanent(
   ctx: GameContext,
   permanent: any,
   controller: PlayerID,
+  preferredFaceIndex?: 0 | 1,
 ): boolean {
   if (!permanent || !isRoomPermanent(permanent)) return false;
+
+  if (isDualDoorRoomCard(permanent.card)) {
+    const locked = listLockedRoomDoors(permanent);
+    if (locked.length === 0) return false;
+    const target =
+      (preferredFaceIndex != null ? locked.find((door) => door.faceIndex === preferredFaceIndex) : null)
+      || locked[0];
+    if (!target) return false;
+    const result = unlockSpecificRoomDoor(permanent, target.faceIndex);
+    if (!result.unlocked) return false;
+    queueRoomUnlockDoorTriggers(
+      ctx,
+      permanent,
+      controller,
+      result.faceOracleText || target.oracleText,
+      result.faceName || target.name,
+    );
+    if (result.becameFullyUnlocked) {
+      queueRoomFullyUnlockedTriggers(ctx, permanent);
+    }
+    return true;
+  }
+
   const wasLocked = permanent.doorLocked === true;
   if (!permanentHasUnlockDoorTrigger(permanent.card)) {
     permanent.doorLocked = false;
@@ -230,12 +267,30 @@ export function unlockRoomDoor(
 /**
  * Lock a Room door. Does not fire unlock-door triggers.
  * Returns true when the door transitioned from unlocked to locked.
+ * Dual-door: locks the highest unlocked face (typically the other door).
  */
 export function lockRoomDoorPermanent(
   ctx: GameContext,
   permanent: any,
 ): boolean {
   if (!permanent || !isRoomPermanent(permanent)) return false;
+
+  if (isDualDoorRoomCard(permanent.card)) {
+    const unlocked = Array.isArray(permanent.unlockedDoors)
+      ? permanent.unlockedDoors.map((n: unknown) => Number(n)).filter((n: number) => n === 0 || n === 1)
+      : (permanent.doorLocked === false ? [0, 1] : []);
+    if (unlocked.length === 0) {
+      permanent.doorLocked = true;
+      return false;
+    }
+    const toLock = Math.max(...unlocked) as 0 | 1;
+    permanent.unlockedDoors = unlocked.filter((n: number) => n !== toLock);
+    permanent.unlockedDoorCount = permanent.unlockedDoors.length;
+    permanent.doorLocked = true;
+    syncRoomDoorGrantedUnlockAbilities(permanent);
+    return true;
+  }
+
   if (permanent.doorLocked === true) return false;
   permanent.doorLocked = true;
   return true;
@@ -297,7 +352,8 @@ export function queueRoomDoorLockOrUnlockChoice(
 }
 
 /**
- * Called when a Room enters. Cast-half entry unlocks the door and fires triggers.
+ * Called when a Room enters. Cast-half entry unlocks that door and fires triggers.
+ * Dual-door Rooms leave the other half locked (pay its mana cost as a sorcery later).
  */
 export function handleRoomDoorStateOnEnter(
   ctx: GameContext,
@@ -305,6 +361,31 @@ export function handleRoomDoorStateOnEnter(
   controller: PlayerID,
 ): void {
   if (!isRoomPermanent(permanent)) return;
+
+  if (isDualDoorRoomCard(permanent.card)) {
+    if (permanent.skipUnlockDoorTriggerOnEnter === true) {
+      initializeDualRoomDoorsOnEnter(permanent);
+      // Leave cast door locked when skipped — mark none unlocked.
+      permanent.unlockedDoors = [];
+      permanent.unlockedDoorCount = 0;
+      permanent.doorLocked = true;
+      syncRoomDoorGrantedUnlockAbilities(permanent);
+      return;
+    }
+
+    const castFace = initializeDualRoomDoorsOnEnter(permanent);
+    if (castFace == null) return;
+    const faces = permanent.card.card_faces as any[];
+    const face = faces[castFace];
+    const faceOracle = String(face?.oracle_text || face?.oracleText || permanent.card.oracle_text || '');
+    const faceName = String(face?.name || permanent.card.name || '');
+    // Cast door is already marked unlocked; fire its unlock-door triggers only.
+    if (extractRoomUnlockDoorEffect(faceOracle)) {
+      queueRoomUnlockDoorTriggers(ctx, permanent, controller, faceOracle, faceName);
+    }
+    // Not fully unlocked — other door still locked.
+    return;
+  }
 
   initializeRoomDoorStateForEnter(permanent);
 

@@ -113,7 +113,7 @@ export async function handleActivateGraveyardAbilityRequest(
   const oracleText = (card?.oracle_text || "").toLowerCase();
   
   // Handle different graveyard abilities
-  if (abilityId === "flashback" || abilityId === "jump-start" || abilityId === "retrace" || abilityId === "escape" || abilityId === "graveyard-cast" || abilityId === "beam-me-up") {
+  if (abilityId === "flashback" || abilityId === "jump-start" || abilityId === "retrace" || abilityId === "escape" || abilityId === "aftermath" || abilityId === "graveyard-cast" || abilityId === "beam-me-up") {
     const result = continueCastFromGraveyardAbility({
       gameId,
       game,

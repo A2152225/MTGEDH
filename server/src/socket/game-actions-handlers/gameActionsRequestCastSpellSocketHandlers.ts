@@ -32,22 +32,25 @@ export async function handleRequestCastSpellRequest(
   requestCastSpellForSocket: (
     io: Server,
     socket: Socket,
-    payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fromZone?: unknown },
+    payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fused?: unknown; fromZone?: unknown },
     options?: { discardStaleCastModes?: boolean },
   ) => Promise<void>,
-  payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fromZone?: unknown },
+  payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fused?: unknown; fromZone?: unknown },
 ): Promise<void> {
   const gameId = payload?.gameId;
   const cardId = payload?.cardId;
   const faceIndex = payload?.faceIndex;
+  const fused = payload?.fused;
   const fromZone = payload?.fromZone;
 
   if (!gameId || typeof gameId !== 'string') return;
   if (!cardId || typeof cardId !== 'string') return;
   if (!(faceIndex === undefined || typeof faceIndex === 'number')) return;
+  if (!(fused === undefined || fused === true || fused === false)) return;
   if (!(fromZone === undefined || fromZone === 'hand' || fromZone === 'exile' || fromZone === 'graveyard' || fromZone === 'library' || fromZone === 'command')) return;
 
   const castFaceIndex = faceIndex as number | undefined;
+  const castFused = fused === true;
   const castFromZone = fromZone as SpellCastSourceZone | undefined;
 
   try {
@@ -82,6 +85,7 @@ export async function handleRequestCastSpellRequest(
       gameId,
       cardId,
       faceIndex: castFaceIndex,
+      ...(castFused ? { fused: true } : {}),
       fromZone: castFromZone,
     }, {
       discardStaleCastModes: true,

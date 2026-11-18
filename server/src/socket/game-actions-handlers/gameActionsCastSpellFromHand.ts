@@ -76,6 +76,7 @@ export async function handleCastSpellFromHandRequest(
       const cardInHand = front.cardInHand;
       const selectedFaceIndex = front.selectedFaceIndex;
       const castAsAdventure = front.castAsAdventure;
+      const castAsFused = front.castAsFused;
       const resolvedTimesKicked = front.resolvedTimesKicked;
       const commandZoneManaCost = front.commandZoneManaCost;
       const typeLine = front.typeLine;
@@ -496,6 +497,7 @@ export async function handleCastSpellFromHandRequest(
             xValue,
             selectedFaceIndex,
             castAsAdventure,
+            castAsFused,
             resolvedTimesKicked,
             giftPromisedForCast,
             isAura,
@@ -563,6 +565,7 @@ export async function handleCastSpellFromHandRequest(
         xValue,
         selectedFaceIndex,
         castAsAdventure,
+        castAsFused,
         alternateCostId,
         castSourceZone,
         giftPromisedForCast,

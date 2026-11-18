@@ -1,8 +1,9 @@
 // server/src/state/modules/turn-handlers/turnCombatDamagePermanentApply.ts
 // Origin parent: server/src/state/modules/turn.ts
 // Cluster moved: isCombatDamagePreventedForPermanent,
-// modifyCombatDamageToPermanentAmount, applyCombatDamageToPlaneswalker.
-// Public entry symbols: those three functions.
+// modifyCombatDamageToPermanentAmount, applyCombatDamageToPlaneswalker,
+// applyCombatDamageToBattle.
+// Public entry symbols: those four functions.
 // Leaf must not import turn.ts or turn-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
@@ -12,6 +13,7 @@ import { applyShieldCounterDamagePrevention } from "../counter-common-effects.js
 import { evaluateDamageReplacementEvent } from "../replacement-effects.js";
 import { applyCombatDamagePreventionEffects } from "./turnCombatDamageStatsPrevention.js";
 import { recordDamageReplacementMessages } from "../replacementDamageLog.js";
+import { markPermanentDealtDamage } from "../damageDealtFlag.js";
 
 export function isCombatDamagePreventedForPermanent(permanent: any): boolean {
   if (!permanent) {
@@ -100,4 +102,57 @@ export function applyCombatDamageToPlaneswalker(ctx: GameContext, permanent: any
   recordPlaneswalkerCombatDamage(ctx, sourceId, permanent, prevention.remainingDamage);
 
   return { prevented: false, appliedAmount: prevention.remainingDamage, remainingLoyalty: nextLoyalty };
+}
+
+/**
+ * CR 120.3f / 310.6: combat damage to a battle removes that many defense counters.
+ */
+export function applyCombatDamageToBattle(ctx: GameContext, permanent: any, amount: number, sourceCard: any, sourcePermanent: any): {
+  prevented: boolean;
+  appliedAmount: number;
+  remainingDefense: number;
+} {
+  const sourceId = String(sourcePermanent?.id || '');
+  const normalizedAmount = modifyCombatDamageToPermanentAmount(ctx, amount, sourcePermanent, permanent);
+  const currentDefense = Number(
+    (permanent as any)?.counters?.defense
+    ?? (permanent as any)?.defense
+    ?? (permanent as any)?.card?.defense
+    ?? 0,
+  ) || 0;
+
+  if (!permanent || normalizedAmount <= 0) {
+    return { prevented: false, appliedAmount: 0, remainingDefense: currentDefense };
+  }
+
+  const prevention = applyCombatDamagePreventionEffects(ctx, normalizedAmount, sourceId, sourceCard, { targetPermanentId: String(permanent.id || '') });
+  if (prevention.remainingDamage <= 0) {
+    return { prevented: true, appliedAmount: 0, remainingDefense: currentDefense };
+  }
+
+  const shieldReplacement = evaluateDamageReplacementEvent({
+    state: ctx.state,
+    amount: prevention.remainingDamage,
+    source: sourceCard,
+    sourceId,
+    target: permanent,
+    targetId: String(permanent.id || ''),
+  });
+  const battleName = String(permanent?.card?.name || permanent?.id || 'battle');
+  const preventedThisTurn = isCombatDamagePreventedForPermanent(permanent);
+  const shielded = !preventedThisTurn && shieldReplacement.effectId === 'shield-counter-prevent-damage' && applyShieldCounterDamagePrevention(permanent);
+  if (preventedThisTurn || shielded) {
+    const why = preventedThisTurn ? 'prevent all combat damage dealt to it this turn' : 'shield counter removed';
+    recordDamageReplacementMessages(ctx.state, [`${battleName}: prevented ${prevention.remainingDamage} combat damage (${why})`], prevention.remainingDamage, 0);
+  }
+  if (preventedThisTurn || shielded) {
+    return { prevented: true, appliedAmount: 0, remainingDefense: currentDefense };
+  }
+
+  const nextDefense = Math.max(0, currentDefense - prevention.remainingDamage);
+  (permanent as any).counters = { ...((permanent as any).counters || {}), defense: nextDefense };
+  (permanent as any).defense = nextDefense;
+  if (sourceId) markPermanentDealtDamage(ctx, sourceId);
+
+  return { prevented: false, appliedAmount: prevention.remainingDamage, remainingDefense: nextDefense };
 }

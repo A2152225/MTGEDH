@@ -283,7 +283,7 @@ export function parseAlternateCosts(oracleText: string, cardManaCost: string, ca
   }
   
   // Prototype (smaller stats, cheaper cost) - Phyrexian construct cards
-  const prototypeMatch = text.match(/prototype\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*[-Ã¢â‚¬â€]\s*(\d+)\/(\d+)/i);
+  const prototypeMatch = text.match(/prototype\s*(\{[^}]+\}(?:\s*\{[^}]+\})*)\s*[-–—]\s*(\d+)\s*\/\s*(\d+)/i);
   if (prototypeMatch) {
     costs.push({
       id: 'prototype',

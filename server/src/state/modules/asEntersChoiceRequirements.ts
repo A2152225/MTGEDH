@@ -6,6 +6,7 @@
 
 import { parseOracleTextToIR } from '../../../../rules-engine/src/oracleIRParser.js';
 import { mergeOptionalEntersAsCopyFallback } from './asEntersOptionalCopyFallback.js';
+import { getBattleProtectorAsEntersRequirement } from './battleSiegeEntry.js';
 
 export type MagicColorName = 'white' | 'blue' | 'black' | 'red' | 'green';
 
@@ -207,22 +208,41 @@ function collectIrAsEntersChoices(oracleText: string, cardName: string): AsEnter
  */
 export function getAsEntersChoiceRequirements(card: any): AsEntersChoiceRequirement[] {
   if (!card) return [];
-  const oracleText = String(card.oracle_text || '');
-  if (!oracleText.trim()) return [];
+  const faces = Array.isArray(card?.card_faces) ? card.card_faces : [];
+  const faceOracle = faces
+    .map((face: any) => String(face?.oracle_text || face?.oracleText || ''))
+    .filter(Boolean)
+    .join('\n');
+  const oracleText = String(card.oracle_text || faceOracle || '');
   const cardName = String(card.name || 'Card');
+  const battleProtector = getBattleProtectorAsEntersRequirement(card);
 
-  // IR is the sole source of truth for as-enters choice derivation (Phase 8).
-  // The result is a pure function of (oracle text, name). Entry-prompt scans call this
+  // IR is the sole source of truth for as-enters choice derivation (Phase 8),
+  // except Battle/Siege protector which lives in reminder text and is injected.
+  // The IR result is a pure function of (oracle text, name). Entry-prompt scans call this
   // for every permanent after each Oracle IR resolution, so re-parsing made mass token
   // turns (Cathars' Crusade + 100 Mites) quadratic. Memoize and hand out copies.
-  const key = `${cardName}\u0000${oracleText}`;
-  let cached = AS_ENTERS_CHOICE_CACHE.get(key);
-  if (!cached) {
-    cached = mergeOptionalEntersAsCopyFallback(oracleText, collectIrAsEntersChoices(oracleText, cardName));
-    if (AS_ENTERS_CHOICE_CACHE.size >= AS_ENTERS_CHOICE_CACHE_MAX) AS_ENTERS_CHOICE_CACHE.clear();
-    AS_ENTERS_CHOICE_CACHE.set(key, cached);
+  let requirements: AsEntersChoiceRequirement[] = [];
+  if (oracleText.trim()) {
+    const key = `${cardName}\u0000${oracleText}`;
+    let cached = AS_ENTERS_CHOICE_CACHE.get(key);
+    if (!cached) {
+      cached = mergeOptionalEntersAsCopyFallback(oracleText, collectIrAsEntersChoices(oracleText, cardName));
+      if (AS_ENTERS_CHOICE_CACHE.size >= AS_ENTERS_CHOICE_CACHE_MAX) AS_ENTERS_CHOICE_CACHE.clear();
+      AS_ENTERS_CHOICE_CACHE.set(key, cached);
+    }
+    requirements = cached.map(cloneRequirement);
   }
-  return cached.map(cloneRequirement);
+
+  if (battleProtector && !requirements.some((req) => req.kind === 'opponent')) {
+    requirements.push({
+      kind: battleProtector.kind,
+      mandatory: battleProtector.mandatory,
+      reason: battleProtector.reason,
+    });
+  }
+
+  return requirements;
 }
 
 const AS_ENTERS_CHOICE_CACHE_MAX = 4096;

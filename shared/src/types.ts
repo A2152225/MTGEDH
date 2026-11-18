@@ -442,11 +442,28 @@ export interface GameState {
   // Special game designations (Rules 724-730)
   monarch?: PlayerID | null;
   initiative?: PlayerID | null;
+  // Face-down decks. Server state only: the client view (viewFor) strips these and sends
+  // planarDeckCount / schemeDeckCount instead (see viewVariantDeckRedaction.ts).
   schemeDeck?: any[];
-  ongoingSchemes?: any[];
   planarDeck?: any[];
   planarDeckFaceDown?: any[];
+  /** Each player's contributed planar cards (server state only; stripped from client views). */
+  planarContributions?: Record<PlayerID, any[]>;
+  /** Client view only: cards left in the face-down decks. */
+  planarDeckCount?: number;
+  /** Planar cards each player contributed to the communal deck (counts only; the cards are hidden). */
+  planarContributionCounts?: Record<PlayerID, number>;
+  schemeDeckCount?: number;
+  // Public (face-up) Planechase / Archenemy state.
+  ongoingSchemes?: any[];
+  activeSchemes?: any[];
+  schemeGraveyard?: any[];
+  lastSchemeInMotion?: any | null;
+  archenemyPlayerId?: PlayerID;
   currentPlane?: any | null;
+  activePlane?: any | null;
+  planarController?: PlayerID;
+  chaoticAetherActive?: boolean;
   planeswalkedThisTurn?: boolean;
   planeswalksAttempted?: number;
   planeswalkedToThisTurn?: Record<PlayerID, string[]>;

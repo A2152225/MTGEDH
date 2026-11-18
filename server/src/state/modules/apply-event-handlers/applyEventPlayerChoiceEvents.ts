@@ -273,6 +273,12 @@ export function applyPlayerChoiceEvents(ctx: GameContext, e: GameEvent): boolean
             const resolvedName = String(chosenPlayerName || '').trim()
               || String((ctx.state?.players || []).find((p: any) => String(p?.id || '') === String(chosenPlayer))?.name || '').trim();
             if (resolvedName) (permanent as any).chosenPlayerName = resolvedName;
+            const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+            if (/\bbattle\b/.test(typeLine)) {
+              (permanent as any).protectorId = chosenPlayer;
+              (permanent as any).protector = chosenPlayer;
+              (permanent as any).chosenOpponentId = chosenPlayer;
+            }
             if (permanent.card && typeof permanent.card === 'object') {
               (permanent.card as any).chosenPlayer = chosenPlayer;
               if (resolvedName) (permanent.card as any).chosenPlayerName = resolvedName;

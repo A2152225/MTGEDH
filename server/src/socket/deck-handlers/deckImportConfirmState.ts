@@ -37,6 +37,9 @@ export type PendingConfirm = {
   snapshotPhase?: string | null;
   // PRE_GAME optimization: apply only for the importer (do not wipe/reset table)
   applyImporterOnly?: boolean;
+  // Planechase / Archenemy cards that ship WITH the deck but are not in `resolvedCards`
+  // (a precon's stored planes + schemes). Seeded into the planar / scheme decks on apply.
+  variantCards?: { planar: any[]; schemes: any[] };
 };
 
 export function getSaveOwnerFromSocket(socket: {

@@ -8,17 +8,26 @@ import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
+import { normalizePlanechaseOracleText } from '../planechaseOracleNormalize.js';
 
 export function detectAbilityActivatedTriggers(card: any, permanent?: any, gameState?: any): TriggeredAbility[] {
   if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'other' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
-  const oracleText = String(card?.oracle_text || '');
+  const rawOracle = String(card?.oracle_text || '');
+  const typeLine = String(card?.type_line || permanent?.card?.type_line || permanent?.type_line || '');
+  const looksPlanechase =
+    /\bplane\b/i.test(typeLine)
+    || /\bphenomenon\b/i.test(typeLine)
+    || /\bscheme\b/i.test(typeLine)
+    || permanent?.commandZoneAbilitySource === true
+    || /\{CHAOS\}|chaos ensues|set this scheme in motion|planeswalk here|you encounter /i.test(rawOracle);
+  const oracleText = looksPlanechase ? normalizePlanechaseOracleText(rawOracle) : rawOracle;
   const cardName = String(card?.name || 'Unknown');
   const permanentId = permanent?.id || '';
 
-  // Planechase phenomena/planes: "Whenever you planeswalk here, ..."
+  // Planechase phenomena/planes: "Whenever you planeswalk here, ..." / "When you planeswalk to NAME, ..."
   const planeswalkHereMatch = oracleText.match(
-    /whenever you planeswalk here,?\s*([^.]+)/i,
+    /when(?:ever)? you planeswalk (?:here|to [^.]+?),?\s*([^.]+)/i,
   );
   if (planeswalkHereMatch && !triggers.some((t) => t.triggerType === 'planeswalk_here')) {
     const effectText = timingTriggerEffect(oracleText, planeswalkHereMatch);
@@ -397,7 +406,7 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any, gameS
     });
   }
 
-  const encounterPhenomenonMatch = oracleText.match(/when(?:ever) you encounter this phenomenon,?\s*([^.]+)/i);
+  const encounterPhenomenonMatch = oracleText.match(/when(?:ever)? you encounter this phenomenon,?\s*([^.]+)/i);
   if (encounterPhenomenonMatch && !triggers.some((t) => t.triggerType === 'encounter_phenomenon')) {
     const effectText = timingTriggerEffect(oracleText, encounterPhenomenonMatch);
     triggers.push({
@@ -477,7 +486,8 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any, gameS
     });
   }
 
-  const chaosEnsuesMatch = oracleText.match(/whenever chaos ensues,?\s*([^.]+)/i);
+  const chaosEnsuesMatch = oracleText.match(/whenever chaos ensues,?\s*([^.]+)/i)
+    || oracleText.match(/whenever you roll \{CHAOS\},?\s*([^.]+)/i);
   if (chaosEnsuesMatch && !triggers.some((t) => t.triggerType === 'chaos_ensues')) {
     const effectText = timingTriggerEffect(oracleText, chaosEnsuesMatch);
     triggers.push({

@@ -378,6 +378,9 @@ export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
             if (typeof (e as any).castAsAdventure === 'boolean') {
               applyToStackItem('castAsAdventure', (e as any).castAsAdventure);
             }
+            if ((e as any).castAsFused === true) {
+              applyToStackItem('castAsFused', true);
+            }
             if ((e as any).giftPromised === true) {
               applyToStackItem('giftPromised', true);
             }

@@ -355,6 +355,15 @@ export function applyBecomeMonarchStep(
     };
   }
 
+function isPhenomenonCard(card: any): boolean {
+  return /\bphenomenon\b/i.test(String(card?.type_line || card?.typeLine || ''));
+}
+
+function isPlaneCard(card: any): boolean {
+  const typeLine = String(card?.type_line || card?.typeLine || '');
+  return /\bplane\b/i.test(typeLine) && !/\bplaneswalker\b/i.test(typeLine);
+}
+
 export function applyPlaneswalkStep(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'planeswalk' }>,
@@ -381,7 +390,7 @@ export function applyPlaneswalkStep(
   const playerId = players[0];
   const stateAny = state as any;
   const faceDownDeck = Array.isArray(stateAny.planarDeckFaceDown) ? [...stateAny.planarDeckFaceDown] : [];
-  const previousPlane = stateAny.currentPlane ?? null;
+  const previousPlane = stateAny.currentPlane ?? stateAny.activePlane ?? null;
   if (previousPlane) {
     faceDownDeck.push(previousPlane);
   }
@@ -395,7 +404,38 @@ export function applyPlaneswalkStep(
     };
   }
 
-  const [nextPlane, ...remainingDeck] = faceDownDeck;
+  const phenomenaEncountered: any[] = [];
+  let nextPlane: any = null;
+  const remainingDeck = [...faceDownDeck];
+  const safety = Math.max(1, remainingDeck.length + 2);
+  for (let i = 0; i < safety && remainingDeck.length > 0; i++) {
+    const card = remainingDeck.shift();
+    if (!card) break;
+    if (isPhenomenonCard(card)) {
+      phenomenaEncountered.push(card);
+      remainingDeck.push(card);
+      const phenomenonName = String((card as any)?.name || '').trim().toLowerCase();
+      if (phenomenonName === 'chaotic aether') {
+        stateAny.chaoticAetherActive = true;
+      }
+      continue;
+    }
+    if (isPlaneCard(card) || !String((card as any)?.type_line || (card as any)?.typeLine || '').trim()) {
+      nextPlane = card;
+      break;
+    }
+    remainingDeck.push(card);
+  }
+
+  if (!nextPlane) {
+    return {
+      applied: false,
+      message: `Skipped planeswalk (no plane revealed): ${step.raw}`,
+      reason: 'failed_to_apply',
+      options: { classification: 'invalid_input', persist: false },
+    };
+  }
+
   const nextPlaneName = String((nextPlane as any)?.name || nextPlane || '').trim();
   const normalizedNextPlaneName = normalizeOracleText(nextPlaneName);
   const previousPlaneName = String((previousPlane as any)?.name || previousPlane || '').trim();
@@ -408,22 +448,82 @@ export function applyPlaneswalkStep(
   }
   planeswalkedToThisTurn[playerId] = existingEntries;
 
+  let chaoticAetherActive = stateAny.chaoticAetherActive === true;
+  if (previousPlane && isPlaneCard(previousPlane)) {
+    chaoticAetherActive = false;
+  }
+
+  const phenomenonNames = phenomenaEncountered
+    .map((card) => String((card as any)?.name || '').trim())
+    .filter(Boolean);
+
   return {
     applied: true,
     state: {
       ...stateAny,
       currentPlane: nextPlane,
+      activePlane: nextPlane,
       planarDeckFaceDown: remainingDeck,
       planeswalkedThisTurn: true,
       planeswalksAttempted: Math.max(0, Number(stateAny.planeswalksAttempted) || 0) + 1,
       planeswalkedToThisTurn,
       planeswalkedToPlanesThisTurn: planeswalkedToThisTurn,
+      chaoticAetherActive,
+      lastPlaneswalkPhenomena: phenomenaEncountered,
     } as GameState,
     log: [
       previousPlaneName
         ? `${playerId} planeswalked away from ${previousPlaneName} to ${nextPlaneName || 'a plane'}`
         : `${playerId} planeswalked to ${nextPlaneName || 'a plane'}`,
+      ...(phenomenonNames.length > 0
+        ? [`Encountered phenomenon${phenomenonNames.length === 1 ? '' : 's'}: ${phenomenonNames.join(', ')}`]
+        : []),
     ],
+  };
+}
+
+/**
+ * Keyword action "chaos ensues" (CR 701.x / 311.7): mark that chaos ensued.
+ * Trigger step replay for the face-up plane is handled by the main-loop case
+ * (same pattern as set_in_motion).
+ */
+export function applyChaosEnsuesStep(
+  state: GameState,
+  step: Extract<OracleEffectStep, { kind: 'chaos_ensues' }>,
+  ctx: OracleIRExecutionContext
+): PlayerStepHandlerResult {
+  const players = resolvePlayers(state, step.who, ctx);
+  if (players.length !== 1) {
+    return {
+      applied: false,
+      message: `Skipped chaos ensues (unsupported player selector): ${step.raw}`,
+      reason: 'unsupported_player_selector',
+    };
+  }
+
+  const playerId = players[0];
+  const stateAny = state as any;
+  const plane = stateAny.currentPlane ?? stateAny.activePlane ?? null;
+  if (!plane) {
+    return {
+      applied: true,
+      state: {
+        ...stateAny,
+        chaosEnsuedThisTurn: true,
+        lastChaosEnsuesPlayerId: playerId,
+      } as GameState,
+      log: [`${playerId}: chaos ensued (no face-up plane)`],
+    };
+  }
+
+  return {
+    applied: true,
+    state: {
+      ...stateAny,
+      chaosEnsuedThisTurn: true,
+      lastChaosEnsuesPlayerId: playerId,
+    } as GameState,
+    log: [`${playerId}: chaos ensued (plane ${String(plane?.name || 'unknown')})`],
   };
 }
 

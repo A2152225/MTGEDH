@@ -54,6 +54,7 @@ export type PersistAndProcessCastSpellFromHandArgs = {
   xValue: number | undefined;
   selectedFaceIndex: number | undefined;
   castAsAdventure: boolean | undefined;
+  castAsFused: boolean | undefined;
   alternateCostId: string | undefined;
   castSourceZone: SpellCastSourceZone;
   giftPromisedForCast: boolean;
@@ -87,6 +88,7 @@ export async function persistAndProcessCastSpellFromHand(
     xValue,
     selectedFaceIndex,
     castAsAdventure,
+    castAsFused,
     alternateCostId,
     castSourceZone,
     giftPromisedForCast,
@@ -207,6 +209,7 @@ export async function persistAndProcessCastSpellFromHand(
           xValue,
           ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
           ...(typeof castAsAdventure === 'boolean' ? { castAsAdventure } : {}),
+          ...(castAsFused === true ? { castAsFused: true } : {}),
           alternateCostId,
           ...buildPersistedWebSlingingCastIntentFields(cardInHand as any, alternateCostId),
           fromZone: castSourceZone,

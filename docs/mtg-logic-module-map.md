@@ -251,6 +251,39 @@ Coordinator merges owed extract-family rows there.
 | `rules-engine/src/oracleIRExecutorSetBasePtToughnessAmount.ts` | `resolveSetBasePtToughnessAmount`: resolves `set_base_pt.toughnessAmount` (`1 plus the number of creature cards in your graveyard`) for `applySetBasePtStep`; the `x is [N plus] the number of <type> cards in your graveyard` counter lives in `oracleIRExecutorModifyPtWhereZoneCardCounts.ts`. |
 | `rules-engine/src/oracleIRExecutorCreaturesThatDealtDamageToSource.ts` | `each creature that dealt damage to it this turn` selector (`resolveCreatureIdsThatDealtDamageToSource`) plus the shared `permanentDealtDamageToSource` dealer-bag check (also used by `oracleIRExecutorUnlessPaysForEachPermanents.ts`); wired into `resolveCreatureTargetIds`. |
 
+## Non-standard layouts (Fuse / Aftermath / Prototype / Battle / Room)
+
+| Module | Owns |
+| --- | --- |
+| `state/modules/battleSiegeEntry.ts` | Battle/Siege ETB: printed defense counters + protector as-enters requirement (reminder text is scrubbed). |
+| `state/modules/battleSiegeDefeat.ts` | Battle defeat SBA: 0 defense → GY; Siege → exile then mandatory cast-transformed prompt (`processBattleDefeatSBAs`). |
+| `state/modules/turn-handlers/turnCombatDamagePermanentApply.ts` | `applyCombatDamageToPlaneswalker` / `applyCombatDamageToBattle` (defense counters). |
+| `state/modules/triggers/room.ts` | Unlock-door triggers, lock/unlock choice, enter unlock. Dual-door Rooms leave the other half locked. |
+| `state/modules/roomOtherDoorUnlock.ts` | Dual-door state (`unlockedDoors`), granted pay-to-unlock abilities, `payToUnlockRoomDoor` (CR 709.5e special action). |
+| `socket/interaction-handlers/interactionActivateRoomDoorUnlock.ts` | Activate handler for paying a locked Room door's mana cost as a sorcery. |
+
+## Planechase / Archenemy (engine; deck UI later)
+
+| Module | Owns |
+| --- | --- |
+| `state/modules/planechaseOracleNormalize.ts` | `{CHAOS}` → `Whenever chaos ensues` normalize; plane/phenomenon/scheme type-line helpers. |
+| `state/modules/commandZoneAbilitySources.ts` | Synthetic ability sources for the face-up plane / phenomenon and ongoing schemes (not battlefield). |
+| `state/modules/planechaseRuntime.ts` | `planeswalk` / `chaosEnsues` / `encounterPhenomenon` / planar-die face effects; persists `planeswalk` events. |
+| `state/modules/archenemyRuntime.ts` | `setSchemeInMotion` / `abandonScheme` (scheme deck bottom per CR 904.7). |
+| `state/modules/apply-event-handlers/applyEventPlanechaseArchenemyEvents.ts` | Replay restore for `importVariantDecks` / `planeswalk` / `setSchemeInMotion` / `abandonScheme`. |
+| `state/modules/variantDeckSeeding.ts` | Import-time seeding of planar deck / scheme deck from deck-import planar + scheme cards (`partitionVariantCards`, `seedVariantDecks`, `applyVariantDeckSnapshot`); persists `importVariantDecks`. |
+| `state/modules/variantDeckImportCommit.ts` | Shared split + seed for human and AI imports (`splitResolvedDeckVariants`, `commitImportedVariantDecks`, chat lines). |
+| `socket/ai-handlers/aiVariantDeckImport.ts` | AI deck-text import: strips planes/schemes from the library, then seeds them (`importAIResolvedDeck`). |
+| `socket/ai-handlers/aiPlanarDieRoll.ts` | AI free planar-die roll once per turn in main phase 1 (`freePlanarDieRollCandidate`, `tryAIFreePlanarDieRoll`). |
+| `state/modules/viewVariantDeckRedaction.ts` | Strips face-down planar / scheme deck contents from `viewFor` (adds `planarDeckCount` / `schemeDeckCount` / `planarContributionCounts`). |
+| `state/modules/planarDieSpecialAction.ts` | Planar die as a special action (CR 901.9): eligibility, generic-mana cost (rolls already taken this turn), `performPlanarDieSpecialAction`; persists `planarDieRoll` and restores via `applyPlanarDieRollSnapshot`. |
+| `socket/planarDieSocketHandlers.ts` | `rollPlanarDie` socket event: seat / room / pending-prompt checks, calls the special action, chat line, broadcast. |
+| `state/modules/turn-handlers/turnStepArchenemySchemeInMotion.ts` | Archenemy set-in-motion turn-based action at precombat main (CR 904.9); skipped on replay (`setSchemeInMotion` event replays it). |
+| `socket/deck-handlers/deckImportVariantCards.ts` | Precon import: reads stored planes / schemes and resolves them to cards (gated on house rules). |
+| `services/mtgJsonDeckVariantCards.ts` / `services/preconDeckVariantCardStore.ts` | MTGJSON deck `planes` / `schemes` extraction; precon SQLite tables for them (filled by `bake-precon-decklists.ts --backfill-variants`). |
+| `state/modules/planarDie.ts` / `ichorPlanarDiceChoice.ts` | Planar die roll; hooks `applyPlanarDieFaceEffects` when `enablePlanechase`. |
+| IR `planeswalk` / `chaos_ensues` / `abandon_scheme` / `set_in_motion` | Parser + executor (phenomena skipped to bottom; chaos/encounter/planeswalk-here abilities replayed). |
+
 ## Card data and SQLite connections (`server/src/services/`)
 
 | Module | Owns |

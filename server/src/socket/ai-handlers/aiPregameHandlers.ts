@@ -22,6 +22,7 @@ import {
   MAX_LIBRARY_SEARCH_LIMIT,
 } from "./aiConstants.js";
 import { getPersistedAIPlayerRuntimeData } from "./aiPlayerRuntimeData.js";
+import { importAIResolvedDeck } from "./aiVariantDeckImport.js";
 import { buildOpeningDrawPersistPayloads } from "../shuffleLibraryEventPayload.js";
 
 /**
@@ -629,37 +630,17 @@ export async function ensureAIPreGameDeckLoaded(gameId: string, playerId: Player
     return false;
   }
 
-  if (typeof (runtime.game as any).importDeckResolved === 'function') {
-    (runtime.game as any).importDeckResolved(playerId, resolvedCards);
-  } else {
-    runtime.game.state.zones = runtime.game.state.zones || {};
-    (runtime.game.state.zones as any)[playerId] = {
-      hand: [],
-      handCount: 0,
-      libraryCount: resolvedCards.length,
-      graveyard: [],
-      graveyardCount: 0,
-      exile: [],
-      exileCount: 0,
-    };
-  }
+  await importAIResolvedDeck({
+    game: runtime.game,
+    gameId,
+    playerId,
+    resolvedCards,
+    logLabel: '[AI] Restoring persisted AI deck',
+  });
 
   playerInState.deckName = deckName;
   if (rawDeckId) playerInState.deckId = rawDeckId;
   if (rawDeckText) playerInState.deckText = rawDeckText;
-
-  try {
-    await appendEvent(gameId, (runtime.game as any).seq || 0, 'deckImportResolved', {
-      playerId,
-      cards: resolvedCards,
-    });
-  } catch (err) {
-    debugWarn(1, '[AI] Failed to persist recovered AI deck import event:', {
-      gameId,
-      playerId,
-      deckName,
-    }, err);
-  }
 
   debug(1, '[AI] Restored AI deck during pre-game recovery:', {
     gameId,

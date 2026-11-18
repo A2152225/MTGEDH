@@ -185,6 +185,13 @@ export async function handlePlayerChoiceResponse(
       // Store the chosen player on the permanent
       (permanent as any).chosenPlayer = selectedPlayerId;
       (permanent as any).chosenPlayerName = getPlayerName(game, selectedPlayerId);
+      // Battles/Sieges: the chosen opponent is the protector (CR 310.8 / Siege reminder).
+      const typeLine = String(permanent?.card?.type_line || permanent?.type_line || '').toLowerCase();
+      if (/\bbattle\b/.test(typeLine)) {
+        (permanent as any).protectorId = selectedPlayerId;
+        (permanent as any).protector = selectedPlayerId;
+        (permanent as any).chosenOpponentId = selectedPlayerId;
+      }
       
       // Append event for replay
       try {

@@ -40,6 +40,7 @@ import { pollIrEventWatchers } from "../triggers/irEventWatchers.js";
 import { queueBecomesUnattachedTriggers } from "../triggerBecomesUnattached.js";
 import { queueSagaEntryChapterTriggers } from "../triggerSagaEntryChapters.js";
 import { restoreAssimilatedCardsOutsideBattlefield } from "../../../../../rules-engine/src/trekAssimilateZoneReset.js";
+import { processBattleDefeatSBAs } from "../battleSiegeDefeat.js";
 
 function updateGodCreatureStatus(ctx: GameContext): void {
   getCountersTokensHandlerDeps().updateGodCreatureStatus(ctx);
@@ -254,6 +255,11 @@ function runSBAUnbatched(ctx: GameContext) {
     }
   }
   
+  // Siege defeat (exile → cast transformed) before the generic battle-to-GY SBA.
+  if (processBattleDefeatSBAs(ctx)) {
+    unattachChanged = true;
+  }
+
   // NOW run the standard SBA checks
   const res = applyStateBasedActions(state);
   let changed = unattachChanged;

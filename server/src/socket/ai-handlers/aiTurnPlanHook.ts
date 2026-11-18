@@ -111,7 +111,9 @@ function inferManaProduced(c: AIActionCandidate): { produced: number; sick: bool
 function toView(c: AIActionCandidate, index: number): CandidateView {
   return {
     index,
-    kind: c.kind === 'play_land' ? 'play_land' : c.kind,
+    kind: c.kind === 'cast_commander' || c.kind === 'activate_ability' || c.kind === 'play_land'
+      ? c.kind
+      : 'cast_spell',
     name: candidateName(c) || undefined,
     cmc: candidateCmc(c),
     typeLine: candidateTypeLine(c),
@@ -124,7 +126,7 @@ function toPlanner(
   index: number,
   score: number,
 ): PlannerCandidate | null {
-  if (c.kind === 'play_land') return null;
+  if (c.kind === 'play_land' || c.kind === 'roll_planar_die') return null;
   const kind =
     c.kind === 'cast_commander'
       ? 'cast_commander'
@@ -166,7 +168,7 @@ export function applyTurnPlanToMainCandidates(
     return { candidates, plan: null, ms: 0, reason: 'brain-skip' };
   }
 
-  const actionable = candidates.filter((c) => c.kind !== 'play_land');
+  const actionable = candidates.filter((c) => c.kind !== 'play_land' && c.kind !== 'roll_planar_die');
   if (actionable.length === 0) {
     return { candidates, plan: null, ms: 0, reason: 'no-actions' };
   }

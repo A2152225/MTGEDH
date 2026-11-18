@@ -404,7 +404,12 @@ export function parseResidualCombatCounterAndPaymentGuardsThree(
   }
 
   if (/^chaos ensues$/i.test(raw)) {
-    return staticMetadata('chaos', raw);
+    return [{
+      kind: 'chaos_ensues',
+      who: { kind: 'you' },
+      raw,
+      ...sequence,
+    } as unknown as OracleEffectStep];
   }
 
   if (/^you may convert this permanent$/i.test(raw)) {

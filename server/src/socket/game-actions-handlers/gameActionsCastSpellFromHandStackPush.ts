@@ -43,6 +43,7 @@ export type CastSpellFromHandStackPushArgs = {
   xValue: number | undefined;
   selectedFaceIndex: number | undefined;
   castAsAdventure: boolean | undefined;
+  castAsFused: boolean | undefined;
   resolvedTimesKicked: number | undefined;
   giftPromisedForCast: boolean;
   isAura: boolean;
@@ -110,6 +111,7 @@ export function tryPushCastSpellFromHandToStack(
     xValue,
     selectedFaceIndex,
     castAsAdventure,
+    castAsFused,
     resolvedTimesKicked,
     giftPromisedForCast,
     isAura,
@@ -341,6 +343,7 @@ export function tryPushCastSpellFromHandToStack(
                 : {}),
               ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
               ...(typeof castAsAdventure === 'boolean' ? { castAsAdventure } : {}),
+              ...(castAsFused === true ? { castAsFused: true } : {}),
               alternateCostId,
               ...buildPersistedWebSlingingCastIntentFields(cardInHand as any, alternateCostId),
               ...buildPersistedFreeCastIntentFields(cardInHand as any, alternateCostId),
@@ -695,6 +698,7 @@ export function tryPushCastSpellFromHandToStack(
               manaSpentBreakdown: { ...manaConsumption.consumed },
               ...(typeof selectedFaceIndex === 'number' ? { faceIndex: selectedFaceIndex } : {}),
               ...(typeof castAsAdventure === 'boolean' ? { castAsAdventure } : {}),
+              ...(castAsFused === true ? { castAsFused: true } : {}),
               // Track source zone for rebound and other "cast from hand" effects
               castFromHand: castSourceZone === 'hand',
               source: castSourceZone,

@@ -1,0 +1,179 @@
+{
+    "meta":  {
+                 "note":  "Trimmed MTGJSON deck fixture (structure only); cards beyond the first few are omitted."
+             },
+    "data":  {
+                 "code":  "WHO",
+                 "name":  "Masters of Evil",
+                 "type":  "Commander Deck",
+                 "releaseDate":  "2023-10-13",
+                 "commander":  [
+                                   {
+                                       "name":  "Davros, Dalek Creator",
+                                       "count":  1,
+                                       "type":  "Legendary Artifact Creature — Alien Scientist",
+                                       "layout":  "normal",
+                                       "identifiers":  {
+                                                           "scryfallOracleId":  "25c0bbc8-b0c3-4166-967f-e8b096487a6c"
+                                                       },
+                                       "leadershipSkills":  {
+                                                                "brawl":  false,
+                                                                "commander":  true,
+                                                                "oathbreaker":  false,
+                                                                "pauper_commander":  false,
+                                                                "predh":  false
+                                                            }
+                                   }
+                               ],
+                 "mainBoard":  [
+                                   {
+                                       "name":  "Missy",
+                                       "count":  1,
+                                       "type":  "Legendary Creature — Time Lord Rogue",
+                                       "layout":  "normal",
+                                       "identifiers":  {
+                                                           "scryfallOracleId":  "905610cd-1461-4f5a-b9c8-19b193b9d513"
+                                                       },
+                                       "leadershipSkills":  {
+                                                                "brawl":  false,
+                                                                "commander":  true,
+                                                                "oathbreaker":  false,
+                                                                "pauper_commander":  false,
+                                                                "predh":  false
+                                                            }
+                                   },
+                                   {
+                                       "name":  "Auton Soldier",
+                                       "count":  1,
+                                       "type":  "Artifact Creature — Alien Soldier",
+                                       "layout":  "normal",
+                                       "identifiers":  {
+                                                           "scryfallOracleId":  "94357494-4ccc-43d4-b2d4-351581cbf9b6"
+                                                       }
+                                   },
+                                   {
+                                       "name":  "The Flood of Mars",
+                                       "count":  1,
+                                       "type":  "Creature — Alien Zombie Horror",
+                                       "layout":  "normal",
+                                       "identifiers":  {
+                                                           "scryfallOracleId":  "677bd655-b240-4862-912c-29209fb295e1"
+                                                       }
+                                   },
+                                   {
+                                       "name":  "The Dalek Emperor",
+                                       "count":  1,
+                                       "type":  "Legendary Artifact Creature — Dalek",
+                                       "layout":  "normal",
+                                       "identifiers":  {
+                                                           "scryfallOracleId":  "07799012-7051-400e-adde-b54b41b80c70"
+                                                       },
+                                       "leadershipSkills":  {
+                                                                "brawl":  false,
+                                                                "commander":  true,
+                                                                "oathbreaker":  false,
+                                                                "pauper_commander":  false,
+                                                                "predh":  false
+                                                            }
+                                   }
+                               ],
+                 "sideBoard":  [
+
+                               ],
+                 "planes":  [
+                                {
+                                    "name":  "City of the Daleks",
+                                    "count":  1,
+                                    "type":  "Plane — Skaro",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "a2ef6b79-faeb-4183-a510-f10b14dff417"
+                                                    }
+                                },
+                                {
+                                    "name":  "The Moonbase",
+                                    "count":  1,
+                                    "type":  "Plane — Moon",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "381f510b-8696-4af1-a6c9-d1175e9f36d0"
+                                                    }
+                                },
+                                {
+                                    "name":  "Dalek Intensive Care",
+                                    "count":  1,
+                                    "type":  "Plane — The Dalek Asylum",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "2edd018b-6d82-4ff1-b9d0-5da9b628af3f"
+                                                    }
+                                },
+                                {
+                                    "name":  "Bowie Base One",
+                                    "count":  1,
+                                    "type":  "Plane — Mars",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "7076bc0c-9cc7-4cd7-aba5-f2f236aab0f7"
+                                                    }
+                                },
+                                {
+                                    "name":  "The Doctor\u0027s Tomb",
+                                    "count":  1,
+                                    "type":  "Plane — Trenzalore",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "fc621e94-e7c7-49ea-9547-4ab041ea39f3"
+                                                    }
+                                },
+                                {
+                                    "name":  "Aplan Mortarium",
+                                    "count":  1,
+                                    "type":  "Plane — Alfava Metraxis",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "7c9d6193-1d50-4035-8c85-98c384f461be"
+                                                    }
+                                },
+                                {
+                                    "name":  "Unleash the Flux",
+                                    "count":  1,
+                                    "type":  "Phenomenon",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "14066888-66f6-4903-8de2-cc961aa45d8d"
+                                                    }
+                                },
+                                {
+                                    "name":  "The Matrix of Time",
+                                    "count":  1,
+                                    "type":  "Plane — Gallifrey",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "ed44d47b-2eea-4cb2-a091-07583bdf390f"
+                                                    }
+                                },
+                                {
+                                    "name":  "Hotel of Fears",
+                                    "count":  1,
+                                    "type":  "Plane — Spacecraft",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "79d3e356-9eb9-49bb-b4ba-f4f71876869e"
+                                                    }
+                                },
+                                {
+                                    "name":  "Mondassian Colony Ship",
+                                    "count":  1,
+                                    "type":  "Plane — Spacecraft",
+                                    "layout":  "planar",
+                                    "identifiers":  {
+                                                        "scryfallOracleId":  "9cc34a5b-550d-4d3e-b3e5-4d4630649882"
+                                                    }
+                                }
+                            ],
+                 "schemes":  [
+
+                             ]
+             }
+}

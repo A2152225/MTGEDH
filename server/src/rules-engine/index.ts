@@ -391,6 +391,18 @@ export function applyStateBasedActions(state: Readonly<GameState>): EngineSBARes
     }
   }
 
+  // CR 704.5q / 310.10: Battles with no defense counters are defeated.
+  // Sieges are handled by processBattleDefeatSBAs (exile → cast transformed) before
+  // this destroy path; skip them here so they are not put into the graveyard.
+  for (const perm of battlefieldPermanents) {
+    const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+    if (!typeLine.includes('battle')) continue;
+    const defense = Number((perm as any).counters?.defense ?? (perm as any).defense ?? 0) || 0;
+    if (defense > 0) continue;
+    if (/\bsiege\b/.test(typeLine)) continue;
+    pushDestroy(perm.id);
+  }
+
   collectIllegalAuraDestroys();
   
   // CR 704.5j: Legend Rule - If a player controls two or more legendary permanents

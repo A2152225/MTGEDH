@@ -263,7 +263,7 @@ export const COMMANDER_PRECONS: PreconYear[] = [
         code: "WHO",
         decks: [
           { name: "Blast from the Past", commanders: ["The Fourth Doctor", "Sarah Jane Smith"], colorIdentity: "GW", decklistUrl: "https://www.moxfield.com/decks/EDdBpyjUFUOBH2ZoOzAkxA" },
-          { name: "Masters of Evil", commanders: ["Davros, Dalek Creator", "The Dalek Emperor"], colorIdentity: "RUB", decklistUrl: "https://www.moxfield.com/decks/4gxofFdLD0OQleQer2rVbg" },
+          { name: "Masters of Evil", commanders: ["Davros, Dalek Creator"], colorIdentity: "RUB", decklistUrl: "https://www.moxfield.com/decks/4gxofFdLD0OQleQer2rVbg" },
           { name: "Paradox Power", commanders: ["The Thirteenth Doctor", "Yasmin Khan"], colorIdentity: "WUG", decklistUrl: "https://www.moxfield.com/decks/l-e7-HDtsk2hXy5HK7ASuQ" },
           { name: "Timey-Wimey", commanders: ["The Tenth Doctor", "Rose Tyler"], colorIdentity: "WUR", decklistUrl: "https://www.moxfield.com/decks/fj8Av0UofkOhiyBAPSOwJw" }
         ]

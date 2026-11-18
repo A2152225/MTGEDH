@@ -50257,6 +50257,92 @@ This creature has protection from each of the exiled card's card types. (Artifac
     expect((result.state as any).planeswalkedToPlanesThisTurn?.p1).toEqual(['unyaro']);
   });
 
+  it('applies planeswalk by putting phenomena on the bottom until a plane is revealed', () => {
+    const ir = parseOracleTextToIR('Planeswalk.', 'Spatial Merging');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const currentPlane = {
+      id: 'plane-current',
+      name: 'The Maelstrom',
+      type_line: 'Plane - Alara',
+    };
+    const phenomenon = {
+      id: 'phen-1',
+      name: 'Interplanar Tunnel',
+      type_line: 'Phenomenon',
+      oracle_text: 'When you encounter Interplanar Tunnel, reveal cards until you reveal a plane. (Then planeswalk away from this phenomenon.)',
+    };
+    const nextPlane = {
+      id: 'plane-next',
+      name: 'Unyaro',
+      type_line: 'Plane - Shandalar',
+      oracle_text: 'Whenever chaos ensues, draw a card.',
+    };
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          { id: 'p1', name: 'P1', seat: 0, life: 40, hand: [], graveyard: [], library: [], exile: [] } as any,
+        ],
+        houseRules: { enablePlanechase: true } as any,
+        currentPlane: currentPlane as any,
+        planarDeckFaceDown: [phenomenon, nextPlane] as any,
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Spatial Merging',
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toContain('planeswalk');
+    expect((result.state as any).currentPlane?.id).toBe('plane-next');
+    expect((result.state as any).activePlane?.id).toBe('plane-next');
+    expect(((result.state as any).planarDeckFaceDown || []).map((entry: any) => entry.id)).toEqual([
+      'plane-current',
+      'phen-1',
+    ]);
+  });
+
+  it('applies chaos_ensues by replaying the face-up plane chaos ability', () => {
+    const ir = parseOracleTextToIR('Chaos ensues.', 'Vote Result');
+    const steps = ir.abilities[0]?.steps ?? [];
+
+    const result = applyOracleIRStepsToGameState(
+      makeState({
+        players: [
+          {
+            id: 'p1',
+            name: 'P1',
+            seat: 0,
+            life: 40,
+            hand: [{ id: 'hand-1', name: 'Island', type_line: 'Basic Land — Island' }],
+            graveyard: [],
+            library: [],
+            exile: [],
+          } as any,
+        ],
+        houseRules: { enablePlanechase: true } as any,
+        currentPlane: {
+          id: 'academy',
+          name: 'Academy at Tolaria West',
+          type_line: 'Plane — Dominaria',
+          oracle_text: 'Whenever chaos ensues, discard your hand.',
+        } as any,
+        battlefield: [],
+      } as any),
+      steps,
+      {
+        controllerId: 'p1',
+        sourceName: 'Vote Result',
+      }
+    );
+
+    expect(result.appliedSteps.map(step => step.kind)).toContain('chaos_ensues');
+    expect((result.state as any).chaosEnsuedThisTurn).toBe(true);
+  });
+
   it('applies assemble by moving the first Contraption from the contraption deck to the battlefield', () => {
     const ir = parseOracleTextToIR('Assemble a Contraption.', 'Finders, Keepers');
     const steps = ir.abilities[0]?.steps ?? [];

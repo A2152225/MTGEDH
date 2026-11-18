@@ -80,6 +80,14 @@ function toView(candidate: AIActionCandidate, index: number): CandidateView {
       v0Priority: Number(candidate.priority) || 0,
     };
   }
+  if (candidate.kind === 'roll_planar_die') {
+    return {
+      index,
+      kind: 'activate_ability',
+      name: 'Planar die',
+      v0Priority: Number(candidate.priority) || 0,
+    };
+  }
   return {
     index,
     kind: 'activate_ability',

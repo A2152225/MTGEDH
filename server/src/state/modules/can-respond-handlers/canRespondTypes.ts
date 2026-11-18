@@ -15,7 +15,7 @@ import type { parseManaCost } from '../mana-check.js';
 export type SharedSpellSourceZone = 'hand' | 'graveyard' | 'exile' | 'library';
 export type SharedSpellCandidateMode = 'main' | 'response' | 'sorcery';
 export type SharedSpellCandidatePayability = 'normal' | 'alternate' | 'assumed';
-export type SharedSpellCastMethod = 'normal' | 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'mayhem' | 'foretell' | 'playable_from_exile' | 'adventure_creature' | 'graveyard_permanent' | 'graveyard_adventure';
+export type SharedSpellCastMethod = 'normal' | 'flashback' | 'jump-start' | 'retrace' | 'escape' | 'harmonize' | 'mayhem' | 'aftermath' | 'foretell' | 'playable_from_exile' | 'adventure_creature' | 'graveyard_permanent' | 'graveyard_adventure';
 export type SharedLandSourceZone = SharedSpellSourceZone;
 
 export interface SharedSourceGrantedAdditionalCost {

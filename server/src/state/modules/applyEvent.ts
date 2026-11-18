@@ -83,6 +83,7 @@ import { applyGroupVoteEvents } from "./apply-event-handlers/applyEventGroupVote
 import { applyTriggerQueueEvents } from "./apply-event-handlers/applyEventTriggerQueueEvents.js";
 import { applyPlayerInitiatedCancelEvents } from "./apply-event-handlers/applyEventPlayerInitiatedCancelEvents.js";
 import { applyDungeonVoteEvents } from "./apply-event-handlers/applyEventDungeonVoteEvents.js";
+import { applyPlanechaseArchenemyEvents } from "./apply-event-handlers/applyEventPlanechaseArchenemyEvents.js";
 import { applyExecuteEffectEvents } from "./apply-event-handlers/applyEventExecuteEffectEvents.js";
 import { applyAttachmentEvents } from "./apply-event-handlers/applyEventAttachmentEvents.js";
 import { applyGraveyardTargetConfirmEvents } from "./apply-event-handlers/applyEventGraveyardTargetConfirmEvents.js";
@@ -135,6 +136,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     if (applyTriggerQueueEvents(ctx, e)) return;
     if (applyPlayerInitiatedCancelEvents(ctx, e)) return;
     if (applyDungeonVoteEvents(ctx, e)) return;
+    if (applyPlanechaseArchenemyEvents(ctx, e)) return;
     if (applyExecuteEffectEvents(ctx, e)) return;
     if (applyAttachmentEvents(ctx, e)) return;
     if (applyGraveyardTargetConfirmEvents(ctx, e)) return;

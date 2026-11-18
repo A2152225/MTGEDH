@@ -132,6 +132,7 @@ export async function requestCastSpellForSocket(
     gameId?: unknown;
     cardId?: unknown;
     faceIndex?: unknown;
+    fused?: unknown;
     fromZone?: unknown;
     castPermissionId?: unknown;
     permissionId?: unknown;
@@ -146,6 +147,7 @@ export async function requestCastSpellForSocket(
     exileAfterResolution?: boolean;
     bypassExilePermissionCheck?: boolean;
     ignoreTimingRestrictions?: boolean;
+    castAsTransformed?: boolean;
     xValue?: number;
     timesKicked?: number;
     replicateCount?: number;
@@ -341,7 +343,7 @@ export function registerGameActions(io: Server, socket: Socket) {
   // This handler checks if targets are needed and requests them first,
   // then triggers payment after targets are selected.
   // =====================================================================
-  socket.on("requestCastSpell", async (payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fromZone?: unknown }) =>
+  socket.on("requestCastSpell", async (payload?: { gameId?: unknown; cardId?: unknown; faceIndex?: unknown; fused?: unknown; fromZone?: unknown }) =>
     handleRequestCastSpellRequest(io, socket, ensureInGameRoom, requestCastSpellForSocket, payload));
 
   // =====================================================================
@@ -352,6 +354,7 @@ export function registerGameActions(io: Server, socket: Socket) {
     gameId?: unknown;
     cardId?: unknown;
     faceIndex?: unknown;
+    fused?: unknown;
     targets?: unknown;
     payment?: unknown;
     skipInteractivePrompts?: unknown;

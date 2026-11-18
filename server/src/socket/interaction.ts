@@ -160,6 +160,7 @@ import { tryHandleActivateEquipFortifyReconfigure } from "./interaction-handlers
 import { tryHandleActivateGrantFightCounterTap } from "./interaction-handlers/interactionActivateGrantFightCounterTap.js";
 import { tryHandleActivateCrewStation } from "./interaction-handlers/interactionActivateCrewStation.js";
 import { tryHandleActivateLevelOutlastUpgrade } from "./interaction-handlers/interactionActivateLevelOutlastUpgrade.js";
+import { tryHandleActivateRoomDoorUnlock } from "./interaction-handlers/interactionActivateRoomDoorUnlock.js";
 import { tryHandleActivatePlaneswalker } from "./interaction-handlers/interactionActivatePlaneswalker.js";
 import {
   trySetupActivateBattlefieldAbilityParse,
@@ -492,6 +493,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
 
     
     if (await tryHandleActivateLevelOutlastUpgrade(activateCtx, persistAbilityActivatedTriggerPushes)) return;
+
+    if (await tryHandleActivateRoomDoorUnlock(activateCtx)) return;
 
     if (await tryHandleActivateMana(activateCtx, getManaAbilityLifeEffect, getActivatedAbilityConditionErrorPayload)) return;
 

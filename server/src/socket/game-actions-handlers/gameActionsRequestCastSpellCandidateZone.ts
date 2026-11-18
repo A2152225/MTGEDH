@@ -49,6 +49,7 @@ export type RequestCastSpellCandidateZoneArgs = {
     gameId?: unknown;
     cardId?: unknown;
     faceIndex?: unknown;
+    fused?: unknown;
     fromZone?: unknown;
     castPermissionId?: unknown;
     permissionId?: unknown;
@@ -63,6 +64,7 @@ export type RequestCastSpellCandidateZoneArgs = {
     exileAfterResolution?: boolean;
     bypassExilePermissionCheck?: boolean;
     ignoreTimingRestrictions?: boolean;
+    castAsTransformed?: boolean;
     xValue?: number;
     timesKicked?: number;
     replicateCount?: number;
@@ -107,6 +109,7 @@ export function tryResolveRequestCastSpellCandidateZone(
     const faceIndex = typeof payload?.faceIndex === 'number' && Number.isFinite(payload.faceIndex)
       ? payload.faceIndex
       : undefined;
+    const fused = payload?.fused === true;
     const fromZone = normalizeSpellCastSourceZone(payload?.fromZone);
     const requestedCastPermissionId = resolveCastPermissionId(payload as any) || undefined;
     if (!gameId || typeof gameId !== 'string') return;
@@ -350,9 +353,13 @@ export function tryResolveRequestCastSpellCandidateZone(
       return;
     }
 
-    // Transform cards: only front face can be cast.
+    // Transform cards: only front face can be cast, unless Siege defeat / cast-transformed.
+    const castAsTransformed =
+      (cardInHand as any)?.castAsTransformed === true
+      || String((cardInHand as any)?.castWithAbility || '').toLowerCase() === 'siege-defeat'
+      || options?.castAsTransformed === true;
     if (layout === 'transform' && Array.isArray(cardFaces) && cardFaces.length >= 2) {
-      if (faceIndex === 1) {
+      if (faceIndex === 1 && !castAsTransformed) {
         socket.emit("error", {
           code: "TRANSFORM_BACK_FACE",
           message: `${cardFaces[1]?.name || "This card"} is a transform back face and cannot be cast from hand. Cast the front face (${cardFaces[0]?.name || "the card"}) instead.`,
@@ -360,14 +367,24 @@ export function tryResolveRequestCastSpellCandidateZone(
         return;
       }
 
-      const frontFaceTypeLine = (cardFaces[0]?.type_line || "").toLowerCase();
-      if (frontFaceTypeLine.includes("land")) {
-        socket.emit("error", {
-          code: "CANNOT_CAST_LAND",
-          message: `${cardFaces[0]?.name || "This card"} is a land and cannot be cast as a spell. Use "Play Land" instead.`,
-        });
-        return;
+      if (!castAsTransformed) {
+        const frontFaceTypeLine = (cardFaces[0]?.type_line || "").toLowerCase();
+        if (frontFaceTypeLine.includes("land")) {
+          socket.emit("error", {
+            code: "CANNOT_CAST_LAND",
+            message: `${cardFaces[0]?.name || "This card"} is a land and cannot be cast as a spell. Use "Play Land" instead.`,
+          });
+          return;
+        }
       }
+    }
+
+    if (fused && castSourceZone !== 'hand') {
+      socket.emit("error", {
+        code: "FUSE_HAND_ONLY",
+        message: "Fuse can only be cast from your hand.",
+      });
+      return;
     }
 
     const adventureFace = resolveAdventureAwareFaceIndex(
@@ -375,13 +392,13 @@ export function tryResolveRequestCastSpellCandidateZone(
       String(playerId),
       cardInHand,
       castSourceZone,
-      faceIndex,
+      fused ? undefined : faceIndex,
     );
     if (adventureFace.error) {
       socket.emit('error', adventureFace.error);
       return;
     }
-    const effectiveFaceIndex = adventureFace.faceIndex;
+    const effectiveFaceIndex = fused ? undefined : adventureFace.faceIndex;
 
     if (effectiveFaceIndex !== undefined && (!Array.isArray(cardFaces) || effectiveFaceIndex < 0 || effectiveFaceIndex >= cardFaces.length)) {
       socket.emit("error", {
@@ -391,7 +408,14 @@ export function tryResolveRequestCastSpellCandidateZone(
       return;
     }
 
-    const selectedSpell = resolveSelectedSpellCard(cardInHand, effectiveFaceIndex);
+    const selectedSpell = resolveSelectedSpellCard(cardInHand, effectiveFaceIndex, { fused });
+    if (fused && selectedSpell.castAsFused !== true) {
+      socket.emit("error", {
+        code: "NO_FUSE",
+        message: "That card cannot be cast fused.",
+      });
+      return;
+    }
     const cardForCast = selectedSpell.card;
     const selectedFaceIndex = selectedSpell.faceIndex;
     if (Number.isFinite(Number((cardInHand as any)?.squadTimesPaid))) {

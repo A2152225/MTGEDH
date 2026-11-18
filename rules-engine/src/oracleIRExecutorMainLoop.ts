@@ -666,6 +666,7 @@ export function applyOracleIRStepsToGameStateImpl(
       case 'become_monarch':
       case 'venture_into_dungeon':
       case 'planeswalk':
+      case 'chaos_ensues':
       case 'assemble':
       case 'regenerate':
       case 'abandon_scheme':

@@ -94,6 +94,7 @@ function chooseCollectEvidenceCardIds(
 export {
   applyAssembleStep,
   applyBecomeMonarchStep,
+  applyChaosEnsuesStep,
   applyLearnStep,
   applyOpenAttractionStep,
   applyPlaneswalkStep,

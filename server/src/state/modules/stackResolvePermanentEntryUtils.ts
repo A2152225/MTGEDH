@@ -14,6 +14,8 @@ import { evaluateBattlefieldEntryReplacementEvent } from './replacement-effects.
 import { applyTriggeredReanimationEntryRiders } from './triggerReanimationRiders.js';
 import { scheduleWarpDelayedExileOnPermanentEntry } from './warpDelayedEffects.js';
 import { applyImpendingOnPermanentEntry } from './impendingEffects.js';
+import { applyPrototypeOnPermanentEntry } from './prototypeEffects.js';
+import { readPrintedBattleDefense, applyBattleDefenseCountersOnEntry } from './battleSiegeEntry.js';
 import {
   scheduleKeywordCastDelayedEffectsOnPermanentEntry,
   spellWasCastWithBlitzPaid,
@@ -188,6 +190,15 @@ export function resolvePermanentSpellBattlefieldEntry(
     if (typeof startingLoyalty === 'number' && !Number.isNaN(startingLoyalty)) {
       initialCounters.loyalty = startingLoyalty;
       debug(2, `[resolveTopOfStack] Planeswalker ${effectiveCard.name} enters with ${startingLoyalty} loyalty`);
+    }
+  }
+
+  // Battles enter with defense counters equal to printed defense (CR 310.4b).
+  {
+    const battleDefense = readPrintedBattleDefense(effectiveCard);
+    if (battleDefense != null) {
+      initialCounters.defense = battleDefense;
+      debug(2, `[resolveTopOfStack] Battle ${effectiveCard.name} enters with ${battleDefense} defense`);
     }
   }
   
@@ -440,6 +451,16 @@ export function resolvePermanentSpellBattlefieldEntry(
     String(effectiveCard?.name || (item as any)?.card?.name || 'Permanent'),
     item,
   );
+
+  applyPrototypeOnPermanentEntry(
+    ctx,
+    newPermanent,
+    controller,
+    String(effectiveCard?.name || (item as any)?.card?.name || 'Permanent'),
+    item,
+  );
+
+  applyBattleDefenseCountersOnEntry(newPermanent, effectiveCard);
 
   scheduleKeywordCastDelayedEffectsOnPermanentEntry(
     ctx,

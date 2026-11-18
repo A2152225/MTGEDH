@@ -35,6 +35,7 @@ import {
   executeAIActivateAbility,
   isAIManaBatteryChargeInvestAction,
 } from "./aiActivateAbilityHandlers.js";
+import { freePlanarDieRollCandidate } from "./aiPlanarDieRoll.js";
 import type {
   AIActionCandidate,
   AIActionCandidateQuery,
@@ -377,7 +378,13 @@ function getAIActionCandidateKinds(query: AIActionCandidateQuery): Set<AIActionC
     return new Set<AIActionCandidate['kind']>(['activate_ability', 'cast_commander', 'cast_spell']);
   }
 
-  return new Set<AIActionCandidate['kind']>(['play_land', 'activate_ability', 'cast_commander', 'cast_spell']);
+  return new Set<AIActionCandidate['kind']>([
+    'play_land',
+    'roll_planar_die',
+    'activate_ability',
+    'cast_commander',
+    'cast_spell',
+  ]);
 }
 
 export async function enumerateAIActionCandidates(
@@ -477,9 +484,18 @@ export async function enumerateAIActionCandidates(
     }
   }
 
+  if (query.mode === 'main' && kinds.has('roll_planar_die')) {
+    const roll = freePlanarDieRollCandidate(game?.state, playerId);
+    if (roll) candidates.push(roll);
+  }
+
   candidates.sort((left, right) => right.priority - left.priority);
   stage(`done:${candidates.length}`);
-  return applyBrain(game, playerId, query, candidates);
+  // The scorer's candidate view has no planar-die kind. Keep the roll out of scoring and
+  // in front, so a mixed main-phase list tries the free roll before casts.
+  const dieRolls = candidates.filter((candidate) => candidate.kind === 'roll_planar_die');
+  const scored = candidates.filter((candidate) => candidate.kind !== 'roll_planar_die');
+  return [...dieRolls, ...applyBrain(game, playerId, query, scored)];
 }
 
 function gameIdFromGame(game: any): string {

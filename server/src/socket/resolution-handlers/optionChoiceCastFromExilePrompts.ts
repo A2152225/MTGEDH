@@ -264,16 +264,32 @@ export async function handleCastFromExilePromptChoice(
       },
     };
 
+    const castAsTransformed =
+      stepData.castFromExileAsTransformed === true
+      || (exiledCard as any)?.castAsTransformed === true
+      || String((exiledCard as any)?.castWithAbility || '').toLowerCase() === 'siege-defeat';
+    const faceIndex = castAsTransformed
+      ? 1
+      : (Number.isFinite(Number(stepData.castFromExileFaceIndex))
+        ? Number(stepData.castFromExileFaceIndex)
+        : undefined);
+
     await requestCastSpellForSocket(
       io,
       fakeSocket,
-      { gameId, cardId: exiledCardId, fromZone: 'exile' },
+      {
+        gameId,
+        cardId: exiledCardId,
+        fromZone: 'exile',
+        ...(faceIndex !== undefined ? { faceIndex } : {}),
+      },
       {
         skipPriorityCheck: true,
         forcedAlternateCostId: forcedAlternateCostId || (castWithoutPayingManaCost ? 'free' : undefined),
         castWithoutPayingManaCost,
         bypassExilePermissionCheck,
         ignoreTimingRestrictions,
+        ...(castAsTransformed ? { castAsTransformed: true } : {}),
       }
     );
 

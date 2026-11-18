@@ -69,6 +69,7 @@ export {
   isCombatDamagePreventedForPermanent,
   modifyCombatDamageToPermanentAmount,
   applyCombatDamageToPlaneswalker,
+  applyCombatDamageToBattle,
 } from "./turnCombatDamagePermanentApply.js";
 export { applyLifeGainViaProcessLifeChange } from "./turnCombatDamageLifeGain.js";
 export { queueDamageReceivedTrigger } from "./turnCombatDamageReceivedQueue.js";

@@ -20,6 +20,7 @@ import {
   applyAssembleStep,
   applyBecomeMonarchStep,
   applyAbandonSchemeStep,
+  applyChaosEnsuesStep,
   applyClashStep,
   applyCollectEvidenceStep,
   applyDrawStep,
@@ -807,7 +808,121 @@ export function tryApplyMainLoopCoinDieDrawSteps(
       }
       case 'planeswalk': {
         const result = applyPlaneswalkStep(nextState, step, currentCtx);
-        applyHandledStepResult(step, result);
+        const applied = applyHandledStepResult(step, result);
+        if (!applied) break;
+
+        const phenomena = Array.isArray((nextState as any)?.lastPlaneswalkPhenomena)
+          ? [...(nextState as any).lastPlaneswalkPhenomena]
+          : [];
+        delete (nextState as any).lastPlaneswalkPhenomena;
+
+        for (const phenomenon of phenomena) {
+          const phenomenonOracle = String(
+            phenomenon?.oracle_text || phenomenon?.card?.oracle_text || '',
+          ).trim();
+          if (!phenomenonOracle) continue;
+          const phenomenonIr = parseOracleTextToIR(
+            phenomenonOracle,
+            String(phenomenon?.name || phenomenon?.card?.name || 'Phenomenon'),
+          );
+          const encounterSteps = phenomenonIr.abilities
+            .filter((ability) => {
+              const condition = String((ability as any)?.triggerCondition || '').trim().toLowerCase();
+              return condition.startsWith('you encounter') || condition.startsWith('you planeswalk here');
+            })
+            .flatMap((ability) => ability.steps);
+          if (encounterSteps.length === 0) continue;
+          const encounterCtx: OracleIRExecutionContext = {
+            ...currentCtx,
+            sourceId: String(phenomenon?.id || phenomenon?.card?.id || currentCtx.sourceId || '').trim() || currentCtx.sourceId,
+            sourceName: String(phenomenon?.name || phenomenon?.card?.name || currentCtx.sourceName || '').trim() || currentCtx.sourceName,
+          };
+          const encounterResult = recurse(nextState, encounterSteps, encounterCtx, options);
+          nextState = encounterResult.state;
+          log.push(`[oracle-ir] Replayed encounter for ${String(phenomenon?.name || 'Phenomenon')}`);
+          log.push(...encounterResult.log);
+          appliedSteps.push(...encounterResult.appliedSteps);
+          skippedSteps.push(...encounterResult.skippedSteps);
+          automationGaps.push(...encounterResult.automationGaps);
+          pendingOptionalSteps.push(...encounterResult.pendingOptionalSteps);
+          absorbExecutionReplayMutations(encounterResult);
+        }
+
+        const plane = (nextState as any)?.currentPlane ?? (nextState as any)?.activePlane ?? null;
+        const planeOracle = String(plane?.oracle_text || plane?.card?.oracle_text || '').trim();
+        if (planeOracle) {
+          const planeIr = parseOracleTextToIR(
+            planeOracle,
+            String(plane?.name || plane?.card?.name || 'Plane'),
+          );
+          const hereSteps = planeIr.abilities
+            .filter((ability) => {
+              const condition = String((ability as any)?.triggerCondition || '').trim().toLowerCase();
+              return (
+                condition === 'you planeswalk here'
+                || condition.startsWith('you planeswalk to ')
+                || condition.startsWith('you planeswalk here')
+              );
+            })
+            .flatMap((ability) => ability.steps);
+          if (hereSteps.length > 0) {
+            const hereCtx: OracleIRExecutionContext = {
+              ...currentCtx,
+              sourceId: String(plane?.id || plane?.card?.id || currentCtx.sourceId || '').trim() || currentCtx.sourceId,
+              sourceName: String(plane?.name || plane?.card?.name || currentCtx.sourceName || '').trim() || currentCtx.sourceName,
+            };
+            const hereResult = recurse(nextState, hereSteps, hereCtx, options);
+            nextState = hereResult.state;
+            log.push(`[oracle-ir] Replayed planeswalk-here for ${String(plane?.name || 'Plane')}`);
+            log.push(...hereResult.log);
+            appliedSteps.push(...hereResult.appliedSteps);
+            skippedSteps.push(...hereResult.skippedSteps);
+            automationGaps.push(...hereResult.automationGaps);
+            pendingOptionalSteps.push(...hereResult.pendingOptionalSteps);
+            absorbExecutionReplayMutations(hereResult);
+          }
+        }
+        break;
+      }
+      case 'chaos_ensues': {
+        const result = applyChaosEnsuesStep(nextState, step, currentCtx);
+        const applied = applyHandledStepResult(step, result);
+        if (!applied) break;
+
+        const plane = (nextState as any)?.currentPlane ?? (nextState as any)?.activePlane ?? null;
+        const planeOracle = String(plane?.oracle_text || plane?.card?.oracle_text || '').trim();
+        if (!planeOracle) break;
+
+        // Prefer modern "chaos ensues" phrasing; normalize CHAOS rolls inline.
+        const normalizedOracle = planeOracle
+          .replace(/whenever you roll \{CHAOS\},?/gi, 'Whenever chaos ensues,')
+          .replace(/(^|\n)\s*\{CHAOS\}\s*(?=\S)/gi, '$1Whenever chaos ensues, ');
+        const planeIr = parseOracleTextToIR(
+          normalizedOracle,
+          String(plane?.name || plane?.card?.name || currentCtx.sourceName || 'Plane'),
+        );
+        const chaosSteps = planeIr.abilities
+          .filter((ability) => {
+            const condition = String((ability as any)?.triggerCondition || '').trim().toLowerCase();
+            return condition === 'chaos ensues' || condition === 'you roll {chaos}';
+          })
+          .flatMap((ability) => ability.steps);
+        if (chaosSteps.length === 0) break;
+
+        const chaosCtx: OracleIRExecutionContext = {
+          ...currentCtx,
+          sourceId: String(plane?.id || plane?.card?.id || currentCtx.sourceId || '').trim() || currentCtx.sourceId,
+          sourceName: String(plane?.name || plane?.card?.name || currentCtx.sourceName || '').trim() || currentCtx.sourceName,
+        };
+        const chaosResult = recurse(nextState, chaosSteps, chaosCtx, options);
+        nextState = chaosResult.state;
+        log.push(`[oracle-ir] Replayed chaos ensues for ${String(plane?.name || plane?.card?.name || 'Plane')}`);
+        log.push(...chaosResult.log);
+        appliedSteps.push(...chaosResult.appliedSteps);
+        skippedSteps.push(...chaosResult.skippedSteps);
+        automationGaps.push(...chaosResult.automationGaps);
+        pendingOptionalSteps.push(...chaosResult.pendingOptionalSteps);
+        absorbExecutionReplayMutations(chaosResult);
         break;
       }
       case 'assemble': {

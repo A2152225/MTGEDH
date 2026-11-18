@@ -49,6 +49,7 @@ export type CastSpellFromHandFrontArgs = {
     gameId?: unknown;
     cardId?: unknown;
     faceIndex?: unknown;
+    fused?: unknown;
     targets?: unknown;
     payment?: unknown;
     skipInteractivePrompts?: unknown;
@@ -103,6 +104,7 @@ export type CastSpellFromHandFrontContinue = {
   cardInHand: any;
   selectedFaceIndex: number | undefined;
   castAsAdventure: boolean | undefined;
+  castAsFused: boolean | undefined;
   resolvedTimesKicked: number | undefined;
   commandZoneManaCost: string | undefined;
   typeLine: string;
@@ -117,6 +119,7 @@ export function tryResolveCastSpellFromHandFront(
       const faceIndex = typeof payload?.faceIndex === 'number' && Number.isFinite(payload.faceIndex)
         ? payload.faceIndex
         : undefined;
+      const fused = payload?.fused === true;
       let targets: any = payload?.targets as any;
       const payment = Array.isArray(payload?.payment) ? (payload?.payment as PaymentItem[]) : undefined;
       const skipInteractivePrompts = payload?.skipInteractivePrompts === true;
@@ -342,19 +345,27 @@ export function tryResolveCastSpellFromHandFront(
         }
       }
 
+      if (fused && castSourceZone !== 'hand') {
+        socket.emit("error", {
+          code: "FUSE_HAND_ONLY",
+          message: "Fuse can only be cast from your hand.",
+        });
+        return;
+      }
+
       const rawCardFaces = Array.isArray((cardInHand as any)?.card_faces) ? (cardInHand as any).card_faces : [];
       const adventureFace = resolveAdventureAwareFaceIndex(
         game,
         String(playerId),
         cardInHand,
         castSourceZone,
-        faceIndex,
+        fused ? undefined : faceIndex,
       );
       if (adventureFace.error) {
         socket.emit('error', adventureFace.error);
         return;
       }
-      const effectiveFaceIndex = adventureFace.faceIndex;
+      const effectiveFaceIndex = fused ? undefined : adventureFace.faceIndex;
       if (effectiveFaceIndex !== undefined && (!Array.isArray(rawCardFaces) || effectiveFaceIndex < 0 || effectiveFaceIndex >= rawCardFaces.length)) {
         socket.emit("error", {
           code: "INVALID_FACE_INDEX",
@@ -363,9 +374,17 @@ export function tryResolveCastSpellFromHandFront(
         return;
       }
 
-      const selectedSpell = resolveSelectedSpellCard(cardInHand, effectiveFaceIndex);
+      const selectedSpell = resolveSelectedSpellCard(cardInHand, effectiveFaceIndex, { fused });
+      if (fused && selectedSpell.castAsFused !== true) {
+        socket.emit("error", {
+          code: "NO_FUSE",
+          message: "That card cannot be cast fused.",
+        });
+        return;
+      }
       const selectedFaceIndex = selectedSpell.faceIndex;
       const castAsAdventure = selectedSpell.castAsAdventure;
+      const castAsFused = selectedSpell.castAsFused;
       const squadTimesPaidBeforeFace = Number.isFinite(Number((cardInHand as any)?.squadTimesPaid))
         ? getRecordedSquadTimesPaid(cardInHand)
         : undefined;
@@ -549,6 +568,7 @@ export function tryResolveCastSpellFromHandFront(
     cardInHand,
     selectedFaceIndex,
     castAsAdventure,
+    castAsFused,
     resolvedTimesKicked,
     commandZoneManaCost,
     typeLine,

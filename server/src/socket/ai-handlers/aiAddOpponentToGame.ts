@@ -17,6 +17,7 @@ import { broadcastGame } from "../util.js";
 import { AI_THINK_TIME_MS } from "./aiConstants.js";
 import { handleAIGameFlow } from "./aiGameFlowHandlers.js";
 import { persistAIPlayerDeckSource, resolveAIDeckEntries } from "./aiPregameHandlers.js";
+import { importAIResolvedDeck } from "./aiVariantDeckImport.js";
 import { registerAIPlayer } from "./aiPlayerRegistry.js";
 import { joinAiPlayerSeat } from "../join-handlers/playerSeatIds.js";
 
@@ -117,6 +118,7 @@ async function loadAndImportAIDeck(options: {
   aiDeckId?: unknown;
   aiDeckText?: unknown;
   aiDeckName?: unknown;
+  io?: any;
 }): Promise<{ deckLoaded: boolean; deckName?: string }> {
   const {
     game,
@@ -127,6 +129,7 @@ async function loadAndImportAIDeck(options: {
     aiDeckId,
     aiDeckText,
     aiDeckName,
+    io,
   } = options;
 
   let deckEntries: Array<{ name: string; count: number }> = [];
@@ -189,27 +192,14 @@ async function loadAndImportAIDeck(options: {
     return { deckLoaded: false, deckName: finalDeckName };
   }
 
-  if (typeof (game as any).importDeckResolved === "function") {
-    (game as any).importDeckResolved(aiPlayerId, resolvedCards);
-    try {
-      await appendEvent(gameId, (game as any).seq || 0, "deckImportResolved", {
-        playerId: aiPlayerId,
-        cards: resolvedCards,
-      });
-    } catch (e) {
-      debugWarn(1, "[AI] Failed to persist deckImportResolved event:", e);
-    }
-  } else {
-    debugWarn(2, "[AI] importDeckResolved not available, using fallback zone initialization");
-    game.state.zones = game.state.zones || {};
-    (game.state.zones as any)[aiPlayerId] = {
-      hand: [],
-      handCount: 0,
-      libraryCount: resolvedCards.length,
-      graveyard: [],
-      graveyardCount: 0,
-    };
-  }
+  await importAIResolvedDeck({
+    game,
+    gameId,
+    playerId: aiPlayerId,
+    resolvedCards,
+    logLabel: `[AI] Loading AI deck for ${aiName}`,
+    io,
+  });
 
   return { deckLoaded: true, deckName: finalDeckName };
 }
@@ -284,6 +274,7 @@ export async function addAIOpponentToExistingGame(
     aiDeckId: config.aiDeckId,
     aiDeckText: config.aiDeckText,
     aiDeckName: config.aiDeckName,
+    io,
   });
 
   const strategy = registerAIPlayer(gameId, aiPlayerId, aiDisplayName, difficulty);
