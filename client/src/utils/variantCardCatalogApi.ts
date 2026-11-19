@@ -1,3 +1,14 @@
+/** Plane and phenomenon scans are portrait files of a landscape card. Schemes are already upright. */
+export function isSidewaysVariantTypeLine(typeLine: unknown): boolean {
+  const type = String(typeLine || '').trim();
+  // `Phenomenon` must not use a `phenome` word-boundary: the next letter is still `n`.
+  return /^(plane\b|phenomen)/i.test(type);
+}
+
+export function isSidewaysVariantKind(kind: unknown): boolean {
+  return kind === 'plane' || kind === 'phenomenon';
+}
+
 export type VariantCatalogKind = 'plane' | 'phenomenon' | 'scheme' | 'ongoing_scheme';
 
 export type VariantCatalogCard = {

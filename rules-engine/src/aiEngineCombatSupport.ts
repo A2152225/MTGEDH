@@ -623,15 +623,36 @@ export function makeBasicBlockDecision(
     }
   }
 
+  // Decide large-combat BEFORE evaluateCombatValue×N (cardAnalyzer per blocker hung exclusive AI).
+  const largeCombat =
+    attackerCreatures.length > 8
+    || blockerPermanents.length > 8
+    || globalBattlefield.length > 24;
+
+  const activeOpponents = context.gameState.players.filter((candidate: any) =>
+    playerIsLegalAttackTarget(candidate, context.playerId)
+  ).length;
+
   const blockerEvaluations = blockerPermanents.map((perm: BattlefieldPermanent) => {
-    const activeOpponents = context.gameState.players.filter((candidate: any) =>
-      playerIsLegalAttackTarget(candidate, context.playerId)
-    ).length;
+    const creature = createCombatCreature(perm, globalBattlefield);
+    if (largeCombat) {
+      const power = Number((perm as any).power ?? (perm as any).card?.power ?? 0) || 0;
+      const toughness = Number((perm as any).toughness ?? (perm as any).card?.toughness ?? 0) || 0;
+      return {
+        perm,
+        creature,
+        wantsToGetKilled: false,
+        deathBenefit: 0,
+        baseValue: power + toughness,
+        preserveBias: 0,
+        attackBias: 0,
+      };
+    }
     const evaluation = deps.evaluateCombatValue(perm, false, activeOpponents);
     const deckModifiers = deps.getCombatDeckModifiers(perm, config);
     return {
       perm,
-      creature: createCombatCreature(perm, globalBattlefield),
+      creature,
       wantsToGetKilled: evaluation.wantsToGetKilled,
       deathBenefit: evaluation.deathBenefit,
       baseValue: deps.evaluatePermanentValue(perm),
@@ -646,8 +667,6 @@ export function makeBasicBlockDecision(
     || (typeof process !== 'undefined' ? process.env?.AI_BRAIN : undefined);
 
   // Large combat: skip candidate explosion; reuse the lighter v0 block assignment.
-  const largeCombat =
-    attackerCreatures.length > 8 || blockerEvaluations.length > 8 || globalBattlefield.length > 24;
   const planned =
     seatBrain === 'v2' && !largeCombat
       ? planBlocks(context, attackerCreatures, blockerEvaluations)

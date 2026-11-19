@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import type { KnownCardRef, CardFace } from '../../../shared/src';
 import { ClassLevelSectionsList, getClassLevelView, type ClassLevelView } from './ClassLevelBadge';
+import { LandscapeCardImage, PLANE_LANDSCAPE_ASPECT } from './LandscapeCardImage';
+import { isSidewaysVariantTypeLine } from '../utils/variantCardCatalogApi';
 
 // A lightweight, global, fixed-position overlay that shows a readable
 // card image near a hovered element. It avoids covering the hovered card
@@ -185,7 +187,9 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
     url?: string;
     faces?: Array<{ name?: string; url: string }>;
     classView?: ClassLevelView | null;
+    sideways?: boolean;
   } | null>(null);
+  const sidewaysRef = useRef(false);
   const [prefer, setPrefer] = useState<'left' | 'right' | 'above' | 'below' | 'auto'>('above');
   const [anchorPadding, setAnchorPadding] = useState<number>(0);
   
@@ -228,8 +232,19 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
     const adjustedScale = faceCount > 1 ? 0.7 : 1;
     const cardW = Math.round(singleCardW * adjustedScale);
     const cardGap = faceCount > 1 ? MULTI_FACE_GAP : 0;
-    const previewW = cardW * faceCount + cardGap * (faceCount - 1);
-    const previewH = Math.round(cardW / 0.72);
+    const portraitH = Math.round(cardW / 0.72);
+    const sideways = sidewaysRef.current && faceCount === 1;
+    // Plane cards need a tall 5×3.5 frame; the chaos line sits at the very bottom.
+    let previewW = cardW * faceCount + cardGap * (faceCount - 1);
+    let previewH = portraitH;
+    if (sideways) {
+      previewH = Math.min(vh - 24, Math.round(cardW * 1.7));
+      previewW = Math.round(previewH * PLANE_LANDSCAPE_ASPECT);
+      if (previewW > vw - 16) {
+        previewW = vw - 16;
+        previewH = Math.round(previewW / PLANE_LANDSCAPE_ASPECT);
+      }
+    }
     const gap = 12;   // gap used for non-above placements
     const margin = 8; // viewport margin
 
@@ -339,6 +354,8 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
       setAnchor(el);
       setPrefer(ce.detail?.prefer ?? 'above');
       setAnchorPadding(Number.isFinite(ce.detail?.anchorPadding as number) ? (ce.detail?.anchorPadding as number) : 0);
+      const sideways = isSidewaysVariantTypeLine(card.type_line || ce.detail?.typeLine);
+      sidewaysRef.current = sideways;
       setMeta({ 
         name: card.name, 
         type_line: card.type_line, 
@@ -346,6 +363,7 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
         url: url || faces[0]?.url,
         faces: faces.length > 1 ? faces : undefined,
         classView: getClassLevelView(card),
+        sideways,
       });
 
       // Compute immediately for crisp transitions
@@ -359,6 +377,7 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
       // comes from the same element currently anchored.
       if (fromEl && anchor && fromEl !== anchor) return;
       tokenRef.current++;
+      sidewaysRef.current = false;
       setAnchor(null);
       setMeta(null);
     };
@@ -419,6 +438,7 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
           top: pos.top,
           width: pos.w,
           height: pos.h,
+          overflow: meta?.sideways ? 'visible' : undefined,
           zIndex: 12000,
           pointerEvents: 'none',
           filter: 'drop-shadow(0 12px 24px rgba(0,0,0,0.6))',
@@ -474,18 +494,21 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
             );
           })
         ) : (
-          // Render single card
-          <>
-            <img
-              src={meta.url}
-              alt={meta.name || ''}
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                borderRadius: 10,
-              }}
-            />
+          <div style={{ width: '100%', height: '100%', overflow: meta.sideways ? 'visible' : 'hidden', display: 'grid', placeItems: 'center', position: 'relative' }}>
+            {meta.sideways ? (
+              <LandscapeCardImage src={meta.url} alt={meta.name || ''} width={pos.w} height={pos.h} />
+            ) : (
+              <img
+                src={meta.url}
+                alt={meta.name || ''}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  borderRadius: 10,
+                }}
+              />
+            )}
             <div
               style={{
                 position: 'absolute',
@@ -497,6 +520,7 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
                 color: '#fff',
                 textShadow: '0 1px 2px rgba(0,0,0,0.8)',
                 background: 'linear-gradient(transparent, rgba(0,0,0,0.75))',
+                display: meta.sideways ? 'none' : undefined,
                 borderBottomLeftRadius: 10,
                 borderBottomRightRadius: 10,
               }}
@@ -505,7 +529,7 @@ export function CardPreviewLayer(props: { controlMode?: 'floating' | 'hidden' })
               {meta.effectiveTypeLine ? <div data-testid="card-preview-effective-type" style={{ fontSize: 11, opacity: 0.9 }}>{meta.effectiveTypeLine}</div> : null}
               {meta.classView ? <ClassLevelSectionsList view={meta.classView} /> : null}
             </div>
-          </>
+          </div>
         )}
       </div>
     </>

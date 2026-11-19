@@ -29,10 +29,11 @@ const END_SHARD = Math.min(
   SHARDS,
   Number(process.env.AI_SELFPLAY_END_SHARD || SHARDS),
 );
-// Hard kill only after the harness soft wall budget (max(180s, maxTurns*15s)) plus
+// Hard kill only after the harness soft wall budget (max(180s, maxTurns*30s)) plus
 // overhead. Gate max45 used BATCH_KILL=300s while maxWallClockMs=675s, so slow-but-live
 // games were synthetic hard-kills (~5%/run) before softStop could end them.
-const DEFAULT_BATCH_KILL_MS = Math.max(240_000, MAX_TURNS * 15_000 + 180_000);
+// +10m overhead for prepareLiveGame / vitest transform so softStop can fire first.
+const DEFAULT_BATCH_KILL_MS = Math.max(240_000, MAX_TURNS * 30_000 + 600_000);
 const BATCH_KILL_MS = Number(process.env.AI_SELFPLAY_BATCH_KILL_MS || DEFAULT_BATCH_KILL_MS);
 
 fs.mkdirSync(outDir, { recursive: true });

@@ -72,8 +72,15 @@ function isResponseOnlyPriorityWindow(game: any, gameId: string, playerId: Playe
 
   const isAITurn = String(state.turnPlayer || '') === String(playerId);
   const stackEmpty = !Array.isArray(state.stack) || state.stack.length === 0;
-  // Own turn with an empty stack means land/spell/attack/advance decisions: not a pure pass.
-  if (isAITurn && stackEmpty) return false;
+  // Own-turn empty stack is usually land/spell/attack/advance — not a pure pass.
+  // Exception: non-declare combat steps (BEGIN_COMBAT / damage / END_COMBAT) are pass-only.
+  if (isAITurn && stackEmpty) {
+    const combatPassOnly =
+      phase === 'combat'
+      && !step.includes('attackers')
+      && !step.includes('blockers');
+    if (!combatPassOnly) return false;
+  }
   return true;
 }
 

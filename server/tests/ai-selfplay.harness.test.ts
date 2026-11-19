@@ -166,8 +166,9 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
             // horizon: max90 MAIN1 boards often need >60s of real actions without a
             // turn flip; 60s caused ~40%+ false turn-stalls at maxTurns=90.
             maxNoTurnAdvanceMs: Math.max(60_000, Math.min(180_000, MAX_TURNS * 2_000)),
-            // Real wall clock: generous per-tick budget (mulligan/setup ticks can be slow).
-            maxWallClockMs: Math.max(180_000, MAX_TURNS * 15_000),
+            // Real wall clock: late-game large boards often run ~20–25s/turn; 15s/turn
+            // falsely soft-stalled mid-progress after combat opts (probe shard 7).
+            maxWallClockMs: Math.max(180_000, MAX_TURNS * 30_000),
             // Gate soft-stalls included many tick-timeout@60s with stack>0 (storm drain).
             // Keep above a single storm tick; batch kill still bounds the whole process.
             maxTickWallClockMs: 180_000,
@@ -290,11 +291,11 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
       }
     }
   }, (() => {
-    // Four-bot games average ~4–6s/turn; keep vitest timeout above maxWallClockMs.
+    // Keep vitest timeout above maxWallClockMs (MAX_TURNS*30s) plus cleanup.
     const { count: shardCount } = parseShard(SHARD);
     const gamesThisShard = Math.max(1, Math.ceil(GAMES / Math.max(1, shardCount)));
-    const wallBudgetMs = Math.max(180_000, MAX_TURNS * 15_000);
-    const perGameMs = Math.max(wallBudgetMs + 120_000, MAX_TURNS * 25_000);
+    const wallBudgetMs = Math.max(180_000, MAX_TURNS * 30_000);
+    const perGameMs = Math.max(wallBudgetMs + 180_000, MAX_TURNS * 35_000);
     return Math.max(300_000, gamesThisShard * perGameMs + 60_000);
   })());
 });

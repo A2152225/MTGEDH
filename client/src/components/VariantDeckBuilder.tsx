@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { getCardPreviewHandlers } from './CardPreviewLayer';
+import { LandscapeCardImage } from './LandscapeCardImage';
 import {
   fetchVariantCardCatalog,
   selectedVariantNames,
@@ -168,7 +169,7 @@ export function VariantDeckBuilder({
               onClick={() => onChangeDeckText(toggleVariantCardInDeckText(deckText, card.name))}
               {...getCardPreviewHandlers({
                 name: card.name,
-                type_line: card.type_line,
+                type_line: card.type_line || (card.kind === 'phenomenon' ? 'Phenomenon' : card.kind === 'plane' ? 'Plane' : undefined),
                 image_uris: card.image_normal || card.image_small
                   ? { normal: card.image_normal || card.image_small, small: card.image_small || card.image_normal }
                   : undefined,
@@ -186,10 +187,18 @@ export function VariantDeckBuilder({
                 cursor: 'pointer',
               }}
             >
-              {image ? (
-                <img src={image} alt="" width={36} height={50} style={{ objectFit: 'cover', borderRadius: 3, flex: '0 0 auto' }} />
+              {image && (card.kind === 'plane' || card.kind === 'phenomenon') ? (
+                <LandscapeCardImage src={image} />
+              ) : image ? (
+                <img
+                  src={image}
+                  alt=""
+                  width={56}
+                  height={80}
+                  style={{ objectFit: 'contain', borderRadius: 3, flex: '0 0 auto', background: '#0b1220' }}
+                />
               ) : (
-                <span style={{ width: 36, height: 50, flex: '0 0 auto', background: '#1f2937', borderRadius: 3 }} />
+                <span style={{ width: 240, height: 168, flex: '0 0 auto', background: '#1f2937', borderRadius: 3 }} />
               )}
               <span style={{ minWidth: 0 }}>
                 <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>
@@ -203,7 +212,7 @@ export function VariantDeckBuilder({
                   <span
                     style={{
                       display: '-webkit-box',
-                      WebkitLineClamp: 2,
+                      WebkitLineClamp: 8,
                       WebkitBoxOrient: 'vertical',
                       overflow: 'hidden',
                       fontSize: 11,

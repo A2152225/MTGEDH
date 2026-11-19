@@ -982,7 +982,8 @@ export async function handleAIPriority(
         return;
       }
       
-      if (await tryAIResponseActions(io, gameId, playerId, game)) {
+      // Empty-stack BEGIN_COMBAT/damage/END_COMBAT: pass (like empty UPKEEP). Stacked triggers still respond.
+      if (!stackEmpty && await tryAIResponseActions(io, gameId, playerId, game)) {
         return;
       }
 

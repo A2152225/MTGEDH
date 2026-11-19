@@ -100,10 +100,21 @@ describe('AI fast pass: no pacing delay when the AI will just pass', () => {
     expect(elapsed!).toBeGreaterThanOrEqual(280);
   });
 
-  it('own turn with an empty stack keeps the pacing (land/attack/advance decisions)', async () => {
-    const { gameId, game } = seed('own_turn', false);
+  it('own-turn empty MAIN1 keeps the pacing (land/spell/advance decisions)', async () => {
+    const { gameId, game } = seed('own_turn_main', false);
     game.state.turnPlayer = ai;
     game.state.activePlayer = ai;
+    game.state.phase = 'precombatMain';
+    game.state.step = 'MAIN1';
     expect(await aiPriorityWillPass(gameId, ai as any)).toBe(false);
+  });
+
+  it('own-turn empty BEGIN_COMBAT can fast-pass (pass-only combat step)', async () => {
+    const { gameId, game } = seed('own_turn_begin_combat', false);
+    game.state.turnPlayer = ai;
+    game.state.activePlayer = ai;
+    game.state.phase = 'combat';
+    game.state.step = 'BEGIN_COMBAT';
+    expect(await aiPriorityWillPass(gameId, ai as any)).toBe(true);
   });
 });

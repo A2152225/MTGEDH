@@ -1,7 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 
 import { getPrimaryCardImageUrl } from '../utils/cardImages';
+import { isSidewaysVariantTypeLine } from '../utils/variantCardCatalogApi';
 import type { DeckCardLookupResult } from '../utils/serverDeckApi';
+import { LandscapeCardImage } from './LandscapeCardImage';
 
 export type DeckResolvePreviewCard = {
   query: string;
@@ -104,7 +106,9 @@ export function DeckResolvePreviewPanel({
               }}
             >
               <div style={{ position: 'relative', flexShrink: 0 }}>
-                {thumb ? (
+                {thumb && isSidewaysVariantTypeLine(card.type_line) ? (
+                  <LandscapeCardImage src={thumb} height={120} />
+                ) : thumb ? (
                   <img
                     src={thumb}
                     alt=""
