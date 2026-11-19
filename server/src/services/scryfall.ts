@@ -814,6 +814,13 @@ export async function fetchCardsFromSetByColorIdentity(
   return results;
 }
 
+/** Plane / Phenomenon / Scheme cards are variant-deck cards, not format-legal library cards. */
+function isVariantDeckConstructionCard(card: { type_line?: string; typeLine?: string } | null | undefined): boolean {
+  const type = String(card?.type_line || card?.typeLine || '');
+  if (/\bplaneswalker\b/i.test(type)) return false;
+  return /\b(?:plane|phenomenon|scheme)\b/i.test(type);
+}
+
 //
 // Deck legality (format-level)
 //
@@ -833,7 +840,11 @@ export function validateDeck(
   const banned = options?.formatRestrictions?.banned;
 
   // Format legality flags (from Scryfall) plus live ban-list overlay.
+  // Planes, phenomena, and schemes are not part of the Commander deck. They are
+  // seeded into the planar / scheme deck when that variant is on, and dropped
+  // when it is off. Either way they are not "illegal Commander cards".
   for (const c of cards) {
+    if (isVariantDeckConstructionCard(c)) continue;
     const status = c.legalities?.[fmt];
     if (status && status !== "legal") {
       illegal.push({ name: c.name, reason: `not legal in ${format} (${status})` });
@@ -852,6 +863,7 @@ export function validateDeck(
     for (const [name, count] of counts) {
       if (count > 1) {
         const card = cards.find((c) => c.name === name);
+        if (card && isVariantDeckConstructionCard(card)) continue;
         const type = card?.type_line || "";
         const isBasic = /\bBasic\b/i.test(type) || /\bBasic Land\b/i.test(type);
         if (!isBasic) illegal.push({ name, reason: `duplicate copies (${count})` });

@@ -29,6 +29,7 @@ import { detectUpkeepTriggers } from "./upkeep-triggers-handlers/upkeepTriggerDe
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from "./triggers/triggerConditionFamilyMatch.js";
 import { permanentHasTriggeredAbilities } from './triggers/triggeredAbilitySuppression.js';
 import { shouldBlockOpponentForcedActionFromContext } from './batch96CauseGuard.js';
+import { withCommandZoneTriggerSources } from './commandZoneAbilitySources.js';
 
 export type { UpkeepTrigger };
 export { detectUpkeepTriggers };
@@ -165,7 +166,7 @@ export function parseSagaChapters(oracleText: string): { chapter: number; effect
  */
 export function getUpkeepTriggersForPlayer(ctx: GameContext, activePlayerId: string): UpkeepTrigger[] {
   const triggers: UpkeepTrigger[] = [];
-  const battlefield = ctx.state?.battlefield || [];
+  const battlefield = withCommandZoneTriggerSources(ctx.state, ctx.state?.battlefield || []);
   const players = Object.keys((ctx as any).zones || {});
   
   for (const permanent of battlefield) {

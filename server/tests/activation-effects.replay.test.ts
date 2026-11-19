@@ -328,6 +328,65 @@ describe('activation effect replay semantics', () => {
     expect(String((queue.steps[0] as any)?.availableCards?.[0]?.id || '')).toBe('forest_1');
   });
 
+  it('resolves a tutor ability without queueing a second library search', () => {
+    const game = createInitialGameState('t_activate_tutor_no_double_search');
+    const p1 = 'p1' as PlayerID;
+    addPlayer(game, p1, 'P1');
+
+    game.importDeckResolved(p1, [
+      {
+        id: 'forest_1',
+        name: 'Forest',
+        type_line: 'Basic Land — Forest',
+        oracle_text: '({T}: Add {G}.)',
+      },
+      {
+        id: 'island_1',
+        name: 'Island',
+        type_line: 'Basic Land — Island',
+        oracle_text: '({T}: Add {U}.)',
+      },
+    ] as any);
+
+    (game.state as any).manaPool = {
+      [p1]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 2 },
+    };
+    (game.state as any).battlefield = [
+      {
+        id: 'bauble_1',
+        controller: p1,
+        owner: p1,
+        tapped: false,
+        counters: {},
+        card: {
+          id: 'bauble_card_1',
+          name: "Wayfarer's Bauble",
+          type_line: 'Artifact',
+          oracle_text: '{2}, {T}, Sacrifice this artifact: Search your library for a basic land card, put that card onto the battlefield tapped, then shuffle.',
+          zone: 'battlefield',
+        },
+      },
+    ];
+
+    game.applyEvent({
+      type: 'activateTutorAbility',
+      playerId: p1,
+      permanentId: 'bauble_1',
+      abilityId: 'bauble_1-ability-0',
+      cardName: "Wayfarer's Bauble",
+      stackId: 'tutor_stack_bauble',
+    } as any);
+
+    const queue = ResolutionQueueManager.getQueue('t_activate_tutor_no_double_search');
+    expect(queue.steps.filter((step: any) => step?.type === 'library_search')).toHaveLength(1);
+
+    game.resolveTopOfStack();
+
+    const searchSteps = queue.steps.filter((step: any) => step?.type === 'library_search');
+    const forests = ((game.state as any).battlefield || []).filter((perm: any) => perm?.card?.name === 'Forest');
+    expect(searchSteps.length + forests.length).toBe(1);
+  });
+
   it('replays activateTutorAbility for a sacrificed token source by preserving the graveyard snapshot and rebuilding the search queue', () => {
     const game = createInitialGameState('t_activate_tutor_token_replay');
     const p1 = 'p1' as PlayerID;

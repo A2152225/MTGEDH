@@ -15,6 +15,7 @@
 //   buildForEachScaledTemporaryPtStep
 
 import type { OracleEffectStep, OracleScaler } from './oracleIR';
+import { isGrantableKeywordAbility } from './comprehensiveRulesKeywordAbilities.js';
 import { parseObjectSelector } from './oracleIRParserUtils';
 
 function parseTemporaryKeywordAbilityParts(gainsRaw: string): string[] {
@@ -31,9 +32,7 @@ function buildTemporaryGrantStepFields(
   gainsRaw: string,
 ): { abilities?: string[]; effectText?: string[] } {
   const parts = parseTemporaryKeywordAbilityParts(gainsRaw);
-  const keywordParts = parts.filter((part) =>
-    /^(flying|trample|vigilance|lifelink|deathtouch|reach|menace|shroud|hexproof|indestructible|fear|intimidate|shadow|horsemanship|first strike|double strike|haste|ward|myriad|infect)$/.test(part),
-  );
+  const keywordParts = parts.filter((part) => isGrantableKeywordAbility(part));
   if (keywordParts.length === parts.length && keywordParts.length > 0) {
     return { abilities: keywordParts };
   }

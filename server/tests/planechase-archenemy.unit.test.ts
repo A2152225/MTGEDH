@@ -3,9 +3,14 @@ import { normalizePlanechaseOracleText } from '../src/state/modules/planechaseOr
 import { detectAbilityActivatedTriggers } from '../src/state/modules/triggers/ability-activated-detection.js';
 import {
   chaosEnsues,
+  getPlanarController,
   planeswalk,
   applyPlanarDieFaceEffects,
 } from '../src/state/modules/planechaseRuntime.js';
+import { getUpkeepTriggersForPlayer } from '../src/state/modules/upkeep-triggers.js';
+import { getDrawStepTriggers, getPostcombatMainTriggers } from '../src/state/modules/triggers/turn-phases.js';
+import { getEndOfCombatTriggers } from '../src/state/modules/triggers/end-combat.js';
+import { getOpponentSpellCastTriggers } from '../src/state/modules/triggers/spell-cast.js';
 import { setSchemeInMotion, abandonScheme } from '../src/state/modules/archenemyRuntime.js';
 import { applyEvent } from '../src/state/modules/applyEvent.js';
 import { asCommandZoneAbilitySource } from '../src/state/modules/commandZoneAbilitySources.js';
@@ -27,6 +32,9 @@ describe('Planechase / Archenemy normalize + detect', () => {
     );
     expect(normalizePlanechaseOracleText('{CHAOS} Destroy target creature.')).toBe(
       'Whenever chaos ensues, Destroy target creature.',
+    );
+    expect(normalizePlanechaseOracleText('When chaos ensues, cards can\'t enter from exile this turn.')).toBe(
+      'Whenever chaos ensues, cards can\'t enter from exile this turn.',
     );
   });
 
@@ -116,6 +124,112 @@ describe('Planechase runtime', () => {
     expect(state.activePlane?.id).toBe('plane-new');
     expect(state.planarDeckFaceDown.map((c: any) => c.id)).toEqual(['plane-old', 'phen-1']);
     expect(result.queued.length).toBeGreaterThan(0);
+  });
+
+  it('the planar controller is the active player, not whoever last planeswalked', () => {
+    expect(getPlanarController({ turnPlayer: 'p2', planarController: 'p1' }, 'p1')).toBe('p2');
+    expect(getPlanarController({ planarController: 'p1' }, 'p2')).toBe('p2');
+  });
+
+  it('a face-up plane\'s upkeep ability is seen even though the plane is not on the battlefield', () => {
+    const plane = {
+      id: 'spectro',
+      name: 'Spectrox Mines',
+      type_line: 'Plane — Androzani Minor',
+      oracle_text:
+        'When you planeswalk to Spectrox Mines and at the beginning of your upkeep, you lose 3 life and create a Treasure token.\nWhenever chaos ensues, create a Food token.',
+    };
+    const state: any = {
+      houseRules: { enablePlanechase: true },
+      turnPlayer: 'p1',
+      activePlayer: 'p1',
+      players: [{ id: 'p1' }],
+      battlefield: [],
+      currentPlane: plane,
+      activePlane: plane,
+      stack: [],
+    };
+    const triggers = getUpkeepTriggersForPlayer(makeCtx(state), 'p1');
+    expect(triggers.some((trigger) => /lose 3 life/i.test(String(trigger.effect || trigger.description || '')))).toBe(true);
+  });
+
+  it('rolls of the planar die queue the roll trigger, and a blank also queues the blank trigger', () => {
+    const plane = {
+      id: 'drum',
+      name: 'The Drum, Mining Facility',
+      type_line: 'Plane — Earth',
+      oracle_text:
+        'Whenever you roll the planar die, creatures you control get +1/+1 and gain haste until end of turn.\nWhenever you roll a blank on the planar die, scry 2.\nWhenever chaos ensues, end the turn.',
+    };
+    const blankState: any = {
+      houseRules: { enablePlanechase: true },
+      turnPlayer: 'p1',
+      currentPlane: plane,
+      activePlane: plane,
+      stack: [],
+      players: [{ id: 'p1' }],
+    };
+    applyPlanarDieFaceEffects(makeCtx(blankState), 'p1', ['blank']);
+    const blankEffects = (blankState.stack || []).map((item: any) => String(item.effect || item.description || ''));
+    expect(blankEffects.some((text: string) => /haste/i.test(text))).toBe(true);
+    expect(blankEffects.some((text: string) => /scry 2/i.test(text))).toBe(true);
+    expect(blankEffects.some((text: string) => /end the turn/i.test(text))).toBe(false);
+
+    const chaosState: any = {
+      ...blankState,
+      stack: [],
+    };
+    applyPlanarDieFaceEffects(makeCtx(chaosState), 'p1', ['chaos']);
+    const chaosEffects = (chaosState.stack || []).map((item: any) => String(item.effect || item.description || ''));
+    expect(chaosEffects.some((text: string) => /haste/i.test(text))).toBe(true);
+    expect(chaosEffects.some((text: string) => /end the turn/i.test(text))).toBe(true);
+    expect(chaosEffects.some((text: string) => /scry 2/i.test(text))).toBe(false);
+  });
+
+  it('draw step, end of combat, and postcombat main read the face-up plane', () => {
+    const plane = {
+      id: 'phases',
+      name: 'Phase Plane',
+      type_line: 'Plane — Test',
+      oracle_text:
+        'At the beginning of your draw step, scry 1.\nAt the end of combat, you gain 1 life.\nAt the beginning of your postcombat main phase, draw a card.',
+    };
+    const state: any = {
+      houseRules: { enablePlanechase: true },
+      turnPlayer: 'p1',
+      activePlayer: 'p1',
+      players: [{ id: 'p1' }],
+      battlefield: [],
+      currentPlane: plane,
+      activePlane: plane,
+    };
+    const ctx = makeCtx(state);
+    expect(getDrawStepTriggers(ctx, 'p1').some((trigger) => /scry 1/i.test(String(trigger.effect || '')))).toBe(true);
+    expect(getEndOfCombatTriggers(ctx, 'p1').some((trigger) => /gain 1 life/i.test(String(trigger.effect || '')))).toBe(true);
+    expect(getPostcombatMainTriggers(ctx, 'p1').some((trigger) => /draw a card/i.test(String(trigger.effect || '')))).toBe(true);
+  });
+
+  it('a plane sees a historic spell cast by any player and ignores a creature spell', () => {
+    const source = asCommandZoneAbilitySource({
+      id: 'coal',
+      name: 'Coal Hill School',
+      type_line: 'Plane — Earth',
+      oracle_text: 'Whenever a player casts a historic spell, that player draws a card.',
+    }, 'p1', 'plane');
+    const historic = getOpponentSpellCastTriggers(
+      [source],
+      'p2',
+      { name: 'Sol Ring', type_line: 'Artifact' },
+      ['p1', 'p2'],
+    );
+    const creature = getOpponentSpellCastTriggers(
+      [source],
+      'p2',
+      { name: 'Grizzly Bears', type_line: 'Creature — Bear' },
+      ['p1', 'p2'],
+    );
+    expect(historic.some((trigger) => /draws a card/i.test(String(trigger.effect || trigger.description || '')))).toBe(true);
+    expect(creature).toEqual([]);
   });
 
   it('chaos ensues queues the face-up plane chaos ability', () => {

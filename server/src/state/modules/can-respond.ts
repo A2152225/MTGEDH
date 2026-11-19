@@ -598,6 +598,15 @@ function canActUncached(ctx: GameContext, playerId: PlayerID): boolean {
         debug(2, `[canAct] ${playerId}: Turn player in main phase can play land - returning TRUE`);
         return true;
       }
+      // Untapped mana sources alone keep priority (auto-pass must not rocket past MAIN).
+      // Check this BEFORE ability/spell corpus scans — on large boards those scans can
+      // monopolize the AI exclusive lock for an entire harness tick (180s+).
+      const earlyFloating = getTotalManaFromPool(getManaPoolFromState(ctx.state as any, playerId));
+      const earlyAvailable = getTotalManaFromPool(getAvailableMana(ctx.state as any, playerId));
+      if (earlyAvailable > earlyFloating) {
+        debug(2, `[canAct] ${playerId}: Untapped mana sources in main phase (available=${earlyAvailable}, floating=${earlyFloating}) - returning TRUE`);
+        return true;
+      }
     }
     
     // First check instant-speed responses (same as canRespond)

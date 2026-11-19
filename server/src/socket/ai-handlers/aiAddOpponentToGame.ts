@@ -197,6 +197,7 @@ async function loadAndImportAIDeck(options: {
     gameId,
     playerId: aiPlayerId,
     resolvedCards,
+    deckName: finalDeckName,
     logLabel: `[AI] Loading AI deck for ${aiName}`,
     io,
   });

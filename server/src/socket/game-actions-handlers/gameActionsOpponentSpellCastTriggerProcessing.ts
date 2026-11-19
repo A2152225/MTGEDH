@@ -8,6 +8,7 @@ import { tryResolveTriggerViaOracleIR } from "../../state/modules/oracleIrTrigge
 import { isTriggerEffectOwnedByOracleIrPrimary } from "../../state/modules/oracleIrTriggerLegacyRouting.js";
 import { getOpponentSpellCastTriggers, spellOrdinalForCaster } from "../../state/modules/triggers/index.js";
 import { getTurnScopedSpellTriggerSources } from "../../state/modules/triggers/turnScopedSpellTriggers.js";
+import { withCommandZoneTriggerSources } from "../../state/modules/commandZoneAbilitySources.js";
 import { isInterveningIfSatisfied } from "../../state/modules/triggers/intervening-if";
 import { orderTriggersByAPNAP } from "../../state/modules/triggers/ordering.js";
 import { ResolutionQueueManager, ResolutionStepType, createResolutionStep } from "../../state/resolution/index.js";
@@ -115,7 +116,7 @@ export function processOpponentSpellCastTriggersForCast(
       { state: game.state } as any,
       getOpponentSpellCastTriggers(
         // Spell-created "until end of turn, whenever a player casts" sources (Bonus Round) watch too.
-        [...battlefield, ...getTurnScopedSpellTriggerSources(game.state)],
+        withCommandZoneTriggerSources(game.state, [...battlefield, ...getTurnScopedSpellTriggerSources(game.state)]),
         casterId,
         spellCard,
         allPlayerIds,

@@ -630,15 +630,19 @@ export async function handleAIPriority(
         }
       }
 
-      const sharedMainPhaseCanAct = canAct(mainPhaseActionContext, playerId);
-      if (!sharedMainPhaseCanAct) {
-        debug(1, '[AI] Shared canAct reports no player-style main-phase actions; passing priority');
-        await executePassPriority(io, gameId, playerId);
-        return;
-      }
-
       const allowMainActivations = allowMainPhaseActivation(game, playerId);
       const allowSpellScan = allowMainPhaseSpellScan(game);
+      // Large boards already skip spell/ability enum. Shared canAct still walked the full
+      // ability/spell corpus first (before untapped-mana short-circuit) and burned 180s
+      // MAIN1 ticks (probe shard 19). Skip the gate; land already tried above.
+      if (allowSpellScan) {
+        const sharedMainPhaseCanAct = canAct(mainPhaseActionContext, playerId);
+        if (!sharedMainPhaseCanAct) {
+          debug(1, '[AI] Shared canAct reports no player-style main-phase actions; passing priority');
+          await executePassPriority(io, gameId, playerId);
+          return;
+        }
+      }
 
       const primaryActionKinds: AIActionCandidate['kind'][] = [];
       if (allowMainActivations && !willNeedToDiscard) primaryActionKinds.push('activate_ability');
@@ -785,7 +789,7 @@ export async function handleAIPriority(
         }
       }
 
-      if (canAct(mainPhaseActionContext, playerId)) {
+      if (allowSpellScan && canAct(mainPhaseActionContext, playerId)) {
         debug(2, '[AI] Shared canAct still reports available actions after AI exhausted supported main-phase choices');
       }
       

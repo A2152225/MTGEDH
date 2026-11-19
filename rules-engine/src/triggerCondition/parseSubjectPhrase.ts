@@ -8,6 +8,7 @@
  */
 
 import { normalizeCreatureTypeWord } from '../../../shared/src/creatureTypes.js';
+import { COMPREHENSIVE_RULES_KEYWORD_ABILITIES } from '../comprehensiveRulesKeywordAbilities.js';
 import type {
   TriggerConditionEvent,
   TriggerConditionIR,
@@ -109,40 +110,8 @@ const COLOR_LETTERS: Readonly<Record<string, string>> = {
   green: 'g',
 };
 
-/** Longest phrases first so "double strike" wins over "strike". */
-export const TRIGGER_SUBJECT_KEYWORDS: readonly string[] = [
-  'double strike',
-  'first strike',
-  'flying',
-  'flash',
-  'haste',
-  'vigilance',
-  'trample',
-  'menace',
-  'deathtouch',
-  'lifelink',
-  'reach',
-  'defender',
-  'hexproof',
-  'indestructible',
-  'shroud',
-  'shadow',
-  'fear',
-  'intimidate',
-  'prowess',
-  'infect',
-  'wither',
-  // Cast-time keywords ("whenever you cast a spell with cascade").
-  'cascade',
-  'convoke',
-  'delve',
-  'improvise',
-  'storm',
-  'ward',
-  'toxic',
-  'flashback',
-  'affinity',
-];
+/** Section 702 keyword abilities, longest first. */
+export const TRIGGER_SUBJECT_KEYWORDS = COMPREHENSIVE_RULES_KEYWORD_ABILITIES;
 
 const REFUSE =
   /\b(?:enchanted|target|mana|where|unless|whenever|when)\b/i;
@@ -442,6 +411,15 @@ function keywordAt(tokens: readonly string[], index: number): { keyword: string;
     if (rest === keyword || rest.startsWith(`${keyword} `)) {
       return { keyword, consumed: keyword.split(' ').length };
     }
+  }
+  // CR 702.14: landwalk is printed as "[quality]walk" (islandwalk, nonbasic landwalk).
+  const token = tokens[index] || '';
+  const next = tokens[index + 1] || '';
+  if (/^(?:nonbasic|snow|artifact|legendary)$/.test(token) && /[a-z]walk$/.test(next)) {
+    return { keyword: 'landwalk', consumed: 2 };
+  }
+  if (/[a-z]walk$/.test(token) && token !== 'walk') {
+    return { keyword: 'landwalk', consumed: 1 };
   }
   return null;
 }

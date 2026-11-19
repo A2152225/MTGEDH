@@ -512,8 +512,8 @@ export async function handleSetHouseRulesRequest(
     if (rules.anyCommanderDamageCountsAsCommanderDamage) enabledRules.push("Any Commander Damage Counts");
     if (rules.groupMulliganDiscount) enabledRules.push("Group Mulligan Discount");
     if (rules.immediateConcede) enabledRules.push("Immediate Concede");
-    if (rules.enableArchenemy) enabledRules.push("Archenemy (engine; deck UI later)");
-    if (rules.enablePlanechase) enabledRules.push("Planechase (engine; deck UI later)");
+    if (rules.enableArchenemy) enabledRules.push("Archenemy");
+    if (rules.enablePlanechase) enabledRules.push("Planechase");
 
     const rulesMessage = enabledRules.length > 0
       ? `House rules enabled: ${enabledRules.join(", ")}`

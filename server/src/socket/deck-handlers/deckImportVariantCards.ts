@@ -6,17 +6,19 @@
  * Cluster: resolve a precon's stored planar / scheme card names (preconDeckVariantCardStore) into
  * full card objects so `applyConfirmedImport` can seed the planar / scheme decks.
  *
- * Public entry symbols: resolvePreconVariantCards.
+ * Public entry symbols: resolvePreconVariantCards, resolveMatchedPreconVariantCards.
  */
 import type { Server, Socket } from "socket.io";
 import type { PlayerID } from "../../../../shared/src";
 import { resolveDeckList } from "../../services/deckImport.js";
+import { matchCatalogPrecon } from "../../services/preconVariantDeckMatch.js";
 import { getPreconVariantCards } from "../../services/preconDeckVariantCardStore.js";
 import { partitionVariantCards } from "../../state/modules/variantDeckSeeding.js";
 import { debugWarn } from "../../utils/debug.js";
 import { createDeckResolutionStatusReporter } from "./deckImportResolutionSupport.js";
 
-function roomNote(io: Server, gameId: string, message: string): void {
+function roomNote(io: Server | undefined, gameId: string, message: string): void {
+  if (!io || typeof io.to !== "function") return;
   io.to(gameId).emit("chat", { id: `m_${Date.now()}`, gameId, from: "system", message, ts: Date.now() });
 }
 
@@ -26,8 +28,8 @@ function roomNote(io: Server, gameId: string, message: string): void {
  * being resolved, so a normal Commander game never pays for the extra lookups.
  */
 export async function resolvePreconVariantCards(
-  io: Server,
-  socket: Socket,
+  io: Server | undefined,
+  socket: Socket | undefined,
   game: { state?: any },
   options: { gameId: string; playerId: PlayerID; setCode?: string; deckName: string },
 ): Promise<{ planar: any[]; schemes: any[] }> {
@@ -68,10 +70,14 @@ export async function resolvePreconVariantCards(
 
     const resolution = await resolveDeckList(wanted, {
       uniqueInstanceIds: true,
-      onStatus: createDeckResolutionStatusReporter(io, socket, gameId, "importPreconDeck.variantCards", {
-        playerId,
-        slowFallbackNotice: "none",
-      }),
+      ...(io
+        ? {
+            onStatus: createDeckResolutionStatusReporter(io, socket, gameId, "importPreconDeck.variantCards", {
+              playerId,
+              slowFallbackNotice: "none",
+            }),
+          }
+        : {}),
     });
     if (resolution.missing?.length) {
       roomNote(
@@ -88,4 +94,30 @@ export async function resolvePreconVariantCards(
     debugWarn(1, "resolvePreconVariantCards failed", err);
     return empty;
   }
+}
+
+/**
+ * Planes and schemes that ship with a precon but are not in the 100-card list.
+ * Used when a saved deck, pasted list, or AI deck matches a catalog precon and
+ * the import did not already attach variant cards.
+ */
+export async function resolveMatchedPreconVariantCards(
+  io: Server | undefined,
+  socket: Socket | undefined,
+  game: { state?: any },
+  options: { gameId: string; playerId: PlayerID; deckName?: string; cardNames?: readonly string[]; setCode?: string },
+): Promise<{ planar: any[]; schemes: any[] }> {
+  const empty = { planar: [] as any[], schemes: [] as any[] };
+  const explicitSet = String(options.setCode || '').trim();
+  const explicitName = String(options.deckName || '').trim();
+  const matched = explicitSet && explicitName
+    ? { setCode: explicitSet, deckName: explicitName }
+    : matchCatalogPrecon({ deckName: options.deckName, cardNames: options.cardNames });
+  if (!matched) return empty;
+  return resolvePreconVariantCards(io, socket, game, {
+    gameId: options.gameId,
+    playerId: options.playerId,
+    setCode: matched.setCode,
+    deckName: matched.deckName,
+  });
 }

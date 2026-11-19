@@ -13,6 +13,7 @@ import { persistEffectProgramChoiceResolutionEvent, restoreEffectProgramRuntimeF
 import { maybeResumeDeferredOracleIrStackSpellOnGame } from "../../state/modules/oracleIrDeferredStackFinalize.js";
 import { handleKynaiosChoiceResponse as handleKynaiosChoiceResponseBatched } from "../../state/resolution/handlers/kynaiosChoice.js";
 import { ResolutionStepType, type ResolutionStep, type ResolutionStepResponse } from "../../state/resolution/index.js";
+import { tryHandleSpaceSculptorOptionChoice } from "../spaceSculptorOptionChoice.js";
 import {
   handleSecretEachPlayerNumberChoiceResponse,
   isSecretEachPlayerNumberStep,
@@ -179,6 +180,7 @@ async function handleStepResponseBody(
         });
       }
     } else if (step.type === ResolutionStepType.OPTION_CHOICE) {
+      if (await tryHandleSpaceSculptorOptionChoice(io, game, gameId, step, response)) return;
       await handleOptionChoiceResponse(io, game, gameId, step, response);
     } else if (step.type === ResolutionStepType.LIBRARY_SEARCH) {
       if (await handleArchmageAscensionSearchResponse(io, game, gameId, step, response)) return;

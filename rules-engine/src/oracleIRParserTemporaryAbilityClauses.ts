@@ -1,35 +1,8 @@
 import type { OracleEffectStep } from './oracleIR';
+import { isGrantableKeywordAbility } from './comprehensiveRulesKeywordAbilities.js';
 import { normalizeOracleText, parseObjectSelector } from './oracleIRParserUtils';
 
 type WithMeta = <T extends OracleEffectStep>(step: T) => T;
-
-const KEYWORD_ABILITIES = new Set([
-  'banding',
-  'flying',
-  'trample',
-  'vigilance',
-  'lifelink',
-  'deathtouch',
-  'reach',
-  'menace',
-  'shroud',
-  'hexproof',
-  'indestructible',
-  'fear',
-  'intimidate',
-  'shadow',
-  'horsemanship',
-  'first strike',
-  'double strike',
-  'haste',
-  'ward',
-  'myriad',
-  'infect',
-  'annihilator 1',
-  'annihilator 2',
-  'annihilator 3',
-  'annihilator 4',
-]);
 
 function parseKeywordAbilityList(raw: string): string[] | null {
   const normalized = String(raw || '')
@@ -48,7 +21,7 @@ function parseKeywordAbilityList(raw: string): string[] | null {
 
   const abilities: string[] = [];
   for (const part of parts) {
-    if (!KEYWORD_ABILITIES.has(part)) return null;
+    if (!isGrantableKeywordAbility(part)) return null;
     if (!abilities.includes(part)) abilities.push(part);
   }
 
@@ -184,9 +157,10 @@ export function tryParseTemporaryAbilityClause(args: {
       });
     }
 
-    const m = workingClause.match(/^(it|that creature|that permanent|that card|they)\s+gains?\s+(haste|trample|vigilance|lifelink|deathtouch|menace|reach|flying|first strike|double strike|indestructible|hexproof|infect)(?:\s+this\s+turn)?$/i);
-    if (m) {
-      const ability = String(m[2] || '').trim().toLowerCase();
+    const m = workingClause.match(/^(it|that creature|that permanent|that card|they)\s+gains?\s+(.+?)(?:\s+this\s+turn)?$/i);
+    const gained = m ? parseKeywordAbilityList(String(m[2] || '').trim()) : null;
+    if (m && gained && gained.length === 1) {
+      const ability = gained[0];
       const target = parseObjectSelector(String(m[1] || '').trim());
       if (/\bthis\s+turn$/i.test(workingClause)) {
         return withMeta({

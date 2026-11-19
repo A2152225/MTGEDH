@@ -19,6 +19,7 @@ import {
 } from "./turnCombatDamageTriggerPersist.js";
 import type { DealCombatDamageResult } from "./turnCombatDamageAttackerLoop.js";
 import { collectRecipientVariantCombatDamageTriggers } from "./turnCombatDamageRecipientVariantTriggers.js";
+import { withCommandZoneTriggerSources } from "../commandZoneAbilitySources.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -62,6 +63,7 @@ export function applyDealCombatDamageTriggerQueue(
     const state = (ctx as any).state;
     // Spell-created "whenever ... deals combat damage ... this turn" sources (Surge to Victory, Harsh Justice).
     const turnScopedWatchers = getTurnScopedSpellTriggerSources(state);
+    const damageWatchers = withCommandZoneTriggerSources(state, [...battlefield, ...turnScopedWatchers]);
 
     // Queue per-attacker combat damage triggers onto the stack.
     // This covers triggers like: "Whenever ~ deals combat damage to a player, ..."
@@ -175,7 +177,7 @@ export function applyDealCombatDamageTriggerQueue(
 
           const watcherDamage = Math.max(0, Number(result.attackerDamageToPlayers?.[String(defendingPlayerId)]?.[String(attackerId)] || 0));
           if (watcherDamage > 0) {
-            for (const watcher of [...battlefield, ...turnScopedWatchers, ...getBoundTurnScopedSpellTriggerSources(state, String(attackerPerm.id)), ...getBoundTurnScopedSpellTriggerSources(state, String(defendingPlayerId))]) {
+            for (const watcher of [...damageWatchers, ...getBoundTurnScopedSpellTriggerSources(state, String(attackerPerm.id)), ...getBoundTurnScopedSpellTriggerSources(state, String(defendingPlayerId))]) {
               if (!watcher?.card || String(watcher.id) === String(attackerPerm.id)) continue;
               for (let line of collectMatchingParsedEventLines({
                 ctx,
@@ -354,7 +356,7 @@ export function applyDealCombatDamageTriggerQueue(
           ? Array.from(attackingControllers)[0]
           : String(state.activePlayer || state.turnPlayer || '');
 
-        for (const perm of [...battlefield, ...turnScopedWatchers]) {
+        for (const perm of damageWatchers) {
           if (String(perm?.controller || '') !== String(damagedPlayerId) || !perm?.card) continue;
 
           const triggers = detectCombatDamageTriggers(perm.card, perm, state);
@@ -502,7 +504,7 @@ export function applyDealCombatDamageTriggerQueue(
         for (const [controllerId, controllerDamage] of damageByController.entries()) {
           if (controllerDamage.attackerIds.length === 0) continue;
 
-          for (const perm of [...battlefield, ...turnScopedWatchers]) {
+          for (const perm of damageWatchers) {
             if (String(perm?.controller || '') !== String(controllerId) || !perm?.card) continue;
 
             const triggers = detectCombatDamageTriggers(perm.card, perm, state);

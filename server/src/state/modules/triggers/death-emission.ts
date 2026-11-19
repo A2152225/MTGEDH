@@ -8,6 +8,7 @@
 import type { GameContext } from "../../context.js";
 import type { TriggeredAbility } from "./detectorTriggeredAbility.js";
 import { getDamageWayDiesSources, getTurnScopedSpellTriggerSources } from "./turnScopedSpellTriggers.js";
+import { withCommandZoneTriggerSources } from "../commandZoneAbilitySources.js";
 import { collectDeathTriggerEffectText } from "./death-detection.js";
 import { KNOWN_DEATH_TRIGGERS } from "./card-data-tables.js";
 import {
@@ -108,7 +109,11 @@ export function getDeathTriggers(
   const dyingPermanentId = String(dyingCreature?.id || '').trim();
   // Spell-created "whenever a creature dies this turn" sources (Death Frenzy) watch too.
   const dyingIsToken = Boolean(dyingCreature?.isToken || dyingCreature?.card?.isToken || /\btoken\b/i.test(String(dyingCreature?.card?.type_line || '')));
-  const permanentsToScan: any[] = [...battlefield, ...getTurnScopedSpellTriggerSources(ctx.state), ...getDamageWayDiesSources(ctx.state, dyingCreature)];
+  const permanentsToScan: any[] = withCommandZoneTriggerSources(ctx.state, [
+    ...battlefield,
+    ...getTurnScopedSpellTriggerSources(ctx.state),
+    ...getDamageWayDiesSources(ctx.state, dyingCreature),
+  ]);
   if (dyingPermanentId && !permanentsToScan.some((perm) => String(perm?.id || '') === dyingPermanentId)) {
     permanentsToScan.push(dyingCreature);
   }

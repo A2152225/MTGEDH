@@ -223,6 +223,7 @@ export type OpponentCastSpellCondition =
   | 'noncreature'
   | 'creature'
   | 'instant_sorcery'
+  | 'historic'
   | 'first_noncreature'
   | 'first_any';
 
@@ -278,6 +279,9 @@ function parseOpponentCastSpellType(rawType: string): Pick<DetectedOpponentSpell
   }
   if (typeToken.includes('first') && typeToken.includes('noncreature')) {
     return { spellCondition: 'first_noncreature', triggerType: 'opponent_casts_first_noncreature' };
+  }
+  if (typeToken === 'historic') {
+    return { spellCondition: 'historic', triggerType: 'any_player_casts_any' };
   }
   if (typeToken === 'noncreature' || typeToken.includes('noncreature')) {
     return { spellCondition: 'noncreature', triggerType: 'opponent_casts_noncreature' };
@@ -722,6 +726,9 @@ export function getOpponentSpellCastTriggers(
           break;
         case 'creature':
           shouldTrigger = isCreatureSpell;
+          break;
+        case 'historic':
+          shouldTrigger = /\b(?:artifact|legendary|saga)\b/.test(spellTypeLine);
           break;
         case 'first_noncreature':
           shouldTrigger = isNoncreatureSpell && isFirstNoncreatureThisTurnByCaster;

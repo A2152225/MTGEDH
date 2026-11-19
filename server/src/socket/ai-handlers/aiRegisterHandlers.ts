@@ -222,6 +222,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
             gameId,
             playerId: aiPlayerId,
             resolvedCards,
+            deckName: finalDeckName,
             logLabel: '[AI] Loading AI deck',
             io,
           });
@@ -453,6 +454,7 @@ export function registerAIHandlers(io: Server, socket: Socket): void {
               gameId,
               playerId: aiPlayerId,
               resolvedCards,
+              deckName: finalDeckName,
               logLabel: `[AI] Loading deck for ${aiName}`,
               io,
             });

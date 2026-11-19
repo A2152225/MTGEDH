@@ -11,6 +11,7 @@
 //   canPermanentAttack, canBlockAttacker.
 // These stay module-private to combat.ts (imported there, not re-exported).
 
+import { spaceSculptorBlockReason } from "../../state/modules/spaceSculptor.js";
 import { globalFlyingBlockOnlyFlyingReason } from "./combatBatch36Restrictions.js"; // B36
 import { moreCreaturesBlockRestrictionReason } from "./combatBatch33AttackRestrictions.js"; // B33
 import { moreLandsBlockRestrictionReason } from "./combatBatch33AttackRestrictions.js"; // B100
@@ -531,6 +532,8 @@ export function canBlockAttacker(
   }
   const cowardReason = cowardsCantBlockWarriorsReason(blocker, attacker, battlefield);
   if (cowardReason) return { canBlock: false, reason: cowardReason };
+  const sectorReason = spaceSculptorBlockReason(attacker, blocker, gameState);
+  if (sectorReason) return { canBlock: false, reason: sectorReason };
   const b104Reason = batch104BlockRestrictionReason(blocker, attacker, battlefield, blockerControllerId, gameState);
   if (b104Reason) return { canBlock: false, reason: b104Reason };
   const b105Reason = batch105BlockRestrictionReason(blocker, attacker, battlefield, blockerControllerId, gameState);

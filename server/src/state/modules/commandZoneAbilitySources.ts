@@ -3,7 +3,8 @@
  * permanents: the face-up plane / phenomenon and ongoing schemes.
  *
  * Public: asCommandZoneAbilitySource, listCommandZoneAbilitySources,
- * getActivePlaneCard, listOngoingSchemeCards.
+ * getActivePlaneCard, listOngoingSchemeCards, activePlanarControllerId,
+ * withCommandZoneTriggerSources.
  */
 
 import {
@@ -66,14 +67,32 @@ export function asCommandZoneAbilitySource(
   };
 }
 
+/**
+ * CR 311.5 / 901.6: the planar controller is the active player. A stored
+ * `planarController` is only a fallback for states that have not started a turn.
+ */
+export function activePlanarControllerId(state: any, controllerId?: string): string {
+  const active = String(state?.turnPlayer || state?.activePlayer || '').trim();
+  if (active) return active;
+  return String(controllerId || state?.planarController || '').trim();
+}
+
+/** Battlefield permanents plus the face-up plane and ongoing schemes, for trigger scans. */
+export function withCommandZoneTriggerSources(state: any, permanents: readonly any[] | null | undefined): any[] {
+  const board = Array.isArray(permanents) ? [...permanents] : [];
+  const extra = listCommandZoneAbilitySources(state);
+  if (extra.length === 0) return board;
+  const seen = new Set(board.map((permanent) => String(permanent?.id || '')));
+  for (const source of extra) {
+    const id = String(source?.id || '');
+    if (id && seen.has(id)) continue;
+    board.push(source);
+  }
+  return board;
+}
+
 export function listCommandZoneAbilitySources(state: any, controllerId?: string): any[] {
-  const planarController = String(
-    controllerId
-    || state?.planarController
-    || state?.turnPlayer
-    || state?.activePlayer
-    || '',
-  ).trim();
+  const planarController = activePlanarControllerId(state, controllerId);
   const out: any[] = [];
 
   const plane = getActivePlaneCard(state);

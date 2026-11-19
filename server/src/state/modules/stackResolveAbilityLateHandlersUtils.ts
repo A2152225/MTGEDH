@@ -11,6 +11,7 @@ import {
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import { ResolutionStepType } from '../resolution/index.js';
 import { tryApplyOracleIRToActivatedAbility } from './oracleIrAbilityExecution.js';
+import { tryResolveSpaceSculptorAbility } from './spaceSculptor.js';
 import { applyTemporaryGraveyardKeywordGrantFromText } from './graveyard-permissions.js';
 import { extractOracleCardLookupKeys } from './oracleIrCompiledOverlayLookup.js';
 import { markOnceDuringEachActivatedAbilityUsedThisTurn } from '../../../../rules-engine/src/stationPermanentUtils.js';
@@ -260,6 +261,11 @@ export function tryResolveStackActivatedAbilityLateHandlers(
 ): boolean {
   const { item, controller, targets, executeTriggerEffect } = options;
   if (item?.type !== 'ability') return false;
+  if (tryResolveSpaceSculptorAbility(ctx, item, String(controller || ''))) {
+    markResolvedOncePerTurnActivatedAbility((ctx as any).state, item);
+    ctx.bumpSeq();
+    return true;
+  }
 
   const state = (ctx as any).state;
   const { bumpSeq } = ctx;
@@ -377,6 +383,15 @@ export function tryResolveStackActivatedAbilityLateHandlers(
         targets: Array.isArray(item?.targets) && item.targets.length > 0 ? item.targets : resolvedControlTargets,
       },
     );
+    markResolvedOncePerTurnActivatedAbility(state, item);
+    bumpSeq();
+    return true;
+  }
+
+  // activateTutorAbility already queued the library search. Oracle IR on
+  // resolution would search again and put a second card onto the battlefield
+  // (Wayfarer's Bauble).
+  if (String(item?.abilityType || '') === 'tutor') {
     markResolvedOncePerTurnActivatedAbility(state, item);
     bumpSeq();
     return true;

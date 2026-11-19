@@ -12,6 +12,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { withCommandZoneTriggerSources } from "../commandZoneAbilitySources.js";
 import { getTurnScopedSpellTriggerSources } from "./turnScopedSpellTriggers.js";
 import { timingTriggerEffect } from './timing-effect-extraction.js';
 import {
@@ -456,7 +457,7 @@ export function getBeginningOfCombatTriggers(
   activePlayerId: string
 ): BeginningOfCombatTrigger[] {
   const triggers: BeginningOfCombatTrigger[] = [];
-  const battlefield = ctx.state?.battlefield || [];
+  const battlefield = withCommandZoneTriggerSources(ctx.state, ctx.state?.battlefield || []);
   
   const MAX_TRIGGERS_PER_STEP = 100;
   let triggerCount = 0;

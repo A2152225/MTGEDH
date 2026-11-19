@@ -29,6 +29,7 @@ import { faceDownPublicLabel } from '../utils/faceDownUi';
 import { useMobilePlayLayout } from '../hooks/useMobilePlayLayout';
 import { useDesktopTableFrameHeight } from '../hooks/useDesktopTableFrameHeight';
 import { MulliganDecisionBar } from './MulliganDecisionBar';
+import { PlanarBoard } from './PlanarBoard';
 import { findSerumPowderCardsInHand } from '../utils/serumPowderCard';
 import {
   clamp,
@@ -653,6 +654,7 @@ export function TableLayout(props: {
           position: 'relative'
         }}
       >
+      <PlanarBoard view={chatView} you={you} gameId={gameId} />
       <MulliganDecisionBar
         showMulliganUI={showMulliganUI}
         hasKeptHand={hasKeptHand}

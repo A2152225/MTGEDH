@@ -29,7 +29,9 @@ Gate target ≥90% ⇒ **≥33/36**. **v2 is at 35/36 (97%)** — puzzle bar met
 | stall | 3 | **12.5%** |
 | error | 0 | 0% |
 
-Stall rate **12.5%** on the same 24-game window (worse than b3’s ~4%). No hard-kills; shard **9 → win**. Stalls: `selfplay-7000-4-2`, `4-3`, `5-2`. Dig those next before full P2-8. Harness `maxWallClockMs` = `MAX_TURNS*30s`.
+Stall rate **12.5%** on the same 24-game window (worse than b3’s ~4%). No hard-kills; shard **9 → win**. Stalls were `selfplay-7000-4-2`, `4-3`, `5-2`.
+
+**Post–canAct dig probes** (shards 18/19/22): all **turn-limit** (91). Shard 19’s prior MAIN1 180s tick is gone (~14m to turn-limit). Harness `maxWallClockMs` = `MAX_TURNS*30s`.
 
 ### Stall investigation (fixes landed — re-gate pending)
 
@@ -42,13 +44,14 @@ Primary soft-lock was **DECLARE_ATTACKERS seq-freeze**, not only MAIN1 cast chur
 5. **Large-board combat fast-path + sticky** (`attackPlannerFast.ts`, `combatDecisionSticky.ts`): greedy attacks when `board>24` or attack pool `>8`; v2 blocks fall back to `planAIBlocks` on large combat; sticky attack/block reuse for the current seat/step window.
 6. **Empty-stack non-declare combat** skips response enum + fast-pass (BEGIN_COMBAT/damage/END_COMBAT).
 7. **Large-block cheap eval**: do not run `evaluateCombatValue`/`cardAnalyzer` per blocker before the large-combat gate (sync CPU hog → event-loop stuck past tick/wall budgets).
+8. **MAIN1 large-board canAct**: early untapped-mana short-circuit in `canAct` before ability/spell corpus scans; AI skips shared `canAct` gate when spell scans are already disabled (shard 19 180s MAIN1 tick).
 
 Repro probes after combat fast-path/sticky: shard **8** → **turn-limit** (91); shard **7** still progresses but hits probe `maxWallClockMs` (~45m) at turn 78 `BEGIN_COMBAT` (not DECLARE_ATTACKERS freeze; `warningCount=0`). Puzzles still **35/36**.
 
 ### Next
 
-1. Dig b4 stalls: `selfplay-7000-4-2`, `4-3`, `5-2` (shards 18/19/22).
-2. Full P2-8 gate re-measure once stall share is back near ~1–2%: `out/gate-p2-v2-*.jsonl` (seed 7000, 320 games, v2 vs v1).
+1. Re-smoke shards 0–23 (or full P2-8) to confirm stall share ≤~2% after canAct fix.
+2. Full P2-8 gate: `out/gate-p2-v2-*.jsonl` (seed 7000, 320 games, v2 vs v1).
 3. Probe harness: keep `it` timeout above `maxWallClockMs` (`MAX_TURNS*30s`) so vitest does not tear down fake timers mid-tick.
 
 ## Planners shipped behind v2

@@ -24,6 +24,7 @@ import { ensureInitialDayNightDesignationFromBattlefield } from "../day-night.js
 import { cleanupCardLeavingExile } from "../playable-from-exile.js";
 import { syncDerivedContinuousEffects } from "../staticEffectSpec.js";
 import { applyStatefulPaperKeywordSBAs } from "../statefulPaperKeywords.js";
+import { queueSpaceSculptorSectorChoices } from "../spaceSculptor.js";
 import { refreshRevealedInformationFlags } from "../revealedInformationFlags.js";
 import { hydrateGameStateOracleText } from "../cardOracleHydration.js";
 import { movePermanentToGraveyard } from "./countersTokensMoveToGraveyard.js";
@@ -156,6 +157,9 @@ function runSBAUnbatched(ctx: GameContext) {
   // Start Your Engines! gives initial speed and Storied grants enduring story.
   try {
     if (applyStatefulPaperKeywordSBAs(state)) {
+      bumpSeq();
+    }
+    if (queueSpaceSculptorSectorChoices(ctx)) {
       bumpSeq();
     }
   } catch {}

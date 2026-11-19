@@ -175,13 +175,16 @@ export function parseRound65TriggerSentence(text: string, incoming: Reparse): Pa
       reparse('whenever an instant or sorcery spell you control deals damage to a player, ' + selfOrSpellDmg[3]),
     );
   }
-  const kwDmg = /^(whenever|when) a creature (?:you control )?with (skulk|deathtouch|flying) deals(?: combat)? damage to (?:one of your opponents|a planeswalker|a player),\s*(.+)$/.exec(text);
+  const kwDmg = /^(whenever|when) a creature (you control )?with (skulk|deathtouch|flying) deals(?: combat)? damage to (one of your opponents|a planeswalker|a player),\s*(.+)$/.exec(text);
   if (kwDmg) {
-    const toPlaneswalker = text.includes('planeswalker');
-    const dest = toPlaneswalker ? 'a player' : text.includes('opponents') ? 'an opponent' : 'a player';
-    const ev = /combat damage/.test(text) ? 'deals combat damage to ' : 'deals damage to ';
-    const base = stampSubject(reparse('whenever a creature you control ' + ev + dest + ', ' + kwDmg[3]), { keywordsWith: [kwDmg[2]] });
-    if (base) return withFields(base, toPlaneswalker ? { damageRecipient: 'planeswalker' } as any : {});
+    const pw = kwDmg[4] === 'a planeswalker';
+    const opp = kwDmg[4] === 'one of your opponents';
+    const dest = pw ? 'a player' : opp ? 'an opponent' : 'a player';
+    const ev = /combat/.test(text) ? 'deals combat damage to ' : 'deals damage to ';
+    const who = kwDmg[2] ? 'a creature you control' : 'a creature';
+    const base = stampSubject(reparse('whenever ' + who + ' ' + ev + dest + ', ' + kwDmg[5]), { keywordsWith: [kwDmg[3]] });
+    const recipient = pw ? { damageRecipient: 'planeswalker' } : opp ? { damageRecipient: 'opponent' } : {};
+    if (base) return withFields(base, recipient as any);
   }
   const chosenNameDmg = /^(whenever|when) a creature with the chosen name deals combat damage to a player(?: this turn)?,\s*(.+)$/.exec(text);
   if (chosenNameDmg) {

@@ -8,6 +8,7 @@ import type { Server } from "socket.io";
 import { isInterveningIfSatisfied } from "../../state/modules/triggers/intervening-if";
 import { getOpponentSpellCastTriggers, spellOrdinalForCaster } from "../../state/modules/triggers/index.js";
 import { getTurnScopedSpellTriggerSources } from "../../state/modules/triggers/turnScopedSpellTriggers.js";
+import { withCommandZoneTriggerSources } from "../../state/modules/commandZoneAbilitySources.js";
 import { orderTriggersByAPNAP } from "../../state/modules/triggers/ordering.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
@@ -74,7 +75,7 @@ export function queueOpponentSpellCastTriggersForCast(args: {
       { state: game.state } as any,
       getOpponentSpellCastTriggers(
         // Spell-created "until end of turn, whenever a player casts" sources (Bonus Round) watch too.
-        [...battlefield, ...getTurnScopedSpellTriggerSources(game.state)],
+        withCommandZoneTriggerSources(game.state, [...battlefield, ...getTurnScopedSpellTriggerSources(game.state)]),
         playerId, // The caster (opponent to the trigger controllers)
         cardInHand,
         allPlayerIds,

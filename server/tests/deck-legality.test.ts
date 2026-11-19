@@ -49,6 +49,39 @@ describe('validateDeck commander restrictions', () => {
       { name: 'Namor the Sub-Mariner', reason: 'not legal in commander (not_legal)' },
     ]);
   });
+
+  it('does not treat planes, phenomena, or schemes as illegal Commander cards', async () => {
+    const { validateDeck } = await import('../src/services/scryfall');
+
+    const result = validateDeck('commander', [
+      {
+        id: 'amy',
+        name: "Amy's Home",
+        type_line: 'Plane — Earth',
+        legalities: { commander: 'not_legal' },
+      },
+      {
+        id: 'flux',
+        name: 'Unleash the Flux',
+        type_line: 'Phenomenon',
+        legalities: { commander: 'not_legal' },
+      },
+      {
+        id: 'scheme',
+        name: 'All Shall Smolder in My Wake',
+        type_line: 'Scheme',
+        legalities: { commander: 'not_legal' },
+      },
+      {
+        id: 'nissa',
+        name: 'Nissa, Worldwaker',
+        type_line: 'Legendary Planeswalker — Nissa',
+        legalities: { commander: 'not_legal' },
+      },
+    ]);
+
+    expect(result.illegal.map((entry) => entry.name)).toEqual(['Nissa, Worldwaker']);
+  });
 });
 
 describe('local card lookup commander legality preference', () => {

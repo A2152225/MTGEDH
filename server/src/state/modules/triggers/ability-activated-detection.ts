@@ -172,6 +172,19 @@ export function detectAbilityActivatedTriggers(card: any, permanent?: any, gameS
     });
   }
 
+  const planarBlankMatch = oracleText.match(/whenever you roll a blank(?: on the planar die)?,?\s*([^.]+)/i);
+  if (planarBlankMatch && !triggers.some((t) => t.triggerType === 'planar_die_blank')) {
+    const effectText = timingTriggerEffect(oracleText, planarBlankMatch);
+    triggers.push({
+      permanentId,
+      cardName,
+      triggerType: 'planar_die_blank',
+      description: effectText,
+      effect: effectText,
+      mandatory: !effectText.toLowerCase().includes('you may'),
+    });
+  }
+
   const exhaustActivatedMatch = oracleText.match(/whenever you activate an exhaust ability,?\s*([^.]+)/i);
   if (exhaustActivatedMatch && !triggers.some((t) => t.triggerType === 'exhaust_ability_activated')) {
     const effectText = timingTriggerEffect(oracleText, exhaustActivatedMatch);

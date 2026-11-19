@@ -15,6 +15,7 @@ import { parseEvokeExileColor, cardMatchesEvokeExileColor, EVOKE_EXILE_ALTERNATE
 import { spellHasChosenTypeFlashGrant } from "../../state/modules/casting-modifiers.js";
 import { canCastFromTop } from "../../state/modules/game-state-effects";
 import { canCastWithSneakAtCurrentTiming } from "../../state/modules/sneakCastUtils.js";
+import { sorceryNotOnStackCastsAsInstant } from "../../state/modules/sorceryAsInstantTextChange.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
@@ -172,7 +173,8 @@ export function tryPromptCastSpellForceFlashFromHand(
       }
 
       let hasFlash = /\bflash\b/i.test(oracleText);
-      const isInstant = typeLine.includes("instant");
+      const isInstant = typeLine.includes("instant")
+        || sorceryNotOnStackCastsAsInstant(game.state, { type_line: typeLine });
       const isInstantOrSorcery = isInstant || typeLine.includes("sorcery");
 
       if (!hasFlash && castSourceZone === 'library') {

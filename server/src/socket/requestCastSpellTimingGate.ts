@@ -15,6 +15,8 @@ export function requestCastSpellGrantsFlash(options: {
   oracleText?: string;
   sneakGrantsTiming?: boolean;
   topLibraryGrantsFlash?: boolean;
+  /** Face-up plane rewrites this sorcery card into an instant before it is on the stack. */
+  sorceryCastsAsInstant?: boolean;
 }): boolean {
   const typeForTiming = String(options.typeLine || '').toLowerCase();
   const oracleForTiming = String(options.oracleText || '').toLowerCase();
@@ -25,5 +27,6 @@ export function requestCastSpellGrantsFlash(options: {
     || /\bflash\b/i.test(oracleForTiming)
     || options.sneakGrantsTiming === true
     || options.topLibraryGrantsFlash === true
+    || options.sorceryCastsAsInstant === true
   );
 }

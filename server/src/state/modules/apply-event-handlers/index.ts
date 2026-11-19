@@ -13,6 +13,7 @@ export { applyOnCastKeywordAndPlotEvents } from "./applyEventOnCastKeywordAndPlo
 export { applyPursuitDrawReplacementEvents } from "./applyEventPursuitDrawReplacementReplay.js"; // Pursuit of Knowledge draw replacement
 export { applyCirclingVulturesDiscardEvents } from "./applyEventCirclingVulturesDiscardReplay.js"; // Circling Vultures special-action discard
 export { applyPermanentKeywordEvents } from "./applyEventPermanentKeywordEvents.js"; // goad, ward, crew, station, enlist
+export { applySpaceSculptorEvents } from "./applyEventSpaceSculptorEvents.js"; // sector assignment, same-sector combat
 export { applyTurnPhaseTopLibraryEvents } from "./applyEventTurnPhaseTopLibraryEvents.js"; // turn/step, scry/surveil/ponder
 export { applyLibraryGambleChoiceEvents } from "./applyEventLibraryGambleChoiceEvents.js"; // vault, dance, proliferate, clash
 export { applyPriorityMulliganLifeEvents } from "./applyEventPriorityMulliganLifeEvents.js"; // priority, mulligan, life, mill

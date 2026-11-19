@@ -262,7 +262,7 @@ Coordinator merges owed extract-family rows there.
 | `state/modules/roomOtherDoorUnlock.ts` | Dual-door state (`unlockedDoors`), granted pay-to-unlock abilities, `payToUnlockRoomDoor` (CR 709.5e special action). |
 | `socket/interaction-handlers/interactionActivateRoomDoorUnlock.ts` | Activate handler for paying a locked Room door's mana cost as a sorcery. |
 
-## Planechase / Archenemy (engine; deck UI later)
+## Planechase / Archenemy
 
 | Module | Owns |
 | --- | --- |
@@ -279,10 +279,13 @@ Coordinator merges owed extract-family rows there.
 | `state/modules/planarDieSpecialAction.ts` | Planar die as a special action (CR 901.9): eligibility, generic-mana cost (rolls already taken this turn), `performPlanarDieSpecialAction`; persists `planarDieRoll` and restores via `applyPlanarDieRollSnapshot`. |
 | `socket/planarDieSocketHandlers.ts` | `rollPlanarDie` socket event: seat / room / pending-prompt checks, calls the special action, chat line, broadcast. |
 | `state/modules/turn-handlers/turnStepArchenemySchemeInMotion.ts` | Archenemy set-in-motion turn-based action at precombat main (CR 904.9); skipped on replay (`setSchemeInMotion` event replays it). |
-| `socket/deck-handlers/deckImportVariantCards.ts` | Precon import: reads stored planes / schemes and resolves them to cards (gated on house rules). |
+| `socket/deck-handlers/deckImportVariantCards.ts` | Precon import: reads stored planes / schemes and resolves them to cards (gated on house rules). Saved, pasted, and AI decks that match a catalog precon use the same path. |
+| `services/preconVariantDeckMatch.ts` | Match a deck name or its commanders to a catalog precon so the 100-card list still loads that precon's planes / schemes. |
+| `client/src/components/PlanarBoard.tsx` | Table overlay: face-up plane, planar-deck count, planar die. Shown when Planechase is on. |
 | `services/mtgJsonDeckVariantCards.ts` / `services/preconDeckVariantCardStore.ts` | MTGJSON deck `planes` / `schemes` extraction; precon SQLite tables for them (filled by `bake-precon-decklists.ts --backfill-variants`). |
 | `services/variantCardCatalog.ts` | Full plane / phenomenon / scheme catalog for the deck builder (`GET /api/cards/variant-catalog`), cached from the local oracle dump. |
 | `state/modules/planarDie.ts` / `ichorPlanarDiceChoice.ts` | Planar die roll; hooks `applyPlanarDieFaceEffects` when `enablePlanechase`. |
+| `state/modules/sorceryAsInstantTextChange.ts` | Face-up plane that replaces "sorcery" with "instant" on sorcery cards not on the stack. Those cards cast at instant timing; the spell on the stack stays a sorcery. |
 | IR `planeswalk` / `chaos_ensues` / `abandon_scheme` / `set_in_motion` | Parser + executor (phenomena skipped to bottom; chaos/encounter/planeswalk-here abilities replayed). |
 
 ## Card data and SQLite connections (`server/src/services/`)

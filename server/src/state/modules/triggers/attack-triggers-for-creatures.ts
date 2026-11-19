@@ -6,6 +6,7 @@
 
 import type { GameContext } from "../../context.js";
 import { getTurnScopedSpellTriggerSources } from "./turnScopedSpellTriggers.js";
+import { withCommandZoneTriggerSources } from "../commandZoneAbilitySources.js";
 import { noteExactlyTwoAttackers } from "./round67GameTriggers.js";
 import { debug } from "../../../utils/debug.js";
 import { primeDerivedContinuousEffectsForScan } from "../staticEffectSpec.js";
@@ -47,7 +48,10 @@ export function getAttackTriggersForCreatures(
   const triggers: CombatTriggeredAbility[] = [];
   noteExactlyTwoAttackers(ctx, attackingCreatures);
   // Spell-created "whenever a creature attacks this turn" sources (Ondu Rising) watch too.
-  const battlefield = [...(ctx.state?.battlefield || []), ...getTurnScopedSpellTriggerSources(ctx.state)];
+  const battlefield = withCommandZoneTriggerSources(ctx.state, [
+    ...(ctx.state?.battlefield || []),
+    ...getTurnScopedSpellTriggerSources(ctx.state),
+  ]);
   const detectGameState = ctx.state
     ? {
         ...ctx.state,

@@ -49,6 +49,7 @@ import {
 } from './canRespondTopLibraryFlashExile.js';
 import { getOrComputeCachedSpellCandidates } from './canRespondPriorityCache.js';
 import { cardHasGrantedOffBattlefieldFlash } from '../offBattlefieldFlashGrants.js';
+import { sorceryNotOnStackCastsAsInstant } from '../sorceryAsInstantTextChange.js';
 
 function spellMatchesCandidateMode(card: any, mode: SharedSpellCandidateMode, grantsFlash: boolean): boolean {
   if (mode === 'main') {
@@ -441,7 +442,7 @@ function collectCastableSpellCandidates(
             ? { castPermissionId: exileCastPermissionId }
             : {};
 
-        if (!spellMatchesCandidateMode(castCard, mode, grantsFlash)) {
+        if (!spellMatchesCandidateMode(castCard, mode, grantsFlash || sorceryNotOnStackCastsAsInstant(state, castCard))) {
           continue;
         }
 

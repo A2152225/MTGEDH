@@ -28,6 +28,8 @@ const REPLAY_GUARDED_EVENT_TYPES = new Set([
   'equipDiscardCostPaid',
   'equipSacrificeCostPaid',
   'activateBattlefieldAbility',
+  'assignSector',
+  'sameSectorBlocks',
   'activateCycling',
   'activateDoublingCube',
   'activateFetchland',

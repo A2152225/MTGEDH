@@ -35,6 +35,7 @@ import {
   commitImportedVariantDecks,
   splitResolvedDeckVariants,
 } from "../../state/modules/variantDeckImportCommit.js";
+import { resolveMatchedPreconVariantCards } from "./deckImportVariantCards.js";
 
 /**
  * applyConfirmedImport - idempotent / reentrancy-safe application of confirmed import.
@@ -124,7 +125,23 @@ export async function applyConfirmedImport(
 
     // Planes / phenomena / schemes are never library cards. Strip them from the playable deck and
     // seed the planar / scheme decks once the deckImportResolved event is saved (below). A precon's
-    // stored planar cards arrive separately on p.variantCards.
+    // stored planar cards arrive separately on p.variantCards. A saved or pasted Doctor Who list
+    // is only the 100-card library, so match it back to the precon and load those cards here.
+    const alreadyHasVariants =
+      (p.variantCards?.planar?.length || 0) > 0 || (p.variantCards?.schemes?.length || 0) > 0;
+    if (!alreadyHasVariants) {
+      try {
+        const matched = await resolveMatchedPreconVariantCards(io, importerSocket, game, {
+          gameId: p.gameId,
+          playerId: p.initiator,
+          deckName: p.deckName,
+          cardNames: (p.resolvedCards || []).map((card: any) => String(card?.name || '')).filter(Boolean),
+        });
+        if (matched.planar.length > 0 || matched.schemes.length > 0) p.variantCards = matched;
+      } catch (err) {
+        debugWarn(1, "applyConfirmedImport: precon variant lookup failed", err);
+      }
+    }
     const variantSplit = splitResolvedDeckVariants(p.resolvedCards, p.variantCards);
     const strippedFromDeck = Array.isArray(p.resolvedCards)
       ? p.resolvedCards.length - variantSplit.playable.length

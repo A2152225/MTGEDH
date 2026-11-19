@@ -156,11 +156,18 @@ function collectStaticEffectSourcesUncached(
     if (activePlane) {
       sources.push({
         sourceType: 'plane',
-        controller: String(activePlane.controller || ''),
+        // CR 311.5: "you" on the face-up plane is the active player.
+        controller: String(
+          activePlane.controller
+          || (state as any)?.turnPlayer
+          || (state as any)?.activePlayer
+          || (state as any)?.planarController
+          || '',
+        ),
         sourceId: String(activePlane.id || 'active_plane'),
         sourceName: String(activePlane.name || 'Active plane'),
         oracleText: String(activePlane.text || activePlane.oracle_text || activePlane.effect || ''),
-        typeLine: '',
+        typeLine: String(activePlane.type_line || activePlane.typeLine || 'Plane'),
         affectsAllPlayers: true,
       });
     }

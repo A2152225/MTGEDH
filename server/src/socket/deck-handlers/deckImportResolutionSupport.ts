@@ -36,7 +36,7 @@ export function generateUniqueCardInstanceId(scryfallId: string): string {
 
 export function createDeckResolutionStatusReporter(
   io: Server,
-  socket: Socket,
+  socket: Socket | undefined,
   gameId: string,
   scope: string,
   options: {
@@ -81,7 +81,7 @@ export function createDeckResolutionStatusReporter(
       if (options.slowFallbackNotice === "room") {
         io.to(gameId).emit("chat", payload);
       } else if (options.slowFallbackNotice === "socket") {
-        socket.emit("chat", payload);
+        socket?.emit("chat", payload);
       }
     }
   };

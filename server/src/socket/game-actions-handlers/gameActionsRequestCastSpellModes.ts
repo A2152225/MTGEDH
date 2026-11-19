@@ -25,6 +25,7 @@ import { extractGiftInfo, resolveGiftAwareOracleText } from "../../utils/gift.js
 import { extractModalModesForSpellCast } from "../../utils/oraclePromptContext.js";
 import { debug } from "../../utils/debug.js";
 import { requestCastSpellGrantsFlash } from "../requestCastSpellTimingGate.js";
+import { sorceryNotOnStackCastsAsInstant } from "../../state/modules/sorceryAsInstantTextChange.js";
 import { getRecordedSquadTimesPaid, getSquadAdditionalManaCost } from "./gameActionsAdditionalCastCosts.js";
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
 import {
@@ -150,6 +151,7 @@ export function tryPromptRequestCastSpellModes(
         oracleText: oracleForTiming,
         sneakGrantsTiming: canCastWithSneakAtCurrentTiming(game, playerId, cardForCast),
         topLibraryGrantsFlash: topLibraryPermission?.grantsFlash === true,
+        sorceryCastsAsInstant: sorceryNotOnStackCastsAsInstant(game.state, { type_line: typeForTiming }),
       });
       if (!grantsFlash || (!ignoreTimingRestrictions && isCastingLimitedToSorceryTiming(game.state, String(playerId)))) { // B31 Teferi
         const stepStr = String(game.state?.step || '').toUpperCase().trim();

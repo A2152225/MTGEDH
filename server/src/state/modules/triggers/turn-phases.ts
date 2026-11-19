@@ -16,6 +16,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { withCommandZoneTriggerSources } from "../commandZoneAbilitySources.js";
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
 import { isInterveningIfSatisfied } from "./intervening-if.js";
 import { shouldSkipUntapStepForPlayer } from "../skipUntapStepUtils.js";
@@ -247,7 +248,7 @@ function appendParsedPhaseEvents(
   activePlayerId: string,
   events: Array<'beginning_of_precombat_main' | 'beginning_of_postcombat_main' | 'each_of_your_main_phases'>,
 ): void {
-  const battlefield = ctx.state?.battlefield || [];
+  const battlefield = withCommandZoneTriggerSources(ctx.state, ctx.state?.battlefield || []);
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
     for (const event of events) {
@@ -426,7 +427,7 @@ export function getPostcombatMainTriggers(
   activePlayerId: string,
 ): EndStepTrigger[] {
   const triggers: EndStepTrigger[] = [];
-  const battlefield = ctx.state?.battlefield || [];
+  const battlefield = withCommandZoneTriggerSources(ctx.state, ctx.state?.battlefield || []);
 
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
@@ -499,7 +500,7 @@ export function getEndStepTriggers(
   activePlayerId: string
 ): EndStepTrigger[] {
   const triggers: EndStepTrigger[] = [];
-  const battlefield = ctx.state?.battlefield || [];
+  const battlefield = withCommandZoneTriggerSources(ctx.state, ctx.state?.battlefield || []);
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;
@@ -645,7 +646,7 @@ export function collectAdditionalDrawOnlyDrawStepTriggers(
   activePlayerId: string,
 ): DrawStepTrigger[] {
   const triggers: DrawStepTrigger[] = [];
-  const battlefield = ctx.state?.battlefield || [];
+  const battlefield = withCommandZoneTriggerSources(ctx.state, ctx.state?.battlefield || []);
 
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
@@ -794,7 +795,7 @@ export function getDrawStepTriggers(
     applyOptionalDrawStepSkipLifeGain(ctx, activePlayerId);
     return triggers;
   }
-  const battlefield = ctx.state?.battlefield || [];
+  const battlefield = withCommandZoneTriggerSources(ctx.state, ctx.state?.battlefield || []);
   
   for (const permanent of battlefield) {
     if (!permanent || !permanent.card) continue;

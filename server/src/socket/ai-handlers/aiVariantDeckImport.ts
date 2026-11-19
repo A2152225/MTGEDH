@@ -2,8 +2,8 @@
  * Origin parent: aiAddOpponentToGame.ts, aiPregameHandlers.ts, aiRegisterHandlers.ts.
  *
  * Cluster: AI deck-text import. Planes, phenomena and schemes in the resolved list are stripped
- * from the library and seeded through the same helper the human import uses. Deck text only:
- * precon-stored variant cards that are not in the text are out of scope.
+ * from the library and seeded through the same helper the human import uses. A deck that matches
+ * a catalog precon also loads that precon's stored planes and schemes.
  *
  * Public: importAIResolvedDeck.
  */
@@ -13,6 +13,7 @@ import {
   commitImportedVariantDecks,
   splitResolvedDeckVariants,
 } from '../../state/modules/variantDeckImportCommit.js';
+import { resolveMatchedPreconVariantCards } from '../deck-handlers/deckImportVariantCards.js';
 
 export type AIResolvedDeckImport = {
   /** Cards that went into the library (planes and schemes excluded). */
@@ -49,10 +50,25 @@ export async function importAIResolvedDeck(args: {
   gameId: string;
   playerId: string;
   resolvedCards: any[];
+  deckName?: string;
   logLabel: string;
   io?: any;
 }): Promise<AIResolvedDeckImport> {
   const split = splitResolvedDeckVariants(args.resolvedCards);
+  if (split.planar.length === 0 && split.schemes.length === 0) {
+    try {
+      const matched = await resolveMatchedPreconVariantCards(args.io, undefined, args.game, {
+        gameId: args.gameId,
+        playerId: args.playerId as any,
+        deckName: args.deckName,
+        cardNames: (args.resolvedCards || []).map((card: any) => String(card?.name || '')).filter(Boolean),
+      });
+      split.planar.push(...matched.planar);
+      split.schemes.push(...matched.schemes);
+    } catch (err) {
+      debugWarn(1, `${args.logLabel} precon variant lookup failed`, err);
+    }
+  }
   const playable = split.playable;
   const game = args.game;
   const playerId = args.playerId;

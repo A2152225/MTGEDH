@@ -51,6 +51,11 @@ export function normalizePlanechaseOracleText(oracleText: unknown): string {
     /whenever you roll the chaos symbol,?/gi,
     'Whenever chaos ensues,',
   );
+  // Doctor Who and some later planes say "When chaos ensues" (Bad Wolf Bay, Pompeii).
+  text = text.replace(
+    /(^|[^A-Za-z])when chaos ensues,?/gi,
+    '$1Whenever chaos ensues,',
+  );
   // Leading chaos symbol on its own line before the ability body.
   text = text.replace(/(^|\n)\s*\{CHAOS\}\s*(?=\S)/gi, '$1Whenever chaos ensues, ');
   text = text.replace(/whenever\s+chaos\s+ensues,?/gi, 'Whenever chaos ensues,');

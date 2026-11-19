@@ -635,6 +635,7 @@ export async function ensureAIPreGameDeckLoaded(gameId: string, playerId: Player
     gameId,
     playerId,
     resolvedCards,
+    deckName,
     logLabel: '[AI] Restoring persisted AI deck',
   });
 

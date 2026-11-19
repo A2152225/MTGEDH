@@ -5,7 +5,7 @@
  *
  * Public: isPlanechaseEnabled, getPlanarController, chaosEnsues,
  * planeswalk, encounterPhenomenon, applyPlanarDieFaceEffects,
- * firePlaneswalkHereTriggers, seedActivePlaneAliases.
+ * firePlaneswalkHereTriggers, firePlanarDieRollTriggers, seedActivePlaneAliases.
  */
 
 import type { PlayerID } from '../../../../shared/src/index.js';
@@ -36,13 +36,11 @@ export function isPlanechaseEnabled(state: any): boolean {
 }
 
 export function getPlanarController(state: any, fallbackPlayerId?: string): string {
-  return String(
-    state?.planarController
-    || fallbackPlayerId
-    || state?.turnPlayer
-    || state?.activePlayer
-    || '',
-  ).trim();
+  // CR 311.5: the planar controller is the active player, and that changes when
+  // the active player changes. A value saved at the last planeswalk is stale.
+  const active = String(state?.turnPlayer || state?.activePlayer || '').trim();
+  if (active) return active;
+  return String(fallbackPlayerId || state?.planarController || '').trim();
 }
 
 /** Keep activePlane / currentPlane mirrors in sync for legacy readers. */
@@ -330,6 +328,35 @@ export function planeswalk(ctx: GameContext, playerId: string): {
 }
 
 /**
+ * "Whenever you roll the planar die" fires for every face. "Whenever you roll a blank"
+ * fires only for a blank that was not replaced by chaos (Chaotic Aether).
+ */
+export function firePlanarDieRollTriggers(ctx: GameContext, playerId: string, face: PlanarDieFace): any[] {
+  const state = (ctx as any)?.state;
+  if (!state) return [];
+  const plane = getActivePlaneCard(state);
+  if (!plane) return [];
+  const controller = getPlanarController(state, playerId);
+  const typeLine = String(plane.type_line || plane.typeLine || '');
+  const kind = isPhenomenonTypeLine(typeLine) ? 'phenomenon' : 'plane';
+  const source = asCommandZoneAbilitySource(plane, controller, kind);
+  const blankCounts = face === 'blank' && !isChaosFace(state, face);
+  const triggers = detectTriggersForCommandCard(source.card, source, state).filter((trigger) => {
+    if (trigger.triggerType === 'planar_die_roll') return true;
+    return blankCounts && trigger.triggerType === 'planar_die_blank';
+  });
+  const queued: any[] = [];
+  for (const trigger of triggers) {
+    const item = queueCommandZoneTriggers(ctx, source, trigger.triggerType, trigger.effect, {
+      planarController: controller,
+      planarDieFace: face,
+    });
+    if (item) queued.push(item);
+  }
+  return queued;
+}
+
+/**
  * Apply planar die face results after blanks/chaos/planeswalk are known.
  */
 export function applyPlanarDieFaceEffects(
@@ -340,6 +367,7 @@ export function applyPlanarDieFaceEffects(
   const state = (ctx as any)?.state;
   if (!state || !faces?.length) return;
   for (const face of faces) {
+    firePlanarDieRollTriggers(ctx, playerId, face);
     if (isChaosFace(state, face)) {
       chaosEnsues(ctx, playerId);
       continue;

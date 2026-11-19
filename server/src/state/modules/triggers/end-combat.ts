@@ -9,6 +9,7 @@ import {
   shouldQueuePhaseTriggerForActivePlayer,
 } from './phaseWhoseTurn.js';
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
+import { withCommandZoneTriggerSources } from '../commandZoneAbilitySources.js';
 
 export interface EndOfCombatTrigger {
   permanentId: string;
@@ -67,7 +68,7 @@ export function getEndOfCombatTriggers(
   activePlayerId: string,
 ): EndOfCombatTrigger[] {
   const triggers: EndOfCombatTrigger[] = [];
-  const battlefield = ctx.state?.battlefield || [];
+  const battlefield = withCommandZoneTriggerSources(ctx.state, ctx.state?.battlefield || []);
   const MAX_TRIGGERS_PER_STEP = 100;
 
   for (const permanent of battlefield) {

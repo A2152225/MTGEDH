@@ -27,6 +27,11 @@ import { getPermanentPowerMaybe, getPermanentToughnessMaybe } from './intervenin
 import { getEffectiveColors } from '../effectiveColors.js';
 import { oracleTextWithGrantedTriggers } from './grantedOracleTriggerScan.js';
 
+/** CR 702.14 prints landwalk as "[quality]walk" (islandwalk, nonbasic landwalk). */
+function hasLandwalkForm(text: string): boolean {
+  return /\b(?:nonbasic\s+|snow\s+|artifact\s+|legendary\s+)?[a-z]+walk\b/i.test(text);
+}
+
 /**
  * Keywords the object has right now. With a battlefield, continuous grants (lords, auras,
  * equipment, "creatures you control have flying") and removals are honoured as well.
@@ -38,12 +43,23 @@ export function keywordsOnPermanent(permanent: any, battlefield?: readonly any[]
     if (!Array.isArray(list)) continue;
     for (const entry of list) listed.push(String(entry || '').toLowerCase());
   }
+  // Until-end-of-turn grants ("gains skulk") are stamped here, including effect text
+  // that names the keyword when the step did not split it into abilities.
+  if (Array.isArray(permanent?.temporaryEffects)) {
+    for (const effect of permanent.temporaryEffects) {
+      if (effect?.description) listed.push(String(effect.description).toLowerCase());
+      if (Array.isArray(effect?.grantedAbilities)) {
+        for (const ability of effect.grantedAbilities) listed.push(String(ability || '').toLowerCase());
+      }
+    }
+  }
   // One pass narrows the battlefield to the only sources keyword checks can use (grant/removal
   // statics need "have"/"lose", plus attachments); exact, and avoids a full scan per keyword.
   const relevant = Array.isArray(battlefield) ? keywordRelevantBattlefield(permanent, battlefield) : undefined;
   return TRIGGER_SUBJECT_KEYWORDS.filter((keyword) => {
     const stored = listed.some((entry) => entry === keyword || entry.includes(keyword))
-      || oracleTextHasOwnKeyword(oracleText, keyword);
+      || oracleTextHasOwnKeyword(oracleText, keyword)
+      || (keyword === 'landwalk' && (hasLandwalkForm(oracleText) || listed.some(hasLandwalkForm)));
     if (!relevant) return stored;
     try {
       return stored || permanentHasKeywordAbility(permanent, keyword, relevant);

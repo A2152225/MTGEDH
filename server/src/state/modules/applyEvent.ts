@@ -66,6 +66,7 @@ import { applyPursuitDrawReplacementEvents } from "./apply-event-handlers/applyE
 import { applyPayLifeReplacementOrderEvents } from "./apply-event-handlers/applyEventPayLifeReplacementOrderReplay.js";
 import { applyCirclingVulturesDiscardEvents } from "./apply-event-handlers/applyEventCirclingVulturesDiscardReplay.js";
 import { applyPermanentKeywordEvents } from "./apply-event-handlers/applyEventPermanentKeywordEvents.js";
+import { applySpaceSculptorEvents } from "./apply-event-handlers/applyEventSpaceSculptorEvents.js";
 import { applyTurnPhaseTopLibraryEvents } from "./apply-event-handlers/applyEventTurnPhaseTopLibraryEvents.js";
 import { applyLibraryGambleChoiceEvents } from "./apply-event-handlers/applyEventLibraryGambleChoiceEvents.js";
 import { applyPriorityMulliganLifeEvents } from "./apply-event-handlers/applyEventPriorityMulliganLifeEvents.js";
@@ -119,6 +120,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     if (applyPayLifeReplacementOrderEvents(ctx, e)) return;
     if (applyCirclingVulturesDiscardEvents(ctx, e)) return;
     if (applyPermanentKeywordEvents(ctx, e)) return;
+    if (applySpaceSculptorEvents(ctx, e)) return;
     if (applyTurnPhaseTopLibraryEvents(ctx, e)) return;
     if (applyLibraryGambleChoiceEvents(ctx, e)) return;
     if (applyPriorityMulliganLifeEvents(ctx, e)) return;

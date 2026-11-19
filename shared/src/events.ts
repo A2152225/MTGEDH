@@ -351,6 +351,9 @@ export interface ClientToServerEvents {
   // Cache a saved deck's cards
   cacheSavedDeck: (payload: { gameId: GameID; deckId: string }) => void;
   
+  // Planechase: roll the planar die (active player, main phase, empty stack).
+  rollPlanarDie: (payload: { gameId: GameID }) => void;
+
   // Import a precon deck
   importPreconDeck: (payload: { 
     gameId: GameID; 
