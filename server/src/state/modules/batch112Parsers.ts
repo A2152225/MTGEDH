@@ -2,10 +2,15 @@
 // Public: normalizeBatch112Oracle, parseBatch112StaticKind, and the parse* helpers.
 
 import { wordNumber } from './batch111Parsers.js';
+import { memoOracleNormalize } from './oracleNormalizeMemo.js';
 
 export { wordNumber };
 
 export function normalizeBatch112Oracle(oracle: string, cardName?: string): string {
+  return memoOracleNormalize('b112', oracle, cardName, () => normalizeBatch112OracleUncached(oracle, cardName));
+}
+
+function normalizeBatch112OracleUncached(oracle: string, cardName?: string): string {
   let text = String(oracle || '').toLowerCase().replace(/\u2019/g, "'").replace(/\u2014|\u2013/g, '-').replace(/\([^)]*\)/g, ' ');
   const name = String(cardName || '').split('//')[0].trim().toLowerCase();
   const firstWord = name.split(/[\s,]+/)[0] || '';

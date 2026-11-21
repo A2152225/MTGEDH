@@ -15,10 +15,13 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as realSetTimeout, clearTimeout as realClearTimeout } from 'node:timers';
 import { expect, vi } from 'vitest';
 import { createGameIfNotExists, deleteGame } from '../../src/db/index.js';
+import { formatTurnStallDiagnostics } from './selfplayStallTurnDiagnostics.js';
 import { GameManager } from '../../src/GameManager.js';
 import { ensureGame, broadcastGame } from '../../src/socket/util.js';
 import { cleanupGameAI, registerAIPlayer, scheduleAIGameFlow, unregisterAIPlayer } from '../../src/socket/ai.js';
-import { aiPlayers } from '../../src/socket/ai-handlers/aiScheduler.js';
+import { aiActionDebugStage, aiPlayers } from '../../src/socket/ai-handlers/aiScheduler.js';
+import { formatAIStallDiagnostics, resetAIStallDiagnostics } from '../../src/socket/ai-handlers/aiStallDiagnostics.js';
+import { startEventLoopLagMonitor, startStallCpuProfile, stopStallCpuProfile } from './stallTickCpuProfile.js';
 import { games, priorityTimers } from '../../src/socket/socket.js';
 import { ResolutionQueueManager } from '../../src/state/resolution/index.js';
 import { readOracleCardsSync } from '../../src/services/oracleCardsIndex.js';
@@ -314,6 +317,55 @@ export function stateSnapshot(game: any) {
   };
 }
 
+function logTickTimeoutBoard(game: any, label?: string, reason = 'tick-timeout'): void {
+  const state = (game?.state || {}) as any;
+  const battlefield = Array.isArray(state.battlefield) ? state.battlefield : [];
+  const counts = new Map<string, number>();
+  for (const perm of battlefield) {
+    const name = String(perm?.card?.name || perm?.name || '?');
+    const marker = perm?.isToken ? 'token' : 'card';
+    const key = `${name} (${marker})`;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const board = [...counts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 16)
+    .map(([name, count]) => `${count}x ${name}`)
+    .join(', ');
+  const stack = (Array.isArray(state.stack) ? state.stack : [])
+    .slice(-4)
+    .map((item: any) => String(item?.sourceName || item?.card?.name || item?.description || item?.type || '?'))
+    .join(' > ');
+  let queue = '';
+  if (label) {
+    try {
+      const steps = ResolutionQueueManager.getQueue(label)?.steps || [];
+      queue = steps.slice(0, 4).map((step: any) => `${step?.type || '?'}:${String(step?.sourceName || step?.description || '').slice(0, 80)}@${step?.playerId || '?'}(${step?.status || 'pending'})`).join(' | ');
+    } catch {
+      queue = '';
+    }
+  }
+  const stages: string[] = [];
+  if (label) {
+    for (const [key, stage] of aiActionDebugStage) {
+      if (String(key).startsWith(`${label}:`)) stages.push(`${String(key).slice(label.length + 1)}=${stage}`);
+    }
+  }
+  const hands = (state.players || []).map((player: any) => {
+    const hand = state.zones?.[player.id]?.hand;
+    return `${player.id}:${Array.isArray(hand) ? hand.length : '?'}`;
+  }).join(',');
+  const players = (state.players || [])
+    .map((player: any) => `${player.id}:${player.life}${player.hasLost || player.eliminated ? ':out' : ''}`)
+    .join(',');
+  const pendingCasts = Object.values(state.pendingSpellCasts || {})
+    .map((cast: any) => `${String(cast?.card?.name || cast?.cardName || '?')}@${cast?.playerId || '?'}`)
+    .join(',');
+  console.log(
+    `[selfplay-stall] ${reason} turn=${state.turnNumber} phase=${state.phase} step=${state.step} priority=${state.priority} turnPlayer=${state.turnPlayer} seq=${Number(game?.seq || 0)} bf=${battlefield.length} stack=${Array.isArray(state.stack) ? state.stack.length : 0} [${stack}] queue=[${queue}] pendingCasts=[${pendingCasts}] players=${players} hands=${hands} board=[${board}] ai=[${stages.join('; ')}]`,
+  );
+}
+
 export type PrepareLiveGameOptions = {
   gameId: string;
   seats: DeckSeatSpec[];
@@ -551,12 +603,19 @@ export async function advanceLiveGame(
      */
     signal?: AbortSignal;
   },
-): Promise<{ endReason: 'win' | 'turn-limit' | 'stall' | 'loop-exhausted' | 'aborted'; turns: number }> {
+): Promise<{
+  endReason: 'win' | 'turn-limit' | 'stall' | 'loop-exhausted' | 'aborted';
+  turns: number;
+  /** Set when endReason is stall: wall-clock | tick-timeout | stagnant | turn-stalled. */
+  stallReason?: 'wall-clock' | 'tick-timeout' | 'stagnant' | 'turn-stalled';
+}> {
   let lastSeq = Number(game.seq || 0);
   let stagnantTicks = 0;
   let lastLoggedTurn = Number((game.state as any).turnNumber || 0);
   let lastTurnAdvanceElapsedMs = 0;
   let lastTurnAdvanceWallMs = 0;
+  let lastProgressStamp = '';
+  let stallReason: 'wall-clock' | 'tick-timeout' | 'stagnant' | 'turn-stalled' | undefined;
   /** Wall ms spent with stack/resolution busy since last turn advance (paused, not reset). */
   let turnStallPausedAccumMs = 0;
   let turnStallBusyStartedWallMs: number | null = null;
@@ -568,6 +627,17 @@ export async function advanceLiveGame(
 
   const wallMs = () => Number(process.hrtime.bigint() - startedAt) / 1_000_000;
   const isAborted = () => Boolean(options.signal?.aborted);
+  const progressStampOf = () => {
+    const st = (game.state || {}) as any;
+    // Step only. A MAIN1 cast loop changes the board and seq without leaving the
+    // step; counting that as progress reopened the 10–20min false-progress stalls.
+    return `${st.turnNumber}|${st.phase}|${st.step}`;
+  };
+  const resetTurnStallClock = () => {
+    lastTurnAdvanceWallMs = wallMs();
+    turnStallPausedAccumMs = 0;
+    turnStallBusyStartedWallMs = null;
+  };
 
   const maybeLogProgress = (reason: string) => {
     if (!LIVE_PRECON_PROGRESS_LOG) return;
@@ -580,6 +650,11 @@ export async function advanceLiveGame(
   maybeLogProgress('start');
   // Position log for the starting turn (P1-2); subsequent turns log on advance.
   if (options.label) logPosition(game, options.label);
+
+  // Stall diagnosis: per-tick scheduler counters and event-loop lag are always on (cheap);
+  // the CPU profile only runs with AI_SELFPLAY_STALL_PROFILE=1.
+  const lagMonitor = startEventLoopLagMonitor();
+  await startStallCpuProfile();
 
   for (let tick = 0; tick < options.maxTicks; tick++) {
     if (isAborted()) {
@@ -594,12 +669,19 @@ export async function advanceLiveGame(
     }
 
     if (options.maxWallClockMs && wallMs() >= options.maxWallClockMs) {
+      logTickTimeoutBoard(game, options.label, 'wall-clock');
+      console.log(`[selfplay-stall] wall-clock diag gameRealMs=${Math.round(wallMs())} lastTick: ${formatAIStallDiagnostics()}`);
       maybeLogProgress('wall-clock-exceeded');
+      stallReason = 'wall-clock';
       endReason = 'stall';
       if (options.softStop) break;
       throw new Error(`Game exceeded wall-clock budget ${options.maxWallClockMs}ms`);
     }
 
+    const tickStartedWallMs = wallMs();
+    const seqAtTickStart = Number(game.seq || 0);
+    resetAIStallDiagnostics();
+    lagMonitor.reset();
     try {
       const tickAdvance = vi.advanceTimersByTimeAsync(options.tickMs);
       if (options.maxTickWallClockMs && options.maxTickWallClockMs > 0) {
@@ -608,7 +690,19 @@ export async function advanceLiveGame(
         await tickAdvance;
       }
     } catch (err) {
+      const tickRealMs = wallMs() - tickStartedWallMs;
+      const lag = lagMonitor.read();
+      const diagnostics = formatAIStallDiagnostics();
+      const seqDelta = Number(game.seq || 0) - seqAtTickStart;
+      const profileHeadline = await stopStallCpuProfile({ label: options.label || 'run', windowMs: tickRealMs });
+      lagMonitor.stop();
+      logTickTimeoutBoard(game, options.label);
+      console.log(
+        `[selfplay-stall] tick-timeout diag tick=${tick} tickRealMs=${Math.round(tickRealMs)} gameRealMs=${Math.round(wallMs())} seqDelta=${seqDelta} maxLoopLagMs=${Math.round(lag.maxLagMs)} loopBeats=${lag.beats} ${diagnostics}`,
+      );
+      if (profileHeadline) console.log(`[selfplay-stall] tick-timeout profile ${profileHeadline}`);
       maybeLogProgress(`tick-timeout:${String(err).slice(0, 80)}`);
+      stallReason = 'tick-timeout';
       endReason = 'stall';
       if (options.softStop) break;
       throw err;
@@ -631,12 +725,19 @@ export async function advanceLiveGame(
       lastSeq = currentSeq;
     }
 
+    const progressStamp = progressStampOf();
+    if (progressStamp !== lastProgressStamp) {
+      lastProgressStamp = progressStamp;
+      // Step changed inside this turn. Seq-only priority ping-pong and a MAIN1
+      // cast loop stay on the same step and still turn-stall. Resetting per step
+      // keeps a slow turn's earlier steps from eating the 180s budget.
+      resetTurnStallClock();
+    }
+
     if (currentTurn > lastLoggedTurn) {
       lastLoggedTurn = currentTurn;
       lastTurnAdvanceElapsedMs = simulatedElapsedMs;
-      lastTurnAdvanceWallMs = wallMs();
-      turnStallPausedAccumMs = 0;
-      turnStallBusyStartedWallMs = null;
+      resetTurnStallClock();
       if (options.label) logPosition(game, options.label);
       maybeLogProgress(`advanced-turn-${currentTurn}`);
     } else if (LIVE_PRECON_PROGRESS_LOG && tick > 0 && tick % 100 === 0) {
@@ -661,7 +762,10 @@ export async function advanceLiveGame(
     // false-stalls at turn 0–1 in a few hundred ms.
     const minStagnantWallMs = options.minStagnantWallMs ?? 5_000;
     if (stagnantTicks >= options.maxStagnantTicks && wallMs() >= minStagnantWallMs) {
+      logTickTimeoutBoard(game, options.label, 'stagnant');
+      console.log(`[selfplay-stall] stagnant diag stagnantTicks=${stagnantTicks} gameRealMs=${Math.round(wallMs())} lastTick: ${formatAIStallDiagnostics()}`);
       maybeLogProgress('stalled');
+      stallReason = 'stagnant';
       endReason = 'stall';
       if (options.softStop) break;
       throw new Error(`Game stalled without state changes: ${JSON.stringify(stateSnapshot(game))}`);
@@ -701,7 +805,11 @@ export async function advanceLiveGame(
       && !engineBusy
       && idleSinceTurnMs >= options.maxNoTurnAdvanceMs
     ) {
+      logTickTimeoutBoard(game, options.label, 'turn-stalled');
+      console.log(`[selfplay-stall] turn-stalled diag gameRealMs=${Math.round(wallMs())} lastTick: ${formatAIStallDiagnostics()}`);
+      console.log(`[selfplay-stall] turn-stalled combat ${formatTurnStallDiagnostics(game, options.label)}`);
       maybeLogProgress('turn-stalled');
+      stallReason = 'turn-stalled';
       endReason = 'stall';
       if (options.softStop) break;
       throw new Error(
@@ -710,11 +818,14 @@ export async function advanceLiveGame(
     }
   }
 
+  lagMonitor.stop();
+  await stopStallCpuProfile();
   if ((game.state as any).gameOver) endReason = 'win';
   maybeLogProgress((game.state as any).gameOver ? 'game-over' : 'finished-loop');
   return {
     endReason,
     turns: Number((game.state as any).turnNumber || 0),
+    stallReason,
   };
 }
 

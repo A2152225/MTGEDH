@@ -361,7 +361,7 @@ export function canPermanentBeTargetedByPlayer(
   return true;
 }
 
-export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, spec: SpellSpec, sourceId?: string): TargetRef[] {
+export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, spec: SpellSpec, sourceId?: string, stopAfter?: number): TargetRef[] {
   const out: TargetRef[] = [];
 
   // Player targeting (for draw/discard templates and similar single-target effects).
@@ -430,6 +430,7 @@ export function evaluateTargeting(state: Readonly<GameState>, caster: PlayerID, 
   
   // Handle battlefield targeting
   for (const p of state.battlefield) {
+    if (stopAfter && out.length >= stopAfter) break;
     // Check if permanent matches the filter requirements
     // If multiFilter is defined, use OR logic (match any of the filters)
     // Otherwise, use the single filter

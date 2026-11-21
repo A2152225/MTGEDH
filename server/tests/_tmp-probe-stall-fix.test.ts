@@ -182,8 +182,8 @@ describe('v2 stall subtype probe', () => {
           maxStagnantTicks: 40,
           minStagnantWallMs: 15_000,
           maxNoTurnAdvanceMs: Math.max(60_000, Math.min(180_000, MAX_TURNS * 2_000)),
-          // Large late-game boards often run ~20–25s/turn wall; 15s/turn falsely stalls mid-progress.
-          maxWallClockMs: Math.max(180_000, MAX_TURNS * 30_000),
+          // Match the self-play harness: 40s/turn. 30s/turn wall-clocked b5 shard 7 at turn 87.
+          maxWallClockMs: Math.max(180_000, MAX_TURNS * 40_000),
           maxTickWallClockMs: 180_000,
           softStop: true,
           label: gameId,
@@ -203,6 +203,7 @@ describe('v2 stall subtype probe', () => {
           endedAt,
           ms,
           endReason: advanced.endReason,
+          stallReason: advanced.stallReason,
           turns: advanced.turns,
           phase: st.phase,
           step: st.step,
@@ -278,8 +279,8 @@ describe('v2 stall subtype probe', () => {
         }
         vi.useRealTimers();
       }
-      // Must exceed advanceLiveGame maxWallClockMs (MAX_TURNS*30s ≈ 45m) plus cleanup.
+      // Must exceed advanceLiveGame maxWallClockMs (MAX_TURNS*40s = 60m) plus cleanup.
       // At 900s vitest tore down fake timers mid-tick → false "timers APIs are not mocked" stalls.
-    }, 2_800_000);
+    }, 4_000_000);
   }
 });

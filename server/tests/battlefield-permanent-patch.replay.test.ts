@@ -198,4 +198,29 @@ describe('battlefield permanent replay persistence', () => {
     expect(permanent.isSuspected).toBeUndefined();
     expect(permanent.tempPowerBonus).toBeUndefined();
   });
+
+  it('shares identical temporaryEffects patches across a token swarm', () => {
+    const effect = [{ id: 'prot', description: 'protection from blue', expiresAt: 'end_of_turn' }];
+    const before = snapshotBattlefieldPermanentReplayPatches({
+      battlefield: Array.from({ length: 50 }, (_, i) => ({
+        id: `borg_${i}`,
+        controller: 'p1',
+        tapped: false,
+      })),
+    });
+    const after = snapshotBattlefieldPermanentReplayPatches({
+      battlefield: Array.from({ length: 50 }, (_, i) => ({
+        id: `borg_${i}`,
+        controller: 'p1',
+        tapped: false,
+        temporaryEffects: effect.map((e) => ({ ...e })),
+      })),
+    });
+
+    const changes = diffBattlefieldPermanentReplayPatches(before, after);
+    expect(changes).toHaveLength(50);
+    expect(changes.every((c) => c.patch.temporaryEffects)).toBe(true);
+    // Shared clone: every change references the same patch object.
+    expect(changes.every((c) => c.patch === changes[0].patch)).toBe(true);
+  });
 });

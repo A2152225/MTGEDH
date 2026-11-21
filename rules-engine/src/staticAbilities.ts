@@ -47,11 +47,53 @@ export function collectStaticAbilities(
 /**
  * Apply static abilities to all permanents and return updated state.
  */
+const STATIC_RESULT_CACHE_MAX = 8;
+const staticResultCache = new Map<string, BattlefieldPermanent[]>();
+
+function staticBattlefieldCacheKey(battlefield: BattlefieldPermanent[], gameState?: GameState): string {
+  let key = String(battlefield.length);
+  for (const perm of battlefield) {
+    const card = perm?.card as { name?: string; power?: string; toughness?: string } | undefined;
+    const counters = (perm as { counters?: Record<string, number> })?.counters;
+    let counterKey = '';
+    if (counters && typeof counters === 'object') {
+      for (const name of Object.keys(counters)) counterKey += `${name}${counters[name]}`;
+    }
+    key += `|${perm?.id}:${perm?.controller}:${(perm as { tapped?: boolean })?.tapped ? 1 : 0}:${card?.name || ''}:${card?.power || ''}/${card?.toughness || ''}:${counterKey}:${(perm as { attachedTo?: string })?.attachedTo || ''}`;
+  }
+  const players = gameState?.players;
+  if (players) {
+    for (const player of players) {
+      const gone = (player as { hasLost?: boolean; eliminated?: boolean }).hasLost
+        || (player as { eliminated?: boolean }).eliminated;
+      key += `#${player.id}:${gone ? 1 : 0}`;
+    }
+  }
+  return key;
+}
+
 export function applyStaticAbilitiesToBattlefield(
   battlefield: BattlefieldPermanent[],
   gameState?: GameState
 ): BattlefieldPermanent[] {
-  return applyStaticAbilitiesToBattlefieldImpl(battlefield, parseStaticAbilities, gameState);
+  if (!Array.isArray(battlefield) || battlefield.length === 0) {
+    return applyStaticAbilitiesToBattlefieldImpl(battlefield, parseStaticAbilities, gameState);
+  }
+  const key = staticBattlefieldCacheKey(battlefield, gameState);
+  const hit = staticResultCache.get(key);
+  if (hit) {
+    staticResultCache.delete(key);
+    staticResultCache.set(key, hit);
+    return hit;
+  }
+  const result = applyStaticAbilitiesToBattlefieldImpl(battlefield, parseStaticAbilities, gameState);
+  staticResultCache.set(key, result);
+  while (staticResultCache.size > STATIC_RESULT_CACHE_MAX) {
+    const oldest = staticResultCache.keys().next().value;
+    if (oldest === undefined) break;
+    staticResultCache.delete(oldest);
+  }
+  return result;
 }
 
 export default {

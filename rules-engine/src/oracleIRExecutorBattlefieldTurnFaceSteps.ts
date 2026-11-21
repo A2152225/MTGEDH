@@ -241,6 +241,16 @@ export function applyTurnFaceUpStep(
   }
 
   if (turnedCount === 0) {
+    if (
+      effectiveTargetIds.length > 0
+      && /face up if it'?s face down/i.test(String(step.raw || ''))
+    ) {
+      return {
+        applied: true,
+        state: nextState,
+        log: ['Target is already face up'],
+      };
+    }
     if (effectiveTargetIds.length > 0) {
       return {
         applied: false,

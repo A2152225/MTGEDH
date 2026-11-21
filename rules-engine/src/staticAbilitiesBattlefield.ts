@@ -47,8 +47,20 @@ function markStaticAbilitiesApplied(battlefield: BattlefieldPermanent[]): Battle
   return battlefield;
 }
 
-function canBatchIdenticalTokenPt(perm: BattlefieldPermanent): boolean {
-  if (perm.isToken !== true) return false;
+function permanentCountsAsCreature(perm: BattlefieldPermanent): boolean {
+  const card = perm.card as { type_line?: string } | undefined;
+  const typeLine = String(card?.type_line || (perm as { type_line?: string }).type_line || '').toLowerCase();
+  if (typeLine.includes('creature')) return true;
+  if ((perm as { animated?: boolean }).animated === true || (perm as { isCreature?: boolean }).isCreature === true || (perm as { crewed?: boolean }).crewed === true) return true;
+  const granted = (perm as { grantedTypes?: unknown }).grantedTypes;
+  return Array.isArray(granted) && granted.some((entry) => String(entry || '').toLowerCase() === 'creature');
+}
+
+/** True when this permanent's effective P/T can be shared with identical copies (SBA / static scan). */
+export function canBatchIdenticalTokenPt(perm: BattlefieldPermanent): boolean {
+  const typeLine = String((perm.card as { type_line?: string } | undefined)?.type_line || '').toLowerCase();
+  const animatedLand = typeLine.includes('land') && permanentCountsAsCreature(perm);
+  if (perm.isToken !== true && !animatedLand) return false;
   if (perm.attachedTo) return false;
   if (Array.isArray((perm as any).attachedEquipment) && (perm as any).attachedEquipment.length > 0) return false;
   if (Array.isArray((perm as any).attachments) && (perm as any).attachments.length > 0) return false;
@@ -58,7 +70,8 @@ function canBatchIdenticalTokenPt(perm: BattlefieldPermanent): boolean {
   return true;
 }
 
-function identicalTokenPtFingerprint(perm: BattlefieldPermanent): string {
+/** Fingerprint for canBatchIdenticalTokenPt — same key ⇒ same layer-7 P/T result. */
+export function identicalTokenPtFingerprint(perm: BattlefieldPermanent): string {
   const card = perm.card as KnownCardRef;
   const counters = Object.entries(perm.counters || {})
     .filter(([, v]) => (v as number) > 0)
@@ -66,11 +79,15 @@ function identicalTokenPtFingerprint(perm: BattlefieldPermanent): string {
     .map(([k, v]) => `${k}:${v}`)
     .join(',');
   const granted = ((perm as any).grantedAbilities || []).slice().sort().join('|');
+  const grantedTypes = (perm as { grantedTypes?: unknown[] }).grantedTypes;
   return [
     perm.controller,
     card?.name || '',
     card?.type_line || '',
     card?.oracle_text || '',
+    Array.isArray(grantedTypes)
+      ? grantedTypes.map((entry) => String(entry || '').toLowerCase()).sort().join(',')
+      : '',
     perm.basePower ?? card?.power ?? '',
     perm.baseToughness ?? card?.toughness ?? '',
     counters,
@@ -130,8 +147,7 @@ export function applyStaticAbilitiesToBattlefield(
     const card = perm.card as KnownCardRef;
     if (!card) return perm;
 
-    const typeLine = (card.type_line || '').toLowerCase();
-    if (!typeLine.includes('creature')) {
+    if (!permanentCountsAsCreature(perm)) {
       return perm;
     }
 
@@ -181,7 +197,7 @@ export function applyStaticAbilitiesToBattlefield(
     if (!card) return perm;
 
     const typeLine = (card.type_line || '').toLowerCase();
-    if (!typeLine.includes('creature')) {
+    if (!permanentCountsAsCreature(perm)) {
       return perm;
     }
 

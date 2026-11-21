@@ -31,7 +31,16 @@ import {
   parseYouWouldGetCountersPlusOneEachKind,
   typalEquipGrantFragment,
 } from './batch107Parsers.js';
+import { createLongTailStaticSourceFilter, longTailStaticSources } from './longTailStaticSourceIndex.js';
 
+const B107_LAND_ANIMATION_SOURCES = createLongTailStaticSourceFilter(
+  'batch107LandAnimation',
+  () => [parseLandsYouControlAreNNCreaturesWithKeywordStillLands],
+);
+const B107_VEHICLE_TYPE_SOURCES = createLongTailStaticSourceFilter(
+  'batch107VehicleChosenType',
+  () => [parseVehicleCreaturesYouControlAreChosenType],
+);
 
 function cardsExiledWithForB107(perm: any, state: any): any[] {
   const direct = cardsExiledWithPermanent(perm, state);
@@ -186,7 +195,7 @@ export function batch107AdditionalTypes(perm: any, state: any): string[] {
 export function batch107LandsYouControlAnimationTypes(perm: any, state: any): string[] {
   if (!perm || !/\bland\b/.test(typeLineOf(perm))) return [];
   const controller = String(perm.controller || '');
-  for (const src of battlefieldOf(state)) {
+  for (const src of longTailStaticSources(state, B107_LAND_ANIMATION_SOURCES, oracleOf)) {
     if (!src || src.phasedOut === true) continue;
     if (String(src.controller || '') !== controller) continue;
     if (parseLandsYouControlAreNNCreaturesWithKeywordStillLands(oracleOf(src))) return ['Creature'];
@@ -199,7 +208,7 @@ export function batch107GrantedCreatureTypes(perm: any, state: any): string[] {
   if (!perm) return types;
   const controller = String(perm.controller || '');
   const selfIsVehicleCreature = isVehicle(perm) && (isCreatureTypeLine(perm) || batch107AdditionalTypes(perm, state).includes('Creature'));
-  for (const src of battlefieldOf(state)) {
+  for (const src of longTailStaticSources(state, B107_VEHICLE_TYPE_SOURCES, oracleOf)) {
     if (!src || src.phasedOut === true) continue;
     if (String(src.controller || '') !== controller) continue;
     if (!parseVehicleCreaturesYouControlAreChosenType(oracleOf(src))) continue;
@@ -314,7 +323,7 @@ export function batch107PermanentHasKeyword(perm: any, state: any, keyword: stri
   const exiled = parseExiledWithThisCountGetsPTAndHexproof(oracleOf(perm));
   if (wanted === 'hexproof' && exiled && cardsExiledWithForB107(perm, state).length >= exiled.min) return true;
   const controller = String(perm.controller || '');
-  for (const src of battlefieldOf(state)) {
+  for (const src of longTailStaticSources(state, B107_LAND_ANIMATION_SOURCES, oracleOf)) {
     if (!src || src.phasedOut === true) continue;
     if (String(src.controller || '') !== controller) continue;
     const anim = parseLandsYouControlAreNNCreaturesWithKeywordStillLands(oracleOf(src));

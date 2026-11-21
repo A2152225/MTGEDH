@@ -16,6 +16,27 @@ import { applyLayer7bSetBasePowerToughness } from '../state/modules/setBasePtTim
 import { stripCreateTokenGrantedAbilities } from '../../../rules-engine/src/oracleReminderText.js';
 import { getContinuousGrantedAbilitiesForPermanent } from '../state/modules/staticEffectSpec.js';
 import { shouldSkipLethalDestroyUnlessSingleSource } from '../state/modules/batch98CombatAndKeywords.js';
+import {
+  canBatchIdenticalTokenPt,
+  identicalTokenPtFingerprint,
+} from '../../../rules-engine/src/staticAbilitiesBattlefield.js';
+
+/** Cleared around each applyStateBasedActions: identical tokens share one toughness read. */
+let sbaIdenticalCreatureStatsMemo: Map<string, { power?: number; toughness?: number }> | null = null;
+
+function hasPerPermanentTemporaryPt(perm: BattlefieldPermanent): boolean {
+  const mods = (perm as { temporaryPTMods?: unknown[] }).temporaryPTMods;
+  if (Array.isArray(mods) && mods.length > 0) return true;
+  const anyPerm = perm as {
+    tempPowerBonus?: number;
+    tempToughnessBonus?: number;
+    temporaryPowerBoost?: number;
+    temporaryToughnessBoost?: number;
+  };
+  if (anyPerm.tempPowerBonus || anyPerm.tempToughnessBonus) return true;
+  if (anyPerm.temporaryPowerBoost || anyPerm.temporaryToughnessBoost) return true;
+  return false;
+}
 
 /**
  * Parse power/toughness value from string or number
@@ -108,68 +129,92 @@ function getEffectiveStatsForSBA(
   state: Readonly<GameState>,
   perm: BattlefieldPermanent
 ): { power?: number; toughness?: number } {
+  // Gate shard 298 / Borg swarms: hundreds of identical tokens each re-ran full layer-7 + batch
+  // P/T adjustments inside one SBA pass (~30% of a 180s tick). Share one result per fingerprint.
+  // Skip when per-permanent temp P/T is present — the static fingerprint omits those fields.
+  const memo = sbaIdenticalCreatureStatsMemo;
+  const canMemo =
+    !!memo &&
+    canBatchIdenticalTokenPt(perm) &&
+    !hasPerPermanentTemporaryPt(perm);
+  const fingerprint = canMemo ? identicalTokenPtFingerprint(perm) : '';
+  if (memo && fingerprint) {
+    const cached = memo.get(fingerprint);
+    if (cached) return cached;
+  }
+
+  let result: { power?: number; toughness?: number };
+
   // Layer 7 (7a CDA, 7b setters, 7c modifiers, 7d switch) through the shared evaluator.
   const layer7 = getCurrentPowerToughness(perm, state);
-  if (layer7) return { power: Math.max(0, layer7.power), toughness: layer7.toughness };
-  const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
-  if (!typeLine.includes('creature')) return {};
+  if (layer7) {
+    result = { power: Math.max(0, layer7.power), toughness: layer7.toughness };
+  } else {
+    const typeLine = ((perm.card as any)?.type_line || '').toLowerCase();
+    if (!typeLine.includes('creature')) {
+      result = {};
+    } else if (isNumber((perm as any).effectivePower) && isNumber((perm as any).effectiveToughness)) {
+      result = {
+        power: Number((perm as any).effectivePower),
+        toughness: Number((perm as any).effectiveToughness),
+      };
+    } else {
+      let basePower = parsePT(perm.basePower);
+      let baseToughness = parsePT(perm.baseToughness);
 
-  if (isNumber((perm as any).effectivePower) && isNumber((perm as any).effectiveToughness)) {
-    return {
-      power: Number((perm as any).effectivePower),
-      toughness: Number((perm as any).effectiveToughness),
-    };
-  }
+      if (!isNumber(basePower)) {
+        basePower = parsePT((perm.card as any)?.power);
+      }
+      if (!isNumber(baseToughness)) {
+        baseToughness = parsePT((perm.card as any)?.toughness);
+      }
 
-  let basePower = parsePT(perm.basePower);
-  let baseToughness = parsePT(perm.baseToughness);
+      if (!isNumber(basePower) || !isNumber(baseToughness)) {
+        const variablePT = calculateVariablePT({ ...((perm.card as any) || {}), controller: (perm as any).controller }, state);
+        if (variablePT) {
+          basePower = isNumber(basePower) ? basePower : variablePT.power;
+          baseToughness = isNumber(baseToughness) ? baseToughness : variablePT.toughness;
+        }
+      }
 
-  if (!isNumber(basePower)) {
-    basePower = parsePT((perm.card as any)?.power);
-  }
-  if (!isNumber(baseToughness)) {
-    baseToughness = parsePT((perm.card as any)?.toughness);
-  }
+      if (!isNumber(basePower) || !isNumber(baseToughness)) {
+        result = {};
+      } else {
+        // Layer 7b set-base (Auras, static specs, Oracle IR setters) ordered by timestamp.
+        const layer7b = applyLayer7bSetBasePowerToughness(perm, state, { power: basePower, toughness: baseToughness });
+        basePower = layer7b.power ?? basePower;
+        baseToughness = layer7b.toughness ?? baseToughness;
 
-  if (!isNumber(basePower) || !isNumber(baseToughness)) {
-    const variablePT = calculateVariablePT({ ...((perm.card as any) || {}), controller: (perm as any).controller }, state);
-    if (variablePT) {
-      basePower = isNumber(basePower) ? basePower : variablePT.power;
-      baseToughness = isNumber(baseToughness) ? baseToughness : variablePT.toughness;
+        const plus = perm.counters?.['+1/+1'] ?? 0;
+        const minus = perm.counters?.['-1/-1'] ?? 0;
+        const counterDelta = plus - minus;
+
+        let otherCounterPower = 0;
+        let otherCounterToughness = 0;
+        if (perm.counters) {
+          for (const [counterType, count] of Object.entries(perm.counters)) {
+            if (counterType === '+1/+1' || counterType === '-1/-1') continue;
+            const counterMatch = counterType.match(/^([+-]?\d+)\/([+-]?\d+)$/);
+            if (!counterMatch) continue;
+            otherCounterPower += parseInt(counterMatch[1], 10) * (count as number);
+            otherCounterToughness += parseInt(counterMatch[2], 10) * (count as number);
+          }
+        }
+
+        const allBonuses = calculateAllPTBonuses(perm, state);
+        const temporaryPT = getTemporaryPowerToughnessForSBA(perm, state);
+        result = {
+          power: Math.max(0, basePower + counterDelta + otherCounterPower + allBonuses.power + temporaryPT.power),
+          toughness: baseToughness + counterDelta + otherCounterToughness + allBonuses.toughness + temporaryPT.toughness,
+        };
+      }
     }
   }
 
-  if (!isNumber(basePower) || !isNumber(baseToughness)) {
-    return {};
+  if (memo && fingerprint && (result.power !== undefined || result.toughness !== undefined)) {
+    memo.set(fingerprint, result);
   }
-
-  // Layer 7b set-base (Auras, static specs, Oracle IR setters) ordered by timestamp.
-  const layer7b = applyLayer7bSetBasePowerToughness(perm, state, { power: basePower, toughness: baseToughness });
-  basePower = layer7b.power ?? basePower;
-  baseToughness = layer7b.toughness ?? baseToughness;
-
-  const plus = perm.counters?.['+1/+1'] ?? 0;
-  const minus = perm.counters?.['-1/-1'] ?? 0;
-  const counterDelta = plus - minus;
-
-  let otherCounterPower = 0;
-  let otherCounterToughness = 0;
-  if (perm.counters) {
-    for (const [counterType, count] of Object.entries(perm.counters)) {
-      if (counterType === '+1/+1' || counterType === '-1/-1') continue;
-      const counterMatch = counterType.match(/^([+-]?\d+)\/([+-]?\d+)$/);
-      if (!counterMatch) continue;
-      otherCounterPower += parseInt(counterMatch[1], 10) * (count as number);
-      otherCounterToughness += parseInt(counterMatch[2], 10) * (count as number);
-    }
-  }
-
-  const allBonuses = calculateAllPTBonuses(perm, state);
-  const temporaryPT = getTemporaryPowerToughnessForSBA(perm, state);
-  return {
-    power: Math.max(0, basePower + counterDelta + otherCounterPower + allBonuses.power + temporaryPT.power),
-    toughness: baseToughness + counterDelta + otherCounterToughness + allBonuses.toughness + temporaryPT.toughness,
-  };
+  return result;
 }
 
 function oracleTextGrantsNativeIndestructible(oracleTextRaw: string): boolean {
@@ -289,6 +334,15 @@ export function permanentHasIndestructible(
 
 // Pure SBA pass
 export function applyStateBasedActions(state: Readonly<GameState>): EngineSBAResult {
+  sbaIdenticalCreatureStatsMemo = new Map();
+  try {
+    return applyStateBasedActionsUnmemoized(state);
+  } finally {
+    sbaIdenticalCreatureStatsMemo = null;
+  }
+}
+
+function applyStateBasedActionsUnmemoized(state: Readonly<GameState>): EngineSBAResult {
   const updates: EngineCounterUpdate[] = [];
   const battlefieldPermanents = state.battlefield as readonly BattlefieldPermanent[];
 

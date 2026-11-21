@@ -102,7 +102,9 @@ export function hasAnotherCreatureTrigger(oracleText: string): boolean {
  * CardAnalyzer - Analyzes cards for AI decision making
  */
 export class CardAnalyzer {
-  
+  /** Printed card identity. Analysis does not depend on battlefield position. */
+  private readonly analysisCache = new Map<string, CardAnalysis>();
+
   /**
    * Analyze a single card
    */
@@ -110,7 +112,10 @@ export class CardAnalyzer {
     // Handle both card references and permanents
     const cardData = this.extractCardData(card);
     const { name, typeLine, oracleText, power, toughness } = cardData;
-    
+    const cacheKey = `${name}|${typeLine}|${oracleText}|${power}|${toughness}|${cardData.cmc}|${(cardData.colors || []).join('')}`;
+    const cached = this.analysisCache.get(cacheKey);
+    if (cached) return cached;
+
     const categories = this.categorizeCard(cardData);
     const details = this.extractEffectDetails(cardData);
     const threatLevel = this.assessThreatLevel(cardData, details);
@@ -118,7 +123,7 @@ export class CardAnalyzer {
     const comboPotential = this.assessComboPotential(cardData);
     const removalPriority = this.assessRemovalPriority(cardData, details, threatLevel);
     
-    return {
+    const analysis = {
       cardId: cardData.id,
       cardName: name,
       categories,
@@ -128,6 +133,9 @@ export class CardAnalyzer {
       removalTargetPriority: removalPriority,
       details,
     };
+    if (this.analysisCache.size > 4000) this.analysisCache.clear();
+    this.analysisCache.set(cacheKey, analysis);
+    return analysis;
   }
   
   /**

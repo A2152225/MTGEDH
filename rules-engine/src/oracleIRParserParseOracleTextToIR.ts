@@ -8,6 +8,7 @@
 import { splitInlineDieRollBandTables } from './oracleIRParserDieRollInlineBandTables'; // B50
 import type { OracleEffectStep, OracleIRAbility, OracleIRResult } from './oracleIR';
 import { applyParseOracleTextToIRLatePasses } from './oracleIRParserParseOracleTextToIRLatePasses';
+import { lowerConditionalAmassClauseAbilities } from './oracleIRParserPostprocessConditionalAmassClause';
 import {
   mergeAdditionalCombatContinuationAbilities,
   mergeExileUntilFollowupAbilities,
@@ -514,6 +515,8 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
     parsed,
     parseOracleTextToIR,
   });
+  // "If <condition>, amass Orcs 1" (Moria Scavenger): the residual passes leave the clause unparsed.
+  abilities = lowerConditionalAmassClauseAbilities(abilities);
 
 
   return {

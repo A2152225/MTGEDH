@@ -28,6 +28,14 @@ import {
 type CombatDeckModifiers = { attackBias: number; preserveBias: number };
 type CombatValueEvaluation = { combatValue: number; wantsToGetKilled: boolean; deathBenefit: number };
 
+/** Wall-clock cap for one combat eval pass. A single unbounded pass blocked the
+ *  event loop past the 180s tick timeout and the 70-minute batch kill (gate shard 8). */
+const COMBAT_EVAL_BUDGET_MS = 800;
+
+function combatEvalNowMs(): number {
+  return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+}
+
 /** True when the defender has an untapped legal blocker that would kill this attacker. */
 export function wouldDefenderLikelyBlockProfitably(
   attackerPerm: BattlefieldPermanent,
@@ -341,9 +349,9 @@ export function makeBasicAttackDecision(
         goaded: goadedAttackers,
         battlefield: globalBattlefield,
       });
-      if (planned.ms > 2_500) {
+      if (planned.reason === 'time-budget' || planned.ms > 2_500) {
         console.warn(
-          `[ai] v2 attack planner too slow (${planned.ms.toFixed(0)}ms); using fast path`,
+          `[ai] v2 attack planner too slow (${planned.ms.toFixed(0)}ms, ${planned.reason}); using fast path`,
         );
         const fast = planAttacksFast({
           gameState: context.gameState,
@@ -390,9 +398,23 @@ export function makeBasicAttackDecision(
   }
 
   const nonGoadedLegalAttackerIds = legalAttackerIds.filter(id => !goadedSet.has(id));
-  const attackerEvaluations = nonGoadedLegalAttackerIds.map(id => {
+  const attackEvalStarted = combatEvalNowMs();
+  const attackerEvaluations: Array<{
+    id: string;
+    value: number;
+    wantsToGetKilled: boolean;
+    deathBenefit?: number;
+    isCommander?: boolean;
+    preserveBias?: number;
+    attackBias?: number;
+  }> = [];
+  for (const id of nonGoadedLegalAttackerIds) {
+    if (combatEvalNowMs() - attackEvalStarted > COMBAT_EVAL_BUDGET_MS) break;
     const perm = findPermanent(id);
-    if (!perm) return { id, value: 0, wantsToGetKilled: false };
+    if (!perm) {
+      attackerEvaluations.push({ id, value: 0, wantsToGetKilled: false });
+      continue;
+    }
 
     const evaluation = deps.evaluateCombatValue(perm, true, activeOpponents);
     const deckModifiers = deps.getCombatDeckModifiers(perm, config);
@@ -404,7 +426,7 @@ export function makeBasicAttackDecision(
         attackManaEngineBonus += 6 + Math.min(12, getPlayerGreenManaInPool(context.gameState, context.playerId));
       }
     }
-    return {
+    attackerEvaluations.push({
       id,
       value: evaluation.combatValue + deckModifiers.attackBias - deckModifiers.preserveBias + attackManaEngineBonus,
       wantsToGetKilled: evaluation.wantsToGetKilled,
@@ -412,8 +434,8 @@ export function makeBasicAttackDecision(
       isCommander: Boolean((perm as any).isCommander),
       preserveBias: deckModifiers.preserveBias,
       attackBias: deckModifiers.attackBias,
-    };
-  });
+    });
+  }
 
   const targetPlayer = deps.selectAttackTarget(context.gameState, context.playerId);
   const opponents = listActiveOpponents(context.gameState, context.playerId);
@@ -633,9 +655,10 @@ export function makeBasicBlockDecision(
     playerIsLegalAttackTarget(candidate, context.playerId)
   ).length;
 
+  const blockEvalStarted = combatEvalNowMs();
   const blockerEvaluations = blockerPermanents.map((perm: BattlefieldPermanent) => {
     const creature = createCombatCreature(perm, globalBattlefield);
-    if (largeCombat) {
+    if (largeCombat || combatEvalNowMs() - blockEvalStarted > COMBAT_EVAL_BUDGET_MS) {
       const power = Number((perm as any).power ?? (perm as any).card?.power ?? 0) || 0;
       const toughness = Number((perm as any).toughness ?? (perm as any).card?.toughness ?? 0) || 0;
       return {

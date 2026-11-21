@@ -242,8 +242,11 @@ export function describeOracleIrMandatoryExecutionIncomplete(
     reasons.push(`skipped_mandatory_step: ${summarizeOracleIrStep(step)}`);
   }
 
+  // A conditional whose condition was false did everything it had to do (Guinan, Ancient Advisor:
+  // "If you put two or more +1/+1 counters on creatures this way, draw a card" with one counter put).
   const appliedFingerprints = new Set(
-    (result.appliedSteps || []).map((step) => oracleEffectStepFingerprint(step)),
+    [...(result.appliedSteps || []), ...(result.conditionFalseSteps || [])]
+      .map((step) => oracleEffectStepFingerprint(step)),
   );
   const continuationFingerprints = new Set(
     (result.pendingContinuationSteps || []).map((step) => oracleEffectStepFingerprint(step)),

@@ -31,6 +31,16 @@ describe('activated ability target scope (multi-type lists, "another target")', 
     expect(reqs.targetDescription).toBe('target planeswalker or creature you control');
   });
 
+  it('reads Priest of Forgotten Gods as any number of target players', () => {
+    const reqs = parseTargetRequirements(
+      'Any number of target players each lose 2 life and sacrifice a creature of their choice. You create a Treasure token and draw a card.',
+    );
+    expect(reqs.needsTargets).toBe(true);
+    expect(reqs.targetTypes).toEqual(['player']);
+    expect(reqs.minTargets).toBe(0);
+    expect(reqs.targetDescription).toBe('any number of target players');
+  });
+
   it('keeps "an opponent controls" / "you don\'t control" on type lists and leaves unscoped lists alone', () => {
     expect(parseTargetRequirements('Destroy target artifact or enchantment an opponent controls.').targetControllerConstraint).toBe('opponent');
     expect(parseTargetRequirements("Exile target artifact or creature you don't control.").targetControllerConstraint).toBe('opponent');

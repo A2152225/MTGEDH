@@ -392,6 +392,22 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       };
     }
 
+    if (/^players?\b/i.test(normalizedTargetPhrase)) {
+      const playerPhrase = normalizedTargetPhrase
+        .replace(/\s+(?:lose|loses|gain|gains|draw|draws|discard|discards|sacrifice|sacrifices|mill|mills|create|creates|deals?)\b[\s\S]*$/i, '')
+        .trim();
+      targetTypes.push('player');
+      targetDescription = `any number of target ${playerPhrase || 'players'}`;
+      return finish({
+        needsTargets: true,
+        targetTypes,
+        minTargets,
+        maxTargets,
+        targetDescription,
+        targetControllerConstraint: 'any',
+      });
+    }
+
     if (/\bcreatures?\b/i.test(normalizedTargetPhrase)) {
       targetTypes.push('creature');
     } else if (/\bspells?\b/i.test(normalizedTargetPhrase) && !/\bpermanent\b/i.test(normalizedTargetPhrase)) {

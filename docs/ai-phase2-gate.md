@@ -2,6 +2,18 @@
 
 Challenger: **v2** (v1 scoring + attack/block/turn planners). Baseline seats: **v1**. Default live brain remains **v0** until promote.
 
+## Decision
+
+**FAIL — do not promote v2.** Keep the live default at **v0**. Puzzles and stall hygiene pass; self-play win rate does not.
+
+| Bar | Result |
+| --- | --- |
+| Puzzles ≥90% (≥33/36) | **PASS** — v2 **35/36** (97%) |
+| Stall share ≤~2% | **PASS** — **0/320** after post-fix reruns |
+| Challenger edge vs v1 | **FAIL** — decisive **37–100** (~27% win rate) |
+
+Same shape as Phase 1 (`docs/ai-phase1-gate.md`): stalls/errors and puzzles are fine; the brain is not stronger than the baseline it would displace.
+
 ## Puzzle suite (36 total, held-out included)
 
 | Brain | Passed | File |
@@ -10,49 +22,52 @@ Challenger: **v2** (v1 scoring + attack/block/turn planners). Baseline seats: **
 | v1 | **27/36** | `server/out/puzzles-v1-heldout.json` |
 | v2 | **35/36** | `server/out/puzzles-v2-heldout.json` |
 
-Gate target ≥90% ⇒ **≥33/36**. **v2 is at 35/36 (97%)** — puzzle bar met. Only miss: `P-hold-counter-for-winner`.
+Only miss: `P-hold-counter-for-winner`.
 
-## Self-play
+## Self-play — full P2-8 gate
 
-**Paused gate (pre-fix):** stopped at **119/320** (seed 7000) with **stall 22.7%** / stall+error ~23.5%.
-
-**Post-fix smoke (shards 0–23, same seed):** stall **~8%** (`4-2`, `5-1`).
-
-**Post–combat-opt smoke (shards 0–23, seed 7000, `out/stall-fix-b3-*.jsonl`):** stall **~4%** (1 stall + 1 shard-9 hard-kill).
-
-**Post–shard9 / cheap-block-eval smoke (`out/stall-fix-b4-*.jsonl`, same 24 shards):**
+**Run:** seed **7000**, **320** games, maxTurns **90**, v2 seat 0 vs three v1 seats. Rows: `server/out/gate-p2-v2-*.jsonl` (post-fix / promoted reruns included).
 
 | endReason | count | share |
 | --- | --- | --- |
-| win | 12 | 50% |
-| turn-limit | 9 | 37.5% |
-| stall | 3 | **12.5%** |
+| v2 win | 37 | 11.6% |
+| v1 win | 100 | 31.3% |
+| turn-limit | 183 | 57.2% |
+| stall | 0 | **0%** |
 | error | 0 | 0% |
 
-Stall rate **12.5%** on the same 24-game window (worse than b3’s ~4%). No hard-kills; shard **9 → win**. Stalls were `selfplay-7000-4-2`, `4-3`, `5-2`.
+Decisive games only: **37 / 137 ≈ 27.0%** for v2.
 
-**Post–canAct dig probes** (shards 18/19/22): all **turn-limit** (91). Shard 19’s prior MAIN1 180s tick is gone (~14m to turn-limit). Harness `maxWallClockMs` = `MAX_TURNS*30s`.
+**Stalls cleared:**
 
-### Stall investigation (fixes landed — re-gate pending)
+| shards | fix |
+| --- | --- |
+| 262, 281, 316 → wins | Eliminated-AP MAIN1: `shouldProtectActiveMainPhaseFromAutoAdvance` must not treat a seat that `playerCannotReceivePriority` as still having main-phase actions |
+| 298 → turn-limit | Borg swarm tick-timeout: SBA identical-token P/T memo + shared battlefield permanent replay patch clones |
 
-Primary soft-lock was **DECLARE_ATTACKERS seq-freeze**, not only MAIN1 cast churn:
+10. **Eliminated active player MAIN1:** `shouldProtectActiveMainPhaseFromAutoAdvance` must not treat a seat that `playerCannotReceivePriority` as still having main-phase actions (lands/`canAct`). That restored priority to a dead AP forever.
+11. **Identical-token SBA / patch cost:** `applyStateBasedActions` memos `getEffectiveStatsForSBA` via `canBatchIdenticalTokenPt` / `identicalTokenPtFingerprint` (skips per-permanent temp P/T); `snapshotBattlefieldPermanentReplayPatches` / diff share clones across identical swarm fields.
 
-1. **Main-phase control-flow casts** now `noteMainPhaseAction` + reschedule (same as response window), so target/modal casts hit `MAX_MAIN_ACTIONS`.
-2. **Attack declare fallbacks**: rejected plans shrink to forced-only/empty; never silent-return on `GOAD_MUST_ATTACK`. Last resort force-marks `attackersDeclaredBy` and passes.
-3. **Stale `permanent.attacking` shortcut removed** — AI no longer passes DECLARE_ATTACKERS without recording the seat.
-4. **v2 `planAttacks` skipped** on large boards (`board>40` or `attackers>12`) / when `ms>2500`, falling back to v0 (planner hung exclusive AI actions → multi-GB RSS).
-5. **Large-board combat fast-path + sticky** (`attackPlannerFast.ts`, `combatDecisionSticky.ts`): greedy attacks when `board>24` or attack pool `>8`; v2 blocks fall back to `planAIBlocks` on large combat; sticky attack/block reuse for the current seat/step window.
-6. **Empty-stack non-declare combat** skips response enum + fast-pass (BEGIN_COMBAT/damage/END_COMBAT).
-7. **Large-block cheap eval**: do not run `evaluateCombatValue`/`cardAnalyzer` per blocker before the large-combat gate (sync CPU hog → event-loop stuck past tick/wall budgets).
-8. **MAIN1 large-board canAct**: early untapped-mana short-circuit in `canAct` before ability/spell corpus scans; AI skips shared `canAct` gate when spell scans are already disabled (shard 19 180s MAIN1 tick).
+### Earlier smoke trail (kept for history)
 
-Repro probes after combat fast-path/sticky: shard **8** → **turn-limit** (91); shard **7** still progresses but hits probe `maxWallClockMs` (~45m) at turn 78 `BEGIN_COMBAT` (not DECLARE_ATTACKERS freeze; `warningCount=0`). Puzzles still **35/36**.
+Paused pre-fix gate at 119/320 with stall ~23%. Smoke b3–b6 on shards 0–23 drove stall from ~12.5% → **0%** (b6) via attack-declare fallbacks, large-board combat fast-path/sticky, empty-stack combat quiet pass, canAct short-circuit, and planner time budgets. Harness: `maxWallClockMs = MAX_TURNS*40s`, turn-stall pauses while stack/resolution busy, `stallReason` on rows.
 
-### Next
+### Stall investigation landed during the full gate
 
-1. Re-smoke shards 0–23 (or full P2-8) to confirm stall share ≤~2% after canAct fix.
-2. Full P2-8 gate: `out/gate-p2-v2-*.jsonl` (seed 7000, 320 games, v2 vs v1).
-3. Probe harness: keep `it` timeout above `maxWallClockMs` (`MAX_TURNS*30s`) so vitest does not tear down fake timers mid-tick.
+1. Main-phase control-flow casts note actions + reschedule (hit `MAX_MAIN_ACTIONS`).
+2. Attack declare fallbacks: never silent-return on goad / must-attack; force-mark `attackersDeclaredBy` as last resort.
+3. Stale `permanent.attacking` shortcut removed.
+4. v2 `planAttacks` skipped on large boards / slow clocks → v0 / fast planner.
+5. Large-board combat fast-path + sticky (`attackPlannerFast.ts`, `combatDecisionSticky.ts`).
+6. Empty-stack non-declare combat skips response enum + fast-pass.
+7. Large-block cheap eval (no per-blocker `evaluateCombatValue` before the large-combat gate).
+8. MAIN1 large-board `canAct` untapped-mana short-circuit.
+9. AI spell-payment simulation clones re-prime `_derivedContinuousEffects` (JSON clone drop); oracle normalisers memoized — cleared shard-28-class tick-timeouts.
+
+## Next (post-FAIL)
+
+1. Strength work before any re-gate: attack/block/turn planner quality, large-board v2→v0 fallbacks, evaluator fit.
+2. Do **not** change the live `AI_BRAIN` default until a re-gate shows a clear edge over v1 (and preferably over v0).
 
 ## Planners shipped behind v2
 

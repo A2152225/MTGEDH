@@ -9,6 +9,7 @@ import type { GameEvent } from "../../types";
 import { generateDeterministicId } from "../applyEventReplayZoneCommanderManaHelpers.js";
 import { consumeRecordedManaCostFromPool } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { debugWarn } from "../../../utils/debug.js";
+import { attachActivationCostDiscardedCards } from "../activationCostDiscardedCardEvidence.js";
 
 export function applyActivateBattlefieldAbilityStackReplay(ctx: GameContext, e: GameEvent): void {
   const stateAny = ctx.state as any;
@@ -125,6 +126,9 @@ export function applyActivateBattlefieldAbilityStackReplay(ctx: GameContext, e: 
                   activatedAbilityText: activatedAbilityText || undefined,
                   xValue: typeof (e as any).xValue === 'number' ? (e as any).xValue : undefined,
                 };
+
+                // Cost replay already moved the discarded cards, so they can be snapshotted here.
+                attachActivationCostDiscardedCards(ctx.state, rebuiltStackItem, String(playerId), (e as any).discardedCardIds);
 
                 if (persistedTargets) {
                   rebuiltStackItem.targets = persistedTargets.map((id: any) => String(id));

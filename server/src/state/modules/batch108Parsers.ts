@@ -4,8 +4,10 @@
 // Sorin lifelink, die-to-library, Life and Limb, Balrog, Goblin Assault,
 // Balan, Master of Cruelties, Dregscape, and cheap onward tails.
 
+import { memoOracleNormalize } from './oracleNormalizeMemo.js';
+
 export function normalizeB108Oracle(text: string): string {
-  return String(text || '').replace(/\u2019/g, "'").replace(/\s+/g, ' ').trim();
+  return memoOracleNormalize('b108', text, undefined, () => String(text || '').replace(/\u2019/g, "'").replace(/\s+/g, ' ').trim());
 }
 
 function n(text: string): string {

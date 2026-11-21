@@ -244,6 +244,26 @@ function splitSacrificeFollowOnInstructionsStep(step: OracleEffectStep): readonl
   return [sacrificeStep, ...extra];
 }
 
+function splitLoseLifeAndSacrificeChoiceStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
+  if (step.kind !== 'lose_life') return null;
+  const raw = normalizeOracleText(String(step.raw || '')).replace(/[.]+$/g, '').trim();
+  const match = raw.match(/^(.+?\blose\s+.+?\blife)\s+and\s+sacrifice\s+(.+)$/i);
+  if (!match) return null;
+  const sacrificeWhat = String(match[2] || '').trim();
+  if (!/\bof (?:their|his or her) choice\b/i.test(sacrificeWhat)) return null;
+  const who = (step as { who?: unknown }).who;
+  if (!who || typeof who !== 'object') return null;
+  return [
+    { ...step, raw: String(match[1] || '').trim() },
+    {
+      kind: 'sacrifice',
+      who,
+      what: parseObjectSelector(sacrificeWhat),
+      raw: `sacrifice ${sacrificeWhat}`,
+    } as OracleEffectStep,
+  ];
+}
+
 function splitSacrificeAndLifeStep(step: OracleEffectStep): readonly OracleEffectStep[] | null {
   if (step.kind !== 'sacrifice') return null;
   const raw = normalizeOracleText(String(step.raw || '')).replace(/^�\s*/, '').trim();
@@ -567,6 +587,7 @@ export {
   splitMillAndLifeUnknownStep,
   splitMillDrawLifeStep,
   splitMoveZoneAndLifeUnknownStep,
+  splitLoseLifeAndSacrificeChoiceStep,
   splitSacrificeAndLifeStep,
   splitSacrificeFollowOnInstructionsStep,
   splitTapAndCounterStep,

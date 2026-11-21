@@ -138,6 +138,10 @@ export function resolveMassBattlefieldSelector(
     preds.push((perm) => Boolean(perm?.attackedThisTurn || perm?.attacking || perm?.isAttacking));
     text = text.replace(/ that attacked this turn$/, '');
   }
+  if (/ that entered this turn$/.test(text)) {
+    preds.push((perm) => Boolean(perm?.enteredThisTurn));
+    text = text.replace(/ that entered this turn$/, '');
+  }
 
   // "... that shares a creature type with the exiled card / it / that creature"
   const sharesType = text.match(/ (?:that )?shares? a creature type with (.+)$/);

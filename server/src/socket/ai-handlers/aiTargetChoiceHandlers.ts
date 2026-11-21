@@ -575,7 +575,20 @@ export function chooseAITargetSelectionsForChoiceStep(
   playerId: PlayerID,
   step: any
 ): string[] {
-  const validTargets = Array.isArray(step?.validTargets) ? step.validTargets : [];
+  let validTargets = Array.isArray(step?.validTargets) ? step.validTargets : [];
+  const harmfulPlayerText = `${step?.abilityText || ''} ${step?.activatedAbilityText || ''} ${step?.description || ''}`;
+  if (
+    /any number of target players/i.test(harmfulPlayerText)
+    && /\b(?:lose|loses|sacrifice|discard|deals?)\b/i.test(harmfulPlayerText)
+  ) {
+    const opponents = validTargets.filter((option: any) => {
+      const id = String(option?.id || '');
+      if (!id || id === String(playerId)) return false;
+      if (option?.type && String(option.type) !== 'player') return false;
+      return option?.isOpponent !== false;
+    });
+    if (opponents.length > 0) validTargets = opponents;
+  }
   const targetGrouping = step?.targetGrouping;
   if (targetGrouping?.groupBy === 'controller' && Array.isArray(targetGrouping.groups)) {
     const sourceCard = cardForDamageChoiceScoring(step, resolveChoiceStepSourceCard(game, step) || {

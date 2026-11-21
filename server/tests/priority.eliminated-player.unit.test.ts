@@ -133,6 +133,67 @@ describe('eliminated players do not receive priority', () => {
   });
 });
 
+describe('eliminated turn player during MAIN1 (gate shards 262/281/316)', () => {
+  it('auto-pass round advances when the turn player is eliminated, even if they still control lands', () => {
+    // Self-play soft-lock: AP dies mid-turn; living seats auto-pass MAIN1; protect-main-phase
+    // treated the eliminated AP as still having actions (lands / canAct) and restored priority
+    // to them forever (priorityPassedBy ping-pong, turn never advances).
+    const state = createEliminatedPriorityState({
+      turnPlayer: 'p_dead_ai',
+      priority: 'p_human',
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      battlefield: [{
+        id: 'forest_1',
+        controller: 'p_dead_ai',
+        tapped: false,
+        card: { name: 'Forest', type_line: 'Basic Land — Forest', oracle_text: '{T}: Add {G}.' },
+      }],
+      priorityPassedBy: new Set<string>(['p_dead_ai']),
+    });
+    const ctx = createCtx(state);
+
+    const first = passPriority(ctx, 'p_human', true);
+    if (!first.advanceStep) {
+      expect(state.priority).toBe('p_alive_ai');
+      const second = passPriority(ctx, 'p_alive_ai', true);
+      expect(second.changed).toBe(true);
+      expect(second.advanceStep).toBe(true);
+    } else {
+      expect(first.advanceStep).toBe(true);
+    }
+    expect(state.priority).not.toBe('p_dead_ai');
+  });
+
+  it('auto-pass round advances when the turn player is at 0 life without hasLost', () => {
+    const state = createEliminatedPriorityState({
+      turnPlayer: 'p_dead_ai',
+      priority: 'p_human',
+      phase: 'precombatMain',
+      step: 'MAIN1',
+      life: { p_human: 40, p_dead_ai: 0, p_alive_ai: 27 },
+      players: [
+        { id: 'p_human', name: 'Human', seat: 0 },
+        { id: 'p_dead_ai', name: 'Dead AI', seat: 1, isAI: true },
+        { id: 'p_alive_ai', name: 'Alive AI', seat: 2, isAI: true },
+      ],
+      battlefield: [{
+        id: 'sol_1',
+        controller: 'p_dead_ai',
+        tapped: false,
+        card: { name: 'Sol Ring', type_line: 'Artifact', oracle_text: '{T}: Add {C}{C}.' },
+      }],
+      priorityPassedBy: new Set<string>(['p_dead_ai']),
+    });
+    const ctx = createCtx(state);
+
+    passPriority(ctx, 'p_human', true);
+    const second = passPriority(ctx, 'p_alive_ai', true);
+    expect(second.advanceStep).toBe(true);
+    expect(state.priority).not.toBe('p_dead_ai');
+  });
+});
+
 describe('eliminated turn player during DECLARE_ATTACKERS', () => {
   it('does not wait for attacker declaration from a turn player who cannot receive priority', () => {
     const state = createEliminatedPriorityState({

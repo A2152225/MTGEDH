@@ -81,4 +81,9 @@ describe('aftermath graveyard keyword', () => {
     expect(aftermath.every((c) => c.exileAfterResolution === true)).toBe(true);
     expect(aftermath.every((c) => String(c.manaCost || '').includes('{4}{U}{U}') || String(c.manaCost || '') === '{4}{U}{U}')).toBe(true);
   });
+
+  it('stops the card walk when the scan budget is already spent', () => {
+    const ctx = makeCtx(commitMemory);
+    expect(getCastableSpellCandidates(ctx, 'p1', { mode: 'main', scanBudgetMs: 0 })).toEqual([]);
+  });
 });

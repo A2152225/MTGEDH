@@ -1,8 +1,10 @@
 // server/src/state/modules/batch104Parsers.ts
 // B104 oracle parsers. Public: the parse* functions exported below.
 
+import { memoOracleNormalize } from './oracleNormalizeMemo.js';
+
 function normalize(text: string): string {
-  return String(text || '').replace(/\u2019/g, "'").replace(/\s+/g, ' ').trim();
+  return memoOracleNormalize('b104', text, undefined, () => String(text || '').replace(/\u2019/g, "'").replace(/\s+/g, ' ').trim());
 }
 
 export function parseChosenQualityManaValueHaste(oracle: string): boolean {

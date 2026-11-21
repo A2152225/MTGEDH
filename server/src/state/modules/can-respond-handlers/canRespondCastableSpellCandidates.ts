@@ -51,6 +51,16 @@ import { getOrComputeCachedSpellCandidates } from './canRespondPriorityCache.js'
 import { cardHasGrantedOffBattlefieldFlash } from '../offBattlefieldFlashGrants.js';
 import { sorceryNotOnStackCastsAsInstant } from '../sorceryAsInstantTextChange.js';
 
+/** One spell-legality walk must not hold the self-play event loop for a 180s tick. */
+const SPELL_CANDIDATE_SCAN_BUDGET_MS = 1000;
+
+function spellScanNowMs(): number {
+  if (typeof process !== 'undefined' && typeof process.hrtime?.bigint === 'function') {
+    return Number(process.hrtime.bigint() / 1_000_000n);
+  }
+  return Date.now();
+}
+
 function spellMatchesCandidateMode(card: any, mode: SharedSpellCandidateMode, grantsFlash: boolean): boolean {
   if (mode === 'main') {
     return true;
@@ -218,6 +228,8 @@ export function getCastableSpellCandidates(
     allowAlternateCosts?: boolean;
     allowUnknownCostFallback?: boolean;
     conservativeTargets?: boolean;
+    /** Real-time cap for the card walk. 0 returns before the first card. */
+    scanBudgetMs?: number;
   },
 ): SharedSpellCastCandidate[] {
   const mode = options?.mode || 'main';
@@ -225,7 +237,11 @@ export function getCastableSpellCandidates(
   const allowAlternateCosts = options?.allowAlternateCosts !== false;
   const allowUnknownCostFallback = options?.allowUnknownCostFallback !== false;
   const conservativeTargets = options?.conservativeTargets !== false;
-  const optionKey = `${mode}|${skipIgnoredCards}|${allowAlternateCosts}|${allowUnknownCostFallback}|${conservativeTargets}`;
+  const rawBudget = options?.scanBudgetMs;
+  const scanBudgetMs = typeof rawBudget === 'number' && Number.isFinite(rawBudget)
+    ? rawBudget
+    : SPELL_CANDIDATE_SCAN_BUDGET_MS;
+  const optionKey = `${mode}|${skipIgnoredCards}|${allowAlternateCosts}|${allowUnknownCostFallback}|${conservativeTargets}|budget=${scanBudgetMs}`;
   return getOrComputeCachedSpellCandidates(ctx, playerId, optionKey, () =>
     collectCastableSpellCandidates(ctx, playerId, {
       mode,
@@ -233,6 +249,7 @@ export function getCastableSpellCandidates(
       allowAlternateCosts,
       allowUnknownCostFallback,
       conservativeTargets,
+      scanBudgetMs,
     }),
   );
 }
@@ -246,6 +263,7 @@ function collectCastableSpellCandidates(
     allowAlternateCosts: boolean;
     allowUnknownCostFallback: boolean;
     conservativeTargets: boolean;
+    scanBudgetMs: number;
   },
 ): SharedSpellCastCandidate[] {
   try {
@@ -271,6 +289,15 @@ function collectCastableSpellCandidates(
     const currentTurn = Number(stateAny?.turnNumber ?? 0);
     const exilePermissions = stateAny?.playableFromExile?.[playerId];
     const candidates: SharedSpellCastCandidate[] = [];
+    const scanStartedMs = spellScanNowMs();
+    let scanStopped = false;
+    const scanOverBudget = (): boolean => {
+      if (scanStopped) return true;
+      if (spellScanNowMs() - scanStartedMs < options.scanBudgetMs) return false;
+      scanStopped = true;
+      debug(1, `[getCastableSpellCandidates] stopped after ${options.scanBudgetMs}ms with ${candidates.length} candidate(s)`);
+      return true;
+    };
 
     const considerSourceCard = (card: any, sourceZone: SharedSpellSourceZone) => {
       if (!card || typeof card === 'string') return;
@@ -285,6 +312,14 @@ function collectCastableSpellCandidates(
       }
 
       for (const castCard of getHandCastEvaluationCards(card)) {
+        if (
+          mode === 'response'
+          && !hasFlashOrInstant(castCard)
+          && !cardHasGrantedOffBattlefieldFlash(state, playerId, castCard)
+          && !sorceryNotOnStackCastsAsInstant(state, castCard)
+        ) {
+          continue;
+        }
         if (isSpellCastingProhibitedByChosenName(state, playerId, castCard.name || '').prohibited) {
           continue;
         }
@@ -293,6 +328,9 @@ function collectCastableSpellCandidates(
         }
 
         const typeLine = String(castCard?.type_line || '').toLowerCase();
+        // Land cards are played, including a printed land creature such as Dryad Arbor.
+        // A land that later becomes a creature is already on the battlefield and is
+        // matched there by granted creature type.
         if (isLandTypeLine(typeLine)) {
           continue;
         }
@@ -446,12 +484,40 @@ function collectCastableSpellCandidates(
           continue;
         }
 
-        if (!hasValidTargetsForSpell(state, playerId, castCard, { conservative: conservativeTargets })) {
+        const addCost = getEffectiveAdditionalCost(castCard, castCard.oracle_text || castCard.oracleText || '');
+        if (addCost && !canPaySourceGrantedAdditionalCost(state, playerId, card, addCost as any)) {
           continue;
         }
 
-        const addCost = getEffectiveAdditionalCost(castCard, castCard.oracle_text || castCard.oracleText || '');
-        if (addCost && !canPaySourceGrantedAdditionalCost(state, playerId, card, addCost as any)) {
+        const parsedCost = unknownCostFallback ? null : parseManaCost(manaCost);
+        const costAdjustmentPlan = parsedCost ? buildCostAdjustmentPlan(state, playerId, castCard) : null;
+        const adjustedCost = parsedCost && costAdjustmentPlan
+          ? normalizeParsedManaCost(applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan))
+          : null;
+        const payableCost = adjustedCost
+          ? (spendManaAsThoughAnyType ? normalizeParsedCostForAnyTypeManaSpending(adjustedCost) : adjustedCost)
+          : null;
+        const castTypeLine = String(castCard?.type_line || '').toLowerCase();
+        const restrictedSpendPurpose = {
+          isCreature: castTypeLine.includes('creature'),
+          isArtifact: castTypeLine.includes('artifact'),
+          isInstantOrSorcery: castTypeLine.includes('instant') || castTypeLine.includes('sorcery'),
+          isLegendary: castTypeLine.includes('legendary'),
+          spellCard: castCard,
+        };
+        const normalManaPayable = payableCost
+          ? canPayManaCostWithAvailableSources(state, playerId, payableCost, Infinity, {
+            ...manaPaymentOptions,
+            restrictedSpendPurpose,
+          })
+          : false;
+        const alternatePossible = allowAlternateCosts
+          && canUseAlternateCostForSpellCandidate(sourceZone, castMethod);
+        if (!unknownCostFallback && !normalManaPayable && !alternatePossible) {
+          continue;
+        }
+
+        if (!hasValidTargetsForSpell(state, playerId, castCard, { conservative: conservativeTargets })) {
           continue;
         }
 
@@ -481,27 +547,7 @@ function collectCastableSpellCandidates(
           continue;
         }
 
-        const parsedCost = parseManaCost(manaCost);
-        const costAdjustmentPlan = buildCostAdjustmentPlan(state, playerId, castCard);
-        const adjustedCost = normalizeParsedManaCost(
-          applyCostAdjustmentToParsedCost(parsedCost, costAdjustmentPlan),
-        );
-        const payableCost = spendManaAsThoughAnyType
-          ? normalizeParsedCostForAnyTypeManaSpending(adjustedCost)
-          : adjustedCost;
-        const castTypeLine = String(castCard?.type_line || '').toLowerCase();
-        const restrictedSpendPurpose = {
-          isCreature: castTypeLine.includes('creature'),
-          isArtifact: castTypeLine.includes('artifact'),
-          isInstantOrSorcery: castTypeLine.includes('instant') || castTypeLine.includes('sorcery'),
-          isLegendary: castTypeLine.includes('legendary'),
-          spellCard: castCard,
-        };
-
-        if (canPayManaCostWithAvailableSources(state, playerId, payableCost, Infinity, {
-          ...manaPaymentOptions,
-          restrictedSpendPurpose,
-        })) {
+        if (normalManaPayable && adjustedCost) {
           candidates.push({
             card,
             castCard,
@@ -553,23 +599,30 @@ function collectCastableSpellCandidates(
 
     if (Array.isArray(zones.hand)) {
       for (const card of zones.hand as any[]) {
+        if (scanOverBudget()) break;
         considerSourceCard(card, 'hand');
       }
     }
 
-    if (Array.isArray(zones.graveyard)) {
+    if (!scanOverBudget() && Array.isArray(zones.graveyard)) {
       for (const card of zones.graveyard as any[]) {
+        if (scanOverBudget()) break;
         considerSourceCard(card, 'graveyard');
       }
     }
 
-    for (const card of getPlayableExileCardsForPlayer(state, playerId)) {
-      considerSourceCard(card, 'exile');
+    if (!scanOverBudget()) {
+      for (const card of getPlayableExileCardsForPlayer(state, playerId)) {
+        if (scanOverBudget()) break;
+        considerSourceCard(card, 'exile');
+      }
     }
 
-    const topCard = getTopLibraryCard(ctx, playerId);
-    if (topCard && typeof topCard !== 'string') {
-      considerSourceCard(topCard, 'library');
+    if (!scanOverBudget()) {
+      const topCard = getTopLibraryCard(ctx, playerId);
+      if (topCard && typeof topCard !== 'string') {
+        considerSourceCard(topCard, 'library');
+      }
     }
 
     return candidates;

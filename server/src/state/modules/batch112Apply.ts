@@ -84,7 +84,11 @@ import {
   parseWindCounterUntap,
   parseOtherCreaturesSpeed,
 } from './batch112Parsers.js';
+import * as batch112Parsers from './batch112Parsers.js';
+import { createLongTailStaticSourceFilter, longTailStaticSources, parseExportsOf } from './longTailStaticSourceIndex.js';
 import { nameFirstPrintedInArabianNights } from './triggers/arabianNightsOriginalNames.js';
+
+const B112_SOURCES = createLongTailStaticSourceFilter('batch112', () => parseExportsOf(batch112Parsers));
 
 function textOf(perm: any): string {
   return normalizeBatch112Oracle(String(perm?.card?.oracle_text || ''), String(perm?.card?.name || ''));
@@ -193,7 +197,7 @@ export function applyBatch112PowerToughness(
 
 export function batch112AdditionalTypes(permanent: any, state: any): string[] {
   const added = new Set<string>();
-  for (const source of board(state)) {
+  for (const source of longTailStaticSources(state, B112_SOURCES, textOf)) {
     if (!source || source.phasedOut) continue;
     const line = textOf(source);
     const src = ctrl(source);
@@ -222,7 +226,7 @@ export function batch112AdditionalTypes(permanent: any, state: any): string[] {
 
 export function batch112PermanentHasKeyword(permanent: any, state: any, keyword: string): boolean {
   const needle = String(keyword || '').toLowerCase();
-  for (const source of board(state)) {
+  for (const source of longTailStaticSources(state, B112_SOURCES, textOf)) {
     if (!source || source.phasedOut) continue;
     const line = textOf(source);
     const src = ctrl(source);

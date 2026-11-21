@@ -13,6 +13,9 @@ import { parseEquipAbilitiesFromOracle, type ParsedEquipAbility } from '../../..
 import { batch107GrantedTypalEquipFragments } from './batch107Apply.js';
 import { attachWorthyDefinitionToQualifiers } from '../../../../shared/src/equipWorthy.js';
 import { normalizeOraclePatternText } from './replacementEffectSpec-handlers/replacementEffectSpecOracleTextUtils.js';
+import { createLongTailStaticSourceFilter, longTailStaticSources } from './longTailStaticSourceIndex.js';
+
+const GRANTED_EQUIPMENT_SOURCES = createLongTailStaticSourceFilter('batch97GrantedEquipment', () => [parseGrantedTreasureEquipmentOracle]);
 
 const GEMCUTTER_RE = /(?:((?:non[-]?[a-z]+(?:,)?\s+)+))?([a-z]+)s you control are equipment in addition to their other types and have "([^"]+)"/i;
 const INSTANT_EQUIP_RE = /you may activate equip abilities any time you could cast an instant/i;
@@ -45,9 +48,8 @@ export function grantedEquipmentOracleText(permanent: any, state: any): string {
   if (!permanent) return '';
   const controller = String(permanent.controller || '');
   const tl = typeLineOf(permanent);
-  const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const parts: string[] = [];
-  for (const src of battlefield) {
+  for (const src of longTailStaticSources(state, GRANTED_EQUIPMENT_SOURCES, oracleOf)) {
     if (!src || src.phasedOut === true || String(src.controller || '') !== controller) continue;
     const parsed = parseGrantedTreasureEquipmentOracle(oracleOf(src));
     if (!parsed) continue;

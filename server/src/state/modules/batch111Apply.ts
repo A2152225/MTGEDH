@@ -69,6 +69,10 @@ import {
   parseUnblockedNinjasLifelink,
   parseYourCreaturesCantBeBlockedExceptLegendary,
 } from './batch111Parsers.js';
+import * as batch111Parsers from './batch111Parsers.js';
+import { createLongTailStaticSourceFilter, longTailStaticSources, parseExportsOf } from './longTailStaticSourceIndex.js';
+
+const B111_SOURCES = createLongTailStaticSourceFilter('batch111', () => parseExportsOf(batch111Parsers));
 
 const COLOR_LETTER: Record<string, string> = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 
@@ -399,7 +403,7 @@ export function batch111PermanentHasKeyword(permanent: any, state: any, keyword:
   const needle = String(keyword || '').trim().toLowerCase();
   if (!needle || !permanent) return false;
   const self = controller(permanent);
-  for (const source of battlefieldOf(state)) {
+  for (const source of longTailStaticSources(state, B111_SOURCES, textOf)) {
     if (!source || source.phasedOut === true) continue;
     const line = textOf(source);
     const src = controller(source);
@@ -425,7 +429,7 @@ export function batch111PermanentHasKeyword(permanent: any, state: any, keyword:
 
 export function batch111AdditionalTypes(permanent: any, state: any): string[] {
   const added = new Set<string>();
-  for (const source of battlefieldOf(state)) {
+  for (const source of longTailStaticSources(state, B111_SOURCES, textOf)) {
     if (!source || source.phasedOut === true) continue;
     const line = textOf(source);
     if (parseForestsAreElfCreatures(line) && controller(source) === controller(permanent) && hasTypeWord(permanent, 'forest')) {

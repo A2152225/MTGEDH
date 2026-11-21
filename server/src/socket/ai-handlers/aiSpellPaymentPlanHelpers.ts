@@ -41,6 +41,10 @@ import {
   tryAIManaBatteryColorFixForSpellPayment,
   tryAIManaBatteryColorFixForSpellPaymentSimulation,
 } from "./aiManaActivationHelpers.js";
+import {
+  primeAISpellPaymentSimulationDerivedEffects,
+  refreshAISpellPaymentSimulationDerivedEffects,
+} from "./aiSpellPaymentSimulationDerivedEffects.js";
 
 function getPaymentSources(
   game: any,
@@ -265,6 +269,8 @@ export function buildAISpellPaymentPlan(
     restrictedSpendPurpose?: RestrictedManaSpendPurpose,
   ): { payment: Array<{ permanentId: string; mana: string; count?: number; abilityId?: string }> } | null {
     const excluded = new Set(excludePermanentIds.map((id) => String(id || '').trim()).filter(Boolean));
+    // Simulation clones only: pick up simulated activations before reading mana production.
+    refreshAISpellPaymentSimulationDerivedEffects(game);
     if (canAIPaySpellCostWithPaymentSources(game, playerId, parsedCost, [])) {
       return { payment: [] };
     }
@@ -294,9 +300,12 @@ export function buildAISpellPaymentPlan(
   }
 
 export function cloneAISpellPaymentSimulationGame(game: any): any {
-    return {
+    const simulatedGame = {
       state: JSON.parse(JSON.stringify(game?.state || {})),
     };
+    // The JSON clone drops the derived continuous-effects view; compute it once here.
+    primeAISpellPaymentSimulationDerivedEffects(simulatedGame);
+    return simulatedGame;
   }
 
 export function canAISimulateNonTapManaToPaySpell(

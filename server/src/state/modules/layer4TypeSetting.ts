@@ -21,6 +21,7 @@ import { batch109PermanentHasKeyword } from './batch109Apply.js';
 import { batch110AdditionalTypes, batch110PermanentHasKeyword } from './batch110Apply.js';
 import { batch111AdditionalTypes, batch111LosesCreature, batch111PermanentHasKeyword } from './batch111Apply.js';
 import { batch112AdditionalTypes, batch112PermanentHasKeyword } from './batch112Apply.js';
+import { withLongTailStaticSourceIndex } from './longTailStaticSourceIndex.js';
 
 export const LAYER4_ADDED_TYPES_FIELD = 'layer4AddedTypes';
 
@@ -141,6 +142,12 @@ export function layer4BasePowerToughnessEntriesFor(perm: any, state: any): Array
 
 /** Writes each permanent's layer 4 added types so type-only readers (isCreature, isCreatureNow) see them. */
 export function stampLayer4TypeSetting(state: any): void {
+  // The stamp changes neither which permanents exist nor their oracle text, so the per-batch
+  // "sources that can matter" lists are built once here and shared by every permanent below.
+  withLongTailStaticSourceIndex(state, () => stampLayer4TypeSettingBody(state));
+}
+
+function stampLayer4TypeSettingBody(state: any): void {
   const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const payloads = collectLayer4TypePayloads(state);
   for (const perm of battlefield) {

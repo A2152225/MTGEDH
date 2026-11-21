@@ -28,7 +28,7 @@ const SHARDS = String(process.env.PROBE_STALL_SHARDS || '1,2,19,43,48,54')
   .filter((n) => Number.isFinite(n));
 const PARALLEL = Math.max(1, Math.min(8, Number(process.env.PROBE_STALL_PARALLEL || 3) || 3));
 const HEAP_MB = String(process.env.PROBE_STALL_HEAP_MB || process.env.AI_SELFPLAY_HEAP_MB || 8192);
-const KILL_MS = Number(process.env.PROBE_STALL_KILL_MS || 3_000_000); // 50 min hard ceiling per shard
+const KILL_MS = Number(process.env.PROBE_STALL_KILL_MS || 4_200_000); // above MAX_TURNS*40s wall
 
 fs.mkdirSync(outDir, { recursive: true });
 

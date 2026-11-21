@@ -114,7 +114,12 @@ type ViewerIndependentPermanentView = {
   rulesStatus: ReturnType<typeof computePermanentRulesStatus>;
 };
 
-let sharedBattlefieldViewScope: { state: any; derived: Map<any, ViewerIndependentPermanentView> } | null = null;
+let sharedBattlefieldViewScope: {
+  state: any;
+  derived: Map<any, ViewerIndependentPermanentView>;
+  /** The continuous-effects sync already ran for this broadcast; state does not change between its views. */
+  derivedSynced?: boolean;
+} | null = null;
 
 /**
  * Run `fn` (one broadcast: a viewFor per participant against unchanged state) sharing the
@@ -179,11 +184,19 @@ function viewForUnindexed(
   const { state, libraries, commandZone, inactive, poison, experience } = ctx;
   const zones = state.zones || {};
 
-  // One derived continuous-effects pass per view build (avoids O(n²) recompute per permanent).
-  try {
-    syncDerivedContinuousEffects(state);
-  } catch {
-    // Best-effort only; view construction must not fail.
+  // One derived continuous-effects pass per view build (avoids O(n²) recompute per permanent), and
+  // one per broadcast when the views share a scope: a broadcast builds a view per participant from
+  // the same unchanged state, and repeating the pass for each cost 5 recomputes on a 229-permanent board.
+  const sharedScope = sharedBattlefieldViewScope && sharedBattlefieldViewScope.state === state
+    ? sharedBattlefieldViewScope
+    : null;
+  if (!sharedScope?.derivedSynced) {
+    try {
+      syncDerivedContinuousEffects(state);
+      if (sharedScope) sharedScope.derivedSynced = true;
+    } catch {
+      // Best-effort only; view construction must not fail.
+    }
   }
 
   // Server-computed hints for client UX gating (avoid oracle-text heuristics client-side).

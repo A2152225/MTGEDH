@@ -41,6 +41,7 @@ import type {
   ActivateGenericAbilityMutationState,
 } from "./interactionActivateGenericAbilityState.js";
 import { detectTutorEffect, parseSearchCriteria } from "./interactionTutorSearchCriteriaParsing.js";
+import { reviewActivatedAbilityTargets } from "../../../../rules-engine/src/aiActivatedAbilityTargets.js";
 
 export async function tryHandleActivateGenericNonMana(
   ctx: ActivateBattlefieldAbilityContext,
@@ -64,6 +65,7 @@ export async function tryHandleActivateGenericNonMana(
     resolvedActivatedAbilityText,
   } = extras;
   let pendingLifePaymentForCost = mut.pendingLifePaymentForCost;
+  let sacrificeSelfRemovalTargetId: string | undefined;
   let persistedStackItemId = mut.persistedStackItemId;
   const tappedPermanentsForCost = mut.tappedPermanentsForCost;
   const sacrificedPermanentsForCost = mut.sacrificedPermanentsForCost;
@@ -91,6 +93,38 @@ export async function tryHandleActivateGenericNonMana(
         message: "Can't activate abilities while a spell with split second is on the stack.",
       });
       return true;
+    }
+
+    // Any targeted activated ability needs a legal permanent before costs are paid.
+    // Removal will not spend that cost on your own permanents.
+    {
+      const removalText = String(resolvedAbilityText || abilityText || '');
+      const board = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+      const review = reviewActivatedAbilityTargets(
+        game.state as any,
+        pid as PlayerID,
+        removalText,
+        board,
+        String(permanentId || ''),
+      );
+      if (review.requiresTarget && review.legal.length === 0) {
+        socket.emit('error', {
+          code: 'NO_VALID_TARGETS',
+          message: `${cardName}'s ability has no legal target.`,
+        });
+        return true;
+      }
+      const actor = (game.state?.players || []).find((player: any) => String(player?.id || '') === String(pid));
+      if (actor?.isAI && review.removal && !review.bestThreat) {
+        socket.emit('error', {
+          code: 'NO_VALID_TARGETS',
+          message: `${cardName} has no opposing permanent worth removing.`,
+        });
+        return true;
+      }
+      if (actor?.isAI && review.bestThreat) {
+        sacrificeSelfRemovalTargetId = String(review.bestThreat.permanent.id || '');
+      }
     }
 
     // Pay tap cost only after all other costs validate and any interactive prompts
@@ -827,7 +861,11 @@ export async function tryHandleActivateGenericNonMana(
       activatedAbilityText: activatedAbilityTextForStack,
       xValue: selectedXValue,
       activatedAbilityIndex: selectedAbilityIndex,
-      ...(autoSelectedPlayerTargetIds?.length ? { targets: autoSelectedPlayerTargetIds } : {}),
+      ...(sacrificeSelfRemovalTargetId
+        ? { targets: [sacrificeSelfRemovalTargetId] }
+        : autoSelectedPlayerTargetIds?.length
+          ? { targets: autoSelectedPlayerTargetIds }
+          : {}),
       ...(isOnceDuringEachOfYourTurnActivatedEffect(oncePerTurnActivatedEffect) || abilityTextIsOnceEachTurn(oncePerTurnActivatedEffect)
         ? { oncePerTurnActivated: true }
         : null),

@@ -12,6 +12,7 @@ import { detectExiledFromBattlefieldTriggers, type ExiledFromBattlefieldTrigger 
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSource } from './triggerConditionFamilyMatch.js';
 import type { TriggerConditionEvent, TriggerConditionIR } from '../../../../../rules-engine/src/triggerCondition/index.js';
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
+import { runWithDerivedContinuousEffectsForScan } from '../derivedContinuousEffectsScanScope.js';
 export { detectExiledFromBattlefieldTriggers, type ExiledFromBattlefieldTrigger };
 
 function forEachParsedZoneLine(
@@ -24,6 +25,8 @@ function forEachParsedZoneLine(
   push: (permanent: any, effect: string, condition: TriggerConditionIR | undefined) => void,
 ): void {
   const battlefield = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+  // One derived continuous-effects view for the whole scan instead of one rebuild per permanent.
+  runWithDerivedContinuousEffectsForScan(ctx.state, () => {
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
     for (const line of collectMatchingParsedEventLines({
@@ -44,6 +47,7 @@ function forEachParsedZoneLine(
       push(permanent, line.effect, line.condition);
     }
   }
+  });
 }
 
 export function getExiledFromBattlefieldTriggers(

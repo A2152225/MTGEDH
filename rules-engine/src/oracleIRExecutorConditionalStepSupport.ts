@@ -92,6 +92,22 @@ export function evaluateConditionalWrapperCondition(
     normalizedRaw = normalizedRaw.replace(/^if\s+/i, '').trim();
   }
 
+  const countersThisWay = normalizedRaw.match(
+    /^you put (one|two|three|four|five|\d+) or more \+1\/\+1 counters on creatures this way$/,
+  );
+  if (countersThisWay) {
+    const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+    const need = words[countersThisWay[1]] ?? Number(countersThisWay[1]);
+    const placed = ((nextState.battlefield || []) as Array<{ controller?: string; enteredThisTurn?: boolean; type_line?: string; card?: { type_line?: string } }>)
+      .filter((perm) => {
+        if (String(perm?.controller || '') !== String(controllerId)) return false;
+        if (!perm?.enteredThisTurn) return false;
+        const line = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
+        return /\bcreature\b/.test(line);
+      }).length;
+    return placed >= need;
+  }
+
   {
     const castFlagOrKeyword = tryEvaluateConditionalSpellCastFlagOrKeyword({
       nextState,

@@ -666,6 +666,13 @@ function hasGraveyardActivatedAbility(
 /**
  * Check if player can activate any abilities
  */
+function abilityScanNowMs(): number {
+  if (typeof process !== 'undefined' && typeof process.hrtime?.bigint === 'function') {
+    return Number(process.hrtime.bigint() / 1_000_000n);
+  }
+  return Date.now();
+}
+
 export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boolean {
   try {
     const { state } = ctx;
@@ -676,7 +683,16 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     if (isSplitSecondLockActive(state)) return false;
     
     const battlefield = state.battlefield || [];
+    const battlefieldIds = new Set<string>();
+    for (const perm of battlefield) {
+      const permanentId = String(perm?.id || '').trim();
+      const cardId = String(perm?.card?.id || '').trim();
+      if (permanentId) battlefieldIds.add(permanentId);
+      if (cardId) battlefieldIds.add(cardId);
+    }
     const loyaltyAtInstantSpeed = canActivateLoyaltyAtInstantSpeed(state, playerId);
+    const scanStartedMs = abilityScanNowMs();
+    const scanOverBudget = () => abilityScanNowMs() - scanStartedMs >= 1000;
     
     // Get mana pool (floating + potential from untapped sources)
     const pool = getAvailableMana(state, playerId);
@@ -686,6 +702,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     
     // Check each permanent on battlefield
     for (const permanent of battlefield) {
+      if (scanOverBudget()) return false;
       // Skip ignored permanents - they shouldn't trigger auto-pass prompts.
       // The ignore map is keyed by `cardId || permanentId` (see socket/priority.ts), and the
       // two client affordances send different keys (table panel -> permanentId, card menu ->
@@ -709,6 +726,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     const zones = state.zones?.[playerId];
     if (zones && Array.isArray(zones.graveyard)) {
       for (const card of zones.graveyard as any[]) {
+        if (scanOverBudget()) return false;
         // Skip ignored cards in graveyard
         if (ignoredCards[card.id]) {
           debug(2, `[canActivateAnyAbility] Skipping ignored graveyard card: ${card.name || card.id}`);
@@ -718,9 +736,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
         // Skip this card if the same object id is also on the battlefield (defensive).
         // Match by id only — name matching incorrectly suppresses singleton GY abilities.
         const cardId = String(card?.id || '').trim();
-        const isOnBattlefield = Boolean(cardId) && battlefield.some((perm: any) =>
-          String(perm?.card?.id || '') === cardId || String(perm?.id || '') === cardId
-        );
+        const isOnBattlefield = Boolean(cardId) && battlefieldIds.has(cardId);
         
         if (isOnBattlefield) {
           continue; // Card is on battlefield, don't allow graveyard abilities
@@ -735,6 +751,7 @@ export function canActivateAnyAbility(ctx: GameContext, playerId: PlayerID): boo
     // Check exile zone for playable cards (foretold, suspended, plotted, etc.)
     if (zones && Array.isArray(zones.exile)) {
       for (const card of zones.exile as any[]) {
+        if (scanOverBudget()) return false;
         // Skip ignored cards in exile
         if (ignoredCards[card.id]) {
           debug(2, `[canActivateAnyAbility] Skipping ignored exile card: ${card.name || card.id}`);

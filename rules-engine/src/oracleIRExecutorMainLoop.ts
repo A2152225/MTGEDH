@@ -161,6 +161,8 @@ export function applyOracleIRStepsToGameStateImpl(
   // `appliedSteps` when nothing else in the sequence fired - it is then the sole record that the
   // clause was evaluated. Once any conditional does produce effects these markers are dropped.
   const falseConditionalMarkers = new Set<OracleEffectStep>();
+  // False conditionals reported by nested branches; kept apart so the `appliedSteps` filter is unchanged.
+  const nestedConditionFalseSteps = new Set<OracleEffectStep>();
   let anyConditionalProducedSteps = false;
 
   let nextState = Array.isArray(state.players) ? state : { ...state, players: [] };
@@ -198,7 +200,9 @@ export function applyOracleIRStepsToGameStateImpl(
     } | null;
     readonly lastAntecedentBattlefieldPermanentIds?: readonly string[];
     readonly lastMovedBattlefieldPermanentIds?: readonly string[];
+    readonly conditionFalseSteps?: readonly OracleEffectStep[];
   }): void => {
+    for (const falseStep of nestedResult.conditionFalseSteps || []) nestedConditionFalseSteps.add(falseStep);
     if (nestedResult.lastStepOutcome) {
       lastStepOutcome = nestedResult.lastStepOutcome;
       const kind = nestedResult.lastStepOutcome.kind;
@@ -846,6 +850,9 @@ export function applyOracleIRStepsToGameStateImpl(
     pendingOptionalSteps,
     ...(pendingContinuationSteps ? { pendingContinuationSteps } : {}),
     lastStepOutcome,
+    ...(falseConditionalMarkers.size + nestedConditionFalseSteps.size > 0
+      ? { conditionFalseSteps: [...falseConditionalMarkers, ...nestedConditionFalseSteps] }
+      : {}),
     ...(lastMovedCards.length > 0 ? { lastMovedCards } : {}),
     ...(lastMilledCards.length > 0 ? { lastMilledCards } : {}),
     ...(lastSacrificedPermanents.length > 0 ? { lastSacrificedPermanents } : {}),

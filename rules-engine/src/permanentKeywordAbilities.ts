@@ -378,17 +378,36 @@ export function battlefieldGrantsKeywordTo(perm: any, kw: string, battlefield?: 
   return false;
 }
 
+/** Compiled once per keyword: this runs for every temporary effect of every permanent on each loss check. */
+const keywordLossPatterns = new Map<string, { named: RegExp; removes: RegExp }>();
+function keywordLossPatternsFor(kw: string): { named: RegExp; removes: RegExp } {
+  let patterns = keywordLossPatterns.get(kw);
+  if (!patterns) {
+    patterns = {
+      named: new RegExp(String.raw`\b${escapeRegExp(kw)}\b`, 'i'),
+      removes: new RegExp(
+        // "loses all other abilities" (Darksteel Mutation) only counts as total loss, not as losing a kept keyword.
+        String.raw`\b(?:loses?|lose)\b[^.\n]*?(?:\ball abilities\b|${kw === 'all abilities' ? String.raw`\ball other [a-z ,]*?\babilities\b|` : ''}(?:^|[\s,])${escapeRegExp(kw)}\b)`,
+        'i',
+      ),
+    };
+    if (keywordLossPatterns.size >= 500) keywordLossPatterns.clear();
+    keywordLossPatterns.set(kw, patterns);
+  }
+  return patterns;
+}
+
 function textRemovesKeyword(rawText: string, kw: string): boolean {
+  const raw = String(rawText || '');
+  // Every pattern below needs the word "lose"/"loses"; most effect texts never mention it.
+  if (!/\bloses?\b/i.test(raw)) return false;
   // Blood Sun: "lose all abilities except mana abilities" keeps mana abilities, so it is not total loss.
-  const text = String(rawText || '').replace(/\ball abilities except mana abilities\b/gi, 'all nonmana abilities');
+  const text = raw.replace(/\ball abilities except mana abilities\b/gi, 'all nonmana abilities');
+  const patterns = keywordLossPatternsFor(kw);
   // "loses all other card types and abilities" (Imprisoned in the Moon) removes every keyword the text does not name.
-  if (kw !== 'all abilities' && /\b(?:loses?|lose)\b[^.\n]*?\ball other [a-z ,]*?\babilities\b/i.test(String(text || ''))
-    && !new RegExp(String.raw`\b${escapeRegExp(kw)}\b`, 'i').test(String(text || ''))) return true;
-  return new RegExp(
-    // "loses all other abilities" (Darksteel Mutation) only counts as total loss, not as losing a kept keyword.
-    String.raw`\b(?:loses?|lose)\b[^.\n]*?(?:\ball abilities\b|${kw === 'all abilities' ? String.raw`\ball other [a-z ,]*?\babilities\b|` : ''}(?:^|[\s,])${escapeRegExp(kw)}\b)`,
-    'i',
-  ).test(String(text || ''));
+  if (kw !== 'all abilities' && /\b(?:loses?|lose)\b[^.\n]*?\ball other [a-z ,]*?\babilities\b/i.test(text)
+    && !patterns.named.test(text)) return true;
+  return patterns.removes.test(text);
 }
 
 const abilitylessGateDepth = { value: 0 };

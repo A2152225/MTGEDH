@@ -24,6 +24,19 @@ import {
   parseTypalCreaturesAttackEachCombatIfAble,
   normalizeB108Oracle,
 } from './batch108Parsers.js';
+import { createLongTailStaticSourceFilter, longTailStaticSources } from './longTailStaticSourceIndex.js';
+
+const B108_LIFELINK_SOURCES = createLongTailStaticSourceFilter(
+  'batch108YourTurnLifelink',
+  () => [parseDuringYourTurnCreaturesAndPlaneswalkersYouControlHaveLifelink],
+);
+const B108_LAND_ANIMATION_SOURCES = createLongTailStaticSourceFilter(
+  'batch108LandAnimation',
+  () => [
+    parseForestsAndSaprolingsAreNNColorSaprolingCreaturesAndForestLands,
+    parseAllBasicLandTypeAreNNColorCreaturesStillLands,
+  ],
+);
 
 registerPlayerCounterGainAdjustment((state, playerId, counter, amount) => {
   if (String(counter || '').toLowerCase() !== 'experience') return amount;
@@ -283,7 +296,7 @@ export function batch108PermanentHasKeyword(perm: any, state: any, keyword: stri
   const battlefield = battlefieldOf(state);
   const turnPlayer = String(state.turnPlayer ?? state.activePlayer ?? '');
   if (needle === 'lifelink') {
-    for (const src of battlefield) {
+    for (const src of longTailStaticSources(state, B108_LIFELINK_SOURCES, oracleOf)) {
       if (!src || isPhased(src)) continue;
       if (!parseDuringYourTurnCreaturesAndPlaneswalkersYouControlHaveLifelink(oracleOf(src))) continue;
       if (String(src.controller || '') !== String(perm.controller || '')) continue;
@@ -304,7 +317,7 @@ export function batch108PermanentHasKeyword(perm: any, state: any, keyword: stri
 export function batch108AdditionalTypes(perm: any, state: any): string[] {
   const added = new Set<string>();
   if (!perm || !state) return [];
-  for (const src of battlefieldOf(state)) {
+  for (const src of longTailStaticSources(state, B108_LAND_ANIMATION_SOURCES, oracleOf)) {
     if (!src || isPhased(src)) continue;
     const limb = parseForestsAndSaprolingsAreNNColorSaprolingCreaturesAndForestLands(oracleOf(src));
     if (limb) {

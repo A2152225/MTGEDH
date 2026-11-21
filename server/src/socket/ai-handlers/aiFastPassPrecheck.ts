@@ -21,6 +21,7 @@ import { isGameReplayLocked } from "../../gameRestoreState.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { isAIPlayer } from "./aiPlayerRegistry.js";
 import { debug } from "../../utils/debug.js";
+import { aiStallNowMs, noteAIStallCount, noteAIStallDuration } from "./aiStallDiagnostics.js";
 
 type FastPassFingerprint = { seq: number; priority: string; phase: string; step: string; stackLength: number };
 
@@ -87,19 +88,34 @@ function isResponseOnlyPriorityWindow(game: any, gameId: string, playerId: Playe
 async function defaultPrecheck(gameId: string, playerId: PlayerID): Promise<boolean> {
   const { ensureGame } = await import("../util.js");
   const game: any = ensureGame(gameId);
-  if (!isResponseOnlyPriorityWindow(game, gameId, playerId)) return false;
+  if (!isResponseOnlyPriorityWindow(game, gameId, playerId)) {
+    noteAIStallCount('precheck:not-response-window');
+    return false;
+  }
   const before = fingerprint(game);
 
   const deps = getAIHandlerDeps();
   const responseContext = typeof deps.getAIActionContext === 'function' ? deps.getAIActionContext(game) : game;
+  const canRespondStartedAt = aiStallNowMs();
   let willPass = !canRespond(responseContext, playerId);
+  noteAIStallDuration('precheck.canRespond', canRespondStartedAt);
   if (!willPass) {
     if (typeof deps.enumerateAIActionCandidates !== 'function') return false;
+    const enumerateStartedAt = aiStallNowMs();
     const candidates = await deps.enumerateAIActionCandidates(game, playerId, { mode: 'response' });
+    noteAIStallDuration('precheck.enumerate', enumerateStartedAt);
     willPass = !Array.isArray(candidates) || candidates.length === 0;
   }
   // The query must not have changed anything, and the window must still be the same one.
-  if (!willPass || !sameFingerprint(before, fingerprint(game))) return false;
+  if (!willPass) {
+    noteAIStallCount('precheck:has-candidates');
+    return false;
+  }
+  if (!sameFingerprint(before, fingerprint(game))) {
+    noteAIStallCount('precheck:fingerprint-changed');
+    return false;
+  }
+  noteAIStallCount('precheck:verdict-pass');
   fastPassDecisions.set(decisionKey(gameId, playerId), before);
   return true;
 }

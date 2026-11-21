@@ -36,6 +36,12 @@ const SEED = Number(process.env.AI_SELFPLAY_SEED || 1);
 const OUT = process.env.AI_SELFPLAY_OUT || '';
 const POSITIONS_FILE = process.env.AI_POSITIONS_FILE || '';
 const MAX_TURNS = Number(process.env.AI_SELFPLAY_MAX_TURNS || 60);
+/** Milliseconds of real time allowed per turn before the soft wall. Default stays
+ *  under the in-flight gate's 70-minute batch kill. Reruns set a higher value. */
+const WALL_PER_TURN_MS = Math.max(
+  20_000,
+  Number(process.env.AI_SELFPLAY_WALL_PER_TURN_MS || 40_000) || 40_000,
+);
 const CHALLENGER = String(process.env.AI_SELFPLAY_CHALLENGER || 'v0');
 const BASELINE = String(process.env.AI_SELFPLAY_BASELINE || 'v0');
 const SHARD = String(process.env.AI_SELFPLAY_SHARD || '0/1');
@@ -166,9 +172,12 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
             // horizon: max90 MAIN1 boards often need >60s of real actions without a
             // turn flip; 60s caused ~40%+ false turn-stalls at maxTurns=90.
             maxNoTurnAdvanceMs: Math.max(60_000, Math.min(180_000, MAX_TURNS * 2_000)),
-            // Real wall clock: late-game large boards often run ~20–25s/turn; 15s/turn
-            // falsely soft-stalled mid-progress after combat opts (probe shard 7).
-            maxWallClockMs: Math.max(180_000, MAX_TURNS * 30_000),
+            // Real wall clock. Late precon turns measure ~25–40s (b5 shard 7 hit the
+            // 30s/turn cap at turn 87 while turns were still advancing). 40s/turn
+            // leaves that headroom. Hangs still end via turn-stall or tick-timeout.
+            // Default 40s/turn. AI_SELFPLAY_WALL_PER_TURN_MS raises it for reruns
+            // (gate shard 29 was still taking turns at ~46s and hit this wall).
+            maxWallClockMs: Math.max(180_000, MAX_TURNS * WALL_PER_TURN_MS),
             // Gate soft-stalls included many tick-timeout@60s with stack>0 (storm drain).
             // Keep above a single storm tick; batch kill still bounds the whole process.
             maxTickWallClockMs: 180_000,
@@ -214,6 +223,7 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
             endReason,
             turns,
             ms: Math.round(Number(process.hrtime.bigint() - startedHr) / 1e6),
+            ...(advanced.stallReason ? { stallReason: advanced.stallReason } : {}),
           };
           results.push(row);
           appendResult(row);
@@ -291,11 +301,11 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
       }
     }
   }, (() => {
-    // Keep vitest timeout above maxWallClockMs (MAX_TURNS*30s) plus cleanup.
+    // Keep vitest timeout above maxWallClockMs plus cleanup.
     const { count: shardCount } = parseShard(SHARD);
     const gamesThisShard = Math.max(1, Math.ceil(GAMES / Math.max(1, shardCount)));
-    const wallBudgetMs = Math.max(180_000, MAX_TURNS * 30_000);
-    const perGameMs = Math.max(wallBudgetMs + 180_000, MAX_TURNS * 35_000);
+    const wallBudgetMs = Math.max(180_000, MAX_TURNS * WALL_PER_TURN_MS);
+    const perGameMs = Math.max(wallBudgetMs + 180_000, MAX_TURNS * (WALL_PER_TURN_MS + 5_000));
     return Math.max(300_000, gamesThisShard * perGameMs + 60_000);
   })());
 });

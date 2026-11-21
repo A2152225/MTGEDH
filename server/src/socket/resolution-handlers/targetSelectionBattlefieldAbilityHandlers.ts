@@ -22,6 +22,7 @@ import { equipLifeCostError, payEquipLifeCost } from "../../state/modules/equipN
 import { handleEquipSacrificeCostStage } from "./targetSelectionEquipSacrificeCost.js"; // UI34
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
+import { attachActivationCostDiscardedCards } from "../../state/modules/activationCostDiscardedCardEvidence.js";
 import { applyPowerUpDiscountsToActivationManaCost } from "../../state/modules/marvelMechanicsHelpers.js";
 import { queueTapTriggersForTappedPermanents } from "../../state/modules/tap-trigger-queue.js";
 import {
@@ -273,6 +274,8 @@ export async function handleBattlefieldAbilityTargetSelection(
       targetCreatureName: String(targetCreature?.card?.name || 'Creature'),
     };
   }
+
+  attachActivationCostDiscardedCards(game.state, stackItem, controllerId, stepAny?.discardedCardIdsForCost);
 
   game.state.stack = game.state.stack || [];
   game.state.stack.push(stackItem);

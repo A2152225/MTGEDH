@@ -182,6 +182,19 @@ export function tryParseSimpleActionBlightScryClauses(args: SimpleActionClausePa
   }
 
   {
+    // "Turn it face up if it's face down" ends in "face down", so the face-down
+    // pattern below would steal it and the spell fallback would drop the step.
+    const turnFaceUpIfDownMatch = clause.match(/^turn\s+(.+?)\s+face up if it'?s face down$/i);
+    if (turnFaceUpIfDownMatch) {
+      return withMeta({
+        kind: 'turn_face_up',
+        target: parseObjectSelector(String(turnFaceUpIfDownMatch[1] || '').trim()),
+        raw: rawClause,
+      });
+    }
+  }
+
+  {
     const turnFaceDownMatch = clause.match(/^turn\s+(.+?)\s+face down$/i);
     if (turnFaceDownMatch) {
       return withMeta({

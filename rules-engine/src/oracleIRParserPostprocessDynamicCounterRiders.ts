@@ -46,6 +46,7 @@ import {
   splitMillAndLifeUnknownStep,
   splitMillDrawLifeStep,
   splitMoveZoneAndLifeUnknownStep,
+  splitLoseLifeAndSacrificeChoiceStep,
   splitSacrificeAndLifeStep,
   splitSacrificeFollowOnInstructionsStep,
   splitTapAndCounterStep,
@@ -231,6 +232,11 @@ function expandDynamicCounterRiderSteps(steps: readonly OracleEffectStep[]): Ora
     const splitSacrificeFollowOn = splitSacrificeFollowOnInstructionsStep(cleanedStep);
     if (splitSacrificeFollowOn) {
       expanded.push(...splitSacrificeFollowOn);
+      continue;
+    }
+    const splitLoseLifeSacrifice = splitLoseLifeAndSacrificeChoiceStep(cleanedStep);
+    if (splitLoseLifeSacrifice) {
+      expanded.push(...splitLoseLifeSacrifice);
       continue;
     }
     const splitSacrificeLife = splitSacrificeAndLifeStep(cleanedStep);

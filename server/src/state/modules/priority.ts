@@ -14,6 +14,7 @@ import { getTopTriggeredAbilityAutoPassReason } from "../../socket/trigger-short
 import {
   getActivePriorityPlayers,
   nextEligiblePriorityHolder,
+  playerCannotReceivePriority,
   reassignPriorityIfHolderCannotReceive,
 } from "./priorityEligibility.js";
 
@@ -78,6 +79,12 @@ function shouldProtectActiveMainPhaseFromAutoAdvance(
   const turnPlayer = stateAny.turnPlayer as PlayerID | undefined;
   if (!turnPlayer) return false;
 
+  // Eliminated / 0-life AP cannot take main-phase actions. Protecting them restored
+  // priority to a seat that never receives it and soft-locked MAIN1 (gate 262/281/316).
+  const turnSeat = (Array.isArray(stateAny.players) ? stateAny.players : [])
+    .find((entry: any) => String(entry?.id || '') === String(turnPlayer));
+  if (playerCannotReceivePriority(turnSeat, ctx as any)) return false;
+
   if (stateAny.autoPassForTurn?.[turnPlayer]) return false;
 
   const step = String(stateAny.step || '').toUpperCase();
@@ -99,7 +106,15 @@ function denyEmptyStackAutoAdvance(ctx: GameContext, reason: string): void {
   const turnPlayer = state.turnPlayer as PlayerID;
   state.priorityPassedBy = new Set<string>();
   state.priority = turnPlayer;
-  debug(1, `[priority] Blocking auto step-advance (${reason}); priority restored to ${turnPlayer}`);
+  reassignPriorityIfHolderCannotReceive(ctx as any);
+  debug(1, `[priority] Blocking auto step-advance (${reason}); priority restored to ${state.priority}`);
+}
+
+/** After an all-pass, AP gets priority for the next window — unless they already left the game. */
+function restorePriorityToTurnPlayer(ctx: GameContext): void {
+  const state = ctx.state as any;
+  state.priority = state.turnPlayer as PlayerID;
+  reassignPriorityIfHolderCannotReceive(ctx as any);
 }
 
 function turnPlayerHasNotDeclaredAttackers(stateAny: any, turnPlayer: PlayerID): boolean {
@@ -250,8 +265,8 @@ export function passPriority(
     // If all players passed with empty stack, advance step
     if (allPassed) {
       stateAny.priorityPassedBy = new Set<string>(); // Reset tracking
-      // Priority stays with the active player (turn player) for the next step
-      state.priority = turnPlayer;
+      // Priority stays with the active player for the next step (skip if they left the game).
+      restorePriorityToTurnPlayer(ctx);
       if (shouldProtectActiveMainPhaseFromAutoAdvance(ctx, isAutoPass, options?.allowActiveMainPhaseAutoAdvance, activePlayerManuallyPassed)) {
         denyEmptyStackAutoAdvance(ctx, 'active player still has main-phase actions');
       } else if (!shouldBlockStepAdvance(ctx)) {

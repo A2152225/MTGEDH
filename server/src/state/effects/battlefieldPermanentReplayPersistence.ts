@@ -67,18 +67,65 @@ function stableSerialize(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
 
+function clonePatchFieldCached(
+  field: ReplayPatchField,
+  value: unknown,
+  byRef: WeakMap<object, unknown>,
+  byContent: Map<string, unknown>,
+): unknown {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== 'object') return value;
+
+  const hit = byRef.get(value as object);
+  if (hit !== undefined) return hit;
+
+  const contentKey = `${field}:${stableSerialize(value)}`;
+  const shared = byContent.get(contentKey);
+  if (shared !== undefined) {
+    byRef.set(value as object, shared);
+    return shared;
+  }
+
+  const cloned = clonePatchValue(value);
+  byRef.set(value as object, cloned);
+  byContent.set(contentKey, cloned);
+  return cloned;
+}
+
 export function snapshotBattlefieldPermanentReplayPatches(state: any): Map<string, BattlefieldPermanentReplayPatch> {
   const out = new Map<string, BattlefieldPermanentReplayPatch>();
+  // Borg / token swarms: share deep clones across identical field values (CPU profile ~20% here).
+  const fieldCloneByRef = new WeakMap<object, unknown>();
+  const fieldCloneByContent = new Map<string, unknown>();
+  const wholePatchByContent = new Map<string, BattlefieldPermanentReplayPatch>();
+
   for (const perm of state?.battlefield || []) {
     const permanentId = String(perm?.id || '').trim();
     if (!permanentId) continue;
 
-    const patch: BattlefieldPermanentReplayPatch = {};
+    const presentFields: ReplayPatchField[] = [];
     for (const field of BATTLEFIELD_PERMANENT_REPLAY_PATCH_FIELDS) {
-      if (perm[field] !== undefined) {
-        patch[field] = clonePatchValue(perm[field]);
-      }
+      if (perm[field] !== undefined) presentFields.push(field);
     }
+
+    // Whole-patch reuse when every present field already has a content-cached clone
+    // with a matching serialize key (built below on first sight of each unique set).
+    const contentParts: string[] = [];
+    for (const field of presentFields) {
+      contentParts.push(`${field}=${stableSerialize(perm[field])}`);
+    }
+    const shareKey = contentParts.join('\0');
+    const sharedPatch = wholePatchByContent.get(shareKey);
+    if (sharedPatch) {
+      out.set(permanentId, sharedPatch);
+      continue;
+    }
+
+    const patch: BattlefieldPermanentReplayPatch = {};
+    for (const field of presentFields) {
+      patch[field] = clonePatchFieldCached(field, perm[field], fieldCloneByRef, fieldCloneByContent);
+    }
+    wholePatchByContent.set(shareKey, patch);
     out.set(permanentId, patch);
   }
   return out;
@@ -97,6 +144,8 @@ function diffPermanentReplayPatch(
   for (const key of keys) {
     const previous = before[key];
     const next = after[key];
+    // Snapshot sharing makes identical fields reference-equal — skip stringify.
+    if (previous === next) continue;
     if (stableSerialize(previous) !== stableSerialize(next)) {
       patch[key] = next === undefined ? null : clonePatchValue(next);
     }
@@ -111,13 +160,30 @@ export function diffBattlefieldPermanentReplayPatches(
 ): Array<{ permanentId: string; patch: BattlefieldPermanentReplayPatch }> {
   const changes: Array<{ permanentId: string; patch: BattlefieldPermanentReplayPatch }> = [];
   const permanentIds = new Set([...before.keys(), ...after.keys()]);
+  // Identical before/after patch objects (token swarms) share one diff result.
+  const diffByBefore = new WeakMap<
+    BattlefieldPermanentReplayPatch,
+    WeakMap<BattlefieldPermanentReplayPatch, BattlefieldPermanentReplayPatch | null>
+  >();
 
   for (const permanentId of permanentIds) {
     // A permanent that left (or has not entered yet) is a zone change, not a
     // field patch. Diffing it against {} nulls controller and leaves the
     // object on the battlefield, so destroyed creatures stay targetable.
     if (!before.has(permanentId) || !after.has(permanentId)) continue;
-    const patch = diffPermanentReplayPatch(before.get(permanentId) || {}, after.get(permanentId) || {});
+    const beforePatch = before.get(permanentId) || {};
+    const afterPatch = after.get(permanentId) || {};
+
+    let byAfter = diffByBefore.get(beforePatch);
+    if (!byAfter) {
+      byAfter = new WeakMap();
+      diffByBefore.set(beforePatch, byAfter);
+    }
+    let patch: BattlefieldPermanentReplayPatch | null | undefined = byAfter.get(afterPatch);
+    if (patch === undefined) {
+      patch = diffPermanentReplayPatch(beforePatch, afterPatch);
+      byAfter.set(afterPatch, patch);
+    }
     if (patch) {
       changes.push({ permanentId, patch });
     }

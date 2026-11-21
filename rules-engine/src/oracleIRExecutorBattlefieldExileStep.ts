@@ -669,9 +669,9 @@ export function applyExileStep(
         };
       }
       return {
-        applied: false,
-        message: `Skipped exile (no deterministic target): ${step.raw}`,
-        reason: 'no_deterministic_target',
+        applied: true,
+        state,
+        log: [`Exile fizzled (no legal target): ${step.raw}`],
       };
     }
     const removedIds = new Set<string>(toRemove.map(perm => perm.id));

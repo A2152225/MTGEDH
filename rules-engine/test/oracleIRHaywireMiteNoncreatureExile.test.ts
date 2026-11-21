@@ -144,8 +144,7 @@ describe('Haywire Mite noncreature artifact or enchantment exile', () => {
       } as any,
     );
 
-    expect(result.applied).toBe(false);
-    expect(result.reason).toBe('no_deterministic_target');
-    expect((state.battlefield || []).map((perm: any) => perm.id)).toEqual(['ornithopter']);
+    expect(result.applied).toBe(true);
+    expect((result.state?.battlefield || []).map((perm: any) => perm.id)).toEqual(['ornithopter']);
   });
 });

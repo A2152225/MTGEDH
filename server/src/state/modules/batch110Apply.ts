@@ -14,6 +14,16 @@ import {
   parseSelfPTWhereXIsOtherCreaturesWithBasePower,
   normalizeB110Oracle,
 } from './batch110Parsers.js';
+import { createLongTailStaticSourceFilter, longTailStaticSources } from './longTailStaticSourceIndex.js';
+
+const B110_COUNTER_ARTIFACT_SOURCES = createLongTailStaticSourceFilter(
+  'batch110PlusCountersAreArtifacts',
+  () => [parseCreaturesYouControlWithPlusCountersAreArtifacts],
+);
+const B110_CREATURE_COUNT_BAND_SOURCES = createLongTailStaticSourceFilter(
+  'batch110CreatureCountBands',
+  () => [parseAlsoPTAndKeywordAtCreatureCount],
+);
 
 function oracleOf(perm: any): string {
   return normalizeB110Oracle(String(perm?.card?.oracle_text || perm?.oracle_text || ''));
@@ -77,7 +87,7 @@ export function batch110AdditionalTypes(perm: any, state: any): string[] {
   if (!perm || !state || !isCreatureish(perm)) return [];
   if (counterCount(perm, '+1/+1') <= 0) return [];
   const controller = String(perm.controller || '');
-  const grants = battlefieldOf(state).some((src) => src && !isPhased(src)
+  const grants = longTailStaticSources(state, B110_COUNTER_ARTIFACT_SOURCES, oracleOf).some((src) => src && !isPhased(src)
     && String(src.controller || '') === controller
     && parseCreaturesYouControlWithPlusCountersAreArtifacts(oracleOf(src)));
   return grants ? ['Artifact'] : [];
@@ -123,9 +133,10 @@ export function applyBatch110PowerToughnessAdjustment(
       nextPower += entered;
       nextToughness += entered;
     }
-    if (String(src.controller || '') === controller) {
+    const bands = String(src.controller || '') === controller ? parseAlsoPTAndKeywordAtCreatureCount(oracleOf(src)) : [];
+    if (bands.length > 0) {
       const controlled = creatureCountYouControl(battlefield, controller);
-      for (const band of parseAlsoPTAndKeywordAtCreatureCount(oracleOf(src))) {
+      for (const band of bands) {
         if (controlled >= band.min) {
           nextPower += band.power;
           nextToughness += band.toughness;
@@ -153,10 +164,15 @@ export function batch110PermanentHasKeyword(perm: any, state: any, keyword: stri
   if (!perm || !state || !isCreatureish(perm)) return false;
   const needle = String(keyword || '').toLowerCase().replace(/_/g, ' ').trim();
   const controller = String(perm.controller || '');
-  const controlled = creatureCountYouControl(battlefieldOf(state), controller);
-  for (const src of battlefieldOf(state)) {
+  // Count creatures only once a source actually has a creature-count band; counting up front made
+  // every keyword question a full battlefield pass even when no such source exists.
+  let controlled = -1;
+  for (const src of longTailStaticSources(state, B110_CREATURE_COUNT_BAND_SOURCES, oracleOf)) {
     if (!src || isPhased(src) || String(src.controller || '') !== controller) continue;
-    for (const band of parseAlsoPTAndKeywordAtCreatureCount(oracleOf(src))) {
+    const bands = parseAlsoPTAndKeywordAtCreatureCount(oracleOf(src));
+    if (bands.length === 0) continue;
+    if (controlled < 0) controlled = creatureCountYouControl(battlefieldOf(state), controller);
+    for (const band of bands) {
       if (band.keyword === needle && controlled >= band.min) return true;
     }
   }

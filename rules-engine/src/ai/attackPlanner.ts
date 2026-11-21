@@ -199,6 +199,22 @@ export function planAttacks(args: {
     typeof performance !== 'undefined' && performance.now
       ? performance.now()
       : Date.now();
+  // Full search is O(attackers × blockers × defenders) via canCreatureBlock.
+  // Past this budget the caller switches to planAttacksFast. Without the cap a
+  // single declare-attackers tick ran long enough to trip the 180s harness stall
+  // (b5 selfplay-7000-5-1 at turn 69, selfplay-7000-4-3 at turn 84).
+  const PLAN_BUDGET_MS = 800;
+  const deadline = t0 + PLAN_BUDGET_MS;
+  const overBudget = () => {
+    const now =
+      typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+    return now > deadline;
+  };
+  const goadedFallback = (): AttackDeclaration[] =>
+    args.goaded.map((g) => ({
+      creatureId: g.creatureId,
+      defendingPlayerId: g.defendingPlayerId,
+    }));
   const battlefield =
     args.battlefield
     || (args.gameState?.battlefield as BattlefieldPermanent[])
@@ -264,7 +280,9 @@ export function planAttacks(args: {
       defenders,
       blockersByDefender,
       trickRisk,
+      deadlineMs: deadline,
     });
+    if (overBudget()) return finish(goadedFallback(), 'time-budget');
 
     type LethalCandidate = {
       plan: (typeof plans)[number];
@@ -273,6 +291,7 @@ export function planAttacks(args: {
     };
     const lethalCandidates: LethalCandidate[] = [];
     for (const plan of plans) {
+      if (overBudget()) return finish(goadedFallback(), 'time-budget');
       const attacks = plan.attackers
         .map((a) => {
           const creature = lethalPool.find((c) => c.id === a.creatureId);
@@ -288,6 +307,7 @@ export function planAttacks(args: {
       const blocks = bestDamageSavingBlocks(
         attacks.map((a) => a.attacker),
         blockersByDefender.get(plan.targetId) || [],
+        deadline,
       );
       const outcome = resolveCombat(
         attacks,
@@ -345,12 +365,14 @@ export function planAttacks(args: {
   const scored: Scored[] = [];
 
   for (const attacker of voluntaryCreatures) {
+    if (overBudget()) return finish(goadedFallback(), 'time-budget');
     let best: Scored | null = null;
     for (const def of defenders) {
       const attacks = [{ attacker, defenderId: def.id }];
       const blocks = bestDamageSavingBlocks(
         [attacker],
         blockersByDefender.get(def.id) || [],
+        deadline,
       );
       const allMap = creatureMap([
         attacker,
@@ -374,6 +396,7 @@ export function planAttacks(args: {
   // Goaded: only choose targets (must attack).
   const goadedChosen: AttackDeclaration[] = [];
   for (const g of args.goaded) {
+    if (overBudget()) return finish(goadedFallback(), 'time-budget');
     const attacker = goadedCreatures.find((c) => c.id === g.creatureId);
     if (!attacker) {
       goadedChosen.push(g);
@@ -386,6 +409,7 @@ export function planAttacks(args: {
       const blocks = bestDamageSavingBlocks(
         [attacker],
         blockersByDefender.get(def.id) || [],
+        deadline,
       );
       const allMap = creatureMap([
         attacker,
@@ -411,6 +435,7 @@ export function planAttacks(args: {
     );
     let bestFocus: { targetId: string; gain: number } | null = null;
     for (const def of defenders) {
+      if (overBudget()) return finish(goadedFallback(), 'time-budget');
       const attacks = voluntaryIds
         .map((id) => voluntaryCreaturesById.get(id))
         .filter((c): c is CombatCreature => Boolean(c))
@@ -419,6 +444,7 @@ export function planAttacks(args: {
       const blocks = bestDamageSavingBlocks(
         attacks.map((a) => a.attacker),
         blockersByDefender.get(def.id) || [],
+        deadline,
       );
       const allMap = creatureMap([
         ...attacks.map((a) => a.attacker),

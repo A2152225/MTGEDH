@@ -23,6 +23,7 @@ import {
   abilityAllowsAnyPlayerActivation,
   textAllowsAnyPlayerActivation,
 } from '../../shared/src/anyPlayerActivatedAbility';
+import { scoreActivatedAbilityTargets } from './aiActivatedAbilityTargets';
 
 type HasPermanentType = (perm: BattlefieldPermanent, type: string) => boolean;
 type GetPrimaryArchetypes = (config: AIPlayerConfig) => readonly SynergyArchetype[];
@@ -487,6 +488,10 @@ export function evaluateActivatedAbilityValue(
     return 0;
   }
   const battlefield = readProcessedBattlefield(deps, gameState);
+  // Targeted activated abilities do nothing with an empty target set. The AI
+  // only scores an opponent threat for exile/destroy; your own permanent stays legal.
+  const targetedScore = scoreActivatedAbilityTargets(gameState, playerId, abilityText, battlefield);
+  if (targetedScore !== null) return targetedScore;
   const hasRetention = battlefieldHasManaRetention(battlefield, playerId);
   if (isPureManaAbility && !(hasRetention && mayBeRetentionManaBank)) {
     return 0;
@@ -794,6 +799,35 @@ export function canActivateAbilityNow(
   return true;
 }
 
+function identicalActivatedPermanentKey(perm: BattlefieldPermanent): string | null {
+  if (perm.attachedTo) return null;
+  if (Array.isArray((perm as { attachments?: unknown[] }).attachments) && (perm as { attachments: unknown[] }).attachments.length > 0) return null;
+  if (Array.isArray((perm as { attachedEquipment?: unknown[] }).attachedEquipment) && (perm as { attachedEquipment: unknown[] }).attachedEquipment.length > 0) return null;
+  if (Array.isArray(perm.modifiers) && perm.modifiers.length > 0) return null;
+  const card = perm.card as { name?: string; type_line?: string; oracle_text?: string; power?: string; toughness?: string } | undefined;
+  const grantedTypes = (perm as { grantedTypes?: unknown[] }).grantedTypes;
+  const granted = Array.isArray(grantedTypes)
+    ? grantedTypes.map((entry) => String(entry || '').toLowerCase()).sort().join(',')
+    : '';
+  const counters = Object.entries(perm.counters || {})
+    .filter(([, value]) => Number(value) > 0)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, value]) => `${name}:${value}`)
+    .join(',');
+  return [
+    perm.controller || '',
+    perm.isToken ? '1' : '0',
+    perm.tapped ? '1' : '0',
+    card?.name || '',
+    card?.type_line || '',
+    card?.oracle_text || '',
+    granted,
+    perm.basePower ?? card?.power ?? '',
+    perm.baseToughness ?? card?.toughness ?? '',
+    counters,
+  ].join('|');
+}
+
 export function findBestActivatedAbility(
   gameState: GameState,
   playerId: PlayerID,
@@ -813,14 +847,29 @@ export function findBestActivatedAbility(
 
   let bestAbility: ActivatedAbilityChoice | null = null;
   let bestValue = 0;
+  const abilityScanStartedMs = typeof process !== 'undefined' && typeof process.hrtime?.bigint === 'function'
+    ? Number(process.hrtime.bigint() / 1_000_000n)
+    : Date.now();
+  const abilityScanOverBudget = (): boolean => {
+    const now = typeof process !== 'undefined' && typeof process.hrtime?.bigint === 'function'
+      ? Number(process.hrtime.bigint() / 1_000_000n)
+      : Date.now();
+    return now - abilityScanStartedMs >= 1000;
+  };
   // Cap scored lines so late-game boards (40+ permanents × multi-ability cards) cannot
   // monopolize the exclusive AI lock for tens of seconds inside one MAIN1 wake.
   const MAX_SCORED_LINES = 24;
   const GOOD_ENOUGH_VALUE = 40;
   let scoredLines = 0;
+  const seenIdenticalPermanents = new Set<string>();
 
   for (const perm of battlefield) {
-    if (scoredLines >= MAX_SCORED_LINES || bestValue >= GOOD_ENOUGH_VALUE) break;
+    if (scoredLines >= MAX_SCORED_LINES || bestValue >= GOOD_ENOUGH_VALUE || abilityScanOverBudget()) break;
+    const identicalKey = identicalActivatedPermanentKey(perm);
+    if (identicalKey) {
+      if (seenIdenticalPermanents.has(identicalKey)) continue;
+      seenIdenticalPermanents.add(identicalKey);
+    }
     const isOwnPermanent = String(perm.controller || '') === String(playerId);
     if (!playerMayActivatePermanent(perm, playerId)) continue;
     if (!canActivateAbilityNow(perm, gameState, playerId, { hasPermanentType: deps.hasPermanentType })) continue;
@@ -836,7 +885,7 @@ export function findBestActivatedAbility(
         })();
 
     for (const candidate of scoredCandidates) {
-      if (scoredLines >= MAX_SCORED_LINES || bestValue >= GOOD_ENOUGH_VALUE) break;
+      if (scoredLines >= MAX_SCORED_LINES || bestValue >= GOOD_ENOUGH_VALUE || abilityScanOverBudget()) break;
       if (isHandOnlyDiscardThisCardActivatedAbility(candidate.abilityText)) {
         continue;
       }

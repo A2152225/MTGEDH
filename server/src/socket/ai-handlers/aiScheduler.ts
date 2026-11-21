@@ -20,6 +20,7 @@ import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { AI_EXCLUSIVE_ACTION_TIMEOUT_MS, AI_REACTION_DELAY_MS } from "./aiConstants.js";
 import { noteGameStallAiFailure, observeGameStallAiActionById } from "../../state/modules/gameStall/gameStallDetector.js";
+import { aiStallNowMs, noteAIStallCaller, noteAIStallCount, noteAIStallDuration } from "./aiStallDiagnostics.js";
 
 // Singleton AI Engine instance
 export const aiEngine = new AIEngine();
@@ -91,16 +92,22 @@ function scheduleAIActionInternal(
   const key = getAIActionKey(gameId, playerId);
   const runAt = Date.now() + Math.max(0, delayMs);
   const existing = aiScheduledActions.get(key);
+  const diagName = `sched:${kind}:${delayMs > 0 ? 'delayed' : '0ms'}`;
+  noteAIStallCount(diagName);
+  noteAIStallCaller(diagName);
 
   if (existing && existing.runAt <= runAt) {
+    noteAIStallCount('sched:kept-earlier');
     return;
   }
 
   if (existing) {
+    noteAIStallCount('sched:replaced-later');
     clearTimeout(existing.timer);
   }
 
   const timer = setTimeout(() => {
+    noteAIStallCount(`fire:${kind}`);
     aiScheduledActions.delete(key);
     if (isGameRestoring(gameId)) return;
     if (!seatMarkedAI(gameId, playerId)) return;
@@ -129,23 +136,42 @@ const fastPassPrechecksInFlight = new Set<string>();
  */
 function requestAIFastPassPrecheck(io: Server, gameId: string, playerId: PlayerID): void {
   const key = getAIActionKey(gameId, playerId);
-  if (fastPassPrechecksInFlight.has(key)) return;
+  if (fastPassPrechecksInFlight.has(key)) {
+    noteAIStallCount('precheck:skip-inflight');
+    return;
+  }
   fastPassPrechecksInFlight.add(key);
   setImmediate(() => {
     void (async () => {
+      const precheckStartedAt = aiStallNowMs();
       try {
         const pending = aiScheduledActions.get(key);
-        if (!pending || pending.kind !== 'priority' || pending.runAt <= Date.now()) return;
-        if (aiActionsInProgress.has(key) || isGameRestoring(gameId)) return;
+        if (!pending || pending.kind !== 'priority' || pending.runAt <= Date.now()) {
+          noteAIStallCount('precheck:no-pending-run');
+          return;
+        }
+        if (aiActionsInProgress.has(key) || isGameRestoring(gameId)) {
+          noteAIStallCount('precheck:action-in-progress');
+          return;
+        }
+        noteAIStallCount('precheck:ran');
         const { aiPriorityWillPass } = await import("./aiFastPassPrecheck.js");
-        if (!(await aiPriorityWillPass(gameId, playerId))) return;
+        if (!(await aiPriorityWillPass(gameId, playerId))) {
+          noteAIStallCount('precheck:keep-delay');
+          return;
+        }
         const still = aiScheduledActions.get(key);
-        if (!still || still.kind !== 'priority') return;
+        if (!still || still.kind !== 'priority') {
+          noteAIStallCount('precheck:run-gone');
+          return;
+        }
+        noteAIStallCount('precheck:pulled-forward');
         debug(2, '[AI] fast pass: no action to take, running priority without pacing delay', { gameId, playerId });
         scheduleAIActionInternal(io, gameId, playerId, 'priority', 0);
       } catch (err) {
         debugWarn(2, '[AI] fast-pass precheck errored; keeping normal pacing', err);
       } finally {
+        noteAIStallDuration('precheck.total', precheckStartedAt);
         fastPassPrechecksInFlight.delete(key);
       }
     })();
@@ -247,11 +273,14 @@ export async function runExclusiveAIAction(
 ): Promise<void> {
   const key = getAIActionKey(gameId, playerId);
   if (aiActionsInProgress.has(key)) {
+    noteAIStallCount(`exclusive:busy-followup:${kind}`);
     debug(2, `[AI] ${kind} already in progress, scheduling follow-up`, { gameId, playerId });
     scheduleAIActionInternal(io, gameId, playerId, kind, 25);
     return;
   }
 
+  noteAIStallCount(`exclusive:start:${kind}`);
+  const exclusiveStartedAt = aiStallNowMs();
   const generation = (aiActionGenerations.get(key) || 0) + 1;
   aiActionGenerations.set(key, generation);
   aiActionsInProgress.add(key);
@@ -288,6 +317,7 @@ export async function runExclusiveAIAction(
   } catch (err) {
     aiActionError = err;
     if (timedOut) {
+      noteAIStallCount(`exclusive:timeout:${kind}`);
       // Invalidate this generation so a late-finishing action cannot clear a newer lock.
       aiActionGenerations.set(key, generation + 1);
       aiActionsInProgress.delete(key);
@@ -322,6 +352,7 @@ export async function runExclusiveAIAction(
       throw err;
     }
   } finally {
+    noteAIStallDuration(`exclusive.${kind}`, exclusiveStartedAt);
     if (timeoutHandle) nodeClearTimeout(timeoutHandle);
     if (aiActionGenerations.get(key) === generation) {
       aiActionsInProgress.delete(key);

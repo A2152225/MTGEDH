@@ -791,6 +791,14 @@ export function applyLoseLifeStep(
 ): PlayerStepHandlerResult {
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
+    const whoKind = String((step.who as { kind?: string } | undefined)?.kind || '');
+    if (whoKind === 'any_number_of_target_players' || whoKind === 'any_number_of_target_opponents') {
+      return {
+        applied: true,
+        state,
+        log: [`No targets chosen: ${step.raw}`],
+      };
+    }
     return {
       applied: false,
       message: `Skipped life loss (unsupported player selector): ${step.raw}`,

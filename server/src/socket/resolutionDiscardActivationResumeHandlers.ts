@@ -16,6 +16,7 @@ import { parseTargetRequirements } from "../rules-engine/targeting";
 import { debug, debugError } from "../utils/debug.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "./util.js";
 import { continueCastFromGraveyardAbility } from "./interaction.js";
+import { attachActivationCostDiscardedCards } from "../state/modules/activationCostDiscardedCardEvidence.js";
 import {
   battlefieldAbilityStackReplayEvidence,
   buildActivatedAbilityValidTargets,
@@ -447,6 +448,8 @@ export async function tryResumeDiscardActivationCosts(
         sourceName: cardName,
         description: abilityText,
       } as any;
+      // The effect may ask about the card discarded as a cost ("If the discarded card was ...").
+      attachActivationCostDiscardedCards(game.state, stackItem, controllerId, discardedCardIdsForCost);
 
       game.state.stack = game.state.stack || [];
       game.state.stack.push(stackItem);

@@ -46,26 +46,64 @@ function specNeedsBattlefield(spec: any): boolean {
   return !specNeedsPlayers(spec) && !specNeedsStack(spec);
 }
 
+function battlefieldTypeLine(perm: any): string {
+  return String(perm?.card?.type_line || perm?.type_line || "").toLowerCase();
+}
+
+function battlefieldHasGrantedType(perm: any, typeWord: string): boolean {
+  const granted = perm?.grantedTypes;
+  if (!Array.isArray(granted)) return false;
+  return granted.some((entry) => String(entry || "").toLowerCase() === typeWord);
+}
+
+function battlefieldIsCreature(perm: any): boolean {
+  if (perm?.crewed === true || perm?.animated === true || perm?.isCreature === true) return true;
+  if (battlefieldHasGrantedType(perm, "creature")) return true;
+  return battlefieldTypeLine(perm).includes("creature");
+}
+
 function matchesBattlefieldTargetType(perm: any, rawTargetType: string): boolean {
   const targetType = String(rawTargetType || "").trim().toLowerCase();
-  const typeLine = String(perm?.card?.type_line || "").toLowerCase();
+  const typeLine = battlefieldTypeLine(perm);
 
-  if (!perm?.card) return false;
+  if (!perm?.card && !perm?.type_line && !Array.isArray(perm?.grantedTypes)) return false;
 
   if (targetType === "permanent") return true;
-  if (targetType === "nonland permanent") return !typeLine.includes("land");
-  if (targetType === "any") return typeLine.includes("creature") || typeLine.includes("planeswalker");
+  if (targetType === "nonland permanent") return !typeLine.includes("land") && !battlefieldHasGrantedType(perm, "land");
+  if (targetType === "any") return battlefieldIsCreature(perm) || typeLine.includes("planeswalker");
 
-  // Common type words from oracle patterns.
-  if (targetType === "creature") return typeLine.includes("creature");
-  if (targetType === "artifact") return typeLine.includes("artifact");
-  if (targetType === "enchantment") return typeLine.includes("enchantment");
-  if (targetType === "land") return typeLine.includes("land");
-  if (targetType === "planeswalker") return typeLine.includes("planeswalker");
-  if (targetType === "battle") return typeLine.includes("battle");
+  // A land that has become a creature still matches creature, and still matches land.
+  if (targetType === "creature") return battlefieldIsCreature(perm);
+  if (targetType === "artifact") return typeLine.includes("artifact") || battlefieldHasGrantedType(perm, "artifact");
+  if (targetType === "enchantment") return typeLine.includes("enchantment") || battlefieldHasGrantedType(perm, "enchantment");
+  if (targetType === "land") return typeLine.includes("land") || battlefieldHasGrantedType(perm, "land");
+  if (targetType === "planeswalker") return typeLine.includes("planeswalker") || battlefieldHasGrantedType(perm, "planeswalker");
+  if (targetType === "battle") return typeLine.includes("battle") || battlefieldHasGrantedType(perm, "battle");
 
-  // Fallback: substring match (keeps this helper flexible for multiword types like "noncreature artifact").
-  return targetType.length > 0 && typeLine.includes(targetType);
+  return targetType.length > 0 && (typeLine.includes(targetType) || battlefieldHasGrantedType(perm, targetType));
+}
+
+function identicalPermanentTargetFingerprint(perm: any): string | null {
+  if (!perm || perm.attachedTo) return null;
+  if (Array.isArray(perm.attachments) && perm.attachments.length > 0) return null;
+  if (Array.isArray(perm.attachedEquipment) && perm.attachedEquipment.length > 0) return null;
+  if (Array.isArray(perm.modifiers) && perm.modifiers.length > 0) return null;
+  if ((perm.damageMarked || 0) > 0) return null;
+  const card = perm.card || {};
+  const granted = Array.isArray(perm.grantedTypes)
+    ? perm.grantedTypes.map((entry: any) => String(entry || "").toLowerCase()).sort().join(",")
+    : "";
+  return [
+    perm.controller || "",
+    perm.isToken ? "1" : "0",
+    perm.tapped ? "1" : "0",
+    card.name || "",
+    card.type_line || perm.type_line || "",
+    granted,
+    perm.animated ? "1" : "0",
+    perm.basePower ?? "",
+    perm.baseToughness ?? "",
+  ].join("|");
 }
 
 function matchesGraveyardTargetType(card: any, rawTargetType: string): boolean {
@@ -193,8 +231,9 @@ export function hasValidTargetsForSpell(
     if (specNeedsBattlefield(spellSpec) && !ctx.hasBattlefield) return conservative;
 
     try {
-      const possibleTargets = evaluateTargeting(state, playerId, spellSpec);
-      return possibleTargets.length >= spellSpec.minTargets;
+      const needed = Math.max(1, Number(spellSpec.minTargets) || 1);
+      const possibleTargets = evaluateTargeting(state, playerId, spellSpec, undefined, needed);
+      return possibleTargets.length >= needed;
     } catch {
       return conservative;
     }
@@ -308,13 +347,23 @@ export function hasValidTargetsForSpell(
     return true;
   }
 
-  // Battlefield targets.
+  // Battlefield targets. Identical copies share one legality check, and the
+  // walk stops once the spell already has enough targets.
+  const needed = Math.max(1, Number(targetReqs.minTargets) || 1);
+  const groupMatch = new Map<string, boolean>();
   for (const perm of state.battlefield || []) {
+    if (candidates.size >= needed) break;
     if (!perm?.id) continue;
-    if (!targetReqs.targetTypes.some(tt => matchesBattlefieldTargetType(perm, tt))) continue;
-    if (!permanentMatchesTargetRequirementStatKeywordFilters(perm, state, targetReqs, playerId)) continue;
-    candidates.add(`battlefield:${perm.id}`);
+    const fingerprint = identicalPermanentTargetFingerprint(perm);
+    if (fingerprint && groupMatch.has(fingerprint)) {
+      if (groupMatch.get(fingerprint)) candidates.add(`battlefield:${perm.id}`);
+      continue;
+    }
+    const matches = targetReqs.targetTypes.some(tt => matchesBattlefieldTargetType(perm, tt))
+      && permanentMatchesTargetRequirementStatKeywordFilters(perm, state, targetReqs, playerId);
+    if (fingerprint) groupMatch.set(fingerprint, matches);
+    if (matches) candidates.add(`battlefield:${perm.id}`);
   }
 
-  return candidates.size >= targetReqs.minTargets;
+  return candidates.size >= needed;
 }

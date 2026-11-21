@@ -282,6 +282,14 @@ function applySacrificeStepUnprotected(
 
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
+    const whoKind = String((step.who as { kind?: string } | undefined)?.kind || '');
+    if (whoKind === 'any_number_of_target_players' || whoKind === 'any_number_of_target_opponents') {
+      return {
+        applied: true,
+        state,
+        log: [`No targets chosen: ${step.raw}`],
+      };
+    }
     return {
       applied: false,
       message: `Skipped sacrifice (unsupported player selector): ${step.raw}`,
@@ -431,15 +439,27 @@ function applySacrificeStepUnprotected(
       return preferNonSource(fallbackMatches);
     };
 
-    if (String((step.who as any)?.kind || '') === 'each_player') {
+    const whoKind = String((step.who as any)?.kind || '');
+    const perTargetedPlayer =
+      whoKind === 'each_player'
+      || whoKind === 'any_number_of_target_players'
+      || whoKind === 'any_number_of_target_opponents';
+    if (perTargetedPlayer) {
       const perPlayer = players
         .map((playerId) => pickOneForPlayer(String(playerId || '').trim()))
         .filter((perm): perm is BattlefieldPermanent => Boolean(perm));
-      if (perPlayer.length !== players.length) {
+      if (whoKind === 'each_player' && perPlayer.length !== players.length) {
         return {
           applied: false,
           message: `Skipped sacrifice (no deterministic target): ${step.raw}`,
           reason: 'no_deterministic_target',
+        };
+      }
+      if (perPlayer.length === 0) {
+        return {
+          applied: true,
+          state,
+          log: [`No creatures to sacrifice: ${step.raw}`],
         };
       }
       toRemove.push(...perPlayer);

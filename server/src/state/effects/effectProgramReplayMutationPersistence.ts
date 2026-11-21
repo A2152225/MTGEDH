@@ -172,20 +172,43 @@ function persistReplayMutation(
   }
 }
 
-/** Persist net counter changes from an oracle IR execution for undo/replay. */
+/** Ids of tokens this execution created; replay rebuilds them from their own createToken event. */
+function createdTokenIdsFromExecution(result?: OracleIRExecutionResult): Set<string> {
+  const ids = new Set<string>();
+  for (const mutation of result?.replayMutations || []) {
+    if (mutation.kind !== 'createToken') continue;
+    const id = String((mutation.tokenData as any)?.id || '').trim();
+    if (id) ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * Persist net counter changes from an oracle IR execution for undo/replay.
+ *
+ * `createdTokens` splits the diff around the createToken events of the same execution:
+ * 'exclude' leaves out tokens created by it, 'only' writes just those. A counter event written
+ * before its token's createToken event finds no permanent on replay (amass: the Army token came
+ * back with no +1/+1 counter).
+ */
 export function persistCounterDiffsFromOracleIR(
   ctx: GameContext,
   countersBefore: ReadonlyMap<string, Record<string, number>>,
   state: any,
   bridge?: OracleIrReplayMutationBridge,
+  createdTokens?: { result: OracleIRExecutionResult; mode: 'exclude' | 'only' },
 ): void {
   if ((ctx as any).isReplaying) return;
+
+  const createdTokenIds = createdTokens ? createdTokenIdsFromExecution(createdTokens.result) : undefined;
+  if (createdTokens?.mode === 'only' && createdTokenIds!.size === 0) return;
 
   const mutationPayload = buildReplayMutationPayload(bridge);
   const updates: Array<{ permanentId: string; deltas: Record<string, number> }> = [];
   for (const perm of state?.battlefield || []) {
     const permanentId = String(perm?.id || '').trim();
     if (!permanentId) continue;
+    if (createdTokenIds && createdTokenIds.has(permanentId) !== (createdTokens!.mode === 'only')) continue;
 
     const oldCounters = countersBefore.get(permanentId) || {};
     const newCounters = (perm?.counters || {}) as Record<string, number>;

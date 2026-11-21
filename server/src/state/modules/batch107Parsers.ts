@@ -4,8 +4,10 @@
 // Seeker, Midnight Mangler, Valgavoth, and cheap onward tails).
 // Public: the parse* helpers imported by long-tail, apply, and collect modules.
 
+import { memoOracleNormalize } from './oracleNormalizeMemo.js';
+
 export function normalizeB107Oracle(text: string): string {
-  return String(text || '').replace(/\u2019/g, "'").replace(/\s+/g, ' ').trim();
+  return memoOracleNormalize('b107', text, undefined, () => String(text || '').replace(/\u2019/g, "'").replace(/\s+/g, ' ').trim());
 }
 
 function n(text: string): string {

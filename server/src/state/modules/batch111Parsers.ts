@@ -2,6 +2,8 @@
 // "this creature" are normalized to "~" by the caller.
 // Public: normalizeBatch111Oracle, and the parse* helpers below.
 
+import { memoOracleNormalize } from './oracleNormalizeMemo.js';
+
 const WORDS: Record<string, number> = {
   one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
 };
@@ -13,6 +15,10 @@ export function wordNumber(raw: string): number {
 }
 
 export function normalizeBatch111Oracle(oracle: string, cardName?: string): string {
+  return memoOracleNormalize('b111', oracle, cardName, () => normalizeBatch111OracleUncached(oracle, cardName));
+}
+
+function normalizeBatch111OracleUncached(oracle: string, cardName?: string): string {
   let text = String(oracle || '').toLowerCase().replace(/\u2019/g, "'").replace(/\([^)]*\)/g, ' ');
   const name = String(cardName || '').split('//')[0].trim().toLowerCase();
   for (const part of [name, name.split(',')[0].trim()]) {

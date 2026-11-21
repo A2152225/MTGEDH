@@ -25,6 +25,12 @@ import {
   parseCreaturesWithNamedCountersAttackEachCombatIfAble,
   parseEnchantedCreatureGetsPTAndHasAfterlife,
 } from './batch106Parsers.js';
+import { createLongTailStaticSourceFilter, longTailStaticSources } from './longTailStaticSourceIndex.js';
+
+const B106_ENCHANTMENT_TYPE_SOURCES = createLongTailStaticSourceFilter(
+  'batch106EnchantmentTypes',
+  () => [parseNonlandPermanentsYouControlAreEnchantmentsInAddition],
+);
 
 function oracleOf(perm: any): string {
   return String(perm?.card?.oracle_text || perm?.oracle_text || '');
@@ -271,7 +277,7 @@ export function batch106AdditionalTypes(perm: any, state: any): string[] {
   if (!perm || perm.phasedOut === true) return [];
   const controller = String(perm.controller || '');
   if (/\bland\b/i.test(typeLineOf(perm))) return [];
-  for (const src of Array.isArray(state?.battlefield) ? state.battlefield : []) {
+  for (const src of longTailStaticSources(state, B106_ENCHANTMENT_TYPE_SOURCES, oracleOf)) {
     if (!src || src.phasedOut === true) continue;
     if (String(src.controller || '') !== controller) continue;
     if (parseNonlandPermanentsYouControlAreEnchantmentsInAddition(oracleOf(src))) return ['Enchantment'];

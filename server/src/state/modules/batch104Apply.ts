@@ -26,6 +26,10 @@ import {
   parseOpponentsCreaturesAreIllusionAndSacrifice,
 } from './batch104Parsers.js';
 import { collectBatch104ReplacementSpecsFromState } from './replacementBatch104Collect.js';
+import * as batch104Parsers from './batch104Parsers.js';
+import { createLongTailStaticSourceFilter, longTailStaticSources, parseExportsOf } from './longTailStaticSourceIndex.js';
+
+const B104_SOURCES = createLongTailStaticSourceFilter('batch104', () => parseExportsOf(batch104Parsers));
 
 function oracleOf(perm: any): string {
   return String(perm?.card?.oracle_text || perm?.oracle_text || '').replace(/\u2019/g, "'");
@@ -295,11 +299,10 @@ export function applyBatch104PowerToughnessAdjustment(
 
 export function batch104AdditionalTypes(perm: any, state: any): string[] {
   const out: string[] = [];
-  const battlefield: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
   const controller = String(perm?.controller || '');
   const owner = String(perm?.owner || perm?.card?.owner || '');
   const isOppCreature = isCreature(perm);
-  for (const src of battlefield) {
+  for (const src of longTailStaticSources(state, B104_SOURCES, oracleOf)) {
     if (!src || src.phasedOut === true) continue;
     const text = oracleOf(src);
     const quoted = parseOpponentsCreaturesAreIllusionAndSacrifice(text);

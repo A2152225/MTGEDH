@@ -21,6 +21,7 @@ import { normalizeOracleIrSelectedModeIds } from './oracleIrModeSelection.js';
 import { recordDilemmaFacedOnce } from './triggers/trekPlayerEventTriggers.js';
 import { resolvePermanentChosenColorSymbol } from './mana-abilities.js';
 import { debug, debugWarn } from '../../utils/debug.js';
+import { readActivationCostDiscardedCards } from './activationCostDiscardedCardEvidence.js';
 import {
   resolveCompiledOverlayForCard,
   extractOracleCardLookupKeys,
@@ -418,6 +419,8 @@ export function tryApplyOracleIRToActivatedAbility(
       || '',
     ).trim().toLowerCase();
     const chosenManaSymbol = resolvePermanentChosenColorSymbol(sourcePermanent || params.card) || undefined;
+    // "If the discarded card was a creature card, ..." asks about the card discarded as a cost.
+    const discardedCostCards = readActivationCostDiscardedCards(params.sourceItem);
     const irCtx = buildOracleIRExecutionContext(
       {
         controllerId: params.controller,
@@ -432,6 +435,7 @@ export function tryApplyOracleIRToActivatedAbility(
               lastSacrificedPermanents: (params.sourceItem as any).lastSacrificedPermanents.map((entry: any) => ({ ...entry })),
             }
           : {}),
+        ...(discardedCostCards.length > 0 ? { lastDiscardedCards: discardedCostCards } : {}),
         ...oracleIrTargetBindingToBaseContext(targetBinding),
         selectorContext: {
           ...oracleIrTargetBindingToBaseContext(targetBinding).selectorContext,

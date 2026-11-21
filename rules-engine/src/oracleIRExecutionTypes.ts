@@ -544,6 +544,11 @@ export interface OracleIRExecutionResult {
   readonly pendingContinuationSteps?: readonly OracleEffectStep[];
   /** Outcome of the final executed step in this invocation (including nested branches). */
   readonly lastStepOutcome?: OracleIRStepOutcome | null;
+  /**
+   * Conditional wrappers whose condition evaluated false with no else branch. They are complete
+   * (the clause was checked and does nothing) even when they are absent from `appliedSteps`.
+   */
+  readonly conditionFalseSteps?: readonly OracleEffectStep[];
   /** Step carry-over for chained selectors (e.g. reveal_top → move_zone "those cards"). */
   readonly lastMovedCards?: readonly any[];
   readonly lastMilledCards?: readonly any[];

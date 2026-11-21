@@ -1,7 +1,13 @@
 // server/src/state/modules/batch110Parsers.ts
 // B110 oracle parsers. Public entry symbols are the parse* functions below.
 
+import { memoOracleNormalize } from './oracleNormalizeMemo.js';
+
 export function normalizeB110Oracle(text: string): string {
+  return memoOracleNormalize('b110', text, undefined, () => normalizeB110OracleUncached(text));
+}
+
+function normalizeB110OracleUncached(text: string): string {
   return String(text || '')
     .replace(/\u2019/g, "'")
     .replace(/[A-Za-z][A-Za-z0-9' !-]{0,40}?\s+[—-]\s+/g, '')
@@ -47,8 +53,11 @@ export function parseCreaturesYouControlPTWhereXIsEnteredThisTurn(oracle: string
 /** Jetmir-style "also get PT and have KEYWORD as long as you control N or more creatures." */
 export function parseAlsoPTAndKeywordAtCreatureCount(oracle: string): Array<{ power: number; toughness: number; keyword: string; min: number }> {
   const out: Array<{ power: number; toughness: number; keyword: string; min: number }> = [];
+  // Asked once per (permanent, keyword, source); the phrase check skips the regex for nearly every card.
+  const normalized = n(oracle);
+  if (!/creatures you control also get/i.test(normalized)) return out;
   const re = /creatures you control also get ([+-]\d+)\s*\/\s*([+-]\d+) and have (trample|double strike|vigilance|first strike|lifelink|menace|haste) as long as you control (\w+|\d+) or more creatures/gi;
-  for (const m of n(oracle).matchAll(re)) {
+  for (const m of normalized.matchAll(re)) {
     const min = parseNum(m[4]);
     if (min > 0) out.push({ power: Number(m[1]), toughness: Number(m[2]), keyword: m[3].toLowerCase(), min });
   }

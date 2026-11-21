@@ -21,6 +21,10 @@ export interface LethalPlan {
   certainty: 'guaranteed' | 'unless_trick';
 }
 
+function nowMs(): number {
+  return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+}
+
 function hitDamage(c: CombatCreature): number {
   return c.keywords.doubleStrike ? c.power * 2 : c.power;
 }
@@ -52,6 +56,8 @@ function absorbAmount(attacker: CombatCreature, blocker: CombatCreature): number
 export function bestDamageSavingBlocks(
   attackers: readonly CombatCreature[],
   blockers: readonly CombatCreature[],
+  /** Real ms timestamp; stop assigning once passed so a wide combat cannot monopolize a turn. */
+  deadlineMs?: number,
 ): BlockAssignment[] {
   const available = new Set(blockers.map((b) => b.id));
   const byId = new Map(blockers.map((b) => [b.id, b]));
@@ -73,12 +79,15 @@ export function bestDamageSavingBlocks(
   // Repeat until no blocker improves prevention.
   let progress = true;
   while (progress) {
+    if (deadlineMs != null && nowMs() > deadlineMs) break;
     progress = false;
     let best: { blockerId: string; attackerId: string; gain: number } | null = null;
 
     for (const blockerId of available) {
+      if (deadlineMs != null && nowMs() > deadlineMs) break;
       const blocker = byId.get(blockerId)!;
       for (const attacker of attackers) {
+        if (deadlineMs != null && nowMs() > deadlineMs) break;
         const current = onAttacker.get(attacker.id) || [];
         if (!isLegalBlocker(blocker, attacker, current)) continue;
         if (current.length >= needCount(attacker) && !attacker.keywords.trample) {
@@ -133,6 +142,8 @@ export function findLethal(input: {
   defenders: readonly DefenderState[];
   blockersByDefender: ReadonlyMap<string, readonly CombatCreature[]>;
   trickRisk: Record<string, boolean>;
+  /** Real ms timestamp; skip remaining defenders once passed. */
+  deadlineMs?: number;
 }): LethalPlan[] {
   const { attackers, defenders, blockersByDefender, trickRisk } = input;
   if (attackers.length === 0) return [];
@@ -142,6 +153,7 @@ export function findLethal(input: {
   for (const a of attackers) creatureMap.set(a.id, a);
 
   for (const def of defenders) {
+    if (input.deadlineMs != null && nowMs() > input.deadlineMs) break;
     const blockers = blockersByDefender.get(def.id) || [];
     for (const b of blockers) creatureMap.set(b.id, b);
 
@@ -149,7 +161,7 @@ export function findLethal(input: {
       attacker: a,
       defenderId: def.id,
     }));
-    const blocks = bestDamageSavingBlocks(attackers, blockers);
+    const blocks = bestDamageSavingBlocks(attackers, blockers, input.deadlineMs);
     const outcome = resolveCombat(attacks, blocks, creatureMap, [def]);
 
     if (!outcome.defendersKilled.includes(def.id)) continue;

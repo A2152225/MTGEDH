@@ -795,11 +795,12 @@ export function applyOracleIRStepsOnServer(
     params,
   );
   if (!(ctx as any).isReplaying) {
-    persistCounterDiffsFromOracleIR(ctx, countersBefore, state, {
+    const counterBridge = {
       sourceId: String(irCtx.sourceId || '').trim() || undefined,
       sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
       ...(params?.compoundResume ? { compoundResume: true } : {}),
-    });
+    };
+    persistCounterDiffsFromOracleIR(ctx, countersBefore, state, counterBridge, { result, mode: 'exclude' });
     persistBattlefieldPermanentPatchesFromOracleIR(ctx, permanentPatchesBefore, state, {
       sourceId: String(irCtx.sourceId || '').trim() || undefined,
       sourceName: String(irCtx.sourceName || '').trim() || undefined,
@@ -810,6 +811,8 @@ export function applyOracleIRStepsOnServer(
       sourceName: String(irCtx.sourceName || '').trim() || undefined,
       ...(params?.compoundResume ? { compoundResume: true } : {}),
     });
+    // Counters on tokens this pass created go after their createToken events.
+    persistCounterDiffsFromOracleIR(ctx, countersBefore, state, counterBridge, { result, mode: 'only' });
     persistLifeDiffsFromOracleIR(ctx, lifeBefore, state, result, {
       sourceId: String(irCtx.sourceId || '').trim() || undefined,
       sourceName: String(irCtx.sourceName || '').trim() || undefined,
