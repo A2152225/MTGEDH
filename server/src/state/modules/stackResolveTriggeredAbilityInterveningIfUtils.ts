@@ -3,6 +3,7 @@ import type { GameContext } from '../context.js';
 import { debug } from '../../utils/debug.js';
 import { isInterveningIfSatisfied } from './triggers/intervening-if.js';
 import { lifeThresholdInterveningIfFails } from './triggers/lifeThresholdStateTriggers.js';
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 export function trySkipTriggeredAbilityForUnmetInterveningIf(
   ctx: GameContext,
@@ -159,7 +160,8 @@ export function trySkipTriggeredAbilityForUnmetInterveningIf(
       options.bumpSeq();
       return true;
     }
-  } catch {
+  } catch (err) {
+    reportHookFailure('triggers.interveningIf', err, { source: 'stackResolveTriggeredAbilityInterveningIfUtils' });
     // If evaluation fails, be conservative and continue.
   }
 

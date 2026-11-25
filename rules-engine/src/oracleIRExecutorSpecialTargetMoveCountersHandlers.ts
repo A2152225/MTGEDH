@@ -51,6 +51,48 @@ export function trySpecialMoveCountersStep(
     };
   }
 
+  // Daghatar / Bioshift: "move <a|N|any number of> <kind> counter(s) from target creature onto
+  // <a second|another> target creature [with the same controller]" -> first bound target gives.
+  const twoTargetMove = raw.match(/move (a|an|one|two|three|\d+|any number of|all) (\S+) counters? from target (creature|permanent)(?: you control)? onto (?:a second|another) target \3( with the same controller)?/i);
+  if (twoTargetMove) {
+    const boundIds = collectBoundIds(ctx);
+    const fromId = boundIds[0] || String(ctx.targetCreatureId || '').trim();
+    const toId = boundIds[1] || boundIds.find((id) => id !== fromId) || String(ctx.selectorContext?.targetPermanentId || '').trim();
+    const battlefield = [...((state.battlefield || []) as BattlefieldPermanent[])];
+    const fromIndex = battlefield.findIndex((perm) => String((perm as any)?.id || '').trim() === fromId);
+    const toIndex = battlefield.findIndex((perm) => String((perm as any)?.id || '').trim() === toId);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+      return { applied: true, state, log: ['No valid pair for counter move'] };
+    }
+    const from: any = battlefield[fromIndex];
+    const to: any = battlefield[toIndex];
+    if (twoTargetMove[4] && String(from?.controller || '') !== String(to?.controller || '')) {
+      return { applied: true, state, log: ['Counter move targets no longer share a controller'] };
+    }
+    const counterName = String(step.counter || twoTargetMove[2]).trim();
+    const words: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3 };
+    const amountWord = twoTargetMove[1].toLowerCase();
+    const chosen = Number((ctx as any)?.chosenNumber ?? (ctx as any)?.selectorContext?.chosenNumber);
+    const fromCounters = { ...((from.counters || {}) as Record<string, number>) };
+    const available = Math.max(0, Number(fromCounters[counterName] ?? 0) || 0);
+    const requested = /^(?:any number of|all)$/.test(amountWord)
+      ? (amountWord === 'all' || !Number.isFinite(chosen) ? available : chosen)
+      : (words[amountWord] ?? Number(amountWord));
+    const moveCount = Math.min(available, Math.max(0, Number(requested) || 0));
+    if (moveCount <= 0) return { applied: true, state, log: [`No ${counterName} counter to move`] };
+    fromCounters[counterName] = available - moveCount;
+    if (fromCounters[counterName] <= 0) delete fromCounters[counterName];
+    const toCounters = { ...((to.counters || {}) as Record<string, number>) };
+    toCounters[counterName] = (Number(toCounters[counterName] ?? 0) || 0) + moveCount;
+    battlefield[fromIndex] = { ...from, counters: fromCounters };
+    battlefield[toIndex] = { ...to, counters: toCounters };
+    return {
+      applied: true,
+      state: { ...(state as any), battlefield } as GameState,
+      log: [`Moved ${moveCount} ${counterName} counter(s) between targets`],
+    };
+  }
+
   if (/move a \+1\/\+1 counter from target creature onto a second target creature/i.test(raw)) {
     const boundIds = collectBoundIds(ctx);
     const fromId = boundIds[0] || String(ctx.targetCreatureId || '').trim();

@@ -408,7 +408,8 @@ export function validateLibrarySearchBeforeComplete(
   // Split-destination validation (Cultivate/Kodama's Reach)
   const destination = String(stepAny.destination || '').toLowerCase();
   const isSplitDestination = stepAny.splitDestination === true || destination === 'split';
-  if (isSplitDestination) {
+  // "Up to two" split searches (Navigation Orb, Cultivate) may find nothing: no assignment is due.
+  if (isSplitDestination && selectedIds.length > 0) {
     const sa = (response as any).splitAssignments;
     if (!sa || typeof sa !== 'object') {
       socket.emit('error', { code: 'INVALID_SELECTION', message: 'Missing split assignments' });
@@ -436,12 +437,17 @@ export function validateLibrarySearchBeforeComplete(
 
     const expectedBattlefield = Number(stepAny.toBattlefield);
     const expectedHand = Number(stepAny.toHand);
-    if (Number.isFinite(expectedBattlefield) && expectedBattlefield >= 0 && toBattlefield.length !== expectedBattlefield) {
-      socket.emit('error', { code: 'INVALID_SELECTION', message: `Must assign exactly ${expectedBattlefield} card(s) to battlefield` });
+    // Fewer cards found than the split names: each pile takes at most its count (player's choice).
+    const fullSplit = !(Number.isFinite(expectedBattlefield) && Number.isFinite(expectedHand))
+      || selectedIds.length >= expectedBattlefield + expectedHand;
+    const pileOk = (assigned: number, expected: number): boolean =>
+      !Number.isFinite(expected) || expected < 0 || (fullSplit ? assigned === expected : assigned <= expected);
+    if (!pileOk(toBattlefield.length, expectedBattlefield)) {
+      socket.emit('error', { code: 'INVALID_SELECTION', message: `Must assign ${fullSplit ? 'exactly' : 'at most'} ${expectedBattlefield} card(s) to battlefield` });
       return false;
     }
-    if (Number.isFinite(expectedHand) && expectedHand >= 0 && toHand.length !== expectedHand) {
-      socket.emit('error', { code: 'INVALID_SELECTION', message: `Must assign exactly ${expectedHand} card(s) to hand` });
+    if (!pileOk(toHand.length, expectedHand)) {
+      socket.emit('error', { code: 'INVALID_SELECTION', message: `Must assign ${fullSplit ? 'exactly' : 'at most'} ${expectedHand} card(s) to hand` });
       return false;
     }
   }

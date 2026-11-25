@@ -1,4 +1,5 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import type { GameContext } from '../context.js';
 import { uid, parsePT } from '../utils.js';
 import { debug, debugWarn, debugEnv } from '../../utils/debug.js';
@@ -18,6 +19,8 @@ import { creatureWillHaveHaste } from './creatureEntryHasteUtils.js';
 import { triggerETBEffectsForPermanent } from './triggerEtbPermanentEffects.js';
 import { markPermanentEnteredFromZone } from './triggerDelayedEffectUtils.js';
 import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
+import { detectEntersWithCounters } from './detectEntersWithCounters.js';
+import { applyCounterModifications } from './counters_tokens.js';
 import { repairReplayCardSourceZones } from './stackReplayUtils.js';
 import { enterUntappedOverrideSourceName } from './landsEnterUntappedOverride.js';
 import { tryDeferPlayLandForWouldEnterReplacement, tryApplyLandWouldEnterNamedSacrificeReplacement } from './land-would-enter-replacement.js';
@@ -344,12 +347,26 @@ export function finishPlayLandBattlefieldEntry(
     shouldEnterTapped = false;
   }
   state.battlefield = state.battlefield || [];
+  const landPermId = uid('perm');
+  // "This land enters with N <kind> counters on it" (Dark Depths, Gemstone Mine) - CR 614.1c.
+  let landEntryCounters: Record<string, number> = {};
+  try {
+    const detected = detectEntersWithCounters(card);
+    if (Object.keys(detected).length > 0) {
+      const tempPerm = { id: landPermId, controller: playerId, counters: {} };
+      state.battlefield.push(tempPerm as any);
+      try { landEntryCounters = applyCounterModifications(state as any, landPermId, detected) || detected; }
+      finally { state.battlefield.pop(); }
+    }
+  } catch (err) {
+    reportHookFailure('playLand.entersWithCounters', err, { cardName: String(card?.name || '') });
+  }
   state.battlefield.push({
-    id: uid('perm'),
+    id: landPermId,
     controller: playerId,
     owner: playerId,
     tapped: shouldEnterTapped,
-    counters: {},
+    counters: { ...landEntryCounters },
     basePower: baseP,
     baseToughness: baseT,
     summoningSickness: hasSummoningSickness,
@@ -417,7 +434,8 @@ export function finishPlayLandBattlefieldEntry(
             debug(2, `[playLand] Skipping landfall trigger due to unmet intervening-if: ${trigger.cardName} - ${text}`);
             continue;
           }
-        } catch {
+        } catch (err) {
+          reportHookFailure('intervening-if.eval', err, { source: 'stackPlayLandUtils' });
           // Conservative fallback: keep the trigger if evaluation fails.
         }
 

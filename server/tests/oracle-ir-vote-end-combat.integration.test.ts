@@ -9,7 +9,10 @@ import { initializePriorityResolutionHandler, registerResolutionHandlers } from 
 import { games } from '../src/socket/socket.js';
 import { ensureGame } from '../src/socket/util.js';
 import { createInitialGameState } from '../src/state/gameState.js';
+import { collectSpellResolutionEffectStepsWithOverlay } from '../../rules-engine/src/oracleIRCompilerEnvelope.js';
 import { applyOracleIRStepsOnServer } from '../src/state/modules/oracleIrServerZoneSync.js';
+import { getOracleIrGapTelemetrySnapshot, resetOracleIrGapTelemetry } from '../src/state/modules/oracleIrGapTelemetry.js';
+import { tryResolveInstantSorceryOracleIrSpell } from '../src/state/modules/stackResolveSpellOracleIrUtils.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../src/state/resolution/index.js';
 
 const voteGameId = 'test_oracle_ir_vote_socket';
@@ -299,5 +302,66 @@ describe('oracle IR end_combat_phase (Layer 3 server apply)', () => {
     expect((game.state as any).battlefield[1].blocking).toBeUndefined();
     expect((game.state as any).combat).toBeUndefined();
     expect((game.state as any).stack).toHaveLength(0);
+  });
+
+  it('resolves Mandate of Peace on the live spell path without gap telemetry', () => {
+    const previousPrimary = process.env.ORACLE_IR_SPELL_PRIMARY;
+    process.env.ORACLE_IR_SPELL_PRIMARY = '1';
+    resetOracleIrGapTelemetry();
+    try {
+      const text =
+        "Cast this spell only during combat.\nYour opponents can't cast spells this turn.\nEnd the combat phase. (Remove all attackers and blockers from combat. Exile all spells and abilities from the stack, including this spell.)";
+      const steps = collectSpellResolutionEffectStepsWithOverlay(text, 'Mandate of Peace');
+      expect(steps.some((s: any) => /cast this spell only during combat/i.test(String(s.raw || '')))).toBe(false);
+      expect(steps.some((s: any) => s.kind === 'end_combat_phase')).toBe(true);
+
+      const game = createInitialGameState(endCombatGameId);
+      (game as any).gameId = endCombatGameId;
+      game.applyEvent!({ type: 'join', playerId: p1, name: 'P1' } as any);
+      game.applyEvent!({ type: 'join', playerId: p2, name: 'P2' } as any);
+      const item = {
+        id: 's1',
+        controller: p1,
+        card: { id: 'c1', name: 'Mandate of Peace', type_line: 'Instant', oracle_text: text },
+      };
+      Object.assign(game.state as any, {
+        phase: 'combat',
+        step: 'declareBlockers',
+        combat: { attackers: ['a1'] },
+        combatNumber: 1,
+        battlefield: [
+          { id: 'a1', controller: p1, attacking: p2, card: { name: 'Bear', type_line: 'Creature - Bear' } },
+        ],
+        stack: [item],
+      });
+
+      const outcome = tryResolveInstantSorceryOracleIrSpell(game as any, {
+        controller: p1,
+        card: item.card,
+        effectiveCard: item.card,
+        item,
+        oracleText: text,
+        targets: [],
+        selectedModes: [],
+        skipLegacySpellCategorization: false,
+      });
+
+      expect(outcome.oracleIrSpellHandled).toBe(true);
+      expect((game.state as any).phase).toBe(GamePhase.POSTCOMBAT_MAIN);
+      expect((game.state as any).combat).toBeUndefined();
+      expect((game.state as any).stack).toHaveLength(0);
+      const gaps = getOracleIrGapTelemetrySnapshot().recentEvents.filter((event) =>
+        String(event.label || '').includes('Mandate of Peace')
+        || event.kind === 'all_or_nothing_failure'
+        || event.kind === 'owned_but_unhandled'
+      );
+      expect(gaps).toEqual([]);
+    } finally {
+      if (previousPrimary === undefined) {
+        delete process.env.ORACLE_IR_SPELL_PRIMARY;
+      } else {
+        process.env.ORACLE_IR_SPELL_PRIMARY = previousPrimary;
+      }
+    }
   });
 });

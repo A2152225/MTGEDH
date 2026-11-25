@@ -85,8 +85,7 @@ export function planTurn(args: {
   holdUpInteraction?: boolean;
 }): TurnPlan {
   const maxPlays = Math.max(1, Math.min(4, args.maxPlays ?? 3));
-  // Smoke63: default beam 8→12 (paired with TURN_PLAN_MAX_ACTIONABLE 14).
-  const beam = Math.max(1, Math.min(16, args.beam ?? 12));
+  const beam = Math.max(1, Math.min(16, args.beam ?? 8));
   const manaAvailable = Math.max(0, Number(args.manaAvailable) || 0);
   const pool = [...args.candidates]
     .filter((c) => Number.isFinite(c.manaCost) && c.manaCost >= 0)

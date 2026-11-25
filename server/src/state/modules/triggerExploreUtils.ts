@@ -1,4 +1,5 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import type { GameContext } from '../context.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { getExploreActionCount } from './keywordActionRepetition.js';
@@ -45,7 +46,7 @@ export function queueExploreDecisionStep(
           return true;
         }
       }
-    } catch { /* hook optional; scry prompt is existing infrastructure */ }
+    } catch (err) { reportHookFailure('hook.optional.preExploreScry', err, { source: 'triggerExploreUtils' }); /* hook optional; scry prompt is existing infrastructure */ }
   }
 
   const revealedCard = library[0];

@@ -36,6 +36,8 @@ import {
 import { consumeChosenTypeFlashGrantsAfterCast, consumeConvokeGrantsAfterCast } from "../casting-modifiers.js";
 import { consumeNextSpellCostReductionAfterCast } from "../nextSpellCostReduction.js";
 import { delayedNextCastEntryMatches } from "../nextCastDelayedRiders.js";
+import { buildSacrificedCostLastKnownSnapshot, stampSacrificedCostLastKnown } from "../sacrificedCostLastKnown.js";
+import { stampDamageDivisionOnHost, normalizeDamageDivisionMap } from '../dividedDamageDivision.js';
 
 export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -102,11 +104,15 @@ export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
           // best-effort only
         }
 
+        // CR 608.2h: snapshot cost-sacrificed permanents for "the sacrificed creature's power" (Thud).
+        const sacrificedCostLastKnown: any[] = [];
         try {
           const sacrificedPermanents = Array.isArray((e as any).sacrificedPermanents)
             ? ((e as any).sacrificedPermanents as any[]).map((id: any) => String(id)).filter(Boolean)
             : [];
           for (const permanentId of sacrificedPermanents) {
+            const lastKnown = buildSacrificedCostLastKnownSnapshot(ctx.state, permanentId);
+            if (lastKnown) sacrificedCostLastKnown.push(lastKnown);
             applyReplaySacrificedPermanent(ctx, permanentId);
           }
         } catch {
@@ -254,6 +260,13 @@ export function applyCastSpellEvents(ctx: GameContext, e: GameEvent): boolean {
           const stackArr = (ctx.state.stack || []) as any[];
           if (stackArr.length > stackLengthBefore && stackArr.length > 0) {
             const topStackItem = stackArr[stackArr.length - 1];
+            stampSacrificedCostLastKnown(topStackItem, sacrificedCostLastKnown);
+            {
+              const division = normalizeDamageDivisionMap(
+                (e as any).damageDivisionByTargetId || (e as any).card?.damageDivisionByTargetId,
+              );
+              if (division) stampDamageDivisionOnHost(topStackItem, division);
+            }
             const persistedStackItemId = String((e as any).stackItemId || '').trim();
 
             if (persistedStackItemId) {

@@ -63,17 +63,17 @@ function gameWithBrain(bfSize: number) {
 describe('applyTurnPlanToMainCandidates thresholds', () => {
   it('exports stall-safe skip and actionable cap', () => {
     expect(TURN_PLAN_SKIP_BF).toBe(20);
-    expect(TURN_PLAN_MAX_ACTIONABLE).toBe(14);
+    expect(TURN_PLAN_MAX_ACTIONABLE).toBe(10);
   });
 
   it('skips large boards but still plans a capped pool on small busy boards', () => {
-    const many = Array.from({ length: 16 }, (_, i) => makeCandidate(`Spell ${i}`, 100 - i));
+    const many = Array.from({ length: 12 }, (_, i) => makeCandidate(`Spell ${i}`, 100 - i));
     const skipped = applyTurnPlanToMainCandidates(gameWithBrain(TURN_PLAN_SKIP_BF + 1), 'ai', many);
     expect(skipped.reason).toMatch(/^skip-large:/);
     expect(skipped.plan).toBeNull();
 
     const busySmall = applyTurnPlanToMainCandidates(gameWithBrain(8), 'ai', many);
     expect(busySmall.reason).not.toMatch(/^skip-large:/);
-    expect(busySmall.reason).toMatch(/capped=14\/16|first:/);
+    expect(busySmall.reason).toMatch(/capped=10\/12|first:/);
   });
 });

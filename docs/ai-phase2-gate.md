@@ -145,6 +145,9 @@ Paused pre-fix gate at 119/320 with stall ~23%. Smoke b3–b6 on shards 0–23 d
 77. **Tried (reverted, smoke60):** `MANA_EFFICIENCY` 40→60 in `planTurn` (prefer mana-dump sequences). Smoke `gate-p2-strength-smoke60-*` (shard 11 hung→rerun WALL 60s): **3–8** (**27.3%**), TL 13, **0 stalls**, **0 AON** — under ≥35% bar. Reverted. force_block hygiene from item 75 kept. No promote.
 78. **Tried (reverted, smoke61):** `counter_leader_spell` weight 20→50. Smoke `gate-p2-strength-smoke61-*`: **2–7** (**22.2%**), TL 15, **0 stalls**, **0 AON** — **regressed**. Reverted. force_block hygiene from item 75 kept. No promote.
 79. **Tried (diagnostic, reverted, smoke62):** disable MAIN2 hold-up entirely (`shouldHoldUpInteractionForStep` always false — dump both mains). Smoke `gate-p2-strength-smoke62-*`: **2–10** (**16.7%**), TL 12, **0 stalls**, **0 AON** — **regressed**. Hold-up is net-positive; restored MAIN2-only. force_block hygiene from item 75 kept. No promote.
+80. **Tried (reverted, smoke63):** widen turn plan (`TURN_PLAN_MAX_ACTIONABLE` 10→14, `planTurn` default beam 8→12). Smoke `gate-p2-strength-smoke63-*`: **2–8** (**20.0%**), TL 14, **0 stalls**, **0 AON** — **regressed**. Reverted. force_block hygiene from item 75 kept. No promote.
+81. **Tried (reverted, smoke64):** wire CardRole `tutor` into utility scorer (hand-small / WP-behind prefs). Smoke `gate-p2-strength-smoke64-*`: **2–10** (**16.7%**), TL 12, **0 stalls**, **0 AON** — **regressed**. Reverted. force_block hygiene from item 75 kept. No promote.
+82. **Tried (diagnostic, reverted, smoke65):** disable sticky turn-plan reuse (always replan each MAIN wake). Smoke `gate-p2-strength-smoke65-*`: **3–6** (**33.3%**), TL 15, **0 stalls**, **0 AON** — under ≥35% bar (stall OK; more TL). Sticky restored. force_block hygiene from item 75 kept. No promote.
 
 ## Planners shipped behind v2
 

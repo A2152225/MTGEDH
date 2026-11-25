@@ -43,6 +43,8 @@ import {
   snapshotResolutionManaPool,
 } from "../resolutionPaymentManaUtils.js";
 import { broadcastGame, emitToPlayer, getEffectivePower, getEffectiveToughness, getPlayerName } from "../util.js";
+import { permanentMatchesTargetTypes } from '../permanentTargetTypeFilter.js';
+import { applyVariableTapXToStep } from '../interaction-handlers/activationCostXAndDiscardClauses.js';
 
 /** TAP_UNTAP_TARGET: tap/untap chosen permanents, or resume the activation whose cost required them. */
 export async function handleTapUntapTargetResponse(
@@ -73,7 +75,9 @@ export async function handleTapUntapTargetResponse(
       : (stepAction === 'untap' ? 'untap' : 'tap');
 
   const targetCount = Math.max(1, Number(stepData.targetCount || 1));
-  if (targetIds.length !== targetCount) {
+  // Tap X costs accept 1..targetCount (minTargetCount); everything else needs the exact count.
+  const minTargetCount = Number.isFinite(Number(stepData.minTargetCount)) ? Math.max(1, Number(stepData.minTargetCount)) : targetCount;
+  if (targetIds.length < minTargetCount || targetIds.length > targetCount) {
     emitToPlayer(io, pid as any, 'error', {
       code: 'INVALID_TARGET_COUNT',
       message: `Expected ${targetCount} target(s), got ${targetIds.length}`,
@@ -143,27 +147,12 @@ export async function handleTapUntapTargetResponse(
 
     // Type filter (if present)
     const types = Array.isArray(targetFilter.types) ? targetFilter.types : [];
-    if (types.length > 0) {
-      const typeLine = String(perm.card?.type_line || '').toLowerCase();
-      if (requireAllTypes) {
-        const matchesAll = types.every((t: any) => typeLine.includes(String(t).toLowerCase()));
-        if (!matchesAll) {
-          emitToPlayer(io, pid as any, 'error', {
-            code: 'INVALID_TARGET',
-            message: 'Target does not match required type',
-          });
-          return;
-        }
-      } else {
-        const matchesAny = types.some((t: any) => typeLine.includes(String(t).toLowerCase()));
-        if (!matchesAny) {
-        emitToPlayer(io, pid as any, 'error', {
-          code: 'INVALID_TARGET',
-          message: 'Target does not match required type',
-        });
-        return;
-        }
-      }
+    if (types.length > 0 && !permanentMatchesTargetTypes(perm, types, requireAllTypes)) {
+      emitToPlayer(io, pid as any, 'error', {
+        code: 'INVALID_TARGET',
+        message: 'Target does not match required type',
+      });
+      return;
     }
 
     // Subtype filter (if present)
@@ -352,6 +341,8 @@ export async function handleTapUntapTargetResponse(
     const controllerId = String(pid);
     const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
     const abilityId = String(stepAny?.abilityId || '').trim();
+    // Tap X: the number of permanents chosen is X in the cost and effect text.
+    applyVariableTapXToStep(stepAny, targetIds.length);
     const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
     const abilityText = String(stepAny?.abilityText || step.description || '');
     const requiresTap = Boolean(stepAny?.requiresTap);
@@ -390,7 +381,7 @@ export async function handleTapUntapTargetResponse(
     const remainingNonManaCostText = manaCost
       .replace(/\{[^}]+\}/g, ' ')
       .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
-      .replace(/\btap\s+(?:another\s+|other\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+[a-z]+(?:\s+[a-z]+)*(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\s+you\s+control(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\b/gi, ' ')
+      .replace(/\btap\s+(?:another\s+|other\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+untapped\s+[a-z]+(?:\s+[a-z]+)*(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\s+you\s+control(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\b/gi, ' ')
       .replace(/[\s,]+/g, ' ')
       .trim();
     if (remainingNonManaCostText.length > 0) {

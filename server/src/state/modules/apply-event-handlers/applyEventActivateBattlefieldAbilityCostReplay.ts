@@ -10,6 +10,7 @@ import type { GameEvent } from "../../types";
 import { buildDiscardProvenanceFields } from "../graveyardEntryUtils.js";
 import { drawCards, movePermanentToHand } from "../zones";
 import { updateCounters, movePermanentToGraveyard } from "../counters_tokens";
+import { reportHookFailure } from "../../../../../shared/src/hookFailureReporter.js";
 import { cardFromHideawayToHand, clearStoredHideawayCard } from "../hideawayExile.js";
 import { syncPreparedPermanentAfterControlChange } from "../prepared.js";
 import { rememberReplayManaActivationLifeCost } from "../applyEventReplayZoneCommanderManaHelpers.js";
@@ -146,6 +147,20 @@ export function applyActivateBattlefieldAbilityCostReplay(ctx: GameContext, e: G
             }
           } catch {
             // best-effort only
+          }
+
+          // CR 602.2b self-exile activation cost ("Exile this: ..."), recorded once activation completed.
+          try {
+            const exiledSelfId = String((e as any).exiledSelfForCost || '').trim();
+            const bfSelf = Array.isArray(ctx.state?.battlefield) ? ctx.state.battlefield : [];
+            const exiledSelf = exiledSelfId ? bfSelf.find((p: any) => p && String(p.id) === exiledSelfId) as any : null;
+            if (exiledSelf) {
+              exiledSelf.leaveBattlefieldReplacementDestination = 'exile';
+              if (exiledSelf.card && typeof exiledSelf.card === 'object') exiledSelf.card.leaveBattlefieldReplacementDestination = 'exile';
+              movePermanentToGraveyard(ctx as any, exiledSelfId, true);
+            }
+          } catch (err) {
+            reportHookFailure('replay.activateBattlefieldAbility.exiledSelfForCost', err, { cardId: String((e as any).exiledSelfForCost || '') });
           }
 
           // If the server persisted which permanents were returned to hand to pay activation costs,
@@ -431,6 +446,20 @@ export function applyActivateBattlefieldAbilityCostReplay(ctx: GameContext, e: G
               }
 
               rememberReplayManaActivationLifeCost(ctx.state, pid, permId, (e as any).abilityId, paid);
+            }
+          } catch {
+            // best-effort only
+          }
+
+          // Energy paid for the activation cost (energyPaidForCost; older events never recorded it).
+          try {
+            const energyPaid = Math.max(0, Math.floor(Number((e as any).energyPaidForCost || 0)));
+            const pid = playerId != null ? String(playerId) : '';
+            if (pid && energyPaid > 0) {
+              const stateAny = ctx.state as any;
+              stateAny.energy = stateAny.energy || {};
+              stateAny.energy[pid] = Math.max(0, Number(stateAny.energy[pid] || 0) - energyPaid);
+              if (stateAny.energyCount && typeof stateAny.energyCount === 'object') stateAny.energyCount[pid] = stateAny.energy[pid];
             }
           } catch {
             // best-effort only

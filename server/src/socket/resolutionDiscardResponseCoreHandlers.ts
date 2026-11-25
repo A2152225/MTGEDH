@@ -24,6 +24,7 @@ import { uid } from "../state/utils.js";
 import { debug, debugWarn } from "../utils/debug.js";
 import { advanceStepPersistingEvent } from "./step-advance.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "./util.js";
+import { applyStepActivationX, stripExtendedDiscardCostClauses } from "./interaction-handlers/activationCostXAndDiscardClauses.js";
 import { appendQueuedResolutionPromptEvent } from "./resolutionCloneQueuedPromptUtils.js";
 import {
   buildTriggeredAbilitySourceContext,
@@ -139,7 +140,8 @@ export async function handleDiscardResponse(
     return;
   }
 
-  const pid = response.playerId;
+  // Revealed-hand discard ("you choose a card from it"): the chooser answers, the revealed player discards.
+  const pid = (String((step as any)?.handOwnerPlayerId || '').trim() || response.playerId) as typeof response.playerId;
   const selections = response.selections as string[];
   
   if (!Array.isArray(selections) || selections.length === 0) {
@@ -188,7 +190,9 @@ export async function handleDiscardResponse(
     const stepAny = step as any;
     const controllerId = String(pid);
     const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
-    const manaCost = String(stepAny?.manaCost || '');
+    const manaCost = isDiscardCostActivation
+      ? applyStepActivationX(stepAny, String(stepAny?.manaCost || ''))
+      : String(stepAny?.manaCost || '');
     const requiresTap = Boolean(stepAny?.requiresTap);
     const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
 
@@ -222,17 +226,21 @@ export async function handleDiscardResponse(
           .replace(/\{[^}]+\}/g, ' ')
           .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
           .replace(/\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+hand\b/gi, ' ')
-      : manaCost
+      : stripExtendedDiscardCostClauses(manaCost)
           .replace(/\{[^}]+\}/g, ' ')
           .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
           .replace(
-            /\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\b/gi,
+            /\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\b(?:\s+at\s+random\b)?/gi,
             ' '
           ));
 
     // Combined discard+sacrifice costs are handled across two steps; allow sacrifice text to remain here.
     if (!isExileFromHandCostActivation && (stepAny as any)?.discardAndSacrificeAbilityAsCost === true) {
       remainingNonManaCostText = remainingNonManaCostText.replace(/\bsacrifice\b[^,]*/gi, ' ');
+    }
+    // "Discard a card, Sacrifice this creature": the self-sacrifice is paid by the activation resume.
+    if (!isExileFromHandCostActivation && (stepAny as any)?.deferredSelfSourceCost === 'sacrifice') {
+      remainingNonManaCostText = remainingNonManaCostText.replace(/\bsacrifice\s+(?:~|this\b)[^,]*/gi, ' ');
     }
 
     remainingNonManaCostText = remainingNonManaCostText

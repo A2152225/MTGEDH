@@ -64,6 +64,8 @@ export {
   type SpellCastContext,
 } from './types.js';
 
+export type { DamageDivisionStep } from './damageDivisionStep.js';
+
 // Export queue operations
 export {
   createResolutionQueue,

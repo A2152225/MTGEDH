@@ -6,6 +6,7 @@
 // Must not import oracleIrServerZoneSync.ts or the handlers index.
 
 import type { PlayerID } from '../../../../../shared/src/index.js';
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 import type { OracleEffectStep } from '../../../../../rules-engine/src/oracleIR.js';
 import {
   applyOracleIRStepsToGameState,
@@ -349,8 +350,9 @@ export function applyOracleIRStepsOnServer(
         });
       }
     }
-  } catch {
-    // best-effort ? do not fail IR resolution for trigger emission
+  } catch (err) {
+    reportHookFailure('oracle-ir.trigger-emission', err, { source: 'oracleIrServerApplyOnServer' });
+    // best-effort — do not fail IR resolution for trigger emission
   }
   applyOracleIrSpellLifelinkGain(ctx, result, triggerEmissionBefore, { controller: String(controller || ''), sourceId: String(irCtx?.sourceId || ''), sourceItem: params?.sourceItem });
   try {
@@ -358,8 +360,9 @@ export function applyOracleIRStepsOnServer(
       controller: String(controller || ''),
       sourcePermanentId: String(irCtx?.sourceId || ''),
     });
-  } catch {
-    // best-effort ? do not fail IR resolution for trigger emission
+  } catch (err) {
+    reportHookFailure('oracle-ir.trigger-emission', err, { source: 'oracleIrServerApplyOnServer' });
+    // best-effort — do not fail IR resolution for trigger emission
   }
   syncGraveyardCastFreeExilePermissionsFromOracleIR(state, adjustedSteps, result, irCtx);
   mirrorGraveyardCastingPermissionsToDurable(state);

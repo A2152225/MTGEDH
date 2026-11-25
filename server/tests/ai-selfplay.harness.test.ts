@@ -8,10 +8,12 @@
  *   AI_SELFPLAY_GAMES, AI_SELFPLAY_SEED, AI_SELFPLAY_OUT, AI_SELFPLAY_SHARD (i/n),
  *   AI_SELFPLAY_MAX_TURNS (default 60), AI_SELFPLAY_CHALLENGER (default v0),
  *   AI_SELFPLAY_BASELINE (default v0; other three seats),
+ *   AI_SELFPLAY_SET_CODE (optional; e.g. TRC = only that set's precons),
  *   AI_POSITIONS_FILE (optional P1-2 feature log), AI_POSITIONS_VERIFY=1 (public-only assert)
  */
 
 import fs from 'node:fs';
+import { formatHookFailuresForAssert, getHookFailures, resetHookFailures } from '../src/utils/hookFailureReporter.js';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { initDb } from '../src/db/index.js';
@@ -132,6 +134,7 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
         const seatOrder = [0, 1, 2, 3].map((i) => (i + rotation) % 4);
         const decksForSeats = seatOrder.map((i) => podDecks[i]);
         const gameId = `selfplay-${SEED}-${podIndex}-${rotation}`;
+        resetHookFailures();
 
         const seats: DeckSeatSpec[] = decksForSeats.map((deck, seatIdx) => {
           // AI_BRAIN (if set) applies to every seat — needed for shadow reproduction.
@@ -224,6 +227,13 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
             turns,
             ms: Math.round(Number(process.hrtime.bigint() - startedHr) / 1e6),
             ...(advanced.stallReason ? { stallReason: advanced.stallReason } : {}),
+            hookFailures: getHookFailures().map((failure) => ({
+              tag: failure.tag,
+              message: failure.message,
+              cardName: failure.ctx?.cardName,
+              source: failure.ctx?.source,
+              stack: failure.stack ? failure.stack.split(/\n/).slice(0, 4).join(' | ').slice(0, 400) : undefined,
+            })),
           };
           results.push(row);
           appendResult(row);
@@ -243,6 +253,13 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
             turns,
             ms: Math.round(Number(process.hrtime.bigint() - startedHr) / 1e6),
             error: String(err),
+            hookFailures: getHookFailures().map((failure) => ({
+              tag: failure.tag,
+              message: failure.message,
+              cardName: failure.ctx?.cardName,
+              source: failure.ctx?.source,
+              stack: failure.stack ? failure.stack.split(/\n/).slice(0, 4).join(' | ').slice(0, 400) : undefined,
+            })),
           };
           results.push(row);
           appendResult(row);
@@ -268,6 +285,12 @@ describeSelfPlay('AI self-play harness (P0-3)', () => {
       harnessErrors.length,
       `harness errors: ${harnessErrors.map((r) => r.error).join('; ')}`,
     ).toBeLessThan(results.length);
+
+    const hookFailureRows = results.filter((r) => Array.isArray(r.hookFailures) && r.hookFailures.length > 0);
+    expect(
+      hookFailureRows.length,
+      `silent hook failure(s): ${hookFailureRows.map((r) => `${r.gameId}: ${formatHookFailuresForAssert(r.hookFailures as any)}`).join(' | ')}`,
+    ).toBe(0);
 
     // P1-2: when AI_POSITIONS_FILE is set, every game should have at least one
     // feature row per distinct turn observed, with one entry per seat.

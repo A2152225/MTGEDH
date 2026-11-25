@@ -45,6 +45,7 @@ export function tryResolveInstantSorceryOracleIrSpell(
       .map((targetRef: any) => (typeof targetRef === 'string' ? targetRef : String(targetRef?.id || '')))
       .filter(Boolean),
     xValue: typeof options.spellXValue === 'number' && Number.isFinite(options.spellXValue) ? options.spellXValue : undefined,
+    damageDivisionByTargetId: (item as any)?.damageDivisionByTargetId || (item as any)?.card?.damageDivisionByTargetId,
     selectedModeIds: selectedModes.map((mode: any) => String(mode || '')).filter(Boolean),
     castFromGraveyard: wasSpellCastFromGraveyard(item),
     giftPromised: Boolean(item?.giftPromised ?? item?.card?.giftPromised),

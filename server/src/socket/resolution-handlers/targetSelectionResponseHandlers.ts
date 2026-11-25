@@ -30,6 +30,7 @@ import { broadcastGame } from "../util.js";
 import { emitPendingCastPaymentIfNeeded } from "./resolutionPendingCastPaymentPrompt.js";
 import { BLIGHT_TARGET_SELECTION_STAGES } from "./targetSelectionBlightKeywordHandlers.js";
 import { handleUpkeepPaidUntapSelection } from "./upkeepPaidUntapSelectionHandler.js";
+import { handleGraveyardExileAbilityTargetSelection } from "../interaction-handlers/interactionGraveyardExileStackAbility.js";
 import { violatesFlagbearerRequirement } from "../../state/modules/flagbearerTargeting.js"; // B29
 import { handleUntapCapChoiceSelection } from "./untapCapChoiceSelectionHandler.js";
 import { handleChooseThenSacrificeRestTargetSelection } from "./chooseThenSacrificeRestTargetSelection.js";
@@ -424,6 +425,11 @@ export async function handleTargetSelectionResponse(
 
   if ((step as any)?.graveyardSpellCastTargetSelection === true) {
     getResolutionHandlerDeps().handleGraveyardSpellCastTargetSelection(io, game, gameId, step, response);
+    return;
+  }
+
+  if ((step as any)?.graveyardExileAbilityTargetSelection === true) {
+    handleGraveyardExileAbilityTargetSelection(io, game, gameId, step, response);
     return;
   }
 

@@ -12,7 +12,8 @@ import type { GameContext } from "../../state/context.js";
 import { canPlayerPayLife } from "../../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
 import { playersCannotPayLifeToCastOrActivateNonMana } from "../../state/modules/karnsSylexPayLifeRestriction.js";
 import { isActivatedManaAbilityText } from "../../state/modules/ability-cost-adjustments.js";
-import { energyCostError, parseEnergyCost, payEnergyCost } from "../../state/modules/equipNonManaCosts.js";
+import { energyCostError, payEnergyCost } from "../../state/modules/equipNonManaCosts.js";
+import { extractActivationEnergyCost, unsupportedEnergyCostCompanions } from "./activationEnergyCost.js";
 import { parseWordNumber } from "../../state/utils";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
@@ -23,6 +24,10 @@ export type ActivateCostMutationState = {
   manaCost: string | undefined;
   pendingLifePaymentForCost: number;
   pendingCounterRemovals: Array<{ counterType: string; count: number }>;
+  /** Energy validated now, paid when the activation commits (non-mana abilities). */
+  pendingEnergyPaymentForCost?: number;
+  /** Energy already paid (mana abilities pay immediately). */
+  energyPaidForCost?: number;
 };
 
 export async function tryHandleActivatePayLifeExileCounters(
@@ -56,28 +61,18 @@ export async function tryHandleActivatePayLifeExileCounters(
   // {E} is not mana — without this, parseManaCost ignores it and the ability is free.
   // ========================================================================
   {
-    const costStr = String(manaCost || '').trim();
-    const energyOnly = parseEnergyCost(costStr);
-    const payEnergyClause = costStr.match(/\bpay\s+((?:\{E\})+)\b/i);
-    const energyFromClause = payEnergyClause
-      ? (String(payEnergyClause[1] || '').match(/\{E\}/gi) || []).length
-      : null;
-    const energyAmount = energyOnly ?? energyFromClause;
-    if (energyAmount !== null && energyAmount > 0) {
-      const remainingAfterEnergy = costStr
-        .replace(/\{E\}/gi, ' ')
-        .replace(/\bpay\b/gi, ' ')
-        .replace(/\{[^}]+\}/g, ' ')
-        .replace(/[\s,]+/g, ' ')
-        .trim();
-      if (remainingAfterEnergy.length > 0) {
+    const energy = extractActivationEnergyCost(String(manaCost || '').trim());
+    if (energy.amount > 0) {
+      const unsupported = unsupportedEnergyCostCompanions(energy.remainingCost);
+      if (unsupported.length > 0) {
         socket.emit('error', {
           code: 'UNSUPPORTED_COST',
-          message: `Cannot activate ${cardName}: energy cost with additional non-mana components is not supported yet (${remainingAfterEnergy}).`,
+          message: `Cannot activate ${cardName}: energy cost with additional non-mana components is not supported yet (${unsupported}).`,
         });
         return true;
       }
-      const err = energyCostError(game.state, String(pid), `Pay ${'{E}'.repeat(energyAmount)}`);
+      const energyCostText = `Pay ${energy.amount} {E}`;
+      const err = energyCostError(game.state, String(pid), energyCostText);
       if (err) {
         socket.emit('error', {
           code: 'INSUFFICIENT_ENERGY',
@@ -85,16 +80,23 @@ export async function tryHandleActivatePayLifeExileCounters(
         });
         return true;
       }
-      if (!payEnergyCost(game.state, String(pid), `Pay ${'{E}'.repeat(energyAmount)}`)) {
-        socket.emit('error', {
-          code: 'INSUFFICIENT_ENERGY',
-          message: `Cannot activate ${cardName}: failed to pay ${energyAmount} energy.`,
-        });
-        return true;
-      }
-      manaCost = '';
+      // Keep the rest of the cost ("{2}", "{T}", "Sacrifice this artifact") for the normal payment path.
+      manaCost = energy.remainingCost;
       costState.manaCost = manaCost;
-      debug(2, `[activateBattlefieldAbility] ${cardName} paid ${energyAmount} energy as activation cost`);
+      if (isActivatedManaAbilityText(abilityText)) {
+        // Mana abilities can branch into a color prompt before the commit point; pay now.
+        if (!payEnergyCost(game.state, String(pid), energyCostText)) {
+          socket.emit('error', {
+            code: 'INSUFFICIENT_ENERGY',
+            message: `Cannot activate ${cardName}: failed to pay ${energy.amount} energy.`,
+          });
+          return true;
+        }
+        costState.energyPaidForCost = Number(costState.energyPaidForCost || 0) + energy.amount;
+      } else {
+        costState.pendingEnergyPaymentForCost = Number(costState.pendingEnergyPaymentForCost || 0) + energy.amount;
+      }
+      debug(2, `[activateBattlefieldAbility] ${cardName} energy cost ${energy.amount} (rest: "${manaCost}")`);
     }
   }
 
@@ -149,7 +151,7 @@ export async function tryHandleActivatePayLifeExileCounters(
           const looksLikeSupportedExileFromHand = /\bexile\b/i.test(remainingLower) && /\bfrom\s+your\s+hand\b/i.test(remainingLower);
           const looksLikeSupportedExileFromGraveyard = /\bexile\b/i.test(remainingLower) && /\bfrom\s+your\s+graveyard\b/i.test(remainingLower);
           const looksLikeSupportedReturnToHand = /\breturn\b/i.test(remainingLower) && /\byou\s+control\b/i.test(remainingLower) && /\bowner(?:'|’)s\s+hand\b/i.test(remainingLower);
-          const looksLikeSupportedSacrificeSelf = /\bsacrifice\s+(?:~|this)\b/i.test(remainingLower);
+          const looksLikeSupportedSacrificeSelf = /\bsacrifice\s+(?:~|this\b)/i.test(remainingLower);
 
           if (looksLikeSupportedTapOther || looksLikeSupportedDiscard || looksLikeSupportedExileFromHand || looksLikeSupportedExileFromGraveyard || looksLikeSupportedReturnToHand || looksLikeSupportedSacrificeSelf) {
             // Defer entirely to the specialized cost handler.
@@ -519,7 +521,7 @@ export async function tryHandleActivatePayLifeExileCounters(
           // Ensure no other non-mana cost components besides this remove-counters clause.
           const remainingNonManaCostText = costStr
             .replace(/\{[^}]+\}/g, ' ')
-            .replace(/\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?(?:\s+from\s+[^,]+)?\b/gi, ' ')
+            .replace(/\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?(?:\s+from\s+[^,]+|\b)/gi, ' ')
             .replace(/[\s,]+/g, ' ')
             .trim();
           if (remainingNonManaCostText.length > 0) {
@@ -648,7 +650,7 @@ export async function tryHandleActivatePayLifeExileCounters(
         // Ensure no other non-mana cost components besides this remove-counters clause.
         const remainingNonManaCostText = costStr
           .replace(/\{[^}]+\}/g, ' ')
-          .replace(/\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?(?:\s+from\s+[^,]+)?\b/gi, ' ')
+          .replace(/\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?(?:\s+from\s+[^,]+|\b)/gi, ' ')
           .replace(/[\s,]+/g, ' ')
           .trim();
         if (remainingNonManaCostText.length > 0) {
@@ -684,7 +686,7 @@ export async function tryHandleActivatePayLifeExileCounters(
         try {
           manaCost = String(manaCost || '')
             .replace(
-              /\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?(?:\s+from\s+[^,]+)?\b/gi,
+              /\bremove\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+[^,]+?\s+counters?(?:\s+from\s+[^,]+|\b)/gi,
               ' '
             )
             .replace(/^[\s,]+|[\s,]+$/g, '')

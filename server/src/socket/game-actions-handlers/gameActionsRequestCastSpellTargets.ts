@@ -43,6 +43,7 @@ import {
   shouldPreferParsedTargetReqs,
 } from "./gameActionsSpellTargetSelection.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
+import { isAuraSpell } from "../auraEnchantKeyword.js";
 
 export type RequestCastSpellTargetsArgs = {
   io: Server;
@@ -122,7 +123,7 @@ export function tryComputeRequestCastSpellTargets(
     isForcedMutate,
   } = args;
     // Check if this spell requires targets
-    const isAura = spellTypeLine.includes("aura") && /^enchant\s+/i.test(oracleText);
+    const isAura = isAuraSpell(spellTypeLine, oracleText);
     const parsedTargeting = (isInstantOrSorcery && !isAura)
       ? resolveCastSpellParsedTargeting({
         cardName,

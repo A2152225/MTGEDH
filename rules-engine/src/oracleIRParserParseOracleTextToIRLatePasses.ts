@@ -1,4 +1,7 @@
 import { applyRound33AbilityPasses } from './oracleIRParserRound33Passes';
+import { mergeRevealedHandChooseDiscardAbilities } from './oracleIRParserPostprocessRevealedHandChooseDiscard';
+import { rewriteHandExileChoiceAbilities } from './oracleIRParserPostprocessHandExileChoice';
+import { mergeBecomeAuraAttachAbilities } from './oracleIRParserPostprocessBecomeAuraAttach';
 // Extracted from rules-engine/src/oracleIRParserParseOracleTextToIR.ts (chat B 40KB split campaign).
 //
 // Late passes of the parseOracleTextToIR pipeline (reminder prunes, recoveries, surface repairs).
@@ -390,5 +393,8 @@ export function applyParseOracleTextToIRLatePasses(params: {
   abilities = mergeExileUntilFollowupAbilities(abilities);
   abilities = applyRound33AbilityPasses(abilities);
   abilities = stampEnterTransformedOnOracleAbilities(abilities);
+  abilities = mergeRevealedHandChooseDiscardAbilities(abilities);
+  abilities = rewriteHandExileChoiceAbilities(abilities);
+  abilities = mergeBecomeAuraAttachAbilities(abilities);
   return abilities;
 }

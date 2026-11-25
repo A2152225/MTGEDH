@@ -566,6 +566,7 @@ export function renderAppPlayOverlaysEarly(p: Record<string, any>) {
         action={tapUntapTargetModalData?.action || 'untap'}
         targetFilter={tapUntapTargetModalData?.targetFilter || {}}
         targetCount={tapUntapTargetModalData?.targetCount || 1}
+        minTargetCount={tapUntapTargetModalData?.minTargetCount}
         availablePermanents={safeView?.battlefield || []}
         playerId={you || ""}
         playerNames={resolutionPlayerNames}

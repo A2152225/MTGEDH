@@ -37,3 +37,20 @@ export function canConfirmCounterDistribution(args: {
   if (allocated !== totalAmount) return false;
   return counterDistributionMeetsMinimums(args.distribution, args.targetIds, minPerTarget, totalAmount);
 }
+
+export function buildEvenCounterDistribution(
+  targetIds: readonly string[],
+  totalAmount: number,
+): Record<string, number> {
+  const ids = targetIds.map((targetId) => String(targetId || '').trim()).filter(Boolean);
+  const initial: Record<string, number> = {};
+  if (ids.length === 0) return initial;
+  const total = Math.max(0, Math.floor(Number(totalAmount) || 0));
+  const base = Math.floor(total / ids.length);
+  let remainder = total - base * ids.length;
+  for (const id of ids) {
+    initial[id] = base + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder -= 1;
+  }
+  return initial;
+}

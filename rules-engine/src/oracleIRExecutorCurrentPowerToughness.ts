@@ -11,6 +11,7 @@
  * Leaf must not import oracleIR.ts or oracleIRExecutor.ts.
  */
 import type { GameState } from '../../shared/src';
+import { reportHookFailure } from '../../shared/src/hookFailureReporter.js';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import {
   getProcessedBattlefield,
@@ -42,7 +43,8 @@ function readCurrentStat(
       const current = resolver(state, onBattlefield);
       const value = Number(current?.[stat]);
       if (Number.isFinite(value)) return value;
-    } catch {
+    } catch (err) {
+      reportHookFailure('currentPowerToughnessHook.resolver', err, { source: 'oracleIRExecutorCurrentPowerToughness' });
       // fall through to the rules-engine computation
     }
   }

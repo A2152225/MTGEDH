@@ -56,6 +56,7 @@ import {
 } from "./gameActionsCastSpellPaymentSources.js";
 import type { CastSpellPaymentCheckpoint } from "./gameActionsCastSpellFromHandCostConvoke.js";
 import { spellPaymentSatisfiesCreatureProducedManaRestrictionWithPool } from "../../state/modules/batch94ManaPayment.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 export type CastSpellManaPaymentFromHandArgs = {
   socket: Socket;
@@ -558,7 +559,8 @@ export function tryApplyCastSpellManaPaymentFromHand(
               (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
               (game.state as any).lifeLostThisTurn[String(playerId)] =
                 Number((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + payLifeAmount;
-            } catch {
+            } catch (err) {
+              reportHookFailure('payment.lifeLostTracking', err, { source: 'gameActionsCastSpellFromHandManaPayment' });
               // Best-effort tracking only.
             }
           }

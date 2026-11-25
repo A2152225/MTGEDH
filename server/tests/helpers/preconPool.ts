@@ -39,9 +39,13 @@ export function listSelfPlayPreconPool(): SelfPlayDeckMeta[] {
     );
   }
 
+  // Optional: AI_SELFPLAY_SET_CODE=TRC pins the pod to one Commander product.
+  const setFilter = String(process.env.AI_SELFPLAY_SET_CODE || '').trim().toUpperCase();
+
   const pool = meta
     .filter((row) => ALLOWED_SOURCES.has(String(row.source || '')))
     .filter((row) => Number(row.cardCount) === 100)
+    .filter((row) => !setFilter || String(row.setCode || '').toUpperCase() === setFilter)
     .map((row) => ({
       id: `${row.setCode}::${row.deckName}`,
       setCode: row.setCode,
@@ -52,7 +56,9 @@ export function listSelfPlayPreconPool(): SelfPlayDeckMeta[] {
 
   if (pool.length === 0) {
     throw new Error(
-      'precon catalogue has no mtgjson decks with cardCount 100. Run `npm run precon:bake --workspace=server`.',
+      setFilter
+        ? `precon catalogue has no mtgjson cardCount-100 decks for set ${setFilter}. Run \`npm run precon:bake --workspace=server\`.`
+        : 'precon catalogue has no mtgjson decks with cardCount 100. Run `npm run precon:bake --workspace=server`.',
     );
   }
 

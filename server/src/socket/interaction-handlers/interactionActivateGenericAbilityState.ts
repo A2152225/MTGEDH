@@ -21,6 +21,12 @@ export type ActivateGenericAbilityMutationState = {
   recordedAddedMana: Record<string, number>;
   removedCountersForCost: Array<{ permanentId: string; counterType: string; count: number }>;
   pendingCounterRemovals: Array<{ counterType: string; count: number }>;
+  /** Source exiled to pay its own activation cost (replayed via exiledSelfForCost). */
+  exiledSelfForCost?: string;
+  /** Energy validated at activation, paid at the commit point (persist or target continuation). */
+  pendingEnergyPaymentForCost?: number;
+  /** Energy a mana ability already paid. */
+  energyPaidForCost?: number;
 };
 
 export type ActivateGenericAbilityExtras = {

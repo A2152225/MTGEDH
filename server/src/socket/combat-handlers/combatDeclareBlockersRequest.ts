@@ -7,6 +7,7 @@
 //   lookupBattlefieldPermanentName, emitDeclareBlockersChat, persistTriggeredAbilityPush.
 
 import type { Server, Socket } from "socket.io";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import { appendEvent } from "../../db/index.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { formatDeclareBlockersMessage } from "../../../../shared/src/gameLogFormat.js";
@@ -292,7 +293,8 @@ export async function executeDeclareBlockers(
               debug(2, `[combat] Skipping block trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
               continue;
             }
-          } catch {
+          } catch (err) {
+            reportHookFailure('intervening-if.eval', err, { source: 'combatDeclareBlockersRequest' });
             // Conservative fallback: keep the trigger if evaluation fails.
           }
 

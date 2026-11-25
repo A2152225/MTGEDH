@@ -9,6 +9,7 @@ import { filterLibraryCardsForSearch } from "../../../socket/library-search.js";
 import { generateDeterministicId, applyRecordedLifePayment } from "../applyEventReplayZoneCommanderManaHelpers.js";
 import { consumeRecordedManaCostFromPool } from "../applyEventReplayCardMoveLibraryHelpers.js";
 import { ResolutionQueueManager } from "../../resolution/index.js";
+import { graveyardTutorStackParamsFromEvent, pushGraveyardTutorStackItem } from "../graveyardTutorStackItem.js";
 import { applyRecordedBeamUpReturnCost, applyRecordedGraveyardKeywordNonManaCost } from "./applyEventGraveyardCastCostReplay.js"; // B42
 
 /** graveyard abilities that search the library (isTutor). */
@@ -54,6 +55,11 @@ export function replayGraveyardTutorActivation(ctx: GameContext, e: GameEvent, c
                   pid,
                 );
 
+                // searchOnResolution: the ability went on the stack; the search replays when it resolves.
+                if ((e as any).searchOnResolution === true) {
+                  pushGraveyardTutorStackItem(ctx.state as any, graveyardTutorStackParamsFromEvent(e, String(pid), String(cardId), card));
+                  return;
+                }
                 ResolutionQueueManager.addStep(gameId, {
                   type: 'library_search' as any,
                   playerId: pid,

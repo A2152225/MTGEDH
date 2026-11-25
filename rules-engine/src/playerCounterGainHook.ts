@@ -1,3 +1,4 @@
+import { reportHookFailure } from '../../shared/src/hookFailureReporter.js';
 /**
  * Player-counter gain hook for the Oracle IR executor.
  *
@@ -33,7 +34,8 @@ export function resolvePlayerCounterGainFromHook(
   try {
     const next = Number(registeredAdjustment(state, String(playerId || ''), String(counter || ''), amount));
     return Number.isFinite(next) ? Math.max(0, Math.trunc(next)) : amount;
-  } catch {
+  } catch (err) {
+    reportHookFailure('playerCounterGainHook', err, { source: 'playerCounterGainHook' });
     return amount;
   }
 }

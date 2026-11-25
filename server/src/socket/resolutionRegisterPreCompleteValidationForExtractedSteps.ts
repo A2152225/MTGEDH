@@ -8,6 +8,7 @@
  * Returns false when validation failed (error already emitted on socket).
  */
 
+import { colorChoiceStepColorWords, normalizeColorChoiceWord } from "./colorChoiceSelection.js";
 import type { Socket } from "socket.io";
 import { lookupLocalCardByNameSync } from "../services/localCardLookup.js";
 import { normalizeCardName } from "../state/modules/chosen-name-restrictions.js";
@@ -675,11 +676,10 @@ function canonicalizeCardNameChoiceSelection(selection: string, candidateNames: 
           return false;
         }
 
-        const stepColors = Array.isArray(stepAny.colors) && stepAny.colors.length > 0
-          ? stepAny.colors.map((c: any) => String(c).toLowerCase())
-          : ['white', 'blue', 'black', 'red', 'green'];
-        const colorLower = String(selection).toLowerCase();
-        if (!stepColors.includes(colorLower)) {
+        // Step colors may be words or { id: 'W', label: 'White' } option objects.
+        const stepColors = colorChoiceStepColorWords(stepAny.colors);
+        const colorWord = normalizeColorChoiceWord(selection);
+        if (!colorWord || !stepColors.includes(colorWord)) {
           socket.emit('error', { code: 'INVALID_COLOR', message: `Invalid color selection (${selection})` });
           return false;
         }
@@ -702,7 +702,10 @@ function canonicalizeCardNameChoiceSelection(selection: string, candidateNames: 
         } else if (permanentId) {
           const battlefield: any[] = Array.isArray(stateAny?.battlefield) ? stateAny.battlefield : [];
           const perm = battlefield.find((p: any) => p && String(p.id) === permanentId);
-          if (!perm) {
+          // A resolving ability's prompt (effect program / stack item) may outlive a source sacrificed as a cost.
+          const stackSource = !stepAny.permanentId && (stepAny.effectProgramPrompt === true
+            || (Array.isArray(stateAny?.stack) ? stateAny.stack : []).some((s: any) => s && String(s.id) === permanentId));
+          if (!perm && !stackSource) {
             socket.emit('error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
             return false;
           }
@@ -748,7 +751,8 @@ function canonicalizeCardNameChoiceSelection(selection: string, candidateNames: 
           }
         }
 
-        const permanentId = String(stepAny.permanentId || stepAny.sourceId || '').trim();
+        // sourceId alone is the ability/spell source (possibly sacrificed for the cost, CR 113.7a).
+        const permanentId = String(stepAny.permanentId || '').trim();
         if (permanentId && !spellId) {
           const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
           const perm = battlefield.find((p: any) => p && String(p.id) === permanentId);
@@ -785,7 +789,9 @@ function canonicalizeCardNameChoiceSelection(selection: string, candidateNames: 
 
         (response as any).selections = canonicalSelection;
 
-        const permanentId = String(stepAny.permanentId || stepAny.sourceId || '').trim();
+        // Only as-enters choices carry permanentId; spell / effect-program prompts use sourceId for the
+        // resolving spell, which is not on the battlefield (CR 608.2).
+        const permanentId = String(stepAny.spellId ? '' : (stepAny.permanentId || '')).trim();
         if (permanentId) {
           const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
           const perm = battlefield.find((p: any) => p && String(p.id) === permanentId);

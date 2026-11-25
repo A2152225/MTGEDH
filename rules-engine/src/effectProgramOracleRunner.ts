@@ -350,6 +350,7 @@ function createOracleIRChoiceEvent(
           anyNumberDiscard: built.anyNumberDiscard === true,
           currentHandSize: built.currentHandSize,
           maxHandSize: built.maxHandSize,
+          ...(built.handOwnerPlayerId ? { handOwnerPlayerId: built.handOwnerPlayerId } : {}),
           reason: 'effect',
         },
       },

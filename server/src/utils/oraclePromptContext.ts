@@ -413,8 +413,12 @@ export function extractModalModesForSpellCast(
       return legacy;
     }
 
+    // IR mode raw text swaps the card name for "this permanent"; show the printed bullet.
+    const printedOptions = legacy?.options?.length === irModes.length ? legacy.options : [];
     const options = irModes.map((mode, idx) => {
-      const raw = String(mode.raw || mode.label || '').trim();
+      const irRaw = String(mode.raw || mode.label || '').trim();
+      const printed = String((printedOptions[idx] as { raw?: string } | undefined)?.raw || '').trim();
+      const raw = printed || irRaw;
       const label = raw.length > 60 ? `${raw.slice(0, 57)}...` : raw;
       const id = String(mode.label || `Mode ${idx + 1}`).trim();
       const pCost = Number(mode.pCost);

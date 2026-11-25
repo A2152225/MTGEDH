@@ -12,6 +12,7 @@ import { appendEvent } from "../../../db/index.js";
 import { debugWarn } from "../../../utils/debug.js";
 import { inferManaValueConstraintFromText } from "../graveyard-mana-value.js";
 import { pushTriggerDoublerCopies } from "../triggers/combat.js";
+import { withDeathLastKnownPowerToughness } from "../deathLastKnownPowerToughness.js";
 
 type DeathTriggerStackMetadata = {
   requiresTarget?: true;
@@ -364,6 +365,8 @@ function pushDeathTriggerOntoStack(ctx: GameContext, trigger: any, dyingPermanen
     return;
   }
   const state = ctx.state as any;
+  // Stamp anthem-inclusive last-known P/T before the snapshot lands on the stack item and event.
+  dyingPermanent = withDeathLastKnownPowerToughness(state, dyingPermanent);
   const triggerId = uid('trigger');
   const effectText = String(trigger?.effect || '').trim();
   const metadata = trigger?.queueKeywordChoice === true

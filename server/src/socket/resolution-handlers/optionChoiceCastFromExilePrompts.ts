@@ -44,6 +44,7 @@ import {
 import { advanceStepPersistingEvent } from "../step-advance.js";
 import { emitToPlayer, getPlayerName } from "../util.js";
 import { extractOptionChoiceSelectionId } from "./resolutionOptionChoiceSelectionIds.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 function resolutionStepReferencesExiledCard(queuedStep: any, exiledCardId: string): boolean {
   const wanted = String(exiledCardId || '').trim();
@@ -352,7 +353,7 @@ export async function handleCastFromExilePromptChoice(
         (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
         (game.state as any).lifeLostThisTurn[String(targetPlayerId)] =
           ((game.state as any).lifeLostThisTurn[String(targetPlayerId)] || 0) + dmg;
-      } catch {}
+      } catch (err) { reportHookFailure('payment.lifeLostTracking', err, { source: 'optionChoiceCastFromExilePrompts' }); }
     };
 
     const recordCreatureDealtDamageToPlayerThisTurn = (sourceCreature: any, targetPlayerId: string, dmg: number) => {

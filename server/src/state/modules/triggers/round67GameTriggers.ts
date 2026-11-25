@@ -7,7 +7,7 @@
  *   armBlockColorWatch, noteLinkedEquipment.
  */
 import type { GameContext } from '../../context.js';
-import { queueGenericTriggeredAbility } from '../triggerEmissionFamilyUtils.js';
+import { queueGenericTriggeredAbility, queueParsedSubjectEvent } from '../triggerEmissionFamilyUtils.js';
 import { collectMatchingParsedEventLines, parsedEventLinesFor } from './triggerConditionFamilyMatch.js';
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 import { nameFirstPrintedInArabianNights } from './arabianNightsOriginalNames.js';

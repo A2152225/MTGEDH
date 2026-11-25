@@ -42,8 +42,10 @@ export interface TapUntapTargetModalProps {
     // Exclude source permanent
     excludeSource?: boolean;
   };
-  // Number of targets required
+  // Number of targets required (the maximum when minTargetCount is set)
   targetCount: number;
+  // Fewest targets allowed ("Tap X untapped tokens" costs); defaults to targetCount
+  minTargetCount?: number;
   // Available permanents that could potentially be targeted
   availablePermanents: BattlefieldPermanent[];
   // Current player ID
@@ -98,12 +100,14 @@ function matchesFilter(
       if (requireAllTypes) {
         const matchesAll = filter.types.every(type => {
           if (type === 'permanent') return true;
+          if ((type as string) === 'token' || (type as string) === 'nontoken') return ((perm as any).isToken === true || typeLine.includes('token')) === ((type as string) === 'token');
           return typeLine.includes(type.toLowerCase());
         });
         if (!matchesAll) return false;
       } else {
         const matchesAnyType = filter.types.some(type => {
           if (type === 'permanent') return true;
+          if ((type as string) === 'token' || (type as string) === 'nontoken') return ((perm as any).isToken === true || typeLine.includes('token')) === ((type as string) === 'token');
           return typeLine.includes(type.toLowerCase());
         });
         if (!matchesAnyType) return false;
@@ -203,6 +207,7 @@ export function TapUntapTargetModal({
   action,
   targetFilter,
   targetCount,
+  minTargetCount,
   availablePermanents,
   playerId,
   playerNames,
@@ -265,7 +270,8 @@ export function TapUntapTargetModal({
     });
   }, [targetCount]);
 
-  const canConfirm = selectedIds.size === targetCount;
+  const requiredMin = Math.min(targetCount, Math.max(1, Number(minTargetCount ?? targetCount)));
+  const canConfirm = selectedIds.size >= requiredMin && selectedIds.size <= targetCount;
 
   const handleConfirm = () => {
     if (canConfirm) {
@@ -378,9 +384,9 @@ export function TapUntapTargetModal({
         {/* Selection info */}
         <div style={{ marginBottom: '16px', color: '#bbb', fontSize: '14px' }}>
           Selected: {selectedIds.size} / {targetCount}
-          {targetCount > 1 && selectedIds.size < targetCount && (
+          {requiredMin > 1 && selectedIds.size < requiredMin && (
             <span style={{ color: '#f99', marginLeft: '8px' }}>
-              (Select {targetCount - selectedIds.size} more)
+              (Select {requiredMin - selectedIds.size} more)
             </span>
           )}
         </div>

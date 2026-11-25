@@ -8,7 +8,7 @@ import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import type { BattlefieldStepHandlerResult } from './oracleIRExecutorBattlefieldStepTypes';
 import { hasStaticRegenerateInsteadOfDestroy, staticRegeneratedCopy } from './staticRegenerateInsteadOfDestroy';
-import { resolveDestroyTargets } from './oracleIRExecutorBattlefieldDestroyTargets';
+import { hasExplicitTargetBinding, resolveDestroyTargets } from './oracleIRExecutorBattlefieldDestroyTargets';
 import {
   buildPermanentCardWithStats,
   oracleIrBattlefieldRemovalOptions,
@@ -65,6 +65,14 @@ export function applyDestroyStep(
         reason: 'player_choice_required',
         options: { classification: 'player_choice' },
       };
+    }
+    if (
+      resolvedTargets.length === 0
+      && /^target\b/i.test(targetText)
+      && hasExplicitTargetBinding(ctx)
+    ) {
+      // CR 608.2b: the only chosen target is illegal, so this instruction does nothing.
+      return { applied: true, state, log: [`Destroy target is illegal; nothing destroyed: ${step.raw}`] };
     }
     if (/\btarget\b/i.test(`${targetText} ${String(step.raw || '')}`)) {
       return {

@@ -68,7 +68,29 @@ export function inferStackTargetLocations(oracleText: string): Set<StackTargetLo
     locations.add('battlefield');
   }
 
+  // Modal / multi-clause spells mix recipients (Kill! Maim! Burn!: "target artifact" and
+  // "target player"; Archenemy's Charm: "target creature" and "target ... cards from your
+  // graveyard"). Any clause that targets a permanent keeps battlefield targets legal.
+  if (!locations.has('battlefield') && hasBattlefieldPermanentTargetClause(normalized)) {
+    locations.add('battlefield');
+  }
+
   return locations;
+}
+
+const PERMANENT_TARGET_NOUN_RE =
+  /\btarget\s+(?:[a-z'-]+,?\s+){0,5}?(?:creature|artifact|enchantment|land|planeswalker|permanent|battle|vehicle|equipment|aura)s?\b/;
+
+function hasBattlefieldPermanentTargetClause(normalized: string): boolean {
+  for (const clause of normalized.split(/[.\n\u2022;]+/)) {
+    const match = clause.match(PERMANENT_TARGET_NOUN_RE);
+    if (!match) continue;
+    const tail = clause.slice(match.index ?? 0);
+    if (/^target\s+[^,]*?\b(?:spells?|cards?)\b/.test(tail)) continue;
+    if (/\b(?:from|in)\b[^,]*\b(?:graveyard|hand|exile|library)\b/.test(tail)) continue;
+    return true;
+  }
+  return false;
 }
 
 function zoneContainsCardId(state: any, zoneName: StackTargetLocation, cardId: string): boolean {

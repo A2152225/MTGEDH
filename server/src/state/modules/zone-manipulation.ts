@@ -1,4 +1,5 @@
 import { recordFaceDownReveal } from './faceDownRevealLog.js';
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import { noteManaValueAsExiledForBorca } from './batch95DiscardAndNotes.js';
 /**
  * zone-manipulation.ts
@@ -367,7 +368,7 @@ function exileCardCopyForOwner(ctx: GameContext, card: any, ownerId: string): bo
   if (!owner || !card) return false;
   try {
     noteManaValueAsExiledForBorca((ctx as any).state, card);
-  } catch { /* hook optional */ }
+  } catch (err) { reportHookFailure('hook.optional.noteManaValueAsExiledForBorca', err, { source: 'zone-manipulation' }); /* hook optional */ }
 
   const state = (ctx as any).state;
   const zones = state.zones || {};

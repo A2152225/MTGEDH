@@ -4,6 +4,7 @@
 // tryPayInlineCastAdditionalLifeCost.
 
 import type { Server } from "socket.io";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import type { GameContext } from "../../state/context.js";
 import { canPlayerPayLife } from "../../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
 import { canPayLifeAmount, payLifeAmount } from "../../state/modules/batch97PayLife.js";
@@ -64,10 +65,10 @@ export function tryPayInlineCastAdditionalLifeCost(params: {
       (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
       (game.state as any).lifeLostThisTurn[String(playerId)] =
         ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + amount;
-    } catch { /* tracking is best-effort */ }
+    } catch (err) { reportHookFailure('payment.lifeLostTracking', err, { source: 'payCastSpellAdditionalLifeCost' }); /* tracking is best-effort */ }
     try {
       queueLifePaymentTriggers(game as any, String(playerId), amount, { sourceId: cardId, sourceName: cardName });
-    } catch { /* triggers are best-effort */ }
+    } catch (err) { reportHookFailure('trigger.best-effort', err, { source: 'payCastSpellAdditionalLifeCost' }); /* triggers are best-effort */ }
   }
 
   if (card && typeof card === 'object') {

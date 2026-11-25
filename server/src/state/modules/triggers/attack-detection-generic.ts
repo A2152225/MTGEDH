@@ -5,6 +5,7 @@
  */
 
 import { timingTriggerEffect } from "./timing-effect-extraction.js";
+import { isControllerOptionalTriggeredAbilityEffect } from "../trigger-runtime-wiring.js";
 import type { AttackDetectionState } from "./attack-detection-state.js";
 
 export function appendAttackDetectionGeneric(state: AttackDetectionState): void {
@@ -137,7 +138,7 @@ export function appendAttackDetectionGeneric(state: AttackDetectionState): void 
       triggerType: 'you_attack',
       description: effectText,
       effect: effectText,
-      mandatory: !effectText.toLowerCase().includes('you may'),
+      mandatory: !isControllerOptionalTriggeredAbilityEffect(effectText),
     });
   }
 

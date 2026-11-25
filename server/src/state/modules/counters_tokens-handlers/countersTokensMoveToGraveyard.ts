@@ -9,6 +9,7 @@ import { buildZoneObjectWithRetainedCounters } from "../../../../../shared/src/z
 import type { GameContext } from "../../context.js";
 import { parsePT, uid } from "../../utils.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
+import { reportHookFailure } from "../../../../../shared/src/hookFailureReporter.js";
 import { ResolutionQueueManager } from "../../resolution/index.js";
 import { ResolutionStepType } from "../../resolution/types.js";
 import { recalculatePlayerEffects } from "../game-state-effects.js";
@@ -104,6 +105,10 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
     processLTBTriggers(ctx, perm, { cause: 'graveyard' });
   } catch (err) {
     debugWarn(1, '[movePermanentToGraveyard] processLTBTriggers failed:', err);
+    reportHookFailure('movePermanentToGraveyard.processLTBTriggers', err, {
+      cardName: String(card?.name || ''),
+      source: 'countersTokensMoveToGraveyard',
+    });
   }
 
   const graveyardReplacement = tryApplyDeclarativeGraveyardDestinationReplacement(
@@ -369,6 +374,10 @@ export function movePermanentToGraveyard(ctx: GameContext, permanentId: string, 
       }
     } catch (err) {
       debugWarn(1, `[movePermanentToGraveyard] Error processing death triggers:`, err);
+      reportHookFailure('movePermanentToGraveyard.deathTriggers', err, {
+        cardName: String(card?.name || ''),
+        source: 'countersTokensMoveToGraveyard',
+      });
     }
   }
   

@@ -92,7 +92,9 @@ export function queueDiscardChoicePromptsFromOracleIRResult(
         anyNumberDiscard: built.anyNumberDiscard === true,
         currentHandSize: built.currentHandSize,
         maxHandSize: built.maxHandSize,
+        ...(built.handOwnerPlayerId ? { handOwnerPlayerId: built.handOwnerPlayerId } : {}),
         reason: 'effect',
+        ...((step as any).destination === 'exile' ? { destination: 'exile' } : {}),
       } as any, result, params) as any);
       appendQueuedResolutionPromptEvent(ctx, {
         playerId: built.playerId,

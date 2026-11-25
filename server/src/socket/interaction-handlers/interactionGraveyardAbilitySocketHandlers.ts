@@ -22,7 +22,8 @@ import { cardHasPrintedScavenge, getGrantedScavengeCost } from "../../state/modu
 import { cardHasPrintedEncore, getGrantedEncoreCost } from "../../state/modules/graveyardEncoreGrants.js";
 import { canPermanentBeTargetedByPlayer } from "../../rules-engine/targeting.js";
 import { debug, debugWarn } from "../../utils/debug.js";
-import { filterLibraryCardsForSearch } from "../library-search.js";
+import { pushGraveyardTutorStackItem } from "../../state/modules/graveyardTutorStackItem.js";
+import { notifySpellOrAbilityPutOnStack } from "../../state/modules/stackPutNotify.js";
 import {
   broadcastGame,
   calculateTotalAvailableMana,
@@ -50,6 +51,7 @@ import { handleUnearthOrEmbalmGraveyardAbility } from "./interactionGraveyardKey
 import { detectTutorEffect, parseSearchCriteria } from "./interactionTutorSearchCriteriaParsing.js";
 import { type EnsureInRoomAndSeated } from "./interactionRoomAndBattlefield.js";
 import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+import { activateGraveyardExileStackAbility, parseGraveyardExileSelfAbility } from './interactionGraveyardExileStackAbility.js';
 
 // Handle graveyard ability activation
 export async function handleActivateGraveyardAbilityRequest(
@@ -111,6 +113,17 @@ export async function handleActivateGraveyardAbilityRequest(
   const card = zones.graveyard[cardIndex];
   const cardName = card?.name || "Unknown";
   const oracleText = (card?.oracle_text || "").toLowerCase();
+  // "{cost}, Exile this card from your graveyard: <non-return effect>" (Ghoulcaller's Accomplice, renew).
+  // Library-search abilities keep the dedicated tutor path below.
+  const graveyardExileStackAbility = (abilityId === "graveyard-activated" || abilityId === "exile-to-add-counters")
+    && !detectTutorEffect(card?.oracle_text || "").isTutor
+    ? parseGraveyardExileSelfAbility(card)
+    : null;
+  const legacyEachTypeCounters = /put a \+1\/\+1 counter on each (\w+) you control/i.test(oracleText);
+  if (graveyardExileStackAbility && !(abilityId === "exile-to-add-counters" && legacyEachTypeCounters)) {
+    activateGraveyardExileStackAbility({ io, socket, game, gameId, pid: String(pid), card, cardId: String(cardId), zones, ability: graveyardExileStackAbility });
+    return;
+  }
   
   // Handle different graveyard abilities
   if (abilityId === "flashback" || abilityId === "jump-start" || abilityId === "retrace" || abilityId === "escape" || abilityId === "aftermath" || abilityId === "graveyard-cast" || abilityId === "beam-me-up") {
@@ -272,7 +285,6 @@ export async function handleActivateGraveyardAbilityRequest(
       // This ability involves searching the library
       // Don't remove from graveyard yet - the search needs to resolve first
       const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
-      const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
       const isSplit = tutorInfo.splitDestination === true;
       const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
         : (tutorInfo.destination === 'exile') ? 'exile'
@@ -282,11 +294,14 @@ export async function handleActivateGraveyardAbilityRequest(
         game.bumpSeq();
       }
       
+      const graveyardTutorStackId = `ability_gy_tutor_${Date.now()}_${String(cardId)}`;
       appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
         playerId: pid,
         cardId,
         abilityId,
         isTutor: true,
+        searchOnResolution: true,
+        stackId: graveyardTutorStackId,
         manaCost: recordedManaCost,
         exileSourceOnActivate: explicitActivationCost.exileSourceFromGraveyard || undefined,
         searchCriteria: tutorInfo.searchCriteria || 'any card',
@@ -307,30 +322,24 @@ export async function handleActivateGraveyardAbilityRequest(
         ts: Date.now(),
       });
 
-      // Queue library search via Resolution Queue
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.LIBRARY_SEARCH,
-        playerId: pid as PlayerID,
-          sourceId: cardId,
-        sourceName: `${cardName}`,
-        description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
+      // CR 602.2 / 608.2: the ability goes on the stack; stackResolveDeferredTutorSearch searches on resolution.
+      const graveyardTutorItem = pushGraveyardTutorStackItem(game.state, {
+        stackId: graveyardTutorStackId,
+        playerId: String(pid),
+        cardId: String(cardId),
+        cardName,
+        card,
+        abilityId: String(abilityId || ''),
         searchCriteria: tutorInfo.searchCriteria || 'any card',
-        minSelections: 0,
-        maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
-        mandatory: false,
         destination,
-        reveal: false,
-        shuffleAfter: true,
-        availableCards: filterLibraryCardsForSearch(library, filter, game.state, pid),
-        filter,
+        maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
         splitDestination: isSplit,
         toBattlefield: tutorInfo.toBattlefield || 1,
         toHand: tutorInfo.toHand || 1,
         entersTapped: tutorInfo.entersTapped || false,
-        persistLibrarySearchResolve: true,
-        persistLibrarySearchResolveReason: 'graveyard_ability',
-        persistLibrarySearchResolveAbilityId: abilityId,
-      } as any);
+        filter,
+      });
+      notifySpellOrAbilityPutOnStack(game as any, graveyardTutorItem.id);
       
       broadcastGame(io, game, gameId);
       return;
@@ -726,7 +735,6 @@ export async function handleActivateGraveyardAbilityRequest(
 
       // This ability involves searching the library
       const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
-      const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
       const isSplit = tutorInfo.splitDestination === true;
       const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
         : (tutorInfo.destination === 'exile') ? 'exile'
@@ -735,11 +743,14 @@ export async function handleActivateGraveyardAbilityRequest(
         game.bumpSeq();
       }
       
+      const graveyardTutorStackId = `ability_gy_tutor_${Date.now()}_${String(cardId)}`;
       appendEvent(gameId, (game as any).seq ?? 0, "activateGraveyardAbility", {
         playerId: pid,
         cardId,
         abilityId,
         isTutor: true,
+        searchOnResolution: true,
+        stackId: graveyardTutorStackId,
         manaCost: recordedManaCost,
         exileSourceOnActivate: explicitActivationCost.exileSourceFromGraveyard || undefined,
         searchCriteria: tutorInfo.searchCriteria || 'any card',
@@ -760,30 +771,24 @@ export async function handleActivateGraveyardAbilityRequest(
         ts: Date.now(),
       });
 
-      // Queue library search via Resolution Queue
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.LIBRARY_SEARCH,
-        playerId: pid as PlayerID,
-        sourceId: cardId,
-        sourceName: `${cardName}`,
-        description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
+      // CR 602.2 / 608.2: the ability goes on the stack; stackResolveDeferredTutorSearch searches on resolution.
+      const graveyardTutorItem = pushGraveyardTutorStackItem(game.state, {
+        stackId: graveyardTutorStackId,
+        playerId: String(pid),
+        cardId: String(cardId),
+        cardName,
+        card,
+        abilityId: String(abilityId || ''),
         searchCriteria: tutorInfo.searchCriteria || 'any card',
-        minSelections: 0,
-        maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
-        mandatory: false,
         destination,
-        reveal: false,
-        shuffleAfter: true,
-        availableCards: filterLibraryCardsForSearch(library, filter, game.state, pid),
-        filter,
+        maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
         splitDestination: isSplit,
         toBattlefield: tutorInfo.toBattlefield || 1,
         toHand: tutorInfo.toHand || 1,
         entersTapped: tutorInfo.entersTapped || false,
-        persistLibrarySearchResolve: true,
-        persistLibrarySearchResolveReason: 'graveyard_ability',
-        persistLibrarySearchResolveAbilityId: abilityId,
-      } as any);
+        filter,
+      });
+      notifySpellOrAbilityPutOnStack(game as any, graveyardTutorItem.id);
       
       broadcastGame(io, game, gameId);
       return;

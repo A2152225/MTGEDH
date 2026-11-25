@@ -14,7 +14,7 @@ export function detectEntersWithCounters(card: any, wasKicked?: boolean): Record
   const typeLine = (card.type_line || '').toLowerCase();
   const castWithAbility = String((card as any)?.castWithAbility || '').trim().toLowerCase();
 
-  const counterPattern = /(?:~|this creature)\s+(?:enters|comes into play)(?: the battlefield)? with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\s*([+\-\d\/]+|\w+)\s*counters?\s*(?:on it)?/gi;
+  const counterPattern = /(?:~|this (?:creature|land|artifact|enchantment|permanent|vehicle|planeswalker))\s+(?:enters|comes into play)(?: the battlefield)? with (\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\s*([+\-\d\/]+|\w+)\s*counters?\s*(?:on it)?/gi;
 
   const matchedRanges = new Set<string>();
   let match;

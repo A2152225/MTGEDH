@@ -27,6 +27,7 @@ import {
 import { debug, debugError, debugWarn } from "../../utils/debug.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
 import { extractOptionChoiceSelectionId } from "./resolutionOptionChoiceSelectionIds.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 /** Ward: pay the ward cost (mana + common non-mana) or let the spell/ability be countered. */
 export async function handleWardPaymentOptionChoice(
@@ -211,7 +212,7 @@ export async function handleWardPaymentOptionChoice(
       (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
       (game.state as any).lifeLostThisTurn[String(playerId)] =
         ((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + Number(lifeAmount || 0);
-    } catch {}
+    } catch (err) { reportHookFailure('payment.lifeLostTracking', err, { source: 'optionChoiceWardPaymentHandlers' }); }
     queueLifePaymentTriggers(game as any, String(playerId), Number(lifeAmount || 0), { sourceName: wardPermanentName || 'Ward' });
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,

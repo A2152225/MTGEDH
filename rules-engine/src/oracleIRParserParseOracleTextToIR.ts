@@ -236,7 +236,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
     || /\(as a siege enters\b/i.test(normalizedOracleText)
     || /\([^)]*(?:this creature|this card|it's an artifact|it's an enchantment|it's an creature)\b[^)]*\)/i.test(normalizedOracleText)
     // Populate / keyword reminders bleed a fake create_token step if left in parens.
-    || /\b(?:populate|proliferate|investigate|surveil|scry|connive)\b[\s.]*\(/i.test(normalizedOracleText);
+    || /\b(?:populate|proliferate|investigate|surveil|scry|connive)\b(?:\s+(?:\d+|x))?[\s.]*\(/i.test(normalizedOracleText);
   const parsingOracleText = needsGameplayPreNormalize
     ? (normalizeOracleForParsing(normalizedOracleText) || normalizedOracleText)
     : normalizedOracleText;

@@ -188,6 +188,11 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
       abilityId: 'graveyard-activated',
     });
 
+    // CR 608.2: the tutor ability is on the stack; the search is queued when it resolves.
+    expect((((game.state as any).stack || []) as any[]).map((item: any) => item?.abilityType)).toEqual(['tutor']);
+    expect(ResolutionQueueManager.getStepsForPlayer(gameId, playerId).some((step) => step.type === ResolutionStepType.LIBRARY_SEARCH)).toBe(false);
+    (game as any).resolveTopOfStack();
+
     const steps = ResolutionQueueManager.getStepsForPlayer(gameId, playerId);
     const searchStep = steps.find(step => step.type === ResolutionStepType.LIBRARY_SEARCH) as any;
     expect(searchStep).toBeDefined();
@@ -290,6 +295,11 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     expect((zones?.exile || []).map((card: any) => card.id)).toEqual(['grave_exile_tutor_1']);
     expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
 
+    // CR 608.2: the tutor ability is on the stack; the search is queued when it resolves.
+    expect((((game.state as any).stack || []) as any[]).map((item: any) => item?.abilityType)).toEqual(['tutor']);
+    expect(ResolutionQueueManager.getStepsForPlayer(exileGameId, playerId).some((step) => step.type === ResolutionStepType.LIBRARY_SEARCH)).toBe(false);
+    (game as any).resolveTopOfStack();
+
     const steps = ResolutionQueueManager.getStepsForPlayer(exileGameId, playerId);
     const searchStep = steps.find(step => step.type === ResolutionStepType.LIBRARY_SEARCH) as any;
     expect(searchStep).toBeDefined();
@@ -328,6 +338,11 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
       cardId: 'grave_exile_tutor_1',
       abilityId: 'graveyard-activated',
     });
+
+    // CR 608.2: the tutor ability is on the stack; the search is queued when it resolves.
+    expect((((game.state as any).stack || []) as any[]).map((item: any) => item?.abilityType)).toEqual(['tutor']);
+    expect(ResolutionQueueManager.getStepsForPlayer(exileGameId, playerId).some((step) => step.type === ResolutionStepType.LIBRARY_SEARCH)).toBe(false);
+    (game as any).resolveTopOfStack();
 
     const steps = ResolutionQueueManager.getStepsForPlayer(exileGameId, playerId);
     const searchStep = steps.find(step => step.type === ResolutionStepType.LIBRARY_SEARCH) as any;
@@ -417,5 +432,44 @@ describe('graveyard tutor library-search replay semantics (integration)', () => 
     expect(searchStep.searchCriteria).toBe('Desert card');
     expect(searchStep.entersTapped).toBe(true);
     expect((searchStep.availableCards || []).some((card: any) => card.id === 'desert_lib_1')).toBe(true);
+  });
+
+  it('replays a searchOnResolution graveyard tutor as a stack item that searches on resolution', async () => {
+    const replayGameId = `${gameId}_pending`;
+    const { game, playerId } = await seedGame(replayGameId);
+    (game.state as any).manaPool = {
+      [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 3 },
+    };
+
+    game.applyEvent({
+      type: 'activateGraveyardAbility',
+      playerId,
+      cardId: 'grave_tutor_1',
+      abilityId: 'graveyard-activated',
+      isTutor: true,
+      searchOnResolution: true,
+      stackId: 'gy_tutor_stack_1',
+      manaCost: '{3}',
+      searchCriteria: 'basic land card',
+      destination: 'hand',
+      maxSelections: 1,
+      splitDestination: false,
+      toBattlefield: 1,
+      toHand: 1,
+      entersTapped: false,
+      filter: { supertypes: ['basic'], types: ['land'] },
+    } as any);
+
+    expect((game.state as any).manaPool?.[playerId]).toEqual({ white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 });
+    const stack = (game.state as any).stack || [];
+    expect(stack.map((item: any) => item.id)).toEqual(['gy_tutor_stack_1']);
+    expect(ResolutionQueueManager.getStepsForPlayer(replayGameId, playerId).some((step) => step.type === ResolutionStepType.LIBRARY_SEARCH)).toBe(false);
+
+    (game as any).resolveTopOfStack();
+    const searchStep = ResolutionQueueManager.getStepsForPlayer(replayGameId, playerId)
+      .find((step) => step.type === ResolutionStepType.LIBRARY_SEARCH) as any;
+    expect(searchStep).toBeDefined();
+    expect(searchStep.sourceId).toBe('grave_tutor_1');
+    expect((searchStep.availableCards || []).map((card: any) => card.id).sort()).toEqual(['forest_lib_1', 'mountain_lib_1']);
   });
 });

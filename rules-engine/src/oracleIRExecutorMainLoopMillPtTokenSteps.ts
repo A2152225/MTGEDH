@@ -51,6 +51,7 @@ import {
 } from './oracleIRExecutorPlayerStepHandlers';
 import { applyPayEnergyStep } from './oracleIRExecutorPayEnergyStep';
 import { applyCreateTokenStep } from './oracleIRExecutorTokenStepHandlers';
+import { resolveDirectBattlefieldPermanents } from './oracleIRExecutorBattlefieldPermanentSelectors';
 import { resolvePlayers } from './oracleIRExecutorPlayerUtils';
 import type {
   MainLoopApplyHandledFn,
@@ -532,6 +533,16 @@ export function tryApplyMainLoopMillPtTokenSteps(
                 chosenObjectIds: tappedIds,
               },
             };
+          }
+          // Join Shields: "Untap all creatures you control. They gain ..." -> "they" is that group.
+          const massText = String((step.target as any)?.text || '').trim();
+          if (/^(?:all|each)\b/i.test(massText)) {
+            const massIds = resolveDirectBattlefieldPermanents(
+              ((appliedResult.state as any)?.battlefield || []) as any[],
+              { kind: 'raw', text: massText } as any,
+              currentCtx,
+            ).map((perm: any) => String(perm?.id || '').trim()).filter(Boolean);
+            if (massIds.length > 0) currentCtx = { ...currentCtx, lastAntecedentBattlefieldPermanentIds: massIds };
           }
         });
         break;

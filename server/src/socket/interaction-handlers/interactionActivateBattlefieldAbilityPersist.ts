@@ -10,6 +10,7 @@
 import { notifyNoncombatPlayerDamage } from '../../state/modules/triggers/player-dealt-damage-ir.js';
 import { payLifeAmount } from "../../state/modules/batch97PayLife.js";
 import { appendEvent } from "../../db";
+import { payCommittedActivationEnergy } from "./activationEnergyCost.js";
 import { pushWheneverYouExertTriggersOntoStack } from "../exert-triggers.js";
 import { broadcastGame, getPlayerName } from "../util";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
@@ -122,6 +123,10 @@ export async function applyActivateBattlefieldAbilityPersist(
     }
   }
 
+  // Energy validated at activation is paid now that the activation completed (CR 602.2h).
+  const energyPaidForCost = Math.max(0, Math.floor(Number(mut.energyPaidForCost || 0)))
+    + payCommittedActivationEnergy(game.state, String(pid), mut.pendingEnergyPaymentForCost);
+
   if (pendingManaLifeLossAmount > 0) {
     try {
       (game.state as any).life = (game.state as any).life || {};
@@ -199,6 +204,8 @@ export async function applyActivateBattlefieldAbilityPersist(
     sacrificedPermanents: sacrificedPermanentsForCost,
     removedCountersForCost,
     lifePaidForCost: pendingLifePaymentForCost,
+    ...(energyPaidForCost > 0 ? { energyPaidForCost } : null),
+    ...(mut.exiledSelfForCost ? { exiledSelfForCost: mut.exiledSelfForCost } : null),
     exertedPermanentIdForCost,
   });
 

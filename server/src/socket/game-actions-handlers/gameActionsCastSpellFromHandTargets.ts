@@ -24,6 +24,7 @@ import { buildPendingCastCostMetadata } from "./gameActionsCastCostFormatting.js
 import type { SpellCastSourceZone } from "./gameActionsCastCostReduction.js";
 import { getPendingCastPaymentFields } from "./gameActionsCommandZoneAndAlternateCastCosts.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
+import { isAuraSpell } from "../auraEnchantKeyword.js";
 import {
   buildGroupedSpellTargetMetadata,
   buildSpellTargetListFromRequirements,
@@ -100,8 +101,8 @@ export function tryPromptCastSpellTargetsFromHand(
       // Non-Aura permanents (creatures, artifacts, regular enchantments, planeswalkers) don't require 
       // targets when cast, even if they have activated/triggered abilities with "target" in the text.
       // This includes Equipment (which are artifacts) - they enter unattached and equipping is a separate ability.
-      // An Aura is an enchantment with "Aura" in the type line AND "Enchant" at the start of its oracle text
-      const isAura = typeLine.includes('aura') && /^enchant\s+/i.test(oracleText);
+      // An Aura is an enchantment with "Aura" in the type line and an "Enchant ..." keyword line anywhere in its oracle text (Flash, Kicker, etc. may precede it).
+      const isAura = isAuraSpell(typeLine, oracleText);
       // Use the isInstantOrSorcery already declared above (line 2101)
       const requiresTargetingCheck = isInstantOrSorcery || isAura;
       
@@ -355,12 +356,28 @@ export function tryPromptCastSpellTargetsFromHand(
             Object.values((game.state as any).pendingSpellCasts).find((pc: any) => pc.cardId === cardId) : null;
           
           if (existingPendingCast) {
-            debugError(1, `[castSpellFromHand] LOOP PREVENTION: Pending cast already exists for ${cardInHand.name}. This should not happen!`);
-            socket.emit("error", {
-              code: "TARGETING_LOOP_DETECTED",
-              message: `Targeting error for ${cardInHand.name}. Please try casting again.`,
-            });
-            return;
+            const queuedTargetStep = ResolutionQueueManager
+              .getStepsForPlayer(gameId, playerId as any)
+              .some((step: any) =>
+                step?.type === ResolutionStepType.TARGET_SELECTION
+                && String(step?.cardId || step?.spellCardId || step?.sourceId || '') === String(cardId)
+              );
+            if (queuedTargetStep) {
+              debugError(1, `[castSpellFromHand] LOOP PREVENTION: Pending cast already exists for ${cardInHand.name}. This should not happen!`);
+              socket.emit("error", {
+                code: "TARGETING_LOOP_DETECTED",
+                message: `Targeting error for ${cardInHand.name}. Please try casting again.`,
+              });
+              return;
+            }
+            const pendingCasts = (game.state as any).pendingSpellCasts;
+            if (pendingCasts && typeof pendingCasts === 'object') {
+              for (const [pendingId, pendingCast] of Object.entries(pendingCasts)) {
+                if (pendingCast && String((pendingCast as any).cardId || '') === String(cardId)) {
+                  delete pendingCasts[pendingId];
+                }
+              }
+            }
           }
         }
         

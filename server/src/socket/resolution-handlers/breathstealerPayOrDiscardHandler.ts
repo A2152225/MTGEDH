@@ -4,6 +4,7 @@
 // Sylex does not block it. Public: tryHandleBreathstealerPayOrDiscard.
 
 import type { Server } from "socket.io";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolution/index.js";
 import { payLifeAmount } from "../../state/modules/batch97PayLife.js";
 import { BREATHSTEALER_PAY_OR_DISCARD_FLAG } from "../../state/modules/breathstealersCryptDrawReveal.js";
@@ -80,7 +81,7 @@ export async function tryHandleBreathstealerPayOrDiscard(
           sourceId: String(stepData.sourceId || ''),
           sourceName: String(stepData.sourceName || ''),
         });
-      } catch { /* triggers are best-effort */ }
+      } catch (err) { reportHookFailure('trigger.best-effort', err, { source: 'breathstealerPayOrDiscardHandler' }); /* triggers are best-effort */ }
     }
     if (paid.paid || paid.replaced) {
       try {

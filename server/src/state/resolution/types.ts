@@ -14,6 +14,7 @@
 import type { PlayerID, KnownCardRef } from '../../../../shared/src/types.js';
 import { ChoiceEventType, type ChoiceEvent, type ChoiceOption } from '../../../../rules-engine/src/choiceEvents.js';
 import type { EffectProgramClauseRef } from '../../../../rules-engine/src/effectProgram.js';
+import type { DamageDivisionStep } from './damageDivisionStep.js';
 
 /**
  * Resolution step status
@@ -1025,6 +1026,7 @@ export type ResolutionStep =
   | CounterMovementStep
   | CounterTargetStep
   | CounterDistributionStep
+  | DamageDivisionStep
   | StationCreatureSelectionStep
   | LifePaymentStep
   | AdditionalCostPaymentStep

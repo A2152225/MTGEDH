@@ -28,6 +28,7 @@ import {
   markPlayerCompletingSpellCast,
   restoreSuspendedLibrarySearchStep,
 } from "./gameActionsSpellCastLock.js";
+import { stampDamageDivisionOnPendingCastAndZoneCards } from "../../state/modules/dividedDamageDivision.js";
 import { normalizeSpellCastSourceZone } from "./gameActionsSpellCastTriggerDetection.js";
 import type { EnsureInGameRoom } from "./gameActionsSocketRoomGuard.js";
 
@@ -420,6 +421,7 @@ export async function handleCompleteCastSpellRequest(
     debug(2, `[completeCastSpell] DEBUG END ==========================================`);
 
     markPlayerCompletingSpellCast(game, playerId, cardId, effectIdStr);
+    stampDamageDivisionOnPendingCastAndZoneCards(game, (game.state as any).pendingSpellCasts?.[effectIdStr]);
     try {
     // CRITICAL FIX: Pass skipInteractivePrompts=true to prevent infinite targeting loop
     // This tells handleCastSpellFromHand to skip all target/payment requests since we're completing a previous cast

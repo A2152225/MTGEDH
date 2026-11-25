@@ -30,6 +30,7 @@ import {
   fireBattlefieldAbilityActivatedTriggers,
 } from "../resolutionActivatedAbilityTargetingUtils.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 /** MANA_PAYMENT_CHOICE tail: Phyrexian mana payment for an activated ability. */
 export async function handleManaPaymentChoicePhyrexianActivation(
@@ -170,14 +171,14 @@ export async function handleManaPaymentChoicePhyrexianActivation(
       (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
       (game.state as any).lifeLostThisTurn[String(pid)] =
         ((game.state as any).lifeLostThisTurn[String(pid)] || 0) + Number(totalLifeToPay || 0);
-    } catch {}
+    } catch (err) { reportHookFailure('payment.lifeLostTracking', err, { source: 'manaPaymentChoicePhyrexianHandlers' }); }
     queueLifePaymentTriggers(game as any, String(pid), Number(totalLifeToPay || 0), { sourceName: 'Phyrexian mana' });
 
     // Keep player object in sync.
     try {
       const playerObj = ((game.state as any).players || []).find((p: any) => p?.id === pid);
       if (playerObj) playerObj.life = game.state.life[pid];
-    } catch {}
+    } catch (err) { reportHookFailure('payment.lifeSync', err, { source: 'manaPaymentChoicePhyrexianHandlers' }); }
 
     io.to(gameId).emit('chat', {
       id: `m_${Date.now()}`,

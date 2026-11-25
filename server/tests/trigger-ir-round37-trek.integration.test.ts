@@ -92,6 +92,24 @@ describe('round 37: Star Trek trigger wordings', () => {
     });
   }
 
+  it('Indelicate Healer: self and another Warrior each grant lifelink once', () => {
+    const text = 'Whenever this creature or another Klingon or Warrior you control enters, creatures you control gain lifelink until end of turn.';
+    const healer = perm('Indelicate Healer', 'p1', { type_line: 'Creature — Klingon Warrior Doctor', oracle_text: text });
+    const selfCtx = ctxOf([healer]);
+    triggerETBEffectsForPermanent(selfCtx, healer, 'p1');
+    expect(selfCtx.state.stack.filter((s: any) => s.sourceName === 'Indelicate Healer')).toHaveLength(1);
+
+    const celebrant = creature('Combat Celebrant', 'p1', 4, 'Combat Celebrant', 'Creature — Human Warrior');
+    const otherCtx = ctxOf([healer, celebrant]);
+    triggerETBEffectsForPermanent(otherCtx, celebrant, 'p1');
+    expect(otherCtx.state.stack.filter((s: any) => s.sourceName === 'Indelicate Healer')).toHaveLength(1);
+
+    const elf = creature('Llanowar Elves', 'p1', 1, 'Llanowar Elves', 'Creature — Elf Druid');
+    const missCtx = ctxOf([healer, elf]);
+    triggerETBEffectsForPermanent(missCtx, elf, 'p1');
+    expect(missCtx.state.stack.filter((s: any) => s.sourceName === 'Indelicate Healer')).toHaveLength(0);
+  });
+
   it('Gagh Slinger: another Klingon entering fires once', () => {
     const g = perm('Gagh Slinger', 'p1', { type_line: 'Creature - Klingon Warrior', power: '2', toughness: '2', oracle_text: 'Whenever another Klingon or Warrior you control enters, this creature deals 1 damage to each opponent.' });
     const k = creature('k', 'p1', 2, 'Klingon Grunt', 'Creature - Klingon');

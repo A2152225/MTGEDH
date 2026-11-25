@@ -9,6 +9,7 @@
  */
 
 import type { PlayerID } from '../../../../../shared/src/index.js';
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 import type { GameContext } from '../../context.js';
 import { debug } from '../../../utils/debug.js';
 import { uid } from '../../utils.js';
@@ -113,7 +114,8 @@ export function queueTemporaryEtbTriggersForEntry(
         if (satisfied === false) {
           continue;
         }
-      } catch {
+      } catch (err) {
+        reportHookFailure('intervening-if.eval', err, { source: 'triggerEtbTemporaryEntryTriggers' });
         // Conservative fallback: keep the trigger if evaluation fails.
       }
     }

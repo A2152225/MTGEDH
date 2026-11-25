@@ -14,7 +14,7 @@ import { cardAnalyzer } from './CardAnalyzer';
 const MIN_THREAT_PRIORITY = 4;
 
 const PERMANENT_TARGET =
-  /\btarget\s+(?:(?:non-?creature|another|attacking|blocking|tapped|untapped)\s+)*(?:creature|artifact|enchantment|land|planeswalker|permanent)s?\b/i;
+  /\btarget\s+(?:(?:non-?creature|another|attacking|blocking|tapped|untapped)\s+)*(?:creature|artifact|enchantment|land|planeswalker|permanent)s?\b(?!\s+(?:or\s+[a-z]+\s+)?cards?\b)/i;
 
 export interface ActivatedAbilityTargetReview {
   readonly requiresTarget: boolean;

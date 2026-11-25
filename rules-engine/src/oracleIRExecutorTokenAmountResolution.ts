@@ -99,7 +99,12 @@ function pluralizeCountExpression(value: string): string {
   if (/\b(?:you|they|player|opponent|control|controls|this way|this turn|attacking|blocked|died|destroyed)\b/i.test(raw)) {
     const words = raw.split(/\s+/g);
     const first = words[0] || '';
-    const nounIndex = /^(?:non[- ]?token|non[- ]?land|tapped|untapped|attacking|blocked|other)$/i.test(first) && words[1] ? 1 : 0;
+    // Head noun sits right before its first post-modifier: "basic land type among lands you control",
+    // "white mana symbol in the mana costs of permanents you control", "creature card in your graveyard".
+    const modifierIndex = words.findIndex((word, index) => index > 0 && /^(?:among|in|on|you|that|with|your|they|from|attached)$/i.test(word));
+    const nounIndex = modifierIndex > 0
+      ? modifierIndex - 1
+      : (/^(?:non[- ]?token|non[- ]?land|tapped|untapped|attacking|blocked|other)$/i.test(first) && words[1] ? 1 : 0);
     const noun = words[nounIndex] || '';
     if (noun && !/(?:s|x|ch|sh)$/i.test(noun) && !/^(?:each|one|two|three|four|five|six|seven|eight|nine|ten)$/i.test(noun)) {
       words[nounIndex] = `${noun}s`;

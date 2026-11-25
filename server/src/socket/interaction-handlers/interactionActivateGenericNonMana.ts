@@ -24,11 +24,11 @@ import {
   parseTargetRequirements,
 } from "../../rules-engine/targeting.js";
 import { isPermanentCurrentlyAttacking } from "../../state/modules/triggeredAbilityBattlefieldTargetMatch.js";
-import { filterLibraryCardsForSearch } from "../library-search.js";
 import { broadcastGame, getPlayerName } from "../util";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
 import { persistAbilityActivatedTriggerPushes } from "./interactionActivateBattlefieldAbilityHelpers.js";
 import { notifySpellOrAbilityPutOnStack } from "../../state/modules/stackPutNotify.js";
+import { payCommittedActivationEnergy } from "./activationEnergyCost.js";
 import {
   matchesParsedGraveyardCardTargetType,
   persistQueuedBattlefieldAbilityStepActivation,
@@ -40,6 +40,7 @@ import type {
 import { detectTutorEffect, parseSearchCriteria } from "./interactionTutorSearchCriteriaParsing.js";
 import { reviewActivatedAbilityTargets } from "../../../../rules-engine/src/aiActivatedAbilityTargets.js";
 import { buildActivatedAbilityValidTargets } from "../resolutionActivatedAbilityTargetingUtils.js";
+import { paySelfSourceActivationCost, type SelfSourceCostKind } from "./activationSelfSourceCost.js";
 
 export async function tryHandleActivateGenericNonMana(
   ctx: ActivateBattlefieldAbilityContext,
@@ -64,6 +65,9 @@ export async function tryHandleActivateGenericNonMana(
   } = extras;
   let pendingLifePaymentForCost = mut.pendingLifePaymentForCost;
   let sacrificeSelfRemovalTargetId: string | undefined;
+  // CR 602.2b: targets are chosen before costs are paid, so "Sacrifice/Exile this" waits.
+  let deferredSelfSourceCost: SelfSourceCostKind | undefined;
+  let selfSourceLastKnown: Record<string, any> | undefined;
   let persistedStackItemId = mut.persistedStackItemId;
   const tappedPermanentsForCost = mut.tappedPermanentsForCost;
   const sacrificedPermanentsForCost = mut.sacrificedPermanentsForCost;
@@ -141,12 +145,12 @@ export async function tryHandleActivateGenericNonMana(
     // Conservative: only support self-exile costs that don't include additional non-mana components.
     {
       const costStr = String(manaCost || '');
-      const selfExileMatch = costStr.match(/\bexile\s+(?:~|this)\b[^,]*/i);
+      const selfExileMatch = costStr.match(/\bexile\s+(?:~|this\b)[^,]*/i);
 
       if (selfExileMatch) {
         const remainingNonManaCostText = costStr
           .replace(/\{[^}]+\}/g, ' ')
-          .replace(/\bexile\s+(?:~|this)\b[^,]*/gi, ' ')
+          .replace(/\bexile\s+(?:~|this\b)[^,]*/gi, ' ')
           .replace(/[\s,]+/g, ' ')
           .trim();
 
@@ -158,45 +162,7 @@ export async function tryHandleActivateGenericNonMana(
           return true;
         }
 
-        try {
-          const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-          const sourcePermanent = battlefield.find((entry: any) => entry && String((entry as any).id || '') === String(permanentId)) as any;
-          if (!sourcePermanent) {
-            socket.emit('error', {
-              code: 'PERMANENT_NOT_FOUND',
-              message: 'Permanent no longer on battlefield',
-            });
-            return true;
-          }
-
-          sourcePermanent.leaveBattlefieldReplacementDestination = 'exile';
-          if (sourcePermanent.card && typeof sourcePermanent.card === 'object') {
-            sourcePermanent.card.leaveBattlefieldReplacementDestination = 'exile';
-          }
-
-          const ctx = {
-            state: game.state,
-            libraries: (game as any).libraries,
-            bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-            rng: (game as any).rng,
-            gameId,
-          } as any;
-          const { movePermanentToGraveyard } = await import('../../state/modules/counters_tokens.js');
-          const moved = movePermanentToGraveyard(ctx, String(permanentId), true);
-          if (!moved) {
-            socket.emit('error', {
-              code: 'PERMANENT_NOT_FOUND',
-              message: 'Permanent no longer on battlefield',
-            });
-            return true;
-          }
-        } catch {
-          socket.emit('error', {
-            code: 'EXILE_FAILED',
-            message: `Failed to exile ${cardName} as part of the activation cost.`,
-          });
-          return true;
-        }
+        deferredSelfSourceCost = 'exile';
       }
     }
 
@@ -248,7 +214,9 @@ export async function tryHandleActivateGenericNonMana(
         .replace(/\{[^}]+\}/g, ' ')
         .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
         // Strip "Sacrifice ~" and "Sacrifice this ..." clauses.
-        .replace(/\bsacrifice\s+(?:~|this)\b[^,]*/gi, ' ')
+        .replace(/\bsacrifice\s+(?:~|this\b)[^,]*/gi, ' ')
+        // The discard prompt queues a non-empty hand; discarding an empty hand costs nothing.
+        .replace(/\bdiscard\s+your\s+hand\b/gi, ' ')
         .replace(/[\s,]+/g, ' ')
         .trim();
 
@@ -260,63 +228,7 @@ export async function tryHandleActivateGenericNonMana(
         return true;
       }
 
-      try {
-        const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-        const sacrificedSourcePermanent = battlefield.find((entry: any) => entry && String((entry as any).id || '') === String(permanentId)) as any;
-        const tokenGraveyardSnapshot = sacrificedSourcePermanent?.isToken && sacrificedSourcePermanent?.card
-          ? { ...(sacrificedSourcePermanent.card || {}), zone: 'graveyard' }
-          : null;
-        const graveyardOwnerId = String(sacrificedSourcePermanent?.owner || sacrificedSourcePermanent?.controller || pid || '').trim();
-        const ctx = {
-          state: game.state,
-          libraries: (game as any).libraries,
-          bumpSeq: typeof (game as any).bumpSeq === 'function' ? (game as any).bumpSeq.bind(game) : (() => {}),
-          rng: (game as any).rng,
-          gameId,
-        } as any;
-        const { movePermanentToGraveyard } = await import('../../state/modules/counters_tokens.js');
-        const moved = movePermanentToGraveyard(ctx, String(permanentId), true);
-        if (!moved) {
-          socket.emit('error', {
-            code: 'PERMANENT_NOT_FOUND',
-            message: 'Permanent no longer on battlefield',
-          });
-          return true;
-        }
-        if (tokenGraveyardSnapshot && graveyardOwnerId) {
-          const zones = ((game.state as any).zones = (game.state as any).zones || {});
-          const playerZones = (zones[graveyardOwnerId] = zones[graveyardOwnerId] || {
-            hand: [],
-            handCount: 0,
-            libraryCount: 0,
-            graveyard: [],
-            graveyardCount: 0,
-            exile: [],
-            exileCount: 0,
-          });
-          playerZones.graveyard = Array.isArray(playerZones.graveyard) ? playerZones.graveyard : [];
-
-          const alreadyPresent = (playerZones.graveyard as any[]).some((card: any) => {
-            if (!card) return false;
-            const cardId = String((card as any).id || '').trim();
-            const snapshotId = String((tokenGraveyardSnapshot as any).id || '').trim();
-            if (cardId && snapshotId) return cardId === snapshotId;
-            return String((card as any).name || '').trim() === String((tokenGraveyardSnapshot as any).name || '').trim();
-          });
-
-          if (!alreadyPresent) {
-            (playerZones.graveyard as any[]).push(tokenGraveyardSnapshot);
-            playerZones.graveyardCount = (playerZones.graveyard as any[]).length;
-          }
-        }
-        sacrificedPermanentsForCost.push(String(permanentId));
-      } catch {
-        socket.emit('error', {
-          code: 'SACRIFICE_FAILED',
-          message: `Failed to sacrifice ${cardName} as part of the activation cost.`,
-        });
-        return true;
-      }
+      deferredSelfSourceCost = 'sacrifice';
     }
 
     // Check if this is a tutor effect (searches library)
@@ -324,6 +236,25 @@ export async function tryHandleActivateGenericNonMana(
 
     const activatedAbilityTextForStack = resolvedActivatedAbilityText;
     let autoSelectedPlayerTargetIds: string[] | undefined;
+    // Target prompts carry the self-source cost and life payment; the continuation pays them.
+    const deferredCostStepFields = {
+      ...(deferredSelfSourceCost ? { deferredSelfSourceCost } : null),
+      ...(pendingLifePaymentForCost > 0 ? { deferredLifePaymentForCost: pendingLifePaymentForCost } : null),
+      ...(Number(mut.pendingEnergyPaymentForCost || 0) > 0 ? { deferredEnergyPaymentForCost: Number(mut.pendingEnergyPaymentForCost) } : null),
+    };
+    const payDeferredSelfSourceCostNow = (): boolean => {
+      if (!deferredSelfSourceCost) return true;
+      const paid = paySelfSourceActivationCost(game, gameId, String(pid), String(permanentId), deferredSelfSourceCost, cardName);
+      if (!paid.ok) {
+        socket.emit('error', { code: paid.code, message: paid.message });
+        return false;
+      }
+      if (deferredSelfSourceCost === 'sacrifice') sacrificedPermanentsForCost.push(String(permanentId));
+      else mut.exiledSelfForCost = String(permanentId);
+      selfSourceLastKnown = paid.snapshot;
+      deferredSelfSourceCost = undefined;
+      return true;
+    };
 
     const parsedGraveyardTargetReqs = parseTargetRequirements(resolvedAbilityText, {
       gameState: game.state,
@@ -427,6 +358,7 @@ export async function tryHandleActivateGenericNonMana(
             activatedAbilityText: activatedAbilityTextForStack,
             tappedPermanentsForCost,
             ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
+            ...deferredCostStepFields,
           }
         : {
             type: ResolutionStepType.TARGET_SELECTION,
@@ -449,6 +381,7 @@ export async function tryHandleActivateGenericNonMana(
             activatedAbilityText: activatedAbilityTextForStack,
             tappedPermanentsForCost,
             ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
+            ...deferredCostStepFields,
           };
       const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
 
@@ -549,6 +482,7 @@ export async function tryHandleActivateGenericNonMana(
         activatedAbilityText: activatedAbilityTextForStack,
         tappedPermanentsForCost,
         ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
+        ...deferredCostStepFields,
       };
       const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
 
@@ -654,6 +588,7 @@ export async function tryHandleActivateGenericNonMana(
         activatedAbilityText: activatedAbilityTextForStack,
         tappedPermanentsForCost,
         ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
+        ...deferredCostStepFields,
       };
       const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
 
@@ -688,8 +623,10 @@ export async function tryHandleActivateGenericNonMana(
     if (tutorInfo.isTutor) {
       // This is a tutor effect - handle library search
       const filter = parseSearchCriteria(tutorInfo.searchCriteria || "");
-      const library = game.searchLibrary ? game.searchLibrary(pid, "", 1000) : [];
       
+      if (!payDeferredSelfSourceCostNow()) return true;
+      const tutorEnergyPaidForCost = payCommittedActivationEnergy(game.state, String(pid), mut.pendingEnergyPaymentForCost);
+      mut.pendingEnergyPaymentForCost = 0;
       // Put the ability on the stack first
       const stackItem = {
         id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -700,6 +637,8 @@ export async function tryHandleActivateGenericNonMana(
         description: resolvedAbilityText,
         activatedAbilityText: activatedAbilityTextForStack,
         abilityType: 'tutor',
+        // CR 602.2 / 608.2: the search happens when the ability resolves (stackResolveDeferredTutorSearch).
+        searchOnResolution: true,
         ...(autoSelectedPlayerTargetIds?.length ? { targets: autoSelectedPlayerTargetIds } : {}),
         searchParams: {
           filter,
@@ -727,32 +666,10 @@ export async function tryHandleActivateGenericNonMana(
         abilityId,
         cardName,
         stackId: stackItem.id,
+        searchOnResolution: true,
+        ...(tutorEnergyPaidForCost > 0 ? { energyPaidForCost: tutorEnergyPaidForCost } : null),
       });
       
-      // Queue library search via Resolution Queue
-      const isSplit = tutorInfo.splitDestination === true;
-      const destination: any = (tutorInfo.destination === 'battlefield' || tutorInfo.destination === 'battlefield_tapped') ? 'battlefield'
-        : (tutorInfo.destination === 'exile') ? 'exile'
-        : 'hand';
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.LIBRARY_SEARCH,
-        playerId: pid as PlayerID,
-        sourceName: `${cardName}`,
-        description: tutorInfo.searchCriteria ? `Search for: ${tutorInfo.searchCriteria}` : 'Search your library',
-        searchCriteria: tutorInfo.searchCriteria || 'any card',
-        minSelections: 0,
-        maxSelections: tutorInfo.maxSelections || (isSplit ? 2 : 1),
-        mandatory: false,
-        destination,
-        reveal: false,
-        shuffleAfter: true,
-        availableCards: filterLibraryCardsForSearch(library, filter, game.state, pid),
-        filter,
-        splitDestination: isSplit,
-        toBattlefield: tutorInfo.toBattlefield || 1,
-        toHand: tutorInfo.toHand || 1,
-        entersTapped: tutorInfo.entersTapped || false,
-      } as any);
       
       io.to(gameId).emit("chat", {
         id: `m_${Date.now()}`,
@@ -763,9 +680,10 @@ export async function tryHandleActivateGenericNonMana(
       });
       
       broadcastGame(io, game, gameId);
-      return true; // Early return - library search will handle the rest
+      return true; // Early return - the library search is queued when the ability resolves
     }
     
+    if (!payDeferredSelfSourceCostNow()) return true;
     // Not a tutor - put the ability on the stack normally
     if (isPowerUpActivation && powerUpAbilityIndex >= 0) {
       markPowerUpAbilityUsed(permanent, powerUpAbilityIndex);
@@ -781,6 +699,8 @@ export async function tryHandleActivateGenericNonMana(
       activatedAbilityText: activatedAbilityTextForStack,
       xValue: selectedXValue,
       activatedAbilityIndex: selectedAbilityIndex,
+      ...(selfSourceLastKnown ? { sourceLastKnown: selfSourceLastKnown } : null),
+      ...(selfSourceLastKnown && sacrificedPermanentsForCost.includes(String(permanentId)) ? { lastSacrificedPermanents: [selfSourceLastKnown] } : null),
       ...(sacrificeSelfRemovalTargetId
         ? { targets: [sacrificeSelfRemovalTargetId] }
         : autoSelectedPlayerTargetIds?.length

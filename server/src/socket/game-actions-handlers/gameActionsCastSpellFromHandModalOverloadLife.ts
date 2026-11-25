@@ -14,9 +14,11 @@ import { parseKeywordAlternateManaCost } from "../../state/modules/alternate-cos
 import { spellOracleUsesTeamworkChooseBoth } from "../../state/modules/marvelMechanicsHelpers.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { PAY_X_LIFE_CARDS, getMaxPayableLife, validateLifePayment } from "../../state/utils";
+import { detectAdditionalCost } from "../land-helpers.js";
 import { extractModalModesForSpellCast } from "../../utils/oraclePromptContext.js";
 import { debug } from "../../utils/debug.js";
 import { adjustModalSpellInfoForCurrentCast } from "./gameActionsModalCastModeCosts.js";
+import { restrictModalModesToLegalTargets } from "./castModalModeTargetAvailability.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
 
 export type CastSpellModalOverloadLifeFromHandArgs = {
@@ -68,7 +70,10 @@ export function tryPromptCastSpellModalOverloadLifeFromHand(
       // IMPORTANT: Only apply to INSTANTS and SORCERIES, not to permanents with triggered abilities
       // Permanents like Glorious Sunrise have "At the beginning of combat on your turn, choose one G��" which is a TRIGGER, not a modal spell
       const modalSpellInfo = isInstantOrSorcery && !spellOracleUsesTeamworkChooseBoth(baseOracleText)
-        ? adjustModalSpellInfoForCurrentCast(extractModalModesForSpellCast(baseOracleText, String(cardInHand.name || '')), game.state, String(playerId), baseOracleText)
+        ? restrictModalModesToLegalTargets(
+          adjustModalSpellInfoForCurrentCast(extractModalModesForSpellCast(baseOracleText, String(cardInHand.name || '')), game.state, String(playerId), baseOracleText),
+          game.state, String(playerId), baseOracleText, String(cardInHand.name || ''),
+        )
         : undefined;
       const modesAlreadySelected = (cardInHand as any).selectedModes || (targets as any)?.selectedModes;
       const additionalCostModeInfo = isInstantOrSorcery ? extractAdditionalCostModesFromOracleText(baseOracleText) : undefined;
@@ -255,9 +260,14 @@ export function tryPromptCastSpellModalOverloadLifeFromHand(
       const isPermanent = cardTypeLine.includes('creature') || cardTypeLine.includes('artifact') || 
                          cardTypeLine.includes('enchantment') || cardTypeLine.includes('planeswalker') || 
                          cardTypeLine.includes('land');
-      const payXLifeInfo = PAY_X_LIFE_CARDS[cardNameLower];
+      const listedPayXLife = PAY_X_LIFE_CARDS[cardNameLower];
+      const detectedPayXLife = !listedPayXLife && detectAdditionalCost(oracleText)?.payLifeIsX
+        ? { effect: `Pay X life to cast ${cardInHand.name}`, minX: 0 }
+        : undefined;
+      const payXLifeInfo = listedPayXLife || detectedPayXLife;
       const lifePaymentProvided = (payment as any[])?.some((p: any) => typeof p.lifePayment === 'number') ||
-                                   (targets as any)?.lifePayment !== undefined;
+                                   (targets as any)?.lifePayment !== undefined ||
+                                   typeof (cardInHand as any)?.lifePaymentAmount === 'number';
       
       if (payXLifeInfo && !lifePaymentProvided && !isPermanent) {
         // Get the player's current life to determine max payment
@@ -284,6 +294,15 @@ export function tryPromptCastSpellModalOverloadLifeFromHand(
             currentLife,
             minPayment,
             maxPayment: maxPayable,
+            castSpellFromHandArgs: {
+              cardId,
+              payment,
+              targets,
+              xValue,
+              alternateCostId,
+              selectedCastMode,
+              convokeTappedCreatures,
+            },
           } as any);
 
           persistQueuedSpellCastStepContinuation(gameId, game, {
@@ -302,11 +321,16 @@ export function tryPromptCastSpellModalOverloadLifeFromHand(
       // If life payment was provided, validate it
       if (payXLifeInfo && lifePaymentProvided) {
         const lifePayment = (payment as any[])?.find((p: any) => typeof p.lifePayment === 'number')?.lifePayment ||
-                            (targets as any)?.lifePayment || 0;
+                            (targets as any)?.lifePayment ||
+                            (cardInHand as any)?.lifePaymentAmount || 0;
+        const alreadyPaid = typeof (cardInHand as any)?.lifePaymentAmount === 'number'
+          && Number((cardInHand as any).lifePaymentAmount) === Number(lifePayment);
         const startingLife = game.state.startingLife || 40;
         const currentLife = game.state.life?.[playerId] ?? startingLife;
         
-        const validationError = validateLifePayment(currentLife, lifePayment, cardInHand.name, game as GameContext, playerId);
+        const validationError = alreadyPaid
+          ? null
+          : validateLifePayment(currentLife, lifePayment, cardInHand.name, game as GameContext, playerId);
         if (validationError) {
           socket.emit("error", {
             code: "INVALID_LIFE_PAYMENT",

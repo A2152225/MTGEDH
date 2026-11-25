@@ -311,6 +311,7 @@ export function useAppPlayStateLate(p: Record<string, any>) {
       excludeSource?: boolean;
     };
     targetCount: number;
+    minTargetCount?: number;
     title?: string;
     description?: string;
   } | null>(null);
@@ -411,6 +412,9 @@ export function useAppPlayStateLate(p: Record<string, any>) {
     minPerTarget?: number;
     targets: Array<{ id: string; label: string }>;
     message?: string;
+    unitNoun?: string;
+    heading?: string;
+    initializeEven?: boolean;
   } | null>(null);
   
   // Additional Cost Modal state - for discard/sacrifice as additional costs

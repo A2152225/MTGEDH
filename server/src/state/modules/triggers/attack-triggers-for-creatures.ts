@@ -28,6 +28,7 @@ import {
 } from "./trigger-doublers.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates, parsedEventLinesFor } from "./triggerConditionFamilyMatch.js";
 import { dropTriggersFromAbilitylessSources } from './triggeredAbilitySuppression.js';
+import { isControllerOptionalTriggeredAbilityEffect } from '../trigger-runtime-wiring.js';
 import { oracleTextWithGrantedTriggers } from './grantedOracleTriggerScan.js';
 import { applyParsedGroupAttackTriggers } from './attack-group-ir.js';
 
@@ -326,7 +327,7 @@ export function getAttackTriggersForCreatures(
           effect: payment ? String(line.reflexive!.effect) : effect,
           // "it" / "that creature" in the effect resolves against the attacker (not for batched lines).
           ...(batched ? {} : { value: { attackingCreatureId: String(attacker?.id || '') } }),
-          mandatory: payment ? false : !/\byou may\b/i.test(effect),
+          mandatory: payment ? false : !isControllerOptionalTriggeredAbilityEffect(effect),
           ...(payment || {}),
           ...(line.reflexive && !payment ? { reflexiveWhenYouDo: line.reflexive } : {}),
           ...(line.delayed ? { delayedEndStep: line.delayed } : {}),

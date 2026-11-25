@@ -57,19 +57,27 @@ export function buildAiZoneSelectionStepResponse(
         );
         return !nonSelectableIds.has(cardId);
       });
-      const minSelections = searchStep.minSelections || 0;
-      const maxSelections = searchStep.maxSelections || 1;
+      // `||` turned a computed "up to X" of 0 into 1; keep an explicit 0 maximum.
+      const minSelections = Math.max(0, Number(searchStep.minSelections ?? 0) || 0);
+      const maxSelectionsRaw = Number(searchStep.maxSelections);
+      const maxSelections = Number.isFinite(maxSelectionsRaw) && maxSelectionsRaw >= 0 ? Math.floor(maxSelectionsRaw) : 1;
       const destination = searchStep.destination || 'hand';
       const maxTotalManaValue = Number(searchStep.maxTotalManaValue);
 
-      if (availableCards.length === 0) {
-        // No valid cards found - complete with empty selection
+      if (availableCards.length === 0 || maxSelections === 0) {
+        // No valid cards found (or "up to 0") - complete with empty selection
         const emptyResponse: ResolutionStepResponse = {
           stepId: step.id,
           playerId: step.playerId,
           selections: [],
-          cancelled: false,
+          // An optional split search that found nothing cannot fill its required battlefield pile: decline it.
+          cancelled: searchStep.mandatory === false && availableCards.length === 0 && Number(searchStep.toBattlefield) > 0
+            && (searchStep.splitDestination === true || String(searchStep.destination || '').toLowerCase() === 'split'),
           timestamp: Date.now(),
+          // Split-destination searches (Cultivate-style) must still name both piles, even when empty.
+          ...(searchStep.splitDestination === true || String(searchStep.destination || '').toLowerCase() === 'split'
+            ? { splitAssignments: { toBattlefield: [], toHand: [] } }
+            : {}),
         };
         debug(2, `[Resolution] AI library search: no available cards, selecting none`);
         return emptyResponse;
@@ -234,13 +242,33 @@ export function buildAiZoneSelectionStepResponse(
     }
 
     case ResolutionStepType.DISCARD_SELECTION: {
-      // Prefer live zones.hand (authoritative); fall back to step.hand options from cleanup queue.
+      // Answer from the cards the step offers (validated against step.hand), see below.
       const discardStep = step as any;
-      const discardCount = Number(discardStep.discardCount || 1);
-      const liveHand = game.state?.zones?.[step.playerId]?.hand;
-      const hand = Array.isArray(liveHand) && liveHand.length > 0
-        ? liveHand
-        : (Array.isArray(discardStep.hand) ? discardStep.hand : []);
+      // "Discard any number" arrives as discardCount 0; `|| 1` turned it into a forced single discard.
+      const discardCountRaw = Number(discardStep.discardCount ?? 1);
+      const discardCount = Number.isFinite(discardCountRaw) && discardCountRaw >= 0 ? Math.floor(discardCountRaw) : 1;
+      const liveHand: any[] = Array.isArray(game.state?.zones?.[step.playerId]?.hand) ? game.state.zones[step.playerId].hand : [];
+      // Activation-cost discards offer a restricted set (typed cost, "at random"): answer from it.
+      const costOfferedHand = discardStep.discardAbilityAsCost === true && Array.isArray(discardStep.hand) && discardStep.hand.length > 0
+        ? discardStep.hand
+        : null;
+      // Otherwise the step's `hand` is still the set the validator enforces: the chooser's own hand for
+      // cleanup/effect discards, or a revealed opponent hand ("you choose a nonland card from it"). Use the
+      // listed cards still in the live hand when there are any, else the listed cards as they are (a
+      // revealed hand is not the chooser's zone); the live hand only when the step lists nothing.
+      const stepHand: any[] = Array.isArray(discardStep.hand) ? discardStep.hand : [];
+      const liveIds = new Set(liveHand.map((card: any) => normalizeResolutionCardId(card?.id)).filter(Boolean));
+      const stepHandInLiveHand = stepHand.filter((card: any) => liveIds.has(normalizeResolutionCardId(card?.id)));
+      const hand = costOfferedHand
+        ? costOfferedHand
+        : stepHand.length > 0
+        ? (stepHandInLiveHand.length > 0 ? stepHandInLiveHand : stepHand)
+        : liveHand;
+
+      if (discardCount > hand.length && discardStep.mandatory === false) {
+        // Optional prompt whose count cannot be met ("you may discard your hand" sent as 9999): decline it.
+        return { stepId: step.id, playerId: step.playerId, selections: [], cancelled: true, timestamp: Date.now() };
+      }
 
       // Score cards - higher score = discard first
       const scoredHand = hand.map((card: any) => {

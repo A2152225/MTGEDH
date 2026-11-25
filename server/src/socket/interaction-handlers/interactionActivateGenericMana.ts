@@ -159,7 +159,7 @@ export async function tryHandleActivateGenericMana(
       const remainingNonManaCostText = costStr
         .replace(/\{[^}]+\}/g, ' ')
         .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
-        .replace(/\bsacrifice\s+(?:~|this)\b[^,]*/gi, ' ')
+        .replace(/\bsacrifice\s+(?:~|this\b)[^,]*/gi, ' ')
         .replace(/[\s,]+/g, ' ')
         .trim();
 

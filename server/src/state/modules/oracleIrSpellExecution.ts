@@ -42,6 +42,8 @@ import { isSpellEffectOwnedByOracleIrPrimary } from './oracleIrSpellLegacyRoutin
 import { getAmountOfManaSpent } from '../../../../rules-engine/src/oracleIRExecutorManaUtils.js';
 import { applyInstantSorceryGraveyardConditionalTokenRider } from './stackResolveSpellPostCategorizeRidersUtils.js';
 import { withCurrentPowerToughnessHook } from './currentPowerToughness.js';
+import { sacrificedCostLastKnownContext } from './sacrificedCostLastKnown.js';
+import { normalizeDamageDivisionMap } from './dividedDamageDivision.js';
 
 export { isOracleIrSpellPrimaryEnabled } from './oracleIrFeatureFlags.js';
 
@@ -53,6 +55,7 @@ export interface TryResolveSpellViaOracleIRParams {
   readonly sourcePermanentId?: string;
   readonly targets?: readonly string[];
   readonly xValue?: number;
+  readonly damageDivisionByTargetId?: Readonly<Record<string, number>>;
   readonly selectedModeIds?: readonly string[];
   readonly castFromGraveyard?: boolean;
   readonly giftPromised?: boolean;
@@ -118,6 +121,12 @@ function buildSpellIrContext(
   const chosenMana = chosenColorToChosenMana(params.chosenColor);
   const sourceManaSpentTotal = getAmountOfManaSpent(params.sourceItem);
   const sourceGrantedAbilities = readSourceGrantedAbilities(params.sourceItem);
+  const damageDivisionByTargetId = normalizeDamageDivisionMap(
+    params.damageDivisionByTargetId
+    ?? (params.sourceItem as any)?.damageDivisionByTargetId
+    ?? (params.card as any)?.damageDivisionByTargetId
+    ?? (params.effectiveCard as any)?.damageDivisionByTargetId,
+  );
   return buildOracleIRExecutionContext(
     {
       controllerId: params.controller,
@@ -125,6 +134,7 @@ function buildSpellIrContext(
       sourceName: params.spellName,
       sourceObjectType: 'spell',
       xValue: params.xValue,
+      ...(damageDivisionByTargetId ? { damageDivisionByTargetId } : {}),
       ...(sourceManaSpentTotal !== null ? { sourceManaSpentTotal } : {}),
       ...(sourceGrantedAbilities ? { sourceGrantedAbilities } : {}),
       sourceColors: params.sourceColors,
@@ -137,6 +147,7 @@ function buildSpellIrContext(
         ? { wasBargained: (params.sourceItem as any).wasBargained as boolean }
         : {}),
       ...(params.castFromGraveyard ? { castFromZone: 'graveyard' } : {}),
+      ...sacrificedCostLastKnownContext(params.sourceItem),
       ...oracleIrTargetBindingToBaseContext(targetBinding),
       selectorContext: {
         ...oracleIrTargetBindingToBaseContext(targetBinding).selectorContext,

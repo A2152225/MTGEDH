@@ -31,6 +31,7 @@ import {
 import { aiRandom } from "../../../../rules-engine/src/aiRandom.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { stampPermanentEntryTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
+import { detectTutorEffect, parseSearchCriteria } from "../interaction-handlers/interactionTutorSearchCriteriaParsing.js";
 
 export async function executeAILegacyActivateAbility(
   io: Server,
@@ -476,6 +477,24 @@ export async function executeAILegacyActivateAbility(
           if (persistedChosenOpponentId) {
             legacyTargets = [String(persistedChosenOpponentId)];
           }
+          // CR 602.2 / 608.2: tutor abilities search when they resolve (stackResolveDeferredTutorSearch).
+          const legacyTutorInfo = detectTutorEffect(activatedAbilityText || abilityText);
+          const legacyTutorSearchParams = legacyTutorInfo.isTutor
+            ? {
+              filter: parseSearchCriteria(legacyTutorInfo.searchCriteria || ''),
+              searchCriteria: legacyTutorInfo.searchCriteria,
+              maxSelections: legacyTutorInfo.maxSelections || 1,
+              destination: legacyTutorInfo.destination || 'hand',
+              entersTapped: legacyTutorInfo.entersTapped,
+              splitDestination: legacyTutorInfo.splitDestination,
+              toBattlefield: legacyTutorInfo.toBattlefield,
+              toHand: legacyTutorInfo.toHand,
+            }
+            : undefined;
+          if (legacyTutorSearchParams) {
+            persistedAbilityType = 'tutor';
+            persistedSearchParams = { ...legacyTutorSearchParams };
+          }
           const stackItem = {
             id: `stack_ability_${Date.now()}_${permanent.id}`,
             type: 'ability',
@@ -493,6 +512,7 @@ export async function executeAILegacyActivateAbility(
             },
             targets: legacyTargets,
             ...(persistedChosenOpponentId ? { targetOpponentId: persistedChosenOpponentId } : {}),
+            ...(legacyTutorSearchParams ? { abilityType: 'tutor', searchOnResolution: true, searchParams: legacyTutorSearchParams } : {}),
           };
           
           game.state.stack.push(stackItem as any);
@@ -517,6 +537,7 @@ export async function executeAILegacyActivateAbility(
         ...(persistedReturnedPermanentsToHandForCost.length > 0 ? { returnedPermanentsToHandForCost: persistedReturnedPermanentsToHandForCost } : {}),
         ...(persistedLifePaidForCost > 0 ? { lifePaidForCost: persistedLifePaidForCost } : {}),
         ...(persistedSearchParams ? { searchParams: persistedSearchParams } : {}),
+        ...(persistedAbilityType === 'tutor' ? { searchOnResolution: true } : {}),
         ...(persistedChosenOpponentId ? { targetOpponentId: persistedChosenOpponentId } : {}),
         isAI: true,
       });

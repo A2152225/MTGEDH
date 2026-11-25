@@ -5,6 +5,7 @@
 // Public: tryHandlePayLifeAdditionalCostPayment, resumeCastAfterResolvedPayLifeCost.
 
 import type { Server } from "socket.io";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import type { ResolutionStep, ResolutionStepResponse } from "../../state/resolution/index.js";
 import { payLifeAmount } from "../../state/modules/batch97PayLife.js";
 import { queueLifePaymentTriggers } from "../../state/modules/triggers/pay-life.js";
@@ -34,8 +35,19 @@ export async function resumeCastAfterResolvedPayLifeCost(
   const baseTargets = (castArgs.targets && typeof castArgs.targets === 'object' && !Array.isArray(castArgs.targets))
     ? { ...castArgs.targets }
     : {};
+  const pendingCasts = (game.state as any).pendingSpellCasts;
+  const resumeCardId = String(castArgs.cardId);
+  if (pendingCasts && typeof pendingCasts === 'object') {
+    for (const [pendingId, pendingCast] of Object.entries(pendingCasts)) {
+      if (pendingCast && String((pendingCast as any).cardId || '') === resumeCardId) {
+        delete pendingCasts[pendingId];
+      }
+    }
+  }
+
   await resumePlayerCastSpellFromHand(io, gameId, String(playerId), {
-    cardId: String(castArgs.cardId),
+    cardId: resumeCardId,
+    skipPriorityCheck: true,
     targets: {
       ...baseTargets,
       additionalCostPaid: true,
@@ -123,13 +135,13 @@ export async function tryHandlePayLifeAdditionalCostPayment(
       (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
       (game.state as any).lifeLostThisTurn[playerId] =
         ((game.state as any).lifeLostThisTurn[playerId] || 0) + amount;
-    } catch { /* tracking is best-effort */ }
+    } catch (err) { reportHookFailure('payment.lifeLostTracking', err, { source: 'payLifeAdditionalCostPaymentHandler' }); /* tracking is best-effort */ }
     try {
       queueLifePaymentTriggers(game as any, playerId, amount, {
         sourceId: String(stepData.cardId || stepData.sourceId || ''),
         sourceName: cardName,
       });
-    } catch { /* triggers are best-effort */ }
+    } catch (err) { reportHookFailure('trigger.best-effort', err, { source: 'payLifeAdditionalCostPaymentHandler' }); /* triggers are best-effort */ }
   }
 
   const paidCardId = String(stepData.cardId || stepData.sourceId || stepData.castSpellFromHandArgs?.cardId || '');

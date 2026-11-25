@@ -432,6 +432,16 @@ export function detectBeginningOfCombatTriggers(card: any, permanent: any, gameS
   if (triggers.length === 0) {
     for (const [knownName, info] of Object.entries(KNOWN_BEGINNING_COMBAT_TRIGGERS)) {
       if (lowerName.includes(knownName)) {
+        // "You may exert this creature as it attacks" is an attack-time choice,
+        // not a beginning-of-combat trigger. The known-table shorthand would ask
+        // to exert a creature that has not attacked (including summoning sickness).
+        if (
+          /exert/i.test(String(info.effect || ''))
+          && /you may exert\b/i.test(oracleText)
+          && /\bas (?:it|he|she) attacks\b/i.test(oracleText)
+        ) {
+          continue;
+        }
         triggers.push({
           permanentId,
           cardName,

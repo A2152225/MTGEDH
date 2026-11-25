@@ -11,6 +11,7 @@ import {
 import { queueResolveTopOfStackPrompt } from './resolutionPromptEvents.js';
 import { ResolutionStepType } from '../resolution/index.js';
 import { tryApplyOracleIRToActivatedAbility } from './oracleIrAbilityExecution.js';
+import { queueDeferredTutorAbilitySearch } from './stackResolveDeferredTutorSearch.js';
 import { tryResolveSpaceSculptorAbility } from './spaceSculptor.js';
 import { applyTemporaryGraveyardKeywordGrantFromText } from './graveyard-permissions.js';
 import { extractOracleCardLookupKeys } from './oracleIrCompiledOverlayLookup.js';
@@ -388,10 +389,12 @@ export function tryResolveStackActivatedAbilityLateHandlers(
     return true;
   }
 
-  // activateTutorAbility already queued the library search. Oracle IR on
+  // activateTutorAbility queued the library search (or flagged it for resolution). Oracle IR on
   // resolution would search again and put a second card onto the battlefield
   // (Wayfarer's Bauble).
   if (String(item?.abilityType || '') === 'tutor') {
+    // Newer activations defer the search to resolution (CR 608.2).
+    queueDeferredTutorAbilitySearch(ctx, item);
     markResolvedOncePerTurnActivatedAbility(state, item);
     bumpSeq();
     return true;

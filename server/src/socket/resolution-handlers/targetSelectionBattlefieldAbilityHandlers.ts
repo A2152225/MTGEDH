@@ -39,6 +39,7 @@ import {
 } from "../resolutionActivatedAbilityTargetingUtils.js";
 import { finalizeBattlefieldAbilitySelfExertCost } from "../resolutionGraveyardSelectionHelperUtils.js";
 import { broadcastGame, emitToPlayer, getPlayerName, parseManaCost } from "../util.js";
+import { payDeferredStepActivationCosts, sourceLastKnownFromCostStep } from "../interaction-handlers/activationSelfSourceCost.js";
 
 function battlefieldAbilityTargetDetails(
   selectedTargetIds: readonly string[],
@@ -91,7 +92,9 @@ export async function handleBattlefieldAbilityTargetSelection(
     : [];
 
   const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-  const sourcePerm = battlefield.find((perm: any) => perm && String(perm.id) === permanentId);
+  const liveSourcePerm = battlefield.find((perm: any) => perm && String(perm.id) === permanentId);
+  // Source sacrificed to pay this ability's own cost: continue from last known information.
+  const sourcePerm = liveSourcePerm || sourceLastKnownFromCostStep(stepAny, permanentId);
   if (!sourcePerm) {
     emitToPlayer(io, controllerId as any, 'error', { code: 'PERMANENT_NOT_FOUND', message: 'Permanent no longer on battlefield' });
     return;
@@ -218,6 +221,13 @@ export async function handleBattlefieldAbilityTargetSelection(
     }
   }
 
+  // CR 602.2b: "Sacrifice/Exile this" and deferred life are paid now that targets are chosen.
+  const deferredCostError = payDeferredStepActivationCosts(game, gameId, controllerId, permanentId, stepAny, cardName);
+  if (deferredCostError) {
+    emitToPlayer(io, controllerId as any, 'error', deferredCostError);
+    return;
+  }
+
   const stackItem = {
     id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     type: 'ability' as const,
@@ -239,6 +249,7 @@ export async function handleBattlefieldAbilityTargetSelection(
     lastSacrificedPermanents: Array.isArray(stepAny?.lastSacrificedPermanents)
       ? stepAny.lastSacrificedPermanents.map((entry: any) => ({ ...entry }))
       : undefined,
+    sourceLastKnown: stepAny?.sourceLastKnown ? { ...stepAny.sourceLastKnown } : undefined,
   } as any;
 
   if (battlefieldAbilityType === 'equip') {
@@ -327,6 +338,8 @@ export async function handleBattlefieldAbilityTargetSelection(
           ? stepAny.lastSacrificedPermanents.map((entry: any) => ({ ...entry }))
           : undefined,
         lifePaidForCost: Number(stepAny?.lifePaidForCost || 0) > 0 ? Number(stepAny.lifePaidForCost) : undefined,
+        energyPaidForCost: Number(stepAny?.energyPaidForCost || 0) > 0 ? Number(stepAny.energyPaidForCost) : undefined,
+        exiledSelfForCost: stepAny?.exiledSelfForCost ? String(stepAny.exiledSelfForCost) : undefined,
         exertedPermanentIdForCost,
       });
     } catch {

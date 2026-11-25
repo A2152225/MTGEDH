@@ -7,6 +7,7 @@
  * Public entry symbols: tryHandleActivateCostPromptTapBlight.
  */
 
+import { permanentMatchesTargetTypes } from "../permanentTargetTypeFilter.js";
 import type { PlayerID } from "../../../../shared/src/index.js";
 import { parseWordNumber } from "../../state/utils";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
@@ -53,15 +54,15 @@ export async function tryHandleActivateCostPromptTapBlight(
       // Let other cost handlers (discard/sacrifice/etc.) handle their own errors/prompts.
     } else {
       const tapOtherMatchRestrictionAfter = costLower.match(
-        /\btap\s+(another\s+|other\s+)?(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+([a-z]+(?:\s+[a-z]+)*)\s+you\s+control\s+with\s+(power|toughness)\s+(\d+)\s+or\s+(less|greater)\b/i
+        /\btap\s+(another\s+|other\s+)?(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+untapped\s+([a-z]+(?:\s+[a-z]+)*)\s+you\s+control\s+with\s+(power|toughness)\s+(\d+)\s+or\s+(less|greater)\b/i
       );
 
       const tapOtherMatchRestrictionBefore = costLower.match(
-        /\btap\s+(another\s+|other\s+)?(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+([a-z]+(?:\s+[a-z]+)*(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?)\s+you\s+control\b/i
+        /\btap\s+(another\s+|other\s+)?(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+untapped\s+([a-z]+(?:\s+[a-z]+)*(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?)\s+you\s+control\b/i
       );
 
       const tapOtherMatchBase = costLower.match(
-        /\btap\s+(another\s+|other\s+)?(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+([a-z]+(?:\s+[a-z]+)*)\s+you\s+control\b/i
+        /\btap\s+(another\s+|other\s+)?(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+untapped\s+([a-z]+(?:\s+[a-z]+)*)\s+you\s+control\b/i
       );
 
       const tapOtherMatch = tapOtherMatchRestrictionAfter || tapOtherMatchRestrictionBefore || tapOtherMatchBase;
@@ -109,7 +110,9 @@ export async function tryHandleActivateCostPromptTapBlight(
 
         const mustBeOther = Boolean(tapOtherMatch[1]);
         const rawCount = String(tapOtherMatch[2] || '').trim();
-        const targetCount = parseWordNumber(rawCount, 1);
+        // "Tap X untapped tokens you control" (Hazel of the Rootbloom): X is how many the player taps.
+        const isVariableTapX = rawCount.toLowerCase() === 'x';
+        const targetCount = isVariableTapX ? 1 : parseWordNumber(rawCount, 1);
         const rawTypePhrase = String(tapOtherMatch[3] || '').trim();
 
         // Optional supported restriction: "with power/toughness N or less/greater".
@@ -224,7 +227,7 @@ export async function tryHandleActivateCostPromptTapBlight(
           .replace(/\{[^}]+\}/g, ' ')
           .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
           .replace(
-            /\btap\s+(?:another\s+|other\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+untapped\s+[a-z]+(?:\s+[a-z]+)*(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\s+you\s+control(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\b/gi,
+            /\btap\s+(?:another\s+|other\s+)?(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x)\s+untapped\s+[a-z]+(?:\s+[a-z]+)*(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\s+you\s+control(?:\s+with\s+(?:power|toughness)\s+\d+\s+or\s+(?:less|greater))?\b/gi,
             ' '
           )
           .replace(/[\s,]+/g, ' ')
@@ -239,7 +242,7 @@ export async function tryHandleActivateCostPromptTapBlight(
         }
 
         // Derive a simple type filter for TAP_UNTAP_TARGET.
-        const ignored = new Set(['token', 'legendary', 'snow', 'basic', 'nontoken', 'nonbasic']);
+        const ignored = new Set(['legendary', 'snow', 'basic', 'nonbasic']);
         const words = baseTypePhrase
           .toLowerCase()
           .split(/\s+/)
@@ -250,7 +253,8 @@ export async function tryHandleActivateCostPromptTapBlight(
         const typesFilter: string[] = [];
         const subtypesFilter: string[] = [];
 
-        const knownPermanentTypes = new Set(['creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle']);
+        // token / nontoken are matched by permanentMatchesTargetTypes (isToken), not the type line.
+        const knownPermanentTypes = new Set(['creature', 'artifact', 'enchantment', 'land', 'planeswalker', 'battle', 'token', 'nontoken']);
         for (const w of words) {
           if (knownPermanentTypes.has(w)) {
             typesFilter.push(w);
@@ -287,15 +291,7 @@ export async function tryHandleActivateCostPromptTapBlight(
           if (mustBeOther && String(p.id) === String(permanentId)) return false;
           const tl = String(p.card?.type_line || '').toLowerCase();
           
-          if (typesFilter.length > 0) {
-            if (requireAllTypes) {
-              const matchesAll = typesFilter.every((t) => tl.includes(String(t).toLowerCase()));
-              if (!matchesAll) return false;
-            } else {
-              const matchesAny = typesFilter.some((t) => tl.includes(String(t).toLowerCase()));
-              if (!matchesAny) return false;
-            }
-          }
+          if (typesFilter.length > 0 && !permanentMatchesTargetTypes(p, typesFilter, requireAllTypes)) return false;
 
           if (subtypesFilter.length > 0) {
             const matchesAllSub = subtypesFilter.every((sub) => tl.includes(String(sub).toLowerCase()));
@@ -340,7 +336,7 @@ export async function tryHandleActivateCostPromptTapBlight(
             sourceId: permanentId,
             sourceName: cardName,
             sourceImage: card?.image_uris?.small || card?.image_uris?.normal,
-            description: `${cardName}: Tap ${targetCount} untapped ${rawTypePhrase}${targetCount === 1 ? '' : 's'} you control to activate: ${abilityText}`,
+            description: `${cardName}: Tap ${isVariableTapX ? 'X' : targetCount} untapped ${rawTypePhrase}${targetCount === 1 ? '' : 's'} you control to activate: ${abilityText}`,
             mandatory: false,
             action: 'tap',
             targetFilter: {
@@ -355,7 +351,9 @@ export async function tryHandleActivateCostPromptTapBlight(
               minToughness,
               maxToughness,
             },
-            targetCount,
+            // Tap X: choose 1..all valid permanents; the count tapped is X.
+            targetCount: isVariableTapX ? validNow.length : targetCount,
+            ...(isVariableTapX ? { minTargetCount: 1, tapCostVariableX: true } : null),
 
             // Custom payload consumed by socket/resolution.ts
             tapOtherAbilityAsCost: true,

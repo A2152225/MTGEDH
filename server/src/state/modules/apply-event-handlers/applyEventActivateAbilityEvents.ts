@@ -232,6 +232,11 @@ export function applyActivateAbilityEvents(ctx: GameContext, e: GameEvent): bool
             colorless: 0,
           };
           consumeRecordedManaCostFromPool(stateAny.manaPool[playerId], manaCost);
+          const tutorEnergyPaid = Math.max(0, Math.floor(Number((e as any).energyPaidForCost || 0)));
+          if (tutorEnergyPaid > 0) {
+            stateAny.energy = stateAny.energy || {};
+            stateAny.energy[playerId] = Math.max(0, Number(stateAny.energy[playerId] || 0) - tutorEnergyPaid);
+          }
 
           if (sacrificesSource) {
             const tokenGraveyardSnapshot = permanent?.isToken && permanent?.card
@@ -291,6 +296,7 @@ export function applyActivateAbilityEvents(ctx: GameContext, e: GameEvent): bool
               description: scopedAbilityText || scopedAbilityFullText,
               activatedAbilityText: scopedAbilityFullText || scopedAbilityText,
               abilityType: 'tutor',
+              ...((e as any).searchOnResolution === true ? { searchOnResolution: true } : null),
               searchParams: {
                 filter,
                 searchCriteria: tutorInfo.searchCriteria,
@@ -312,7 +318,8 @@ export function applyActivateAbilityEvents(ctx: GameContext, e: GameEvent): bool
             String((step as any).sourceName || '') === cardName &&
             String((step as any).searchCriteria || '') === String(tutorInfo.searchCriteria || 'any card')
           );
-          if (!queueAlreadyPresent) {
+          // searchOnResolution: the search is queued (and persisted) when the ability resolves.
+          if (!queueAlreadyPresent && (e as any).searchOnResolution !== true) {
             ResolutionQueueManager.addStep(ctx.gameId, {
               type: ResolutionStepType.LIBRARY_SEARCH,
               playerId: playerId as any,

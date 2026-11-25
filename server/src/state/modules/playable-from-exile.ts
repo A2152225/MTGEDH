@@ -1,4 +1,5 @@
 import type { PlayerID } from "../../../../shared/src/types.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import {
   getDurablePlayableFromExilePermissionForCard,
   removeCardIdFromDurablePlayableFromExilePermissions,
@@ -128,15 +129,15 @@ export function cardAllowsPlayerToPlayFromExile(card: any, playerId: PlayerID, c
   if (state) {
     try {
       if (mayPlayCardsExiledWithSourceThisTurn(state, playerId, card)) return true;
-    } catch { /* hook optional */ }
+    } catch (err) { reportHookFailure('hook.optional.mayPlayCardsExiledWithSourceThisTurn', err, { source: 'playable-from-exile' }); /* hook optional */ }
   }
   if (state) {
     try {
       if (mayPlayCardExiledWithValgavoth(state, playerId, card)) return true;
-    } catch { /* hook optional */ }
+    } catch (err) { reportHookFailure('hook.optional.mayPlayCardExiledWithValgavoth', err, { source: 'playable-from-exile' }); /* hook optional */ }
     try {
       if (mayCastDraugrIceExileCard(state, playerId, card)) return true;
-    } catch { /* hook optional */ }
+    } catch (err) { reportHookFailure('hook.optional.mayCastDraugrIceExileCard', err, { source: 'playable-from-exile' }); /* hook optional */ }
   }
 
   if (isCardOnAdventureForPlayer(card, playerId)) {

@@ -16,6 +16,7 @@ import {
   chooseAIUpkeepSacrificeSelection,
 } from "./aiZoneSearchChoiceHandlers.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
+import { chooseAIPhyrexianManaChoiceSelections } from "./aiPhyrexianManaChoice.js";
 
 export async function handleAIResolutionKeywordAndMiscSteps(
   io: Server,
@@ -62,6 +63,10 @@ export async function handleAIResolutionKeywordAndMiscSteps(
           const selections = await getAIHandlerDeps().chooseAISpellPaymentSelections(io as any, gameId, game, playerId as any, stepData);
           debug(1, `[AI] mana_payment_choice: ${selections ? 'assembled payment' : 'could not assemble payment'}`);
           paymentResponse = selections ? createResponse(selections) : createResponse({ payment: [] }, true);
+        } else if (stepData.phyrexianManaChoice === true) {
+          const phyrexianChoices = chooseAIPhyrexianManaChoiceSelections(game, String(playerId), stepData);
+          debug(1, `[AI] mana_payment_choice: Phyrexian payment ${JSON.stringify(phyrexianChoices)}`);
+          paymentResponse = createResponse(phyrexianChoices);
         } else {
           debug(1, `[AI] mana_payment_choice: unsupported payment prompt, cancelling`);
           paymentResponse = createResponse({ payment: [] }, true);

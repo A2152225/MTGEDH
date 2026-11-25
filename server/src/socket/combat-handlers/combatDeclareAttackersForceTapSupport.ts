@@ -9,6 +9,7 @@
 //   processTapTriggersForAttackers.
 
 import type { Server } from "socket.io";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import { appendEvent } from "../../db/index.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import {
@@ -49,6 +50,7 @@ export function enqueueSupportedExertChoiceSteps(
     if (!attacker) continue;
 
     if (!canExertAsItAttacks((attacker as any)?.card)) continue;
+    if (permanentHasSummoningSickness(attacker, battlefield, playerId)) continue;
 
     const rewardDescription = getSupportedExertAttackReward((attacker as any)?.card);
 
@@ -502,7 +504,8 @@ export function processTapTriggersForAttackers(
             debug(2, `[combat] Skipping tap trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
             continue;
           }
-        } catch {
+        } catch (err) {
+          reportHookFailure('intervening-if.eval', err, { source: 'combatDeclareAttackersForceTapSupport' });
           // Conservative fallback: keep the trigger if evaluation fails.
         }
 

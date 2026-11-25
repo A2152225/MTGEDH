@@ -5,6 +5,7 @@
 // "pay N life". Queued as an optional-payment prompt; AI picks via
 // chooseAICumulativeUpkeepPayment.
 import type { PlayerID } from '../../../../shared/src/index.js';
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import type { GameContext } from '../context.js';
 import { broadcastGame, canPayManaCostStringWithAvailableSources, payManaCostWithAvailableSources } from '../../socket/util.js';
 import { queueOptionalPaymentStep } from '../../socket/optional-payment-prompts.js';
@@ -92,7 +93,7 @@ function payLife(state: any, playerId: string, amount: number): void {
   try {
     payLifeAmount(state, playerId, amount);
     return;
-  } catch { /* hook optional */ }
+  } catch (err) { reportHookFailure('hook.optional.payLifeAmount', err, { source: 'cumulativeUpkeepPayment' }); /* hook optional */ }
   state.life = state.life || {};
   const current = Number(state.life[playerId] ?? state.startingLife ?? 40);
   state.life[playerId] = current - amount;

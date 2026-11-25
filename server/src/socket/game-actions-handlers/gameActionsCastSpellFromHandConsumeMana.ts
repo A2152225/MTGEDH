@@ -25,6 +25,7 @@ import {
   resolveSpellPaymentPermanentId,
 } from "./gameActionsCastSpellPaymentSources.js";
 import { draugrSnowSpendApplies, recolorSnowPoolToMeetCost } from "../../state/modules/draugrExileSnowSpend.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 export type CastSpellConsumeManaFromHandArgs = {
   game: any;
@@ -201,7 +202,8 @@ export function tryConsumeCastSpellManaFromHand(
             }
           }
         }
-      } catch {
+      } catch (err) {
+        reportHookFailure('payment.consumeSources', err, { source: 'gameActionsCastSpellFromHandConsumeMana' });
         // best-effort only
       }
 

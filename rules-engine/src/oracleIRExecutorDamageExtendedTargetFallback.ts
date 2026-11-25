@@ -15,6 +15,7 @@ import type { GameState } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { tryApplyMassDamageRecipients } from './oracleIRExecutorDamageMassRecipientFallback';
+import { tryApplyLooseBoundDamageTargets } from './oracleIRExecutorDamageBoundTargetFallback';
 
 type DealDamageStep = Extract<OracleEffectStep, { kind: 'deal_damage' }>;
 
@@ -174,6 +175,11 @@ export function resolveDamageTargetFallback(args: {
 
   const massRecipients = tryApplyMassDamageRecipients(args);
   if (massRecipients) return massRecipients;
+
+  // Recipients chosen on cast/activation whose phrase has no dedicated resolver
+  // ("target player or planeswalker", "each of one or two targets", divided damage).
+  const looseBound = tryApplyLooseBoundDamageTargets({ state, step, ctx, amount: args.amount, applyBoundTarget });
+  if (looseBound) return looseBound;
 
   return unsupportedOrChoice(step);
 }

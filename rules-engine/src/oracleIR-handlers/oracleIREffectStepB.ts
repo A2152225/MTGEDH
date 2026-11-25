@@ -57,6 +57,8 @@ export type OracleEffectStepB =
       readonly kind: 'animate_permanent';
       readonly target: OracleObjectSelector;
       readonly addTypes?: readonly string[];
+      /** Color letters the permanent becomes ("black and green" -> ['B', 'G']). */
+      readonly colors?: readonly string[];
       readonly power?: number;
       readonly toughness?: number;
       readonly abilities?: readonly string[];
@@ -468,6 +470,11 @@ export type OracleEffectStepB =
       readonly unlessCondition?: OracleClauseCondition;
       readonly atRandom?: boolean;
       readonly target?: OracleObjectSelector;
+      /** "You choose a card from it": who picks the discarded card from the revealed hand. */
+      readonly chooser?: OraclePlayerSelector;
+      readonly revealedHandChoice?: boolean;
+      /** "Each opponent exiles a card from their hand": chosen like a discard, moved to exile instead. */
+      readonly destination?: 'exile';
       readonly optional?: boolean;
       readonly sequence?: 'then';
       readonly raw: string;

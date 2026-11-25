@@ -691,6 +691,10 @@ export async function handleLibrarySearchResponse(
     if (remainderDestination === 'graveyard') {
       message += `, and ${unselectedCards.length} card(s) into the graveyard`;
     }
+  } else if (isSplitDestination && splitAssignments) {
+    const toBattlefieldCount = (splitAssignments.toBattlefield || []).length;
+    const toHandCount = (splitAssignments.toHand || []).length;
+    message += `${sourceName}: selected ${selectedCount} of ${availableCards.length} card(s): ${toBattlefieldCount} onto the battlefield${entersTapped ? ' tapped' : ''}, ${toHandCount} to hand`;
   } else {
     message += `${sourceName}: selected ${selectedCount} of ${availableCards.length} card(s)`;
     if (destination === 'hand') message += ' to hand';

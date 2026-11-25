@@ -8,6 +8,7 @@
 */
 
 import fs from 'node:fs';
+import { formatHookFailuresForAssert, getHookFailures, resetHookFailures, type HookFailure } from '../../src/utils/hookFailureReporter.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -134,6 +135,7 @@ export type SmokeReport = {
     soaks: SmokeSoakResult[];
   };
   summary: ReturnType<typeof summarizeSoaks>;
+  hookFailures: HookFailure[];
   reportPath: string;
 };
 
@@ -425,9 +427,11 @@ export async function runSmokeSuite(suite: SoakSuite, options: SmokeRunOptions =
   }
 
   resetOracleIrGapTelemetry();
+  resetHookFailures();
   const liveBefore = await fetchLiveTelemetry(url);
   const soaks = await suite.run();
   const soakTelemetry = getOracleIrGapTelemetrySnapshot();
+  const hookFailures = getHookFailures();
   fs.writeFileSync(snapshotPath, `${JSON.stringify(soakTelemetry, null, 2)}\n`, 'utf8');
   const summary = summarizeSoaks(soaks);
   printSmokeSummary(suite.title, soaks, liveBefore, liveBefore, reportPath, true);
@@ -473,12 +477,18 @@ export async function runSmokeSuite(suite: SoakSuite, options: SmokeRunOptions =
     soaks,
     liveTable,
     summary,
+    hookFailures,
     reportPath,
   };
 
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
   const liveFailed = Boolean(liveTable && (!liveTable.ok || liveTable.soaks.some((soak) => !soak.pass)));
+  if (hookFailures.length > 0) {
+    console.error(`\n[hook-failure] ${hookFailures.length} swallowed hook error(s) during smoke:`);
+    console.error(formatHookFailuresForAssert(hookFailures));
+    process.exitCode = 1;
+  }
   if (summary.checksFailed > 0 || liveFailed) process.exitCode = 1;
   else if (options.live && !liveBefore.ok) process.exitCode = 1;
   else if (options.requireLiveTelemetry && !liveBefore.ok) process.exitCode = 1;

@@ -24,6 +24,20 @@ import {
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
 
+export function hasExplicitTargetBinding(ctx: OracleIRExecutionContext): boolean {
+  const list = (value: unknown): string[] =>
+    Array.isArray(value) ? value.map((id) => String(id || '').trim()).filter(Boolean) : [];
+  return [
+    String(ctx.targetPermanentId || '').trim(),
+    String(ctx.targetCreatureId || '').trim(),
+    String(ctx.selectorContext?.targetPermanentId || '').trim(),
+    String(ctx.selectorContext?.targetCreatureId || '').trim(),
+    ...list(ctx.selectorContext?.chosenObjectIds),
+    ...list((ctx as any).targets),
+    ...list((ctx as any).targetIds),
+  ].some(Boolean);
+}
+
 export function resolveDestroyTargets(
   battlefield: readonly BattlefieldPermanent[],
   step: Extract<OracleEffectStep, { kind: 'destroy' }>,
@@ -725,6 +739,9 @@ export function resolveDestroyTargets(
     if (/^target\b/i.test(targetText)) {
       const boundMatches = resolveBoundSelectorMatches(battlefield, selector, ctx).filter(matchesNonbasic);
       if (boundMatches.length > 0) return boundMatches.slice(0, 1);
+      // CR 608.2b: a chosen target that no longer matches is illegal; never retarget onto an
+      // unchosen permanent (Crash and Burn "Destroy target Vehicle" with a creature bound).
+      if (hasExplicitTargetBinding(ctx)) return [];
       if (matched.length >= 1) return matched.slice(0, 1);
       return [];
     }

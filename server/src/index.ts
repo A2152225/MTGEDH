@@ -20,6 +20,7 @@ import { registerAuthHttpRoutes } from "./auth/authHttp.js";
 import { isLoopbackSocket } from "./auth/loopback.js";
 import { getRequestAuthUser, userIsAdmin } from "./auth/requestUser.js";
 import { registerDeckHttpRoutes } from "./decks/decksHttp.js";
+import { registerPreconDecklistHttpRoutes } from "./preconDecklistHttp.js";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -355,6 +356,7 @@ registerOracleIrLiveSoakRoutes(app);
 
 registerAuthHttpRoutes(app);
 registerDeckHttpRoutes(app);
+registerPreconDecklistHttpRoutes(app);
 
 /** Local-first card preview for deck builder (oracle text + image URIs). No Scryfall. */
 app.post("/api/cards/lookup", (req, res) => {

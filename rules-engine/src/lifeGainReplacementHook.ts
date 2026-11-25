@@ -1,3 +1,4 @@
+import { reportHookFailure } from '../../shared/src/hookFailureReporter.js';
 ﻿/**
  * Life-gain replacement hook for the Oracle IR executor.
  *
@@ -24,7 +25,8 @@ export function resolveLifeGainDeltaFromHook(state: any, playerId: string, amoun
   try {
     const next = Number(registeredResolver(state, String(playerId || ''), amount));
     return Number.isFinite(next) ? Math.trunc(next) : amount;
-  } catch {
+  } catch (err) {
+    reportHookFailure('lifeGainReplacementHook', err, { source: 'lifeGainReplacementHook' });
     return amount;
   }
 }

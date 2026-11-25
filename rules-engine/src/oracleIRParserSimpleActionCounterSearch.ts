@@ -20,6 +20,7 @@ import {
   countEnergySymbols,
 } from './oracleIRParserSimpleActionHelpers';
 import type { SimpleActionClauseParseArgs } from './oracleIRParserSimpleActionHelpers';
+import { parseAnimateAbilityList, parseAnimateTypeWords } from './oracleIRParserAnimateTypeText';
 
 export function tryParseSimpleActionCounterSearchClauses(args: SimpleActionClauseParseArgs): OracleEffectStep | null {
   const { clause, rawClause, withMeta } = args;
@@ -626,19 +627,23 @@ export function tryParseSimpleActionCounterSearchClauses(args: SimpleActionClaus
         });
     }
 
-    const staticLandAnimationWithAbility = clause.match(/^(.+?)\s+becomes?\s+a\s+(\d+)\/(\d+)\s+(.+?)\s+creature(?:\s+with\s+(.+?))?(?:\s+that(?:'|â€™)?s\s+still\s+a\s+land)?$/i);
+    // Keyrunes: "This artifact becomes a 2/2 black and green Insect artifact creature with deathtouch until end of turn."
+    const animateWithIsEndOfTurn = /\bbecomes?\s+a\s+\d+\/\d+\s.+\s+with\s+.+\s+until\s+end\s+of\s+turn$/i.test(clause);
+    const animateWithClause = animateWithIsEndOfTurn ? clause.replace(/\s+until\s+end\s+of\s+turn$/i, '') : clause;
+    const staticLandAnimationWithAbility = animateWithClause.match(/^(.+?)\s+becomes?\s+a\s+(\d+)\/(\d+)\s+(.+?)\s+creature(?:\s+with\s+(.+?))?(?:\s+that(?:'|â€™)?s\s+still\s+a\s+land)?$/i);
     if (staticLandAnimationWithAbility && !/^until\s+end\s+of\s+turn,/i.test(clause) && (/\bland\b/i.test(String(staticLandAnimationWithAbility[1] || '')) || /^(?:it|~|this (?:permanent|enchantment|artifact|creature|land))$/i.test(String(staticLandAnimationWithAbility[1] || '').trim()))) {
       const abilityText = String(staticLandAnimationWithAbility[5] || '').replace(/\s+that(?:'|â€™)?s\s+still\s+a\s+land$/i, '').trim().toLowerCase();
-      const abilities = abilityText === 'haste' ? ['haste'] : [];
-      const typeText = String(staticLandAnimationWithAbility[4] || '').trim();
+      const abilities = parseAnimateAbilityList(abilityText);
+      const typeWords = parseAnimateTypeWords(String(staticLandAnimationWithAbility[4] || '').trim());
       return withMeta({
         kind: 'animate_permanent',
         target: parseObjectSelector(String(staticLandAnimationWithAbility[1] || '').trim()),
         power: Number.parseInt(String(staticLandAnimationWithAbility[2] || '0'), 10),
         toughness: Number.parseInt(String(staticLandAnimationWithAbility[3] || '0'), 10),
-        addTypes: typeText ? [...typeText.split(/\s+/).filter(Boolean), 'creature'] : ['creature'],
+        addTypes: [...typeWords.addTypes, 'creature'],
+        ...(typeWords.colors.length > 0 ? { colors: typeWords.colors } : {}),
         ...(abilities.length > 0 ? { abilities } : {}),
-        duration: 'static',
+        duration: animateWithIsEndOfTurn ? 'end_of_turn' : 'static',
         raw: rawClause,
       });
     }

@@ -16,6 +16,8 @@ import {
   requiresTargeting,
 } from "../../rules-engine/targeting";
 import { isOracleIrSpellPrimaryEnabled } from "../../state/modules/oracleIrFeatureFlags.js";
+import { stripCastTargetReminderText } from "./castTargetReminderText.js";
+import { augmentCastTargetRequirements } from "./castSpellTargetPatternFallbacks.js";
 
 export type ParsedTargetRequirements = ReturnType<typeof parseTargetRequirements>;
 
@@ -183,12 +185,15 @@ export function resolveCastSpellParsedTargeting(args: {
   gameState?: any;
   controllerId?: string;
 }): CastSpellParsedTargeting {
-  const targetReqs = parseTargetRequirements(args.oracleText, {
+  // Reminder text never adds a cast target (awaken / delayed earthbend / flying reminders).
+  args = { ...args, oracleText: stripCastTargetReminderText(args.oracleText) };
+  // Generic oracle-pattern fallbacks: divided damage, adjective/subtype targets, creature-only stats.
+  const targetReqs = augmentCastTargetRequirements(args.oracleText, parseTargetRequirements(args.oracleText, {
     xValue: args.xValue,
     gameState: args.gameState,
     controllerId: args.controllerId,
     sourceName: args.cardName,
-  });
+  }));
 
   if (isOracleIrSpellPrimaryEnabled()) {
     const covers = parsedTargetReqsCoverCastTargets(targetReqs, args.oracleText);

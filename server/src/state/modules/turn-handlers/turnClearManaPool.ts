@@ -6,6 +6,7 @@
 // Leaf must not import turn.ts or turn-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 import { debug, debugWarn } from "../../../utils/debug.js";
 import {
   TEMPORARY_RETAINED_MANA_COLORS,
@@ -237,7 +238,7 @@ export function clearManaPool(ctx: GameContext) {
           const player = (st.players || []).find((p: any) => String(p?.id) === String(pid));
           if (player) player.life = st.life[pid];
         }
-      } catch { /* hook optional */ }
+      } catch (err) { reportHookFailure('hook.optional.applyYurlokUnspentManaLifeLossAmount', err, { source: 'turnClearManaPool', playerId: String(pid || '') }); /* hook optional */ }
 
       if (convertToColor && convertToColor !== 'colorless') {
         debug(1, `${ts()} [clearManaPool] Player ${pid}: Converted ${totalConvertedToColor} mana to ${convertToColor}, retained colors: ${Array.from(colorsToRetain).join(', ') || 'none'}, temporary retention: ${hasTemporaryRetention}`);

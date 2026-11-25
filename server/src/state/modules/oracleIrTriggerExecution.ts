@@ -1,4 +1,5 @@
 import { recordDilemmaFaced } from './triggers/trekPlayerEventTriggers.js';
+import { normalizeDamageDivisionMap } from './dividedDamageDivision.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { OracleEffectStep } from '../../../../rules-engine/src/oracleIR.js';
 import {
@@ -65,6 +66,21 @@ function sacrificedSnapshotsFromTriggerItem(triggerItem: any): any[] {
   return snapshots.filter((entry: any) => entry && typeof entry === 'object').map((entry: any) => ({ ...entry }));
 }
 
+/** CR 608.2h: the source's last battlefield state, for "its power" / "its counters" once it has left. */
+function lastKnownSourceFromTriggerItem(triggerItem: any, sourcePermanentId: string): any | undefined {
+  const candidates = [triggerItem?.dyingCreature, triggerItem?.sourcePermanentSnapshot, triggerItem?.sourceLastKnown];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const candidateId = String(candidate.id || '').trim();
+    if (sourcePermanentId && candidateId && candidateId !== sourcePermanentId) continue;
+    return {
+      ...candidate,
+      ...(candidate.counters && typeof candidate.counters === 'object' ? { counters: { ...candidate.counters } } : {}),
+    };
+  }
+  return undefined;
+}
+
 function buildTriggerIrContext(
   params: TryResolveTriggerViaOracleIRParams,
   binding: ReturnType<typeof resolveTriggerTargetBinding>,
@@ -91,6 +107,9 @@ function buildTriggerIrContext(
   const sourcePermanent = sourcePermanentId
     ? (state?.battlefield || []).find((entry: any) => entry && String(entry.id || '') === sourcePermanentId)
     : undefined;
+  const sourceLastKnownPermanent = sourcePermanent
+    ? undefined
+    : lastKnownSourceFromTriggerItem(params.triggerItem, sourcePermanentId);
   const enteredFromZone = String(
     sourcePermanent?.enteredFromZone
     || (sourcePermanent?.enteredFromGraveyard ? 'graveyard' : '')
@@ -195,6 +214,13 @@ function buildTriggerIrContext(
       sourceName: params.sourceName,
       sourceObjectType: 'ability',
       xValue: binding.xValue,
+      ...(normalizeDamageDivisionMap(
+        params.triggerItem?.damageDivisionByTargetId
+        || (params.triggerItem as any)?.card?.damageDivisionByTargetId
+      ) ? { damageDivisionByTargetId: normalizeDamageDivisionMap(
+        params.triggerItem?.damageDivisionByTargetId
+        || (params.triggerItem as any)?.card?.damageDivisionByTargetId,
+      ) } : {}),
       ...(enteredFromZone ? { enteredFromZone } : {}),
       ...(castFromZone ? { castFromZone } : {}),
       ...(wasKicked ? { wasKicked: true } : {}),
@@ -213,6 +239,7 @@ function buildTriggerIrContext(
       ...(sacrificedSnapshotsFromTriggerItem(params.triggerItem).length > 0
         ? { lastSacrificedPermanents: sacrificedSnapshotsFromTriggerItem(params.triggerItem) }
         : {}),
+      ...(sourceLastKnownPermanent ? { sourceLastKnownPermanent } : {}),
       selectorContext: {
         ...(binding.chosenObjectIds ? { chosenObjectIds: binding.chosenObjectIds } : {}),
         ...(binding.targetPlayerId ? { targetPlayerId: binding.targetPlayerId } : {}),

@@ -34,6 +34,7 @@ import {
 } from "../resolutionSyntheticCastSocketUtils.js";
 import { broadcastGame, emitToPlayer, getEffectivePower, getPlayerName } from "../util.js";
 import { movePermanentToHand } from "../../state/modules/zones.js";
+import { typeLineMatchesAdditionalCostFilter } from "../additionalCostTypeFilter.js";
 import { resolveCasualtyPaymentFlags, stampOnCastKeywordFlags } from "../../state/modules/onCastKeywordPrompts.js";
 import {
   validateCounterRemovalPaymentSelection,
@@ -194,6 +195,7 @@ export async function handleAdditionalCostPaymentResponse(
           castWithoutPayingManaCost: castArgs?.castWithoutPayingManaCost === true || requestCastPending?.castWithoutPayingManaCost === true,
           bypassExilePermissionCheck: castArgs?.bypassExilePermissionCheck === true || requestCastPending?.bypassExilePermissionCheck === true,
           ignoreTimingRestrictions: castArgs?.ignoreTimingRestrictions === true || requestCastPending?.ignoreTimingRestrictions === true,
+          skipPriorityCheck: true,
         },
       );
       return;
@@ -281,6 +283,7 @@ export async function handleAdditionalCostPaymentResponse(
         castWithoutPayingManaCost: castArgs?.castWithoutPayingManaCost === true || requestCastPending?.castWithoutPayingManaCost === true,
         bypassExilePermissionCheck: castArgs?.bypassExilePermissionCheck === true || requestCastPending?.bypassExilePermissionCheck === true,
         ignoreTimingRestrictions: castArgs?.ignoreTimingRestrictions === true || requestCastPending?.ignoreTimingRestrictions === true,
+        skipPriorityCheck: true,
       },
     );
     return;
@@ -407,8 +410,7 @@ export async function handleAdditionalCostPaymentResponse(
       const perm = battlefield.find((entry: any) => entry && String(entry.id || '') === String(permId));
       if (!perm) continue;
       if (String(perm?.controller || '') !== String(pid)) continue;
-      const typeLine = String(perm?.card?.type_line || perm?.type_line || '').toLowerCase();
-      if (filter && !typeLine.includes(filter)) continue;
+      if (filter && !typeLineMatchesAdditionalCostFilter(perm?.card?.type_line || perm?.type_line, filter)) continue;
       if (!movePermanentToHand(game as any, String(permId))) continue;
       bouncedIds.push(String(permId));
       returnedNames.push(String(perm?.card?.name || 'Unknown'));
@@ -763,6 +765,7 @@ export async function handleAdditionalCostPaymentResponse(
       castWithoutPayingManaCost: castArgs?.castWithoutPayingManaCost === true || requestCastPending?.castWithoutPayingManaCost === true,
       bypassExilePermissionCheck: castArgs?.bypassExilePermissionCheck === true || requestCastPending?.bypassExilePermissionCheck === true,
       ignoreTimingRestrictions: castArgs?.ignoreTimingRestrictions === true || requestCastPending?.ignoreTimingRestrictions === true,
+      skipPriorityCheck: true,
     },
   );
 

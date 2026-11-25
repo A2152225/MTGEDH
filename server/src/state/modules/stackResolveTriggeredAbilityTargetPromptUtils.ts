@@ -248,8 +248,9 @@ export function tryDeferTriggeredAbilityTargetSelection(
         ? 'a graveyard'
         : 'your graveyard';
 
-    const minSelectionCount = Math.max(0, Number((item as any).minTargets ?? 1));
-    const requestedMaxSelectionCount = Math.max(minSelectionCount, Number((item as any).maxTargets ?? minSelectionCount));
+    const inferredTargetCounts = inferTriggeredAbilityTargetMetadata(String((item as any).effect || description || ''));
+    const minSelectionCount = Math.max(0, Number((item as any).minTargets ?? inferredTargetCounts.minTargets ?? 1));
+    const requestedMaxSelectionCount = Math.max(minSelectionCount, Number((item as any).maxTargets ?? inferredTargetCounts.maxTargets ?? minSelectionCount));
     const maxSelectionCount = Math.min(validTargets.length, requestedMaxSelectionCount);
 
     if (validTargets.length >= minSelectionCount) {
@@ -386,8 +387,9 @@ export function tryDeferTriggeredAbilityTargetSelection(
           }))
       : [];
     const validTargets = [...validPermanentTargets, ...validPlayerTargets];
-    const minSelectionCount = Math.max(0, Number((item as any).minTargets ?? 1));
-    const requestedMaxSelectionCount = Math.max(minSelectionCount, Number((item as any).maxTargets ?? minSelectionCount));
+    const inferredTargetCounts = inferTriggeredAbilityTargetMetadata(String((item as any).effect || description || ''));
+    const minSelectionCount = Math.max(0, Number((item as any).minTargets ?? inferredTargetCounts.minTargets ?? 1));
+    const requestedMaxSelectionCount = Math.max(minSelectionCount, Number((item as any).maxTargets ?? inferredTargetCounts.maxTargets ?? minSelectionCount));
     const maxSelectionCount = Math.min(validTargets.length, requestedMaxSelectionCount);
     const combatRole = resolveTriggeredTargetCombatRole(item);
     const combatRoleLabel =

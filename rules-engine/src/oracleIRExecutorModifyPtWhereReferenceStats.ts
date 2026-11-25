@@ -2,6 +2,7 @@ import type { BattlefieldPermanent, GameState } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { readPermanentPower, readPermanentToughness } from './oracleIRExecutorCreatureStepUtils';
 import { readCurrentPower, readCurrentToughness } from './oracleIRExecutorCurrentPowerToughness';
+import { getSourceLastKnownPermanent } from './oracleIRExecutorSourceLastKnown';
 
 type PlayerLike = {
   readonly life?: number;
@@ -140,7 +141,15 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
       if (!targetId) {
         return readFromSacrificedSnapshot();
       }
-      const target = findObjectById(targetId) ?? battlefield.find((p: any) => p.id === targetId) as any;
+      // CR 608.2h: "this creature's power" after the source died (Flesh Carver) uses last-known info.
+      const sourceLastKnown = refWord !== 'that' && !battlefield.some((p: any) => String(p?.id || '').trim() === targetId)
+        ? getSourceLastKnownPermanent(state, ctx)
+        : null;
+      const target = sourceLastKnown ?? findObjectById(targetId) ?? battlefield.find((p: any) => p.id === targetId) as any;
+      if (sourceLastKnown) {
+        const lastKnownStat = Number(which === 'power' ? sourceLastKnown.power : sourceLastKnown.toughness);
+        if (Number.isFinite(lastKnownStat)) return lastKnownStat;
+      }
       if (!target) {
         return readFromSacrificedSnapshot();
       }
@@ -158,9 +167,17 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
     if (m) {
       const sourceId = String(ctx?.sourceId || '').trim();
       const targetId = String(targetCreatureId || '').trim();
-      const refId = sourceId || targetId;
-      if (!refId) return null;
-      const ref = findObjectById(refId);
+      // "Target creature gets +0/+X, where X is its mana value": "its" is the affected creature
+      // when that creature has known mana data; otherwise fall back to the source (equipment/aura pumps).
+      const hasManaData = (obj: any): boolean => {
+        if (!obj) return false;
+        const keys = ['manaValue', 'mana_value', 'cmc', 'manaCost', 'mana_cost'];
+        return keys.some((k) => obj?.[k] !== undefined && obj?.[k] !== null)
+          || keys.some((k) => obj?.card?.[k] !== undefined && obj?.card?.[k] !== null);
+      };
+      const targetRef = targetId ? findObjectById(targetId) : null;
+      const sourceRef = sourceId ? findObjectById(sourceId) : null;
+      const ref = (hasManaData(targetRef) ? targetRef : null) || sourceRef || targetRef;
       if (!ref) return null;
       const mv = getCardManaValue(ref);
       return Number.isFinite(mv as number) ? (mv as number) : null;
@@ -391,7 +408,8 @@ export function tryEvaluateModifyPtWhereReferenceStats(args: {
         if (statWord === 'mana value') return snapshot.manaValue;
         return statWord === 'power' ? snapshot.power : snapshot.toughness;
       }
-      const target = battlefield.find((p: any) => String(p?.id || '').trim() === refId) as any;
+      const target = (battlefield.find((p: any) => String(p?.id || '').trim() === refId)
+        ?? (refWord !== 'that' ? getSourceLastKnownPermanent(state, ctx) : null)) as any;
       if (!target) {
         if (!snapshot || statWord === 'intensity') return null;
         if (statWord === 'mana value') return snapshot.manaValue;

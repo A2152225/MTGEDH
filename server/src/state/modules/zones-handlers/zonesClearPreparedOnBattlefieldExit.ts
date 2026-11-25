@@ -4,6 +4,8 @@
 // Public entry symbols: clearPreparedStateOnBattlefieldExit.
 
 import { clearPreparedPermanent } from "../prepared.js";
+import { unpairPermanent } from "../soulbond.js";
+import { reportHookFailure } from "../../../../../shared/src/hookFailureReporter.js";
 
 export function clearPreparedStateOnBattlefieldExit(state: any, permanent: any): void {
   if (!permanent) {
@@ -11,10 +13,9 @@ export function clearPreparedStateOnBattlefieldExit(state: any, permanent: any):
   }
 
   try {
-    const { unpairPermanent } = require('../soulbond.js') as typeof import('../soulbond.js');
     unpairPermanent(state, permanent);
-  } catch {
-    // best-effort soulbond cleanup
+  } catch (err) {
+    reportHookFailure('soulbond.unpair', err, { source: 'zonesClearPreparedOnBattlefieldExit', cardName: String(permanent?.card?.name || '') });
   }
 
   const hasPreparedState =

@@ -43,8 +43,9 @@ export function tryParseSimpleActionAddManaChoiceClauses(args: SimpleActionClaus
         who: parsePlayerSelector(addAnyColorMana[1]),
         mana: '{W}',
         manaOptions: ['{W}', '{U}', '{B}', '{R}', '{G}'],
+        requiresChosenMana: true,
         raw: rawClause,
-        });
+      });
     }
 
     const addThatMuchAnyColor = clause.match(

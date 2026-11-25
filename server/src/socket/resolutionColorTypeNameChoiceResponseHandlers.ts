@@ -5,6 +5,7 @@
  * response handlers. Extracted from resolution.ts; wired through resolutionHandlerDeps.
  */
 
+import { normalizeColorChoiceWord } from "./colorChoiceSelection.js";
 import type { Server } from "socket.io";
 import { appendEvent } from "../db/index.js";
 import { readEffectProgramQueueMetadata } from "../state/effects/index.js";
@@ -42,7 +43,8 @@ export async function handleColorChoiceResponse(
   
   // Validate color choice
   const validColors = ['white', 'blue', 'black', 'red', 'green'];
-  const colorLower = selection.toLowerCase();
+  // Option-id answers ("W") name the same color as the word ("white").
+  const colorLower = normalizeColorChoiceWord(selection) || selection.toLowerCase();
   if (!validColors.includes(colorLower)) {
     debugWarn(2, `[Resolution] Invalid color choice: ${selection}`);
     return;

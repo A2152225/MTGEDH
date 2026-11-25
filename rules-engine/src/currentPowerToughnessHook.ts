@@ -1,3 +1,4 @@
+import { reportHookFailure } from '../../shared/src/hookFailureReporter.js';
 /**
  * Current power/toughness hook for rules-engine readers that have a game state but no access to the
  * server's shared calculation (AI evaluation, combat scoring, mana-power reads).
@@ -36,7 +37,8 @@ function readStat(state: any, permanent: any, stat: 'power' | 'toughness'): numb
     const current = registeredResolver(state, onBattlefield);
     const value = Number(current?.[stat]);
     return Number.isFinite(value) ? value : null;
-  } catch {
+  } catch (err) {
+    reportHookFailure('currentPowerToughnessHook', err, { source: 'currentPowerToughnessHook' });
     return null;
   }
 }

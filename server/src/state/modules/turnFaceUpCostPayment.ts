@@ -4,6 +4,7 @@
  * moves cards / pays life and is shared by the live socket handler and event replay.
  */
 import type { GameContext } from '../context.js';
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import { debugWarn } from '../../utils/debug.js';
 import { candidatesForComponent, describeTurnFaceUpCostComponents, type TurnFaceUpChoiceComponent, type TurnFaceUpCostComponent } from './turnFaceUpCostComponents.js';
 import { movePermanentToHand } from './zones.js';
@@ -110,7 +111,7 @@ function payLife(state: any, playerId: string, amount: number): void {
   try {
     payLifeAmount(state, playerId, amount);
     return;
-  } catch { /* hook optional */ }
+  } catch (err) { reportHookFailure('hook.optional.payLifeAmount', err, { source: 'turnFaceUpCostPayment' }); /* hook optional */ }
   state.life = state.life || {};
   const current = Number(state.life[playerId] ?? state.startingLife ?? 40);
   state.life[playerId] = current - amount;

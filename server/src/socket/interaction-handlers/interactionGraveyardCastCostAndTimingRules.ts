@@ -33,6 +33,7 @@ import { queueSelfETBTriggersForPermanent, triggerETBEffectsForToken } from "../
 import { triggerETBEffectsForPermanent } from "../../state/modules/triggerEtbPermanentEffects.js";
 import { parseWordNumber } from "../../state/utils";
 import { detectAdditionalCost } from "../land-helpers.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 // B42: Beam me up (Star Trek). "Beam me up {cost}" lets you cast this card from your graveyard by paying
 // {cost} and returning a creature you control to its owner's hand; it is exiled when it leaves the stack.
@@ -456,7 +457,8 @@ export function markCastFromGraveyardLive(game: any, playerId: string): void {
     const stateAny = game.state as any;
     stateAny.castFromGraveyardThisTurn = stateAny.castFromGraveyardThisTurn || {};
     stateAny.castFromGraveyardThisTurn[String(playerId)] = true;
-  } catch {
+  } catch (err) {
+    reportHookFailure('cast.graveyardThisTurn', err, { source: 'interactionGraveyardCastCostAndTimingRules' });
     // best-effort only
   }
 }

@@ -1,6 +1,7 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { getSourceLastKnownPermanent } from './oracleIRExecutorSourceLastKnown';
 import { collectMostRecentLedgerCards } from './oracleIRLedgerCardAccess';
 import { createDamageSourceFromPermanent } from './damageProcessing';
 import {
@@ -35,6 +36,7 @@ import type { PreventDamageStepHandlerResult } from './oracleIRExecutorDamageSte
 import { resolveControlledPermanentCountDamageAmount } from './oracleIRExecutorDamageStepHandlers-handlers/oracleIRExecutorDamageControlledCountAmount';
 import { pronounDamageSourceId } from './oracleIRExecutorDamagePronounSource';
 import { resolveDamageTargetFallback } from './oracleIRExecutorDamageExtendedTargetFallback';
+import { isSingleTargetDamagePhrase, tryApplyCompoundOrDividedDamage } from './oracleIRExecutorDamageBoundTargetFallback';
 import { permanentIsExcludedAntecedentCreature } from './oracleIRSelectorExclusionQualifier';
 export type { PreventDamageStepHandlerResult };
 
@@ -182,7 +184,9 @@ function resolveDamageAmountSourceObjects(
     : (Array.isArray(runtime?.lastMovedCards) ? runtime.lastMovedCards : []);
   if (!source || (source as any).kind !== 'raw') {
     const directSource = findSourceObject(state, String(ctx.sourceId || '').trim());
-    return directSource ? [directSource] : [];
+    if (directSource) return [directSource];
+    const lastKnownSource = getSourceLastKnownPermanent(state, ctx);
+    return lastKnownSource ? [lastKnownSource] : [];
   }
 
   const raw = String((source as any).text || '')
@@ -198,6 +202,8 @@ function resolveDamageAmountSourceObjects(
   if (/^(?:it|this (?:permanent|spell|creature|card))$/.test(raw)) {
     const directSource = findSourceObject(state, String(ctx.sourceId || '').trim());
     if (directSource) return [directSource];
+    const lastKnownSource = getSourceLastKnownPermanent(state, ctx);
+    if (lastKnownSource) return [lastKnownSource];
     return moved.length > 0 ? moved : [];
   }
 
@@ -664,6 +670,8 @@ export function applyDealDamageStep(
   if (/\s+that (?:isn't|is not|isn\u2019t) a commander$/i.test(restrictedTargetText)) {
     step = { ...step, target: { ...(step.target as any), text: restrictedTargetText.replace(/\s+that (?:isn't|is not|isn\u2019t) a commander$/i, '') } } as any;
   }
+  const compound = tryApplyCompoundOrDividedDamage(state, step, ctx, (s, st, c) => applyDealDamageStep(s, st, c, runtime));
+  if (compound) return compound;
   const fight = tryApplyFightDealDamageStep(state, step, ctx);
   if (fight) {
     if (fight.applied === false) return fight;
@@ -866,7 +874,7 @@ export function applyDealDamageStep(
       };
     }
 
-    const mixed = parseDeterministicMixedDamageTarget(rawText);
+    const mixed = isSingleTargetDamagePhrase(rawText) ? null : parseDeterministicMixedDamageTarget(rawText);
     if (mixed) {
       let totalDamageDealt = 0;
       for (const playerId of resolveMixedDamagePlayers(nextState, mixed.players, ctx)) {
@@ -925,7 +933,7 @@ export function applyDealDamageStep(
   if ((step.target as any)?.kind === 'raw') {
     const rawText = String(((step.target as any).text || '') as any).trim();
     const normalized = normalizeRepeatedEachAllInList(rawText);
-    const selector = parseSimpleBattlefieldSelector({ kind: 'raw', text: normalized } as any);
+    const selector = isSingleTargetDamagePhrase(rawText) ? null : parseSimpleBattlefieldSelector({ kind: 'raw', text: normalized } as any);
 
     if (selector) {
       const disallowed = selector.types.some(

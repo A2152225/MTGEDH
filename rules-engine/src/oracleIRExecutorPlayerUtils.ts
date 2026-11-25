@@ -58,6 +58,20 @@ export function impulseExileTopIsDiscoverCastOrHand(step: {
   return false;
 }
 
+function turnsUntilYourNextTurnEnds(state: GameState): number {
+  const rawOrder = (state as any).turnOrder;
+  const order = Array.isArray(rawOrder)
+    ? rawOrder.map((id: any) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const players = Array.isArray(state.players)
+    ? state.players.map((player: any) => String(player?.id || '').trim()).filter(Boolean)
+    : [];
+  const cycle = order.length > 0 ? order : players;
+  // "Until the end of your next turn" waits out every other seat. One- and
+  // two-player states keep the historical turn+1 stamp used by existing fixtures.
+  return cycle.length >= 3 ? cycle.length : 1;
+}
+
 export function getPlayableUntilTurnForImpulseDuration(state: GameState, duration: any): number | null {
   const turnNumber = getCurrentTurnNumber(state);
   const d = String(duration || '').trim();
@@ -65,9 +79,12 @@ export function getPlayableUntilTurnForImpulseDuration(state: GameState, duratio
 
   if (d === 'this_turn' || d === 'during_resolution') return turnNumber;
 
+  if (d === 'until_end_of_next_turn') {
+    return turnNumber + turnsUntilYourNextTurnEnds(state);
+  }
+
   if (
     d === 'during_next_turn' ||
-    d === 'until_end_of_next_turn' ||
     d === 'until_end_of_combat_on_next_turn' ||
     d === 'until_next_turn' ||
     d === 'until_next_upkeep' ||

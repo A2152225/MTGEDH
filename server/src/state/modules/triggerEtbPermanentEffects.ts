@@ -1,4 +1,5 @@
 import { oracleTextHasTriggersOnlyOnceEachTurn, recordTurnLimitedEtbTriggerQueued, shouldSkipTurnLimitedEtbTrigger } from './triggerDoThisOnlyOnceEachTurn.js';
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
 import { uid } from '../utils.js';
@@ -150,7 +151,8 @@ export function queueGraveyardResidentCreatureEntryTriggers(
         if (satisfied === false) {
           continue;
         }
-      } catch {
+      } catch (err) {
+        reportHookFailure('intervening-if.eval.generic', err, { source: 'triggerEtbPermanentEffects' });
         // Keep the trigger if the generic evaluator cannot decide.
       }
 
@@ -362,7 +364,8 @@ export function triggerETBEffectsForPermanent(
             debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
           }
-        } catch {
+        } catch (err) {
+          reportHookFailure('intervening-if.eval', err, { source: 'triggerEtbPermanentEffects' });
           // Conservative fallback: keep the trigger if evaluation fails.
         }
         
@@ -535,7 +538,8 @@ export function triggerETBEffectsForPermanent(
             debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
           }
-        } catch {
+        } catch (err) {
+          reportHookFailure('intervening-if.eval', err, { source: 'triggerEtbPermanentEffects' });
           // Conservative fallback: keep the trigger if evaluation fails.
         }
         
@@ -605,7 +609,8 @@ export function triggerETBEffectsForPermanent(
             debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
           }
-        } catch {
+        } catch (err) {
+          reportHookFailure('intervening-if.eval', err, { source: 'triggerEtbPermanentEffects' });
           // Conservative fallback: keep the trigger if evaluation fails.
         }
         state.stack = state.stack || [];
@@ -664,7 +669,8 @@ export function triggerETBEffectsForPermanent(
               debug(2, `[triggerETBEffectsForPermanent] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
               continue;
             }
-          } catch {
+          } catch (err) {
+            reportHookFailure('intervening-if.eval', err, { source: 'triggerEtbPermanentEffects' });
             // Conservative fallback: keep the trigger if evaluation fails.
           }
 

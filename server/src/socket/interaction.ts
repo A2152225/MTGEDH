@@ -598,6 +598,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       manaCost,
       pendingLifePaymentForCost,
       pendingCounterRemovals,
+      pendingEnergyPaymentForCost: 0,
+      energyPaidForCost: 0,
     };
     if (await tryHandleActivatePayLifeExileCounters(
       activateCtx,
@@ -707,6 +709,8 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
       recordedAddedMana,
       removedCountersForCost,
       pendingCounterRemovals,
+      pendingEnergyPaymentForCost: activationCostState.pendingEnergyPaymentForCost,
+      energyPaidForCost: activationCostState.energyPaidForCost,
     };
     const genericExtras: ActivateGenericAbilityExtras = {
       abilityText,

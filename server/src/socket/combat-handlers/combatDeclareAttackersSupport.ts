@@ -1,4 +1,5 @@
-import { alreadyAttackedPlayerRestrictionReason } from "./combatBatch37Restrictions.js"; // B37
+import { alreadyAttackedPlayerRestrictionReason } from "./combatBatch37Restrictions.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js'; // B37
 import { cantAttackAloneReason } from "./combatBatch53AttackAlone.js"; // B53
 import { hallsOfMistPreventsAttack } from "../../state/modules/batch93AttackRestrictions.js";
 import { reactToCausedTrigger } from "../../state/modules/triggers/round67GameTriggers.js";
@@ -315,7 +316,8 @@ export function processAttackTriggersAfterDeclaration(
               debug(2, `[combat] Skipping attack trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
               continue;
             }
-          } catch {
+          } catch (err) {
+            reportHookFailure('intervening-if.eval', err, { source: 'combatDeclareAttackersSupport' });
             // Conservative fallback: keep the trigger if evaluation fails.
           }
 

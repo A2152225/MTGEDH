@@ -118,6 +118,9 @@ export function renderAppPlayOverlaysMid(p: Record<string, any>) {
         targets={counterDistributionModalData?.targets || []}
         message={counterDistributionModalData?.message}
         canCancel={counterDistributionModalData?.mandatory === false}
+        unitNoun={counterDistributionModalData?.unitNoun}
+        heading={counterDistributionModalData?.heading}
+        initializeEven={counterDistributionModalData?.initializeEven === true}
         onConfirm={(distribution) => {
           if (safeView?.id && counterDistributionModalData?.stepId) {
             socket.emit('submitResolutionResponse', {

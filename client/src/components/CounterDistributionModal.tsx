@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ResolutionPromptMinimizeButton } from './ResolutionMinimizedChip';
 import {
   buildInitialCounterDistribution,
+  buildEvenCounterDistribution,
   canConfirmCounterDistribution,
   counterDistributionMeetsMinimums,
   getCounterDistributionAllocated,
@@ -23,6 +24,9 @@ export interface CounterDistributionModalProps {
   message?: string;
   canCancel?: boolean;
   onMinimize?: () => void;
+  unitNoun?: string;
+  heading?: string;
+  initializeEven?: boolean;
   onConfirm: (distribution: Record<string, number>) => void;
   onCancel: () => void;
 }
@@ -37,6 +41,9 @@ export function CounterDistributionModal({
   targets,
   message,
   canCancel = true,
+  unitNoun,
+  heading,
+  initializeEven = false,
   onMinimize,
   onConfirm,
   onCancel,
@@ -46,14 +53,17 @@ export function CounterDistributionModal({
     [targets],
   );
 
-  const [distribution, setDistribution] = useState<Record<string, number>>(() =>
-    buildInitialCounterDistribution(targetIds),
-  );
+  const buildInitial = () =>
+    initializeEven
+      ? buildEvenCounterDistribution(targetIds, totalAmount)
+      : buildInitialCounterDistribution(targetIds);
+
+  const [distribution, setDistribution] = useState<Record<string, number>>(buildInitial);
 
   useEffect(() => {
     if (!open) return;
-    setDistribution(buildInitialCounterDistribution(targetIds));
-  }, [open, targetIds, totalAmount, counterType]);
+    setDistribution(buildInitial());
+  }, [open, targetIds, totalAmount, counterType, initializeEven]);
 
   const allocated = useMemo(
     () => getCounterDistributionAllocated(distribution),
@@ -127,7 +137,7 @@ export function CounterDistributionModal({
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
           <h2 style={{ margin: 0, fontSize: 20, color: '#fff', flex: 1 }}>
-            Distribute {counterType} — {cardName}
+            {heading || `Distribute ${counterType} — ${cardName}`}
           </h2>
           {onMinimize ? <ResolutionPromptMinimizeButton onMinimize={onMinimize} /> : null}
         </div>
@@ -150,7 +160,7 @@ export function CounterDistributionModal({
 
         {!meetsMinimums && allocated === totalAmount ? (
           <div style={{ marginBottom: 12, padding: 8, background: '#2a2a3e', borderRadius: 6, fontSize: 13, color: '#ffcc00' }}>
-            Each target must receive at least {minPerTarget} counter(s).
+            Each target must receive at least {minPerTarget} {unitNoun || 'counter(s)'}.
           </div>
         ) : null}
 

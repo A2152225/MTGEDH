@@ -209,7 +209,7 @@ export function isCurrentBatchReminderKeywordPattern(normalizedText: string, nor
     /^activate this ability only if\b.+$/i.test(normalizedText) ||
     /^activate only while\b.+$/i.test(normalizedText) ||
     /^activate only one\b.+$/i.test(normalizedText) ||
-    /^cast this spell only (?:before|after)\b.+$/i.test(normalizedText) ||
+    /^cast this spell only (?:before|after|during|if|while)\b.+$/i.test(normalizedText) ||
     /^activate only once each turn$/i.test(normalizedText) ||
     /^bestow\s+(?:\{[^}]+\})+(?:\s*\([^)]*\))?$/i.test(normalizedText) ||
     /^if this card was bestowed, this permanent becomes an aura again if it(?:'|’)?s attached to a creature$/i.test(normalizedText) ||

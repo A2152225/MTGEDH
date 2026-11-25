@@ -6,6 +6,7 @@
 // Leaf must not import turn.ts or turn-handlers/index.ts.
 
 import type { GameContext } from "../../context.js";
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 import { getBoundTurnScopedSpellTriggerSources, getTurnScopedSpellTriggerSources } from "../triggers/turnScopedSpellTriggers.js";
 import { detectCombatDamageTriggers } from "../triggered-abilities.js";
 import { collectMatchingParsedEventLines, parsedEffectDuplicates } from "../triggers/triggerConditionFamilyMatch.js";
@@ -138,7 +139,8 @@ export function applyDealCombatDamageTriggerQueue(
                 debug(2, `${ts()} [dealCombatDamage] Skipping trigger from ${attackerPerm.card?.name || attackerPerm.id} due to intervening-if being false: ${text}`);
                 continue;
               }
-            } catch {
+            } catch (err) {
+              reportHookFailure('intervening-if.eval', err, { source: 'turnCombatDamageTriggerQueue' });
               // Defensive: if evaluation fails, do not block.
             }
 
@@ -439,7 +441,8 @@ export function applyDealCombatDamageTriggerQueue(
                 debug(2, `${ts()} [dealCombatDamage] Skipping defender trigger from ${perm.card?.name || perm.id} due to intervening-if being false: ${text}`);
                 continue;
               }
-            } catch {
+            } catch (err) {
+              reportHookFailure('intervening-if.eval', err, { source: 'turnCombatDamageTriggerQueue' });
               // Defensive: if evaluation fails, do not block.
             }
 
@@ -539,7 +542,8 @@ export function applyDealCombatDamageTriggerQueue(
                   debug(2, `${ts()} [dealCombatDamage] Skipping batched trigger from ${trigger.cardName} due to intervening-if being false: ${text}`);
                   continue;
                 }
-              } catch {
+              } catch (err) {
+                reportHookFailure('intervening-if.eval', err, { source: 'turnCombatDamageTriggerQueue' });
                 // Defensive: if evaluation fails, do not block.
               }
 

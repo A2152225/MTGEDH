@@ -44,6 +44,7 @@ import {
   type RestrictedManaSpendPurpose,
 } from "../util.js";
 import { applyManaAbilityLifeEffectToState, resolveManaAbilityLifeEffect } from "../../state/modules/mana-abilities-handlers/manaAbilitySelfDamage.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 function getFloatingPaymentPoolKey(permanentId: string, mana: string, pool?: any): string | null {
   return getFloatingPaymentPoolColorKey(permanentId, mana, pool);
@@ -82,7 +83,8 @@ function applyPayLifeManaAbilityCost(
     (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
     (game.state as any).lifeLostThisTurn[String(playerId)] =
       Number((game.state as any).lifeLostThisTurn[String(playerId)] || 0) + payLifeAmount;
-  } catch {
+  } catch (err) {
+    reportHookFailure('payment.lifeLostTracking', err, { source: 'resolutionManaPaymentApplication' });
     // Best-effort tracking only.
   }
   return { ok: true };

@@ -13,6 +13,7 @@
 import type { PlayerID } from '../../../shared/src/index.js';
 import { parseTargetRequirements } from '../rules-engine/targeting.js';
 import { buildSpellTargetListFromRequirements } from './game-actions.js';
+import { isAuraSpell } from "./auraEnchantKeyword.js";
 
 export type SpellCastBoardGap =
   | 'no_creature_target'
@@ -244,7 +245,7 @@ export function getSpellCastBoardGaps(
     if (!anyoneHasCards) gaps.push('no_hand_cards');
   }
 
-  const isAura = typeLower.includes('aura') && /^enchant\s+/im.test(oracleText);
+  const isAura = isAuraSpell(typeLine || typeLower, oracleText);
   const targetReqs = parseTargetRequirements(oracleText, {
     gameState: game?.state,
     controllerId: String(playerId),

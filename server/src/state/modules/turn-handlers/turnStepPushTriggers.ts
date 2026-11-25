@@ -14,6 +14,7 @@ import { pushTriggerDoublerCopies } from "../triggers/combat.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { persistTurnStepTriggeredAbility, persistTurnStepTriggerOrderStep } from "./turnStepTriggerPersist.js";
 import { debug, debugError } from "../../../utils/debug.js";
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -128,7 +129,8 @@ export function pushTurnStepTriggersToStack(
                 debug(2, `${ts()} [nextStep] Skipping ${triggerType} trigger due to unmet intervening-if: ${trigger.cardName} - ${raw}`);
                 continue;
               }
-            } catch {
+            } catch (err) {
+              reportHookFailure('triggers.interveningIf', err, { source: 'turnStepPushTriggers' });
               // Keep trigger on any evaluation error.
             }
 

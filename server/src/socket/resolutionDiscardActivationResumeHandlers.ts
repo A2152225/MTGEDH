@@ -17,6 +17,8 @@ import { debug, debugError } from "../utils/debug.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "./util.js";
 import { continueCastFromGraveyardAbility } from "./interaction.js";
 import { attachActivationCostDiscardedCards } from "../state/modules/activationCostDiscardedCardEvidence.js";
+import { paySelfSourceActivationCost } from "./interaction-handlers/activationSelfSourceCost.js";
+import { applyStepActivationX, readActivationStepXValue, stripExtendedDiscardCostClauses } from "./interaction-handlers/activationCostXAndDiscardClauses.js";
 import {
   battlefieldAbilityStackReplayEvidence,
   buildActivatedAbilityValidTargets,
@@ -108,8 +110,8 @@ export async function tryResumeDiscardActivationCosts(
       const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
       const abilityId = String(stepAny?.abilityId || '').trim();
       const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
-      const abilityText = String(stepAny?.abilityText || step.description || '');
-      const manaCost = String(stepAny?.manaCost || '');
+      const abilityText = applyStepActivationX(stepAny, String(stepAny?.abilityText || step.description || ''));
+      const manaCost = applyStepActivationX(stepAny, String(stepAny?.manaCost || ''));
       const requiresTap = Boolean(stepAny?.requiresTap);
 
       const sacrificeType = String(stepAny?.sacrificeType || '').trim();
@@ -254,8 +256,8 @@ export async function tryResumeDiscardActivationCosts(
       const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
       const abilityId = String(stepAny?.abilityId || '').trim();
       const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
-      const abilityText = String(stepAny?.abilityText || step.description || '');
-      const manaCost = String(stepAny?.manaCost || '');
+      const abilityText = applyStepActivationX(stepAny, String(stepAny?.abilityText || step.description || ''));
+      const manaCost = applyStepActivationX(stepAny, String(stepAny?.manaCost || ''));
       const requiresTap = Boolean(stepAny?.requiresTap);
 
       const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
@@ -274,13 +276,14 @@ export async function tryResumeDiscardActivationCosts(
       }
 
       // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus the discard clause.
-      const remainingNonManaCostText = manaCost
+      const remainingNonManaCostText = stripExtendedDiscardCostClauses(manaCost)
         .replace(/\{[^}]+\}/g, ' ')
         .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
         .replace(
-          /\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\b/gi,
+          /\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\b(?:\s+at\s+random\b)?/gi,
           ' '
         )
+        .replace(/\bsacrifice\s+(?:~|this\b)[^,]*/gi, (m: string) => (stepAny?.deferredSelfSourceCost === 'sacrifice' ? ' ' : m))
         .replace(/[\s,]+/g, ' ')
         .trim();
       if (remainingNonManaCostText.length > 0) {
@@ -388,6 +391,7 @@ export async function tryResumeDiscardActivationCosts(
               discardedCardIdsForCost: discardedCardIdsForCost.length > 0 ? discardedCardIdsForCost : undefined,
               exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost.length > 0 ? exiledCardIdsFromHandForCost : undefined,
               lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+              deferredSelfSourceCost: stepAny?.deferredSelfSourceCost === 'sacrifice' ? 'sacrifice' : undefined,
             }
           : {
               type: ResolutionStepType.TARGET_SELECTION,
@@ -412,6 +416,7 @@ export async function tryResumeDiscardActivationCosts(
               discardedCardIdsForCost: discardedCardIdsForCost.length > 0 ? discardedCardIdsForCost : undefined,
               exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost.length > 0 ? exiledCardIdsFromHandForCost : undefined,
               lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+              deferredSelfSourceCost: stepAny?.deferredSelfSourceCost === 'sacrifice' ? 'sacrifice' : undefined,
             }) as any);
 
         try {
@@ -439,6 +444,17 @@ export async function tryResumeDiscardActivationCosts(
         return true;
       }
 
+      // Deferred "Sacrifice this" from the discard cost (no targets to choose first).
+      let selfSacrificeSnapshot: Record<string, any> | undefined;
+      if (stepAny?.deferredSelfSourceCost === 'sacrifice') {
+        const paidSelf = paySelfSourceActivationCost(game, gameId, controllerId, permanentId, 'sacrifice', cardName);
+        if (!paidSelf.ok) {
+          emitToPlayer(io, controllerId, 'error', { code: paidSelf.code, message: paidSelf.message });
+          return true;
+        }
+        selfSacrificeSnapshot = paidSelf.snapshot;
+      }
+
       // Put the ability on the stack.
       const stackItem = {
         id: `ability_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -447,6 +463,8 @@ export async function tryResumeDiscardActivationCosts(
         source: permanentId,
         sourceName: cardName,
         description: abilityText,
+        ...(readActivationStepXValue(stepAny) !== undefined ? { xValue: readActivationStepXValue(stepAny) } : null),
+        ...(selfSacrificeSnapshot ? { sacrificedPermanents: [permanentId], lastSacrificedPermanents: [selfSacrificeSnapshot], sourceLastKnown: selfSacrificeSnapshot } : null),
       } as any;
       // The effect may ask about the card discarded as a cost ("If the discarded card was ...").
       attachActivationCostDiscardedCards(game.state, stackItem, controllerId, discardedCardIdsForCost);
@@ -467,6 +485,8 @@ export async function tryResumeDiscardActivationCosts(
             discardedCardIds: discardedCardIdsForCost.length > 0 ? discardedCardIdsForCost : undefined,
             exiledCardIdsFromHandForCost: exiledCardIdsFromHandForCost.length > 0 ? exiledCardIdsFromHandForCost : undefined,
             lifePaidForCost: lifeToPayForCost > 0 ? lifeToPayForCost : undefined,
+            sacrificedPermanents: selfSacrificeSnapshot ? [permanentId] : undefined,
+            lastSacrificedPermanents: selfSacrificeSnapshot ? [selfSacrificeSnapshot] : undefined,
           });
         } catch {
           // ignore persistence failures
@@ -497,8 +517,8 @@ export async function tryResumeDiscardActivationCosts(
       const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
       const abilityId = String(stepAny?.abilityId || '').trim();
       const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
-      const abilityText = String(stepAny?.abilityText || step.description || '');
-      const manaCost = String(stepAny?.manaCost || '');
+      const abilityText = applyStepActivationX(stepAny, String(stepAny?.abilityText || step.description || ''));
+      const manaCost = applyStepActivationX(stepAny, String(stepAny?.manaCost || ''));
       const requiresTap = Boolean(stepAny?.requiresTap);
       const activatedAbilityText = String(stepAny?.activatedAbilityText || '').trim();
 
@@ -518,7 +538,7 @@ export async function tryResumeDiscardActivationCosts(
       }
 
       // Conservative: only support costs that are (mana symbols and/or {T}/{Q}) plus the exile-from-hand clause.
-      const remainingNonManaCostText = manaCost
+      const remainingNonManaCostText = stripExtendedDiscardCostClauses(manaCost)
         .replace(/\{[^}]+\}/g, ' ')
         .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
         .replace(/\bexile\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\s+from\s+your\s+hand\b/gi, ' ')

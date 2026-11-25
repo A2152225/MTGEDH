@@ -9,6 +9,7 @@ import { isActivatedManaAbilityText, adjustActivationManaCostForPayment } from "
 import { parseWordNumber } from "../../state/utils";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
+import { tryHandleActivateCostPromptDiscard } from "./interactionActivateCostPromptDiscard.js";
 import { creatureHasHaste } from "../game-actions.js";
 import {
   broadcastGame,
@@ -245,178 +246,11 @@ export async function tryHandleActivateCostPromptDiscardExileHand(
     }
   }
 
-  {
-    const costStr = String(manaCost || '');
-    const costLower = costStr.toLowerCase();
-    if (costLower.includes('discard')) {
-      // Optional supported additional clause: "Pay N life" (non-interactive).
-      // IMPORTANT: do not actually pay life until the discard step resolves;
-      // otherwise canceling the step would incorrectly charge life.
-      let lifeToPayForCost: number | undefined;
-      {
-        const payLifeMatch = costStr.match(/\bpay\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/i);
-        if (payLifeMatch) {
-          const multiple = (costLower.match(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi) || []).length;
-          if (multiple > 1 || /\bor\b/i.test(costStr)) {
-            socket.emit('error', {
-              code: 'UNSUPPORTED_COST',
-              message: `Cannot activate ${cardName}: pay-life costs with choices ("or") are not supported yet.`,
-            });
-            return true;
-          }
-
-          const raw = String(payLifeMatch[1] || '').trim();
-          const n = parseWordNumber(raw, 1);
-          if (!Number.isFinite(n) || n <= 0) {
-            socket.emit('error', {
-              code: 'UNSUPPORTED_COST',
-              message: `Cannot activate ${cardName}: invalid life payment amount.`,
-            });
-            return true;
-          }
-
-          const currentLife = Number((game.state as any)?.life?.[pid] ?? 40);
-          if (!Number.isFinite(currentLife) || currentLife < n) {
-            socket.emit('error', {
-              code: 'INSUFFICIENT_LIFE',
-              message: `Cannot activate ${cardName}: need to pay ${n} life, but you only have ${Number.isFinite(currentLife) ? currentLife : 0}.`,
-            });
-            return true;
-          }
-
-          lifeToPayForCost = n;
-        }
-      }
-
-      // Conservative: support "discard N card(s)" and "discard N <type> card(s)" where <type> is a single keyword.
-      // Examples:
-      // - "Discard a card"
-      // - "Discard a creature card"
-      // - "Discard two land cards"
-      const discardMatch = costLower.match(/\bdiscard\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+cards?\b/i);
-      const discardTypedMatch = costLower.match(
-        /\bdiscard\s+(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+cards?\b/i
-      );
-      if (discardMatch || discardTypedMatch) {
-        const typedRestriction = discardTypedMatch ? String(discardTypedMatch[2] || '').trim().toLowerCase() : '';
-
-        // If this cost also includes a sacrifice clause, we don't yet support multi-step costs.
-        if (costLower.includes('sacrifice')) {
-          socket.emit('error', {
-            code: 'UNSUPPORTED_COST',
-            message: `Cannot activate ${cardName}: discard + sacrifice as an activation cost is not supported yet.`,
-          });
-          return true;
-        }
-
-        const raw = String((discardTypedMatch?.[1] || discardMatch?.[1]) || '').trim();
-        const discardCount = parseWordNumber(raw, 1);
-
-        // Ensure the cost contains no other non-mana cost components besides the discard clause.
-        const remainingNonManaCostText = costStr
-          .replace(/\{[^}]+\}/g, ' ')
-          .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
-          .replace(
-            /\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\b/gi,
-            ' '
-          )
-          .replace(/[\s,]+/g, ' ')
-          .trim();
-        if (remainingNonManaCostText.length > 0) {
-          socket.emit('error', {
-            code: 'UNSUPPORTED_COST',
-            message: `Cannot activate ${cardName}: discard cost with additional non-mana components is not supported yet (${remainingNonManaCostText}).`,
-          });
-          return true;
-        }
-
-        const zones = (game.state as any)?.zones?.[pid];
-        const hand = zones?.hand;
-        if (!zones || !Array.isArray(hand)) {
-          socket.emit('error', { code: 'NO_HAND', message: 'No hand found for discard cost' });
-          return true;
-        }
-
-        const eligibleHand = (() => {
-          const filteredHand = pendingSpellCardIdForCostSelection
-            ? (hand as any[]).filter((c: any) => String(c?.id || '') !== pendingSpellCardIdForCostSelection)
-            : hand;
-          if (!typedRestriction) return filteredHand;
-          return (filteredHand as any[]).filter((c: any) => {
-            const tl = String(c?.type_line || '').toLowerCase();
-            switch (typedRestriction) {
-              case 'creature':
-              case 'artifact':
-              case 'enchantment':
-              case 'land':
-              case 'instant':
-              case 'sorcery':
-              case 'planeswalker':
-                return tl.includes(typedRestriction);
-              case 'nonland':
-                return !tl.includes('land');
-              case 'noncreature':
-                return !tl.includes('creature');
-              default:
-                return false;
-            }
-          });
-        })();
-
-        if (eligibleHand.length < discardCount) {
-          socket.emit('error', {
-            code: 'INSUFFICIENT_CARDS',
-            message: typedRestriction
-              ? `Need to discard ${discardCount} ${typedRestriction} card(s), but you only have ${eligibleHand.length}.`
-              : `Need to discard ${discardCount} card(s), but you only have ${eligibleHand.length}.`,
-          });
-          return true;
-        }
-
-        const existing = ResolutionQueueManager
-          .getStepsForPlayer(gameId, pid as any)
-          .find((s: any) => s?.type === ResolutionStepType.DISCARD_SELECTION && (s as any)?.discardAbilityAsCost === true && String((s as any)?.permanentId || s?.sourceId) === String(permanentId));
-
-        if (!existing) {
-          const activatedAbilityText = buildActivatedAbilityOracleTextForStack({
-            selectedAbilityFullText,
-            selectedAbilityOracleLine,
-            abilityConditionText,
-            manaCost,
-            abilityText,
-          });
-          ResolutionQueueManager.addStep(gameId, {
-            type: ResolutionStepType.DISCARD_SELECTION,
-            playerId: pid as PlayerID,
-            sourceId: permanentId,
-            sourceName: cardName,
-            description: `${cardName}: Discard ${discardCount} card${discardCount === 1 ? '' : 's'} to activate: ${abilityText}`,
-            mandatory: false,
-            hand: eligibleHand,
-            discardCount,
-            currentHandSize: eligibleHand.length,
-            maxHandSize: Math.max(7, eligibleHand.length),
-            reason: 'activation_cost',
-
-            // Custom payload consumed by resolution.ts
-            discardAbilityAsCost: true,
-            permanentId,
-            abilityId,
-            cardName,
-            abilityText,
-            manaCost,
-            requiresTap,
-            activatedAbilityText,
-            discardTypeRestriction: typedRestriction || undefined,
-            lifeToPayForCost,
-          } as any);
-        }
-
-        debug(2, `[activateBattlefieldAbility] ${cardName} requires discarding ${discardCount} card(s) as a cost. Queued DISCARD_SELECTION.`);
-        broadcastGame(io, game, gameId);
-        return true;
-      }
-    }
+  if (await tryHandleActivateCostPromptDiscard(
+    ctx, manaCost, abilityText, requiresTap, abilityConditionText, pendingSpellCardIdForCostSelection,
+    buildActivatedAbilityOracleTextForStack, selectedAbilityFullText, selectedAbilityOracleLine,
+  )) {
+    return true;
   }
 
   const resolvedAbilityText = applyXValueToText(abilityText, selectedXValue);

@@ -22,6 +22,7 @@ import {
   type ResolutionStep,
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
+import { applyStepActivationX } from "./interaction-handlers/activationCostXAndDiscardClauses.js";
 
 export type ActivationCostPreCompleteValidationArgs = {
   socket: Socket;
@@ -49,7 +50,8 @@ export async function validateActivationCostStepsBeforeComplete(
   const stepAny = step as any;
 
   const validateManaAndLifeForActivationCost = async (controllerId: string, manaCost: string, lifeToPayForCost: number) => {
-    const manaSymbols = String(manaCost || '').match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
+    // X was announced with the activation (CR 601.2b); validate the substituted cost.
+    const manaSymbols = applyStepActivationX(stepAny, String(manaCost || '')).match(/\{[WUBRGC0-9X\/P]+\}/gi) || [];
     const manaOnly = manaSymbols
       .filter((s) => s.toUpperCase() !== '{T}' && s.toUpperCase() !== '{Q}')
       .join('');

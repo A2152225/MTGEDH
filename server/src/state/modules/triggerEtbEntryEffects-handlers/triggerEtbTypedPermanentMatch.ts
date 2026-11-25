@@ -12,6 +12,7 @@
  */
 
 import type { GameContext } from '../../context.js';
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 import { uid } from '../../utils.js';
 import { getCurrentPowerToughnessForRules } from '../currentPowerToughness.js';
 import { permanentHasCreatureTypeNow } from '../../creatureTypeNow.js';
@@ -266,7 +267,8 @@ export function tryBuildTypedPermanentEtbStackItem(
     if (satisfied === false) {
       return null;
     }
-  } catch {
+  } catch (err) {
+    reportHookFailure('intervening-if.eval', err, { source: 'triggerEtbTypedPermanentMatch' });
     // Conservative fallback: keep the trigger if evaluation fails.
   }
 

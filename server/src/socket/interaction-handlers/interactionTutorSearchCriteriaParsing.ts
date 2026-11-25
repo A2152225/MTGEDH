@@ -233,6 +233,13 @@ export function parseSearchCriteria(criteria: string): {
     maxToughness?: number;
   } = {};
   const text = criteria.toLowerCase();
+
+  // "basic land cards and/or Gate cards" (Navigation Orb): a card matching either part qualifies.
+  const disjuncts = text.split(/\s+(?:and\/or|or)\s+(?=(?:an?\s+)?[a-z -]*?\bcards?\b)/).map((part) => part.trim()).filter(Boolean);
+  if (disjuncts.length > 1 && disjuncts.every((part) => /\bcards?\b/.test(part))) {
+    const anyOf = disjuncts.map((part) => parseSearchCriteria(part)).filter((part) => Object.keys(part).length > 0);
+    if (anyOf.length > 1) return { anyOf } as any;
+  }
   
   // ============================================
   // CMC / Mana Value filtering

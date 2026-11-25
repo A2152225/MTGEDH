@@ -13,6 +13,7 @@ import { debug, debugWarn } from "../../../utils/debug.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { replayEnsureInterveningIfSubjectOnBattlefield } from "../replay-prompt-cleanup.js";
 import { applyTriggerOrderToStack } from "../../resolution/handlers/triggerOrder.js";
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 
 export function applyTriggerQueueEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -223,6 +224,7 @@ export function applyTriggerQueueEvents(ctx: GameContext, e: GameEvent): boolean
           debug(2, `[applyEvent] Pushed triggered ability: ${sourceName} - ${description}`);
           ctx.bumpSeq();
         } catch (err) {
+          reportHookFailure('triggers.applyEventPush', err, { source: 'applyEventTriggerQueueEvents' });
           debugWarn(1, "applyEvent(pushTriggeredAbility): failed", err);
         }
         break;

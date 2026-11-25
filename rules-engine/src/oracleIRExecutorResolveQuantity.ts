@@ -1,6 +1,7 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleClauseCondition, OracleQuantity } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { readSourceLastKnownStat } from './oracleIRExecutorSourceLastKnown';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import { evaluateModifyPtWhereX } from './oracleIRExecutorModifyPtWhereEvaluator';
 import {
@@ -492,6 +493,13 @@ export function resolveOracleQuantity(
       const contextualCard = contextualCards[contextualCards.length - 1];
       const contextualAmount = readStat(contextualCard);
       if (contextualAmount !== null) return contextualAmount;
+    }
+
+    // CR 608.2h: "its power" of a source that already left (dies triggers) uses last-known info,
+    // never the chosen damage / pump target bound below.
+    if (subject === 'it' || subject === 'this_creature' || subject === 'this_permanent' || subject === 'source') {
+      const lastKnownAmount = readSourceLastKnownStat(state, ctx, qty.stat);
+      if (lastKnownAmount !== null) return Math.max(0, lastKnownAmount * multiplier);
     }
 
     if (subject === 'that_creature' || subject === 'it' || subject === 'that_card') {

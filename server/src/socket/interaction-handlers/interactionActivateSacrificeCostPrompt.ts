@@ -329,6 +329,7 @@ export async function tryHandleActivateSacrificeCostPrompt(
 
             // Optional deferred life payment (validated at activation time; paid after final step)
             lifeToPayForCost,
+            ...(typeof ctx.selectedXValue === 'number' ? { xValue: ctx.selectedXValue } : null),
           } as any);
         }
 
@@ -598,6 +599,7 @@ export async function tryHandleActivateSacrificeCostPrompt(
         sacrificeCount,
         mustBeOther,
         lifeToPayForCost,
+        ...(typeof ctx.selectedXValue === 'number' ? { xValue: ctx.selectedXValue } : null),
       } as any);
     }
 

@@ -259,6 +259,37 @@ export function tryParseChooseModeBlock(
     };
   }
 
+  // Call Damage Control: "Choose up to two. Return those cards from your graveyard to your hand.
+  // • Target artifact card. • Target creature card." -> the shared sentence applies per bullet.
+  const sharedTargetHeader = rawHeaderText.match(/^(choose\s+[^.]+?)[.:]\s+(.+?)\.?$/is);
+  const sharedTargetRef = /\bthose (?:cards|permanents|creatures|players)\b/i;
+  if (
+    sharedTargetHeader &&
+    CHOOSE_MODE_HEADER_RE.test(sharedTargetHeader[1].trim()) &&
+    sharedTargetRef.test(sharedTargetHeader[2]) &&
+    rawBullets.every((bullet) => /^target\s+[^.;]+\.?$/i.test(bullet))
+  ) {
+    const limits = resolveChooseModeLimits(sharedTargetHeader[1].trim());
+    const sharedText = sharedTargetHeader[2].trim();
+    const modes = rawBullets.map((bulletText, idx) => {
+      const targetPhrase = bulletText.replace(/\.$/, '').trim().replace(/^Target/, 'target');
+      return {
+        label: `Mode ${idx + 1}`,
+        raw: bulletText,
+        steps: [...parseModeEffectSteps(`${sharedText.replace(sharedTargetRef, targetPhrase)}.`)],
+      };
+    });
+    return {
+      kind: 'choose_mode',
+      minModes: limits.minModes,
+      maxModes: limits.maxModes === 99 ? rawBullets.length : limits.maxModes,
+      canRepeatModes: limits.canRepeatModes,
+      ...(limits.optional ? { optional: true } : {}),
+      modes,
+      raw: normalized.slice(0, 300),
+    };
+  }
+
   const headerMatch = splitChooseModeHeaderText(rawHeaderText);
   if (!headerMatch || headerMatch.prefixText) return null;
 

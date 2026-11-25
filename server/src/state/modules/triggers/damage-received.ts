@@ -18,6 +18,7 @@
  */
 
 import type { GameContext } from "../../context.js";
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 import { KNOWN_DAMAGE_RECEIVED_TRIGGERS, KNOWN_DAMAGE_RECEIVED_AURAS, KNOWN_DAMAGE_RECEIVED_EQUIPMENT } from "./card-data-tables.js";
 import { isInterveningIfSatisfied } from "./intervening-if.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
@@ -223,7 +224,8 @@ export function processDamageReceivedTriggers(
       const text = String(triggerInfo.oracleTextForInterveningIf || "").trim();
       const ok = isInterveningIfSatisfied(ctx, controllerId, text, permanent);
       if (ok === false) interveningOk = false;
-    } catch {
+    } catch (err) {
+      reportHookFailure('intervening-if.eval', err, { source: 'damage-received' });
       // Conservative fallback: keep the trigger if evaluation fails.
     }
 

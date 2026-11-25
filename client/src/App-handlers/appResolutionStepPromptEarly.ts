@@ -356,24 +356,29 @@ export function handleAppResolutionStepPromptEarly(
         }
       }
 
-      else if (step.type === 'counter_distribution') {
+      else if (step.type === 'counter_distribution' || step.type === 'damage_division') {
         const validTargets = Array.isArray(step.validTargets)
           ? step.validTargets.map((entry: any) => ({
               id: String(entry?.id || '').trim(),
               label: String(entry?.label || entry?.name || entry?.id || 'Target').trim(),
             })).filter((entry: { id: string }) => entry.id)
           : [];
+        const isDamage = step.type === 'damage_division';
+        const cardName = String(step.sourceName || step.cardName || (isDamage ? 'Spell' : 'Ability'));
         setCounterDistributionModalData({
           gameId: payload.gameId,
           stepId: String(step.id),
           mandatory: isResolutionStepMandatory(step),
-          cardName: String(step.sourceName || step.cardName || 'Ability'),
+          cardName,
           cardImageUrl: step.sourceImage,
-          counterType: String(step.counterType || '+1/+1'),
+          counterType: isDamage ? 'damage' : String(step.counterType || '+1/+1'),
           totalAmount: Number(step.totalAmount ?? 0),
           minPerTarget: Number(step.minPerTarget ?? 1),
           targets: validTargets,
           message: typeof step.message === 'string' ? step.message : step.description,
+          unitNoun: isDamage ? 'damage' : undefined,
+          heading: isDamage ? (typeof step.title === 'string' ? step.title : `Divide damage — ${cardName}`) : undefined,
+          initializeEven: isDamage,
         });
         setCounterDistributionModalOpen(true);
       }
@@ -580,6 +585,7 @@ export function handleAppResolutionStepPromptEarly(
           action: step.action || 'tap',
           targetFilter: step.targetFilter || {},
           targetCount: Number(step.targetCount || 1),
+          minTargetCount: Number.isFinite(Number(step.minTargetCount)) ? Number(step.minTargetCount) : undefined,
           title: step.title,
           description: step.description,
         });

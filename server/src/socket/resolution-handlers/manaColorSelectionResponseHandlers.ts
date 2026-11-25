@@ -24,6 +24,50 @@ import type { PlayerID } from "../../../../shared/src/types.js";
 import { debugWarn } from "../../utils/debug.js";
 import { finalizeBattlefieldAbilitySelfExertCost } from "../resolutionGraveyardSelectionHelperUtils.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
+
+function retainUntilFromIrResume(step: any): 'until_end_of_turn' | 'until_end_of_combat' | undefined {
+  try {
+    const parsed = JSON.parse(String(step?.oracleIrResumeStepsJson || '[]'));
+    if (!Array.isArray(parsed)) return undefined;
+    const retain = parsed.find((entry) => entry && entry.kind === 'retain_mana');
+    const duration = String(retain?.duration || '');
+    if (duration === 'until_end_of_combat' || duration === 'until_end_of_turn') return duration;
+  } catch {
+    // The choice step is still valid when the continuation JSON is absent.
+  }
+  return undefined;
+}
+
+/** After a chosen color is in the pool, run the IR steps that follow add_mana (retain this mana). */
+async function resumeIrManaChoiceContinuation(
+  game: any,
+  gameId: string,
+  step: any,
+  playerId: string,
+  addedMana: Record<string, number>,
+): Promise<void> {
+  if (!String(step?.oracleIrResumeStepsJson || '').trim()) return;
+  const produced: Record<string, number> = {
+    white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0,
+  };
+  for (const [key, amountRaw] of Object.entries(addedMana || {})) {
+    const amount = Number(amountRaw || 0);
+    if (!Number.isFinite(amount) || amount <= 0 || !(key in produced)) continue;
+    produced[key] = amount;
+  }
+  const stateAny = game.state as any;
+  stateAny.lastOracleIrProducedMana = {
+    ...(stateAny.lastOracleIrProducedMana || {}),
+    [String(playerId)]: produced,
+  };
+  const { maybeResumeOracleIRStepsAfterResolution } = await import('../../state/modules/oracleIrServerZoneSync.js');
+  const ctx = ((game as any).ctx || game) as any;
+  ctx.gameId = gameId;
+  ctx.state = game.state;
+  maybeResumeOracleIRStepsAfterResolution(ctx, step);
+  game.state = ctx.state;
+}
 
 /** MANA_COLOR_SELECTION: add the chosen mana, apply deferred activation costs, persist replay evidence. */
 export async function handleManaColorSelectionResponse(
@@ -161,7 +205,7 @@ export async function handleManaColorSelectionResponse(
         if (isTreasureSource) {
           try {
             recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, amount);
-          } catch {}
+          } catch (err) { reportHookFailure('payment.treasureManaTracking', err, { source: 'manaColorSelectionResponseHandlers' }); }
         }
       }
     }
@@ -239,7 +283,7 @@ export async function handleManaColorSelectionResponse(
       if (isTreasureSource) {
         try {
           recordTreasureManaProduced(game.state, String(pid), String(poolKey) as any, amount);
-        } catch {}
+        } catch (err) { reportHookFailure('payment.treasureManaTracking', err, { source: 'manaColorSelectionResponseHandlers' }); }
       }
     }
 
@@ -263,7 +307,7 @@ export async function handleManaColorSelectionResponse(
     const abilityKeyRaw = abilityId != null ? String(abilityId) : '';
     const k = abilityKeyRaw ? `${permKey}:${abilityKeyRaw}` : permKey;
     (stateAny.addedManaWithThisAbilityThisTurn[String(pid)] as any)[k] = true;
-  } catch {}
+  } catch (err) { reportHookFailure('payment.addedManaWithThisAbility', err, { source: 'manaColorSelectionResponseHandlers' }); }
 
   // Persist replay-stable evidence for "added mana with this ability this turn".
   // If this mana ability activation had additional costs (e.g., "Pay N life", "Sacrifice this"),
@@ -456,6 +500,14 @@ export async function handleManaColorSelectionResponse(
     }
   }
 
+  const irManaChoice = Boolean(String(stepData.oracleIrChoiceStepJson || '').trim()) && !stepData.abilityId;
+  const retainUntil = retainUntilFromIrResume(stepData);
+  try {
+    await resumeIrManaChoiceContinuation(game, gameId, step, String(pid), addedMana);
+  } catch (err) {
+    debugWarn(1, '[Resolution] IR mana choice continuation failed:', err);
+  }
+
   try {
     const manaColor = selectionKind === 'distribution'
       ? 'MULTI'
@@ -467,6 +519,8 @@ export async function handleManaColorSelectionResponse(
       abilityId,
       manaColor,
       addedMana,
+      ...(irManaChoice ? { skipSourceTap: true } : {}),
+      ...(retainUntil ? { retainUntil } : {}),
       lifeLost: Number.isFinite(Number(stepData.manaLifeLossAmount || 0)) && Number(stepData.manaLifeLossAmount || 0) > 0
         ? Number(stepData.manaLifeLossAmount || 0)
         : undefined,

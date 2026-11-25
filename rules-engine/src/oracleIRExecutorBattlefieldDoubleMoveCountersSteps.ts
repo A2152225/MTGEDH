@@ -5,6 +5,7 @@
 import type { GameState, BattlefieldPermanent } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { getSourceLastKnownPermanent } from './oracleIRExecutorSourceLastKnown';
 import type {
   BattlefieldStepHandlerResult,
   RecentBattlefieldRuntime,
@@ -238,6 +239,42 @@ export function applyMoveCountersStep(
     }
   }
 
+  // Self-sourced moves: "move a +1/+1 counter from this creature onto target creature" (Simic
+  // Fluxmage) uses the live source; "put its counters on target creature" after the source died
+  // (Spiteful Squad) moves its last-known counters (CR 608.2h).
+  if (/^(?:it|this (?:creature|permanent))$/.test(fromText)) {
+    const lastKnownSource = getSourceLastKnownPermanent(state, ctx);
+    const selfSourceId = String(ctx.sourceId || '').trim();
+    const liveSourceIndex = !lastKnownSource && selfSourceId && /^this /.test(fromText)
+      ? battlefield.findIndex((perm: any) => String(perm?.id || '').trim() === selfSourceId)
+      : -1;
+    const fromObject: any = lastKnownSource ?? (liveSourceIndex >= 0 ? battlefield[liveSourceIndex] : null);
+    if (fromObject) {
+      const selfTo = resolveDirectBattlefieldPermanents(battlefield, step.to as any, ctx);
+      const selfToId = selfTo.length === 1 ? String((selfTo[0] as any)?.id || '').trim() : '';
+      const selfToIndex = selfToId
+        ? battlefield.findIndex((perm: any) => String(perm?.id || '').trim() === selfToId)
+        : -1;
+      if (selfToIndex >= 0 && selfToIndex !== liveSourceIndex) {
+        const amountIsAll = (step.amount as any)?.kind === 'all';
+        const selfFromCounters = { ...((fromObject.counters || {}) as Record<string, number>) };
+        const transferred = transferCountersBetweenSnapshots(
+          selfFromCounters,
+          selfToIndex,
+          String(step.counter || '').trim(),
+          amountIsAll,
+          amountIsAll ? null : quantityToNumber(step.amount as any, ctx)
+        );
+        if (transferred) {
+          if (liveSourceIndex >= 0 && transferred.applied && (transferred as any).state !== state) {
+            battlefield[liveSourceIndex] = { ...(battlefield[liveSourceIndex] as any), counters: selfFromCounters } as any;
+          }
+          return transferred;
+        }
+      }
+    }
+  }
+
   const fromTargets = resolveDirectBattlefieldPermanents(battlefield, step.from as any, ctx);
   const toTargets = resolveDirectBattlefieldPermanents(battlefield, step.to as any, ctx);
 
@@ -275,8 +312,13 @@ export function applyMoveCountersStep(
   const fromCounters: Record<string, number> = { ...((fromPermanent.counters || {}) as Record<string, number>) };
   const toCounters: Record<string, number> = { ...((toPermanent.counters || {}) as Record<string, number>) };
   const requestedCounter = String(step.counter || '').trim();
-  const amountIsAll = (step.amount as any)?.kind === 'all';
-  const fixedAmount = amountIsAll ? null : quantityToNumber(step.amount as any, ctx);
+  // Bioshift "move any number of counters": with no chosen number, move them all (the
+  // controller's maximal choice); a resolved prompt answer arrives as ctx.chosenNumber.
+  const anyNumberChoice = (step.amount as any)?.kind === 'any_number'
+    ? Number((ctx as any)?.chosenNumber ?? (ctx as any)?.selectorContext?.chosenNumber)
+    : NaN;
+  const amountIsAll = (step.amount as any)?.kind === 'all' || ((step.amount as any)?.kind === 'any_number' && !Number.isFinite(anyNumberChoice));
+  const fixedAmount = amountIsAll ? null : Number.isFinite(anyNumberChoice) ? anyNumberChoice : quantityToNumber(step.amount as any, ctx);
 
   if (!amountIsAll && (!Number.isFinite(Number(fixedAmount)) || Number(fixedAmount) <= 0)) {
     return {

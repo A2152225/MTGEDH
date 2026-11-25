@@ -7,6 +7,7 @@
  */
 
 import type { PlayerID } from '../../../../../shared/src/index.js';
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 import type { GameContext } from '../../context.js';
 import { debug } from '../../../utils/debug.js';
 import { uid } from '../../utils.js';
@@ -130,7 +131,8 @@ export function triggerETBEffectsForToken(
             debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
           }
-        } catch {
+        } catch (err) {
+          reportHookFailure('intervening-if.eval', err, { source: 'triggerEtbTokenEntryEffects' });
           // Conservative fallback: keep the trigger if evaluation fails.
         }
         
@@ -289,7 +291,8 @@ export function triggerETBEffectsForToken(
             debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
           }
-        } catch {
+        } catch (err) {
+          reportHookFailure('intervening-if.eval', err, { source: 'triggerEtbTokenEntryEffects' });
           // Conservative fallback: keep the trigger if evaluation fails.
         }
         
@@ -346,7 +349,8 @@ export function triggerETBEffectsForToken(
             debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
             continue;
           }
-        } catch {
+        } catch (err) {
+          reportHookFailure('intervening-if.eval', err, { source: 'triggerEtbTokenEntryEffects' });
           // Conservative fallback: keep the trigger if evaluation fails.
         }
         
@@ -405,7 +409,8 @@ export function triggerETBEffectsForToken(
               debug(2, `[triggerETBEffectsForToken] Skipping ETB trigger due to unmet intervening-if: ${trigger.cardName} - ${desc}`);
               continue;
             }
-          } catch {
+          } catch (err) {
+            reportHookFailure('intervening-if.eval', err, { source: 'triggerEtbTokenEntryEffects' });
             // Conservative fallback: keep the trigger if evaluation fails.
           }
 

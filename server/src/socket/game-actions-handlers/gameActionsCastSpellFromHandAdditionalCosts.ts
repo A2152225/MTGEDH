@@ -8,6 +8,7 @@
  * Public entry symbols: tryPromptCastSpellAdditionalCostsFromHand.
  */
 import type { Server, Socket } from "socket.io";
+import { permanentMatchesAdditionalCostTypeFilter } from '../additionalCostTypeFilter.js';
 import type { PaymentItem } from "../../../../shared/src/index.js";
 import type { GameContext } from "../../state/context.js";
 import { canPlayerPayLife } from "../../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
@@ -652,9 +653,7 @@ export function tryPromptCastSpellAdditionalCostsFromHand(
           const battlefield = game.state?.battlefield || [];
           const validSacrificeTargets = battlefield.filter((p: any) => {
             if (p.controller !== playerId) return false;
-            const tl = (p.card?.type_line || '').toLowerCase();
-            if (!additionalCost.filter) return true;
-            return tl.includes(additionalCost.filter.toLowerCase());
+            return permanentMatchesAdditionalCostTypeFilter(p, additionalCost.filter);
           });
           
           if (validSacrificeTargets.length < additionalCost.amount) {
@@ -771,7 +770,7 @@ export function tryPromptCastSpellAdditionalCostsFromHand(
           }
           debug(2, `[castSpellFromHand] Queued return of ${additionalCost.amount} ${additionalCost.filter || 'creature'}(s) for ${cardInHand.name}`);
           return;
-        } else if (additionalCost.type === 'pay_life' && !paymentAlreadyResolvedPayLifeCost(payment) && (cardInHand as any)?.payLifeAdditionalCostResolved !== true) {
+        } else if (additionalCost.type === 'pay_life' && !additionalCost.payLifeIsX && !paymentAlreadyResolvedPayLifeCost(payment) && (cardInHand as any)?.payLifeAdditionalCostResolved !== true) {
           // Confirm pay-life additional costs (Blitz extras, etc.) through AdditionalCostModal
           // before deducting. After confirm, payLifeAmount may still queue a CR 616.1 order.
           const startingLife = game.state.startingLife || 40;

@@ -689,9 +689,15 @@ export function resolvePermanentSpellBattlefieldEntry(
   const isBestowAttachment = tl.includes('enchantment') && tl.includes('creature') && /\bbestow\b/i.test(String(effectiveCard.oracle_text || ''));
   const isEquipment = tl.includes('equipment');
   if ((isAura || isBestowAttachment || isEquipment) && targets && targets.length > 0) {
-    const targetId = targets[0];
+    const rawTarget = targets[0];
+    const targetId = typeof rawTarget === 'string'
+      ? rawTarget
+      : String(rawTarget?.id || rawTarget?.playerId || '');
     const targetPerm = state.battlefield.find((p: any) => p?.id === targetId);
-    
+    const targetPlayer = (isAura || isBestowAttachment)
+      ? (state.players || []).find((p: any) => String(p?.id || '') === targetId)
+      : undefined;
+
     if (targetPerm) {
       // Set attachedTo on the aura/equipment
       newPermanent.attachedTo = targetId;
@@ -728,6 +734,11 @@ export function resolvePermanentSpellBattlefieldEntry(
           debugWarn(1, '[resolveTopOfStack] appendEvent(attachEnchantmentPermanent) failed:', err);
         }
       }
+    } else if (targetPlayer) {
+      newPermanent.attachedTo = targetId;
+      (newPermanent as any).enchanting = targetId;
+      stampAttachmentTimestamp(state, newPermanent);
+      debug(2, `[resolveTopOfStack] Aura ${effectiveCard.name} attached to player ${(targetPlayer as any).name || targetId}`);
     } else {
       debugWarn(2, `[resolveTopOfStack] ${isEquipment ? 'Equipment' : (isBestowAttachment ? 'Bestow permanent' : 'Aura')} ${effectiveCard.name} target ${targetId} not found on battlefield`);
     }

@@ -156,7 +156,9 @@ export function chooseAIModeSelectionsForStep(
 ): { selections: string[]; cancelled: boolean } {
   const modes = Array.isArray(step?.modes) ? step.modes : [];
   if (modes.length === 0) {
-    return { selections: [], cancelled: true };
+    // "Choose up to N" with nothing offered: zero modes is a legal answer to a mandatory step.
+    const minModesWhenEmpty = Number(step?.minModes ?? 1);
+    return { selections: [], cancelled: !(Number.isFinite(minModesWhenEmpty) && minModesWhenEmpty <= 0) };
   }
 
   const purpose = String(step?.modeSelectionPurpose || '');

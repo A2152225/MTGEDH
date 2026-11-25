@@ -213,8 +213,21 @@ export function calculateChosenPlayerHandPT(card: any, gameState: any): { power:
   if (!parseChosenPlayerHandPT(oracleOf(card) || String(card?.oracle_text || ''))) return undefined;
   const chosen = String(card.chosenPlayer || card.chosen_player || gameState?.battlefield?.find?.((p: any) => p?.card === card || p?.id === card.id)?.chosenPlayer || '');
   const zones = gameState?.zones || {};
-  const hand = zones[chosen]?.hand;
-  const count = zones[chosen]?.handCount ?? (Array.isArray(hand) ? hand.length : 0);
+  const handCountOf = (pid: string): number => {
+    const hand = zones[pid]?.hand;
+    return Number(zones[pid]?.handCount ?? (Array.isArray(hand) ? hand.length : 0)) || 0;
+  };
+  if (!chosen) {
+    // As-enters choice still pending: count the largest legal choice so SBAs don't kill it first.
+    const perm = gameState?.battlefield?.find?.((p: any) => p?.card === card || p?.id === card.id);
+    const controller = String(perm?.controller || card?.controller || '');
+    const players: any[] = Array.isArray(gameState?.players) ? gameState.players : [];
+    const candidates = players.filter((p: any) => p && !p.hasLost && String(p.id) !== controller);
+    const pool = candidates.length > 0 ? candidates : players;
+    const count = pool.reduce((best: number, p: any) => Math.max(best, handCountOf(String(p.id))), 0);
+    return { power: count, toughness: count };
+  }
+  const count = handCountOf(chosen);
   return { power: count, toughness: count };
 }
 

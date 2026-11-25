@@ -601,7 +601,7 @@ export function appendEtbDetectionEarly(state: EtbDetectionState): void {
   // const thisEquipmentEtbMatch = oracleText.match(/when(?:ever)? this equipment enters(?: the battlefield)?,?\s*([^.]+)/i);
 
   const thisOrAnotherTypedEtbMatch = oracleText.match(
-    /whenever this creature or another ([\w]+) you control(?: with (flying|reach|trample|haste|vigilance|deathtouch|lifelink|menace|hexproof|indestructible|defender))?\s+enters?(?: the battlefield)?,?\s*([^.]+)/i,
+    /whenever this creature or another ([\w]+(?: or [\w]+)*) you control(?: with (flying|reach|trample|haste|vigilance|deathtouch|lifelink|menace|hexproof|indestructible|defender))?\s+enters?(?: the battlefield)?,?\s*([^.]+)/i,
   );
   if (
     thisOrAnotherTypedEtbMatch &&

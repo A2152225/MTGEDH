@@ -14,6 +14,7 @@ import {
   buildSpellPaymentPresentationFields,
 } from "./resolutionPendingCastPaymentPrompt.js";
 import { ensureGame } from "../util.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 export function mergeExtraAlternateCosts(
   existing: any[] | undefined,
@@ -141,7 +142,8 @@ export function hydrateSpellPaymentPresentationFieldsForClient(
         }
       }
     }
-  } catch {
+  } catch (err) {
+    reportHookFailure('cast.pendingHydration', err, { source: 'spellPaymentPresentationSanitizeUtils' });
     // best-effort hydration
   }
 }

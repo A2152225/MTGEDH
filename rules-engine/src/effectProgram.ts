@@ -261,6 +261,7 @@ export function createChoiceEventFromEffectProgramChoiceRequest(
         currentHandSize: asNumber(payload.currentHandSize, 0),
         maxHandSize: asNumber(payload.maxHandSize, 0),
         reason: payload.reason === 'cleanup' ? 'cleanup' : 'effect',
+        ...(payload.handOwnerPlayerId ? { handOwnerPlayerId: String(payload.handOwnerPlayerId) } : {}),
       };
 
     default:

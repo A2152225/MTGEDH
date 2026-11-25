@@ -82,6 +82,7 @@ import {
   handleCounterMovementResponse,
   handleCounterTargetResponse,
 } from "./resolution-handlers/counterManipulationResponseHandlers.js";
+import { handleDamageDivisionResponse } from "./resolution-handlers/damageDivisionResponseHandlers.js";
 import { handleAdditionalCostPaymentResponse } from "./resolution-handlers/additionalCostPaymentResponseHandlers.js";
 import { handleFightTargetResponse } from "./resolution-handlers/fightTargetResponseHandlers.js";
 import { handleLifePaymentResponse } from "./resolution-handlers/lifePaymentResponseHandlers.js";
@@ -303,6 +304,7 @@ export type ResolutionHandlerDeps = {
   handleCounterMovementResponse: ResolutionStepHandler;
   handleCounterTargetResponse: ResolutionStepHandler;
   handleCounterDistributionResponse: ResolutionStepHandler;
+  handleDamageDivisionResponse: ResolutionStepHandler;
   handleStationCreatureSelectionResponse: ResolutionStepHandler;
   handleLifePaymentResponse: ResolutionStepHandler;
   handleManaColorSelectionResponse: ResolutionStepHandler;
@@ -558,6 +560,7 @@ export function createResolutionHandlerDeps(
     handleCounterMovementResponse,
     handleCounterTargetResponse,
     handleCounterDistributionResponse,
+    handleDamageDivisionResponse,
     handleStationCreatureSelectionResponse,
     handleLifePaymentResponse,
     handleManaColorSelectionResponse,

@@ -17,6 +17,7 @@ import { hasPendingWarpWorldOracleIrPrompt } from './oracleIrServerZoneSync-hand
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import type { BattlefieldTriggerSnapshot } from './oracleIrPostApplyTriggerEmission.js';
 import { debug } from '../../utils/debug.js';
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 let flushingChaosZoneTriggers = false;
 
@@ -92,7 +93,8 @@ export function flushChaosResolutionZoneTriggers(ctx: GameContext): void {
     for (const left of held.ltb) {
       try {
         processLTBTriggers(ctx, left, { cause: 'exile', ltbDetectCache });
-      } catch {
+      } catch (err) {
+        reportHookFailure('triggers.ltb', err, { source: 'oracleIrChaosResolutionTriggerHold' });
         // Defensive: the permanent already left.
       }
     }
@@ -105,7 +107,8 @@ export function flushChaosResolutionZoneTriggers(ctx: GameContext): void {
       if (!controller) continue;
       try {
         triggerETBEffectsForPermanent(ctx, permanent, controller as any, true, { etbTriggerCache });
-      } catch {
+      } catch (err) {
+        reportHookFailure('triggers.etb', err, { source: 'oracleIrChaosResolutionTriggerHold' });
         // Defensive: the permanent already entered.
       }
     }

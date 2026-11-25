@@ -294,7 +294,14 @@ export function applyBecomeAuraStep(
   step: Extract<OracleEffectStep, { kind: 'become_aura' }>,
   ctx: OracleIRExecutionContext
 ): BattlefieldStepHandlerResult {
-  const sourceTargetIds = resolveTapOrUntapTargetIds(state, step.target, ctx);
+  // "This permanent loses this ability and becomes an Aura" names the source itself; resolving it through the
+  // generic selector would pick up the bound enchant target (targetPermanentId) as the Aura.
+  const becomeTargetText = String((step.target as any)?.text || '').trim().toLowerCase();
+  const namesSource = /^(?:this\s+(?:permanent|creature|enchantment|artifact)|~)$/.test(becomeTargetText)
+    || (Boolean(becomeTargetText) && becomeTargetText === String(ctx.sourceName || '').trim().toLowerCase());
+  const sourceTargetIds = namesSource && String(ctx.sourceId || '').trim()
+    ? [String(ctx.sourceId || '').trim()]
+    : resolveTapOrUntapTargetIds(state, step.target, ctx);
   const auraId = sourceTargetIds[0] || String(ctx.sourceId || '').trim();
   if (!auraId) {
     return {
@@ -322,9 +329,14 @@ export function applyBecomeAuraStep(
     const permanentId = String(perm?.id || '').trim();
     if (permanentId === auraId) {
       const card = { ...(perm.card || {}) };
-      const typeLine = String(card.type_line || perm.type_line || '').includes('Aura')
-        ? String(card.type_line || perm.type_line || '')
-        : `${String(card.type_line || perm.type_line || 'Enchantment').trim()} Aura`.trim();
+      const priorTypeLine = String(card.type_line || perm.type_line || '');
+      // "Becomes an Aura enchantment" (Licids) replaces the card types: it stops being a creature.
+      const replacesTypes = /\baura\s+enchantment\b/i.test(String(step.raw || ''));
+      const typeLine = priorTypeLine.includes('Aura')
+        ? priorTypeLine
+        : replacesTypes
+          ? 'Enchantment \u2014 Aura'
+          : `${String(priorTypeLine || 'Enchantment').trim()} Aura`.trim();
       return {
         ...perm,
         card: { ...card, type_line: typeLine },
@@ -333,6 +345,8 @@ export function applyBecomeAuraStep(
         isAura: true,
         enchantTarget: step.enchant,
         losesThisAbility: Boolean(step.losesThisAbility),
+        ...(replacesTypes ? { becameAuraFromTypeLine: priorTypeLine } : {}),
+        ...(step.endEffectCost ? { auraEndEffectCost: step.endEffectCost } : {}),
       } as BattlefieldPermanent;
     }
     if (permanentId === enchantTargetId) {

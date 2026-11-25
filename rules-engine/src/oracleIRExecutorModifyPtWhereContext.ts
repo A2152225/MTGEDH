@@ -1,5 +1,6 @@
 import type { BattlefieldPermanent, GameState, PlayerID } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { getSourceLastKnownPermanent } from './oracleIRExecutorSourceLastKnown';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import {
   lastKnownSnapshotHasClass,
@@ -170,7 +171,8 @@ export function createModifyPtWhereEvaluatorContext(
   const findObjectById = (idRaw: string): any | null => findObjectByIdFromState(state, battlefield, idRaw);
   const findObjectByName = (nameRaw: string): any | null => findObjectByNameFromState(state, battlefield, nameRaw, ctx);
   const getExcludedId = (): string => getContextExcludedId(targetCreatureId, ctx);
-  const getSourceRef = (): any | null => getContextSourceObject(ctx, findObjectById);
+  const getSourceRef = (): any | null =>
+    getContextSourceObject(ctx, findObjectById) ?? getSourceLastKnownPermanent(state, ctx);
   const getTargetRef = (): any | null => getContextTargetObject(targetCreatureId, findObjectById);
 
   const resolveLastSacrificedSnapshot = (

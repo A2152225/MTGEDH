@@ -7,6 +7,7 @@
  */
 
 import type { PlayerID } from '../../../../../shared/src/index.js';
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 import type { GameContext } from '../../context.js';
 import type { EngineEffect } from '../../../rules-engine/targeting.js';
 import { triggerLifeGainEffects } from '../../utils.js';
@@ -125,7 +126,7 @@ export function executeSpellEffect(
 
       ctx.bumpSeq();
       if (finalAmount > 0) {
-        try { triggerLifeGainEffects((ctx as any).state, playerId, finalAmount); } catch {}
+        try { triggerLifeGainEffects((ctx as any).state, playerId, finalAmount); } catch (err) { reportHookFailure('trigger.life-gain-effects', err, { source: 'executeSpellEffectCore', playerId: String(playerId || '') }); }
       }
       debug(2, `[resolveSpell] ${spellName} changed life for ${playerId}: ${finalAmount >= 0 ? '+' : ''}${finalAmount}`);
       break;
@@ -384,7 +385,8 @@ export function executeSpellEffect(
             emitNoncombatDamageEvent(ctx, { sourcePermanentId, sourceId, controller: String(caster || ''), sourceName: spellName, playerIds: [String(targetPlayerId)] });
             applySpellLifelinkGain(ctx, { sourcePermanentId, sourceId, caster: String(caster || ''), amount: resolved.damageDealt });
           }
-        } catch {
+        } catch (err) {
+          reportHookFailure('spell.damage-to-player-triggers', err, { source: 'executeSpellEffectCore' });
           // Defensive: do not block resolution.
         }
       }

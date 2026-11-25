@@ -17,6 +17,7 @@ import { chooseAIManaColorForActivation } from "./aiManaCostHelpers.js";
 import { chooseAIJoinForcesContribution } from "./aiJoinForcesDecision.js";
 import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { chooseAIPayLifeAdditionalCost } from "./aiPayLifeAdditionalCost.js";
+import { permanentMatchesTargetTypes } from '../permanentTargetTypeFilter.js';
 
 export async function handleAIResolutionPaymentAndTargetSteps(
   io: Server,
@@ -251,14 +252,7 @@ export async function handleAIResolutionPaymentAndTargetSteps(
             if (excludeSource && String(perm.id) === sourceId) return false;
 
             const types = Array.isArray(targetFilter.types) ? targetFilter.types : [];
-            if (types.length > 0) {
-              const typeLine = String(perm.card?.type_line || '').toLowerCase();
-              if (requireAllTypes) {
-                if (!types.every((type: any) => typeLine.includes(String(type).toLowerCase()))) return false;
-              } else if (!types.some((type: any) => typeLine.includes(String(type).toLowerCase()))) {
-                return false;
-              }
-            }
+            if (types.length > 0 && !permanentMatchesTargetTypes(perm, types, requireAllTypes)) return false;
 
             const subtypes = Array.isArray(targetFilter.subtypes) ? targetFilter.subtypes : [];
             if (subtypes.length > 0) {

@@ -9,6 +9,8 @@ import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
 import { updateCounters, canonicalizeCounterKey, trackPermanentSacrificedThisTurn, movePermanentToExile } from "../counters_tokens";
 import { syncPreparedPermanentAfterControlChange } from "../prepared.js";
+import { reconcileSoulbondPairing } from "../soulbond.js";
+import { reportHookFailure } from "../../../../../shared/src/hookFailureReporter.js";
 import { registerControlEffect } from "../continuousEffectRegistry.js";
 import {
   clearReplayQueuedSteps,
@@ -430,10 +432,9 @@ export function applyTapSacrificeCounterEvents(ctx: GameContext, e: GameEvent): 
             permanent.controller = newController;
             syncPreparedPermanentAfterControlChange(ctx.state, permanent, oldController);
             try {
-              const { reconcileSoulbondPairing } = require('../soulbond.js') as typeof import('../soulbond.js');
               reconcileSoulbondPairing(ctx.state, permanent);
-            } catch {
-              // best-effort
+            } catch (err) {
+              reportHookFailure('soulbond.reconcile', err, { source: 'applyEventTapSacrificeCounterEvents', cardName: String(permanent?.card?.name || '') });
             }
           }
 

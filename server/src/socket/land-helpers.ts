@@ -14,6 +14,7 @@ import { debug, debugWarn, debugError } from "../utils/debug.js";
 import type { GameContext } from "../state/context.js";
 import { canPlayerPayLife } from "../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
 import { detectTeamworkAdditionalCost } from '../state/modules/marvelMechanicsHelpers.js';
+import { parseSacrificeAdditionalCostFilter } from './additionalCostTypeFilter.js';
 import { matchOpponentsControlLandsETB, isPayLifeOrEnterTapped } from '../../../rules-engine/src/oracleIREtbTappedPattern.js';
 
 // ============================================================================
@@ -38,6 +39,12 @@ export interface AdditionalCostResult {
   type: 'discard' | 'sacrifice' | 'pay_life' | 'remove_counters' | 'reveal' | 'squad' | 'strive' | 'blight' | 'collect_evidence' | 'behold_chosen_type' | 'teamwork' | 'return';
   amount: number;
   filter?: string;
+  /** Alternative to a sacrifice type filter: "or pay N life". */
+  orPayLife?: number;
+  /** Alternative to a sacrifice type filter: "or pay {mana}". */
+  orPayMana?: string;
+  /** True when the additional cost is "pay X life". */
+  payLifeIsX?: boolean;
   counterType?: string;
   distributed?: boolean;
   cost?: string;
@@ -174,21 +181,33 @@ export function detectAdditionalCost(oracleText: string): AdditionalCostResult |
   }
   
   // "As an additional cost to cast this spell, sacrifice a creature"
-  const sacrificeMatch = lowerText.match(/as an additional cost.*sacrifice\s+(?:a|an)\s+(\w+(?:\s+or\s+\w+)?)/i);
+  // Also "an artifact or creature", "a nonland permanent", "a creature or pay {1}".
+  const sacrificeMatch = lowerText.match(/as an additional cost.*sacrifice\s+(?:a|an)\s+([^.,;]+)/i);
   if (sacrificeMatch) {
+    const parsed = parseSacrificeAdditionalCostFilter(sacrificeMatch[1]);
     return {
       type: 'sacrifice',
       amount: 1,
-      filter: sacrificeMatch[1].trim(),
+      ...(parsed.filter ? { filter: parsed.filter } : {}),
+      ...(parsed.orPayLife ? { orPayLife: parsed.orPayLife } : {}),
+      ...(parsed.orPayMana ? { orPayMana: parsed.orPayMana } : {}),
     };
   }
   
-  // "As an additional cost to cast this spell, pay X life"
-  const payLifeMatch = lowerText.match(/as an additional cost.*pay\s+(\d+)\s+life/i);
+  // "As an additional cost to cast this spell, pay 4 life" or "pay X life"
+  const payLifeMatch = lowerText.match(/as an additional cost.*pay\s+(\d+|x)\s+life/i);
   if (payLifeMatch) {
+    const rawAmount = String(payLifeMatch[1] || '').trim();
+    if (/^x$/i.test(rawAmount)) {
+      return {
+        type: 'pay_life',
+        amount: 0,
+        payLifeIsX: true,
+      };
+    }
     return {
       type: 'pay_life',
-      amount: parseInt(payLifeMatch[1], 10),
+      amount: parseInt(rawAmount, 10),
     };
   }
 
@@ -611,8 +630,10 @@ export function evaluateConditionalLandETB(
   }
   
   // Check lands with "or" condition (Dragonskull Summit - Swamp or Mountain, etc.)
-  // "enters the battlefield tapped unless you control a [Type] or [Type]" or "this land enters tapped unless you control a [Type] or [Type]"
-  const dualCheckMatch = text.match(/(?:this land )?enters(?: the battlefield)? tapped unless you control (?:a|an) ([\w]+) or ([\w]+)/i);
+  // "enters the battlefield tapped unless you control a [Type] or [Type]"
+  // or the refreshed template "a [Type] or a [Type]" / "a [Type] or an [Type]".
+  // The second article must not be captured as the type ("a" would match Plains).
+  const dualCheckMatch = text.match(/(?:this land )?enters(?: the battlefield)? tapped unless you control (?:a|an) ([\w]+) or (?:an?\s+)?([\w]+)/i);
   if (dualCheckMatch) {
     const type1 = dualCheckMatch[1].toLowerCase();
     const type2 = dualCheckMatch[2].toLowerCase();
@@ -630,7 +651,7 @@ export function evaluateConditionalLandETB(
   
   // Reveal lands (Furycalm Snarl, Vineglimmer Snarl, etc.)
   // "you may reveal a [Type] or [Type] card from your hand. If you don't, ~ enters the battlefield tapped"
-  const revealMatch = text.match(/you may reveal (?:a|an) ([\w]+) or ([\w]+) card from your hand/i);
+  const revealMatch = text.match(/you may reveal (?:a|an) ([\w]+) or (?:an?\s+)?([\w]+) card from your hand/i);
   if (revealMatch) {
     const type1 = revealMatch[1].toLowerCase();
     const type2 = revealMatch[2].toLowerCase();

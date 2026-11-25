@@ -373,15 +373,26 @@ function applyStateBasedActionsUnmemoized(state: Readonly<GameState>): EngineSBA
       const isEnchantmentCreature = typeLine.includes('creature');
       if (isEnchantmentCreature) continue;
 
-      const attachedTo = String((perm as any).attachedTo || '').trim();
+      const attachedTo = String((perm as any).attachedTo || (perm as any).enchanting || '').trim();
       if (!attachedTo) {
         pushDestroy(perm.id);
         continue;
       }
-      const targetExists = battlefieldPermanents.some((p) => p.id === attachedTo);
-      if (!targetExists || destroys.includes(attachedTo)) {
-        pushDestroy(perm.id);
+      const targetPermanent = battlefieldPermanents.find((p) => p.id === attachedTo);
+      if (targetPermanent) {
+        if (destroys.includes(attachedTo)) pushDestroy(perm.id);
+        continue;
       }
+      const targetPlayer = ((state as any).players || []).find((p: any) => String(p?.id || '') === attachedTo);
+      if (targetPlayer) {
+        const oracle = String((perm.card as any)?.oracle_text || '');
+        const enchantsOpponentOnly = /(^|\n)\s*enchant opponent\b/i.test(oracle);
+        if (enchantsOpponentOnly && attachedTo === String((perm as any).controller || '')) {
+          pushDestroy(perm.id);
+        }
+        continue;
+      }
+      pushDestroy(perm.id);
     }
   };
   

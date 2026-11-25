@@ -409,6 +409,14 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
       });
     }
 
+    const anyNumberGraveyardCards = normalizedTargetPhrase.match(/^(?:(creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature|permanent)\s+)?cards?\b[^.]*?\b(?:from|in)\s+(your|a|any|an opponent's|target player's)\s+graveyards?\b/i);
+    if (anyNumberGraveyardCards) {
+      const rawType = String(anyNumberGraveyardCards[1] || '').toLowerCase();
+      const scope = normalizeGraveyardScope(anyNumberGraveyardCards[2]);
+      targetTypes.push(buildGraveyardCardTargetType(rawType));
+      targetDescription = buildGraveyardCardTargetDescription(rawType, scope, 'any number of target').replace(/ card in /, ' cards in ');
+      return finish({ needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription, graveyardScope: scope });
+    }
     if (/\bcreatures?\b/i.test(normalizedTargetPhrase)) {
       targetTypes.push('creature');
     } else if (/\bspells?\b/i.test(normalizedTargetPhrase) && !/\bpermanent\b/i.test(normalizedTargetPhrase)) {

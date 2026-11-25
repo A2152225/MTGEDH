@@ -27,6 +27,7 @@ import {
   buildModeChoiceOptionsFromTargetRefs,
   buildModeSpellSpecFromTargetRequirements,
 } from "./modeSelectionTargetOptionBuilders.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 /** MODE_SELECTION tail: legacy modal-spell resume plus generic mode-aware target recomputation. */
 export async function handleModeSelectionGenericChoice(
@@ -505,7 +506,8 @@ export async function handleModeSelectionGenericChoice(
         }
       }
     }
-  } catch {
+  } catch (err) {
+    reportHookFailure('resolution.modeFollowup', err, { source: 'modeSelectionGenericChoiceHandlers' });
     // Best-effort only.
   }
 

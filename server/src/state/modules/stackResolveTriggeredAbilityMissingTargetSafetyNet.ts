@@ -14,6 +14,13 @@ import { inferTriggeredAbilityTargetMetadata, isModalChooseModesEffectText } fro
 
 const SKIPPED_TRIGGER_TYPES = new Set(['mentor']);
 
+/**
+ * Mandatory trigger queues that never stamp target metadata: death / put-into-graveyard pushes
+ * (countersTokensDeathTriggerStack) only infer graveyard-return targets, so "When this creature
+ * dies, it deals 1 damage to any target" (Perilous Myr, Munitions Enthusiast) resolved untargeted.
+ */
+const MANDATORY_STAMP_TRIGGER_TYPES = new Set(['creature_dies']);
+
 const STAMPABLE_FIELDS = [
   'targetType',
   'targetConstraint',
@@ -68,7 +75,8 @@ export function stampMissingTargetMetadataAfterOptionalAccept(
   if (item.requiresTarget) return false;
   // Optional triggers only: either already accepted (Yes), or still pending their may-choice (the
   // IR-primary Effect Program asks the may-choice itself, after stack-level targeting).
-  if (item.optionalTriggeredAbilityDecisionApplied !== true && item.mandatory !== false) return false;
+  const stampsMandatory = MANDATORY_STAMP_TRIGGER_TYPES.has(String(options.triggerType || item.triggerType || '').toLowerCase());
+  if (item.optionalTriggeredAbilityDecisionApplied !== true && item.mandatory !== false && !stampsMandatory) return false;
   if ((ctx as any)?.isReplaying) return false;
   if (SKIPPED_TRIGGER_TYPES.has(String(options.triggerType || item.triggerType || '').toLowerCase())) return false;
   if (hasAnyChosenTarget(item)) return false;

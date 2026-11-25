@@ -34,8 +34,23 @@ import {
   resolveMassCreatureRestrictionTargets,
   resolveTargetPrefixedPermanents,
 } from './oracleIRExecutorExtendedTargetResolution';
+import { resolveLooseBoundTargetPermanents } from './oracleIRExecutorBoundTargetLooseFilter';
 
 export function resolveDirectBattlefieldPermanents(
+  battlefield: readonly BattlefieldPermanent[],
+  target:
+    | { readonly kind: string; readonly text?: string; readonly raw?: string }
+    | undefined,
+  ctx: OracleIRExecutionContext
+): BattlefieldPermanent[] {
+  const resolved = resolveDirectBattlefieldPermanentsCore(battlefield, target, ctx);
+  if (resolved.length > 0 || target?.kind !== 'raw') return resolved;
+  // Unparsed single "target ..." filter ("target land or nonblack creature"): re-bind the
+  // object chosen on cast/activation and re-check it loosely (CR 608.2b).
+  return resolveLooseBoundTargetPermanents(battlefield, String((target as any).text || ''), ctx) ?? resolved;
+}
+
+function resolveDirectBattlefieldPermanentsCore(
   battlefield: readonly BattlefieldPermanent[],
   target:
     | { readonly kind: string; readonly text?: string; readonly raw?: string }

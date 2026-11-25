@@ -3,6 +3,7 @@ import { GamePhase, type PlayerID } from '../../shared/src/index.js';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
 import { collectSpellResolutionEffectStepsWithOverlay } from '../src/oracleIRCompilerEnvelope.js';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor.js';
+import { checkSpellTimingRestriction } from '../src/castingRestrictionsSpellChecks.js';
 
 describe('end_combat_phase + council vote IR', () => {
   it('parses and executes End the combat phase', () => {
@@ -49,6 +50,54 @@ describe('end_combat_phase + council vote IR', () => {
     expect((result.state as any).combat).toBeUndefined();
     expect((result.state as any).stack).toHaveLength(0);
     expect((result.state as any).players[0].exile.some((c: any) => c.name === 'Mandate of Peace')).toBe(true);
+  });
+
+  it('does not treat "Cast this spell only during combat" as a resolution step', () => {
+    const text =
+      "Cast this spell only during combat.\nYour opponents can't cast spells this turn.\nEnd the combat phase. (Remove all attackers and blockers from combat. Exile all spells and abilities from the stack, including this spell.)";
+
+    const collected = collectSpellResolutionEffectStepsWithOverlay(text, 'Mandate of Peace');
+    const kinds = collected.map((s: any) => s.kind);
+    expect(kinds).toContain('end_combat_phase');
+    expect(kinds).toContain('grant_static_ability');
+    expect(collected.some((s: any) => /cast this spell only during combat/i.test(String(s.raw || '')))).toBe(false);
+
+    const state: any = {
+      players: [
+        { id: 'p1', life: 40, hand: [], library: [], graveyard: [], exile: [] },
+        { id: 'p2', life: 40, hand: [], library: [], graveyard: [], exile: [] },
+      ],
+      battlefield: [
+        { id: 'a1', controller: 'p1', attacking: 'p2', card: { name: 'Bear', type_line: 'Creature' } },
+      ],
+      stack: [
+        { id: 's1', controller: 'p1', card: { id: 'c1', name: 'Mandate of Peace', type_line: 'Instant' } },
+      ],
+      phase: 'combat',
+      step: 'declareBlockers',
+      combat: { attackers: ['a1'] },
+      combatNumber: 1,
+    };
+    const ctx = buildOracleIRExecutionContext({
+      controllerId: 'p1' as PlayerID,
+      sourceId: 's1',
+      sourceName: 'Mandate of Peace',
+    });
+    const result = applyOracleIRStepsToGameState(state, collected, ctx, { allowOptional: true });
+    expect(result.skippedSteps || []).toEqual([]);
+    expect(result.appliedSteps.some((s: any) => s.kind === 'end_combat_phase')).toBe(true);
+    expect(result.appliedSteps.some((s: any) => s.kind === 'grant_static_ability')).toBe(true);
+    expect(result.state.phase).toBe(GamePhase.POSTCOMBAT_MAIN);
+    expect((result.state as any).combat).toBeUndefined();
+    expect((result.state as any).stack).toHaveLength(0);
+  });
+
+  it('blocks Mandate of Peace outside combat and allows it during combat', () => {
+    const text = "Cast this spell only during combat.\nYour opponents can't cast spells this turn.\nEnd the combat phase.";
+    expect(checkSpellTimingRestriction(text, 'p1', 'p1', { phase: 'precombatMain' } as any).canCast).toBe(false);
+    expect(checkSpellTimingRestriction(text, 'p1', 'p1', { phase: 'postcombatMain' } as any).canCast).toBe(false);
+    expect(checkSpellTimingRestriction(text, 'p1', 'p1', { phase: 'combat' } as any).canCast).toBe(true);
+    expect(checkSpellTimingRestriction(text, 'p1', 'p1', { phase: 'combat', step: 'declareBlockers' } as any).canCast).toBe(true);
   });
 
   it('parses Secret council / Will of the council into vote steps', () => {

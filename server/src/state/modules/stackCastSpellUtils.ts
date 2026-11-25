@@ -13,6 +13,7 @@ import {
   recordGraveyardPermanentTypesCastThisTurn,
 } from './turn-tracking.js';
 import { getCascadeInstancesForCast } from './cascadeCastGrants.js';
+import { normalizeDamageDivisionMap } from './dividedDamageDivision.js';
 
 function removeCardIdFromZonesLibrary(zones: Record<string, any>, playerId: string, cardId: string): boolean {
   const playerZones = zones?.[playerId];
@@ -312,6 +313,7 @@ export function castSpell(
     targetDetails: targetDetails.length > 0 ? targetDetails : undefined,
     xValue,
     manaValue: spellManaValue,
+    ...(normalizeDamageDivisionMap(card?.damageDivisionByTargetId) ? { damageDivisionByTargetId: normalizeDamageDivisionMap(card?.damageDivisionByTargetId) } : {}),
     fromZone: castSourceZone,
     castSourceZone,
     source: castSourceZone,

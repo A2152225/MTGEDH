@@ -31,6 +31,9 @@ import { debug, debugWarn } from "../../utils/debug.js";
 import { chooseAITargetSelectionsForChoiceStep } from "../ai.js";
 import { canPermanentBeTargetedByPlayer } from "../../rules-engine/targeting";
 import { getEffectivePower, getEffectiveToughness } from "../util.js";
+import { permanentMatchesTargetTypes } from '../permanentTargetTypeFilter.js';
+import { chooseAICounterDistributionSelection } from "../ai-handlers/aiCounterDistributionChoice.js";
+import { chooseAIDamageDivisionSelection } from "../ai-handlers/aiDamageDivisionChoice.js";
 
 export interface AiTargetSelectionStepHelpers {
   getFilteredValidTargetsForStep: (gameId: string, step: TargetSelectionStep) => readonly any[];
@@ -93,36 +96,27 @@ export function buildAiTargetSelectionStepResponse(
 
     case ResolutionStepType.TAP_UNTAP_TARGET: {
       const stepData = step as any;
-      const battlefield = game.state?.battlefield || [];
+      const battlefield: any[] = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
       const sourceId = String(step.sourceId || stepData.sourceId || '');
       const targetCount = Math.max(1, Number(stepData.targetCount || 1));
       const targetFilter = stepData.targetFilter || {};
       const controllerFilter: 'you' | 'opponent' | 'any' = targetFilter.controller || 'any';
       const tapStatus: 'tapped' | 'untapped' | 'any' = targetFilter.tapStatus || 'any';
       const excludeSource = targetFilter.excludeSource === true;
-      const requireAllTypes = targetFilter.requireAllTypes === true;
       const minPower = targetFilter.minPower !== undefined ? Number(targetFilter.minPower) : undefined;
       const maxPower = targetFilter.maxPower !== undefined ? Number(targetFilter.maxPower) : undefined;
       const minToughness = targetFilter.minToughness !== undefined ? Number(targetFilter.minToughness) : undefined;
       const maxToughness = targetFilter.maxToughness !== undefined ? Number(targetFilter.maxToughness) : undefined;
+      const requireAllTypes = targetFilter.requireAllTypes === true;
+      const types = Array.isArray(targetFilter.types) ? targetFilter.types : [];
+      const subtypes = Array.isArray(targetFilter.subtypes) ? targetFilter.subtypes : [];
+      const stepAction = String(stepData.action || 'tap');
+      const mandatory = stepData.mandatory !== false;
 
-      const candidates = (Array.isArray(battlefield) ? battlefield : []).filter((perm: any) => {
+      // Hard requirements the step handler always enforces (controller, tap status, source, P/T).
+      const passesBase = (perm: any): boolean => {
         if (!perm || typeof perm.id !== 'string') return false;
         if (excludeSource && perm.id === sourceId) return false;
-
-        // Type filter (if present)
-        const types = Array.isArray(targetFilter.types) ? targetFilter.types : [];
-        if (types.length > 0) {
-          const typeLine = String(perm.card?.type_line || '').toLowerCase();
-          if (requireAllTypes) {
-            const matchesAll = types.every((t: any) => typeLine.includes(String(t).toLowerCase()));
-            if (!matchesAll) return false;
-          } else {
-            const matchesAny = types.some((t: any) => typeLine.includes(String(t).toLowerCase()));
-            if (!matchesAny) return false;
-          }
-        }
-
         if (minPower !== undefined || maxPower !== undefined) {
           const pwr = getEffectivePower(perm, game.state);
           if (minPower !== undefined && pwr < minPower) return false;
@@ -133,29 +127,59 @@ export function buildAiTargetSelectionStepResponse(
           if (minToughness !== undefined && tgh < minToughness) return false;
           if (maxToughness !== undefined && tgh > maxToughness) return false;
         }
-
         if (controllerFilter === 'you' && perm.controller !== step.playerId) return false;
         if (controllerFilter === 'opponent' && perm.controller === step.playerId) return false;
-
         if (tapStatus === 'tapped' && !perm.tapped) return false;
         if (tapStatus === 'untapped' && perm.tapped) return false;
-
         return true;
-      });
+      };
+
+      // Type words go through the shared predicate ("permanent", colours, "non-X"); subtypes must all hold.
+      const passesTypes = (perm: any): boolean =>
+        (types.length === 0 || permanentMatchesTargetTypes(perm, types, requireAllTypes))
+        && (subtypes.length === 0 || permanentMatchesTargetTypes(perm, subtypes, true));
+      let candidates = battlefield.filter((perm: any) => passesBase(perm) && passesTypes(perm));
+      if (candidates.length < targetCount && mandatory) {
+        // A mandatory step cannot be cancelled; widen past the type words rather than stall on STEP_MANDATORY.
+        const extra = battlefield.filter((perm: any) => passesBase(perm) && !candidates.includes(perm));
+        candidates = [...candidates, ...extra];
+      }
 
       if (candidates.length < targetCount) {
         debugWarn(1, `[Resolution] AI TAP_UNTAP_TARGET: not enough valid targets (${candidates.length} < ${targetCount})`);
         return {
           stepId: step.id,
           playerId: step.playerId,
-          selections: { targetIds: [], action: 'tap' },
+          selections: { targetIds: [], action: stepAction === 'untap' ? 'untap' : 'tap' },
           cancelled: true,
           timestamp: Date.now(),
         };
       }
 
-      const chosenIds = candidates.slice(0, targetCount).map((p: any) => String(p.id));
-      const chosenAction: 'tap' | 'untap' = stepData.action === 'untap' ? 'untap' : 'tap';
+      // Untap wants tapped permanents (own first); tap wants untapped ones (opponents' first).
+      const wantsUntap = (perm: any) => stepAction === 'untap' || (stepAction === 'both' && perm.controller === step.playerId && perm.tapped);
+      const scoreTarget = (perm: any): number => {
+        const own = perm.controller === step.playerId;
+        let score = 0;
+        if (wantsUntap(perm)) score += (perm.tapped ? 20 : 0) + (own ? 8 : 0);
+        else score += (perm.tapped ? 0 : 20) + (own ? 0 : 8);
+        try {
+          if (canPermanentBeTargetedByPlayer(perm, game.state as any, step.playerId as any)) score += 4;
+        } catch {
+          // targeting check is advisory here
+        }
+        if (String(perm.card?.type_line || '').toLowerCase().includes('creature')) score += 1;
+        return score;
+      };
+      const chosen = candidates
+        .map((perm: any, index: number) => ({ perm, index, score: scoreTarget(perm) }))
+        .sort((left, right) => right.score - left.score || left.index - right.index)
+        .slice(0, targetCount)
+        .map((entry) => entry.perm);
+      const chosenIds = chosen.map((p: any) => String(p.id));
+      const chosenAction: 'tap' | 'untap' = stepAction === 'untap' || (stepAction === 'both' && wantsUntap(chosen[0]))
+        ? 'untap'
+        : 'tap';
       const response: ResolutionStepResponse = {
         stepId: step.id,
         playerId: step.playerId,
@@ -163,7 +187,33 @@ export function buildAiTargetSelectionStepResponse(
         cancelled: false,
         timestamp: Date.now(),
       };
-      debug(2, `[Resolution] AI TAP_UNTAP_TARGET: chose ${chosenIds.length} target(s)`);
+      debug(2, `[Resolution] AI TAP_UNTAP_TARGET: chose ${chosenIds.length} target(s) to ${chosenAction}`);
+      return response;
+    }
+
+    case ResolutionStepType.COUNTER_DISTRIBUTION: {
+      const distribution = chooseAICounterDistributionSelection(game, String(step.playerId), step as any);
+      const response: ResolutionStepResponse = {
+        stepId: step.id,
+        playerId: step.playerId,
+        selections: (distribution || {}) as any,
+        cancelled: !distribution && (step as any).mandatory === false,
+        timestamp: Date.now(),
+      };
+      debug(2, `[Resolution] AI COUNTER_DISTRIBUTION: ${JSON.stringify(distribution || {})}`);
+      return response;
+    }
+
+    case ResolutionStepType.DAMAGE_DIVISION: {
+      const distribution = chooseAIDamageDivisionSelection(game, String(step.playerId), step as any);
+      const response: ResolutionStepResponse = {
+        stepId: step.id,
+        playerId: step.playerId,
+        selections: (distribution || {}) as any,
+        cancelled: !distribution && (step as any).mandatory === false,
+        timestamp: Date.now(),
+      };
+      debug(2, `[Resolution] AI DAMAGE_DIVISION: ${JSON.stringify(distribution || {})}`);
       return response;
     }
 

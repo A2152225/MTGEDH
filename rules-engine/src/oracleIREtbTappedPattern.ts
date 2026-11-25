@@ -182,7 +182,7 @@ export function evaluateConditionalEntersTappedFromBattlefield(
   if (turbulent) return turbulent.shouldEnterTapped;
 
   const dualCheck = text.match(
-    /(?:this land )?enters(?: the battlefield)? tapped unless you control (?:a|an) ([\w]+) or ([\w]+)/i,
+    /(?:this land )?enters(?: the battlefield)? tapped unless you control (?:a|an) ([\w]+) or (?:an?\s+)?([\w]+)/i,
   );
   if (dualCheck) {
     const type1 = dualCheck[1].toLowerCase();

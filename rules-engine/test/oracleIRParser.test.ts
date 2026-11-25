@@ -1481,6 +1481,7 @@ When The Spot dies, put him on the bottom of his owner's library. If you do, ret
     expect(addMana).toBeTruthy();
     expect(addMana.mana).toBe('{W}');
     expect(addMana.manaOptions).toEqual(['{W}', '{U}', '{B}', '{R}', '{G}']);
+    expect(addMana.requiresChosenMana).toBe(true);
   });
 
   it('parses choose-a-color plus chosen-color mana across the resulting abilities', () => {

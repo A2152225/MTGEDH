@@ -85,7 +85,14 @@ export function buildAiSimpleChoiceStepResponse(
     }
 
     case ResolutionStepType.CREATURE_TYPE_CHOICE: {
-      const chosenType = String(getDominantCreatureType(game, String(step.playerId)) || 'Shapeshifter').trim() || 'Shapeshifter';
+      const dominantType = String(getDominantCreatureType(game, String(step.playerId)) || '').trim();
+      // When the step offers a fixed list (Sieges' "Abzan or Mardu", card-type keys), answer from it.
+      const offeredTypes: string[] = Array.isArray((step as any).offeredCreatureTypes)
+        ? (step as any).offeredCreatureTypes.map((type: any) => String(type || '').trim()).filter(Boolean)
+        : [];
+      const chosenType = offeredTypes.length > 0
+        ? (offeredTypes.find((type) => type.toLowerCase() === dominantType.toLowerCase()) || offeredTypes[0])
+        : (dominantType || 'Shapeshifter');
 
       const response: ResolutionStepResponse = {
         stepId: step.id,

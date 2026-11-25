@@ -248,6 +248,10 @@ async function handleStepResponseBody(
       getResolutionHandlerDeps().handleCounterDistributionResponse(io, game, gameId, step, response);
       break;
 
+    case ResolutionStepType.DAMAGE_DIVISION:
+      getResolutionHandlerDeps().handleDamageDivisionResponse(io, game, gameId, step, response);
+      break;
+
     case ResolutionStepType.STATION_CREATURE_SELECTION:
       getResolutionHandlerDeps().handleStationCreatureSelectionResponse(io, game, gameId, step, response);
       break;

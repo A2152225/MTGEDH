@@ -12,6 +12,7 @@
  *   - permanentHasKeyword
  */
 import { attachmentOracleGrantsKeyword } from "../../../../shared/src/attachmentKeywordGrants.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import {
   grantedAbilityIsOwnKeyword,
   oracleTextGrantsKeywordOnlyToOthers,
@@ -158,7 +159,7 @@ function creatureHasHasteUncached(permanent: any, battlefield: any[], controller
     }
     try {
       if (attachedLetsAttackAsThoughHaste(permanent, battlefield)) return true;
-    } catch { /* hook optional */ }
+    } catch (err) { reportHookFailure('hook.optional.attachedLetsAttackAsThoughHaste', err, { source: 'gameActionsPermanentKeywordGrants' }); /* hook optional */ }
     
     const otherHasteLord = oracleTextGrantsKeywordOnlyToOthers(permOracleText, 'haste');
 

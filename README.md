@@ -257,6 +257,7 @@ WIPE_GAMES_ON_STARTUP=true
 - [AI Strategy Development](./docs/ai-strategies.md)
 - [Keyword Actions Guide](./docs/keyword-actions-guide.md)
 - [IIS Setup Guide](./docs/iis-setup-guide.md) - Deploy with IIS on Windows
+- [Bug-hunting process](./docs/bug-hunting-process.md) - Outcome sweep, hook-failure tripwire, and the current fix loop
 
 ## Contributing
 

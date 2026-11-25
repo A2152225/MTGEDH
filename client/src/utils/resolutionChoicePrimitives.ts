@@ -31,6 +31,7 @@ const SPECIALIZED_STEP_TYPES = new Set([
   'kynaios_choice',
   'mana_color_selection',
   'counter_distribution',
+  'damage_division',
   'x_value_selection',
   'number_choice',
   'mana_payment_choice',

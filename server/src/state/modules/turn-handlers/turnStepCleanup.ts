@@ -12,9 +12,10 @@ import type { GameContext } from "../../context.js";
 import { debug, debugWarn } from "../../../utils/debug.js";
 import { clearTemporaryEtbTriggers } from '../triggerEtbEntryEffects.js';
 import { clearMarkedPermanentDamage } from "../counter-common-effects.js";
+import { revertTemporaryAnimation } from './temporaryAnimationRevert.js';
 import { syncPreparedPermanentAfterControlChange } from "../prepared.js";
 import { removeControlEffects, syncControlFromRegistry } from "../continuousEffectRegistry.js";
-import { emitParsedSubjectEvent } from "../triggerEmissionFamilyUtils.js";
+import { queueParsedSubjectEvent } from "../triggerEmissionFamilyUtils.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { clearTemporaryGraveyardKeywordGrants, clearTemporaryPlayableFromGraveyardPermissions } from "../graveyard-permissions.js";
 import { expireDelayedDealtDamageWatchers } from "../triggers/dealt-damage-watchers.js";
@@ -109,6 +110,7 @@ function endTemporaryEffects(ctx: GameContext) {
           if (String(effect?.expiresAt || '') !== 'end_of_turn') {
             return true;
           }
+          if (effect?.animateRevert) revertTemporaryAnimation(permanent, effect.animateRevert);
           for (const granted of Array.isArray(effect?.grantedAbilities) ? effect.grantedAbilities : []) {
             const normalized = String(granted || '').trim().toLowerCase();
             if (normalized) expiredKeywords.add(normalized);

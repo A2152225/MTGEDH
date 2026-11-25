@@ -24,13 +24,9 @@ import {
   type ResolutionStepResponse,
 } from "../../state/resolution/index.js";
 import { debug, debugWarn } from "../../utils/debug.js";
-import { appendCastSpellContinuationEvent } from "../resolutionSyntheticCastSocketUtils.js";
 import { broadcastGame, emitToPlayer } from "../util.js";
-import {
-  buildPendingCastPaymentManaCost,
-  buildPendingCastPaymentStepCostFields,
-  buildSpellPaymentPresentationFields,
-} from "./resolutionPendingCastPaymentPrompt.js";
+import { maybeQueueDamageDivisionAfterSpellTargets } from "./queueDamageDivisionAfterSpellTargets.js";
+import { queuePendingCastManaPaymentAfterTargets } from "./queuePendingCastManaPaymentAfterTargets.js";
 
 /**
  * AUTO-UNIGNORE: Remove targeted permanents from ignore list.
@@ -161,85 +157,35 @@ export function handleSpellCastPaymentTargetSelection(
       return;
     }
 
-    // Calculate final mana cost, accounting for Strive and other target-based modifiers
-    let finalManaCost = buildPendingCastPaymentManaCost(pendingCast);
-    let striveCostMessage = '';
+    const finalTargets = Array.isArray(pendingCast.targets)
+      ? pendingCast.targets.map((targetId: any) => String(targetId))
+      : selections;
 
-    // Check for Strive additional cost
-    const cardOracleText = pendingCast.card?.oracle_text || oracleText || '';
-    const striveMatch = cardOracleText.match(/\bStrive\s*[—\-]\s*This spell costs\s+(\{[^}]+\}(?:\s*\{[^}]+\})*)\s+more to cast for each target beyond the first/i);
-    const finalTargets = Array.isArray(pendingCast.targets) ? pendingCast.targets.map((targetId: any) => String(targetId)) : selections;
-
-    if (striveMatch && finalTargets.length > 1) {
-      const striveCostPer = striveMatch[1].trim();
-      const additionalTargets = finalTargets.length - 1;
-
-      // Build the additional cost string
-      let additionalCost = '';
-      for (let i = 0; i < additionalTargets; i++) {
-        additionalCost += striveCostPer;
+    if (maybeQueueDamageDivisionAfterSpellTargets({
+      io,
+      game,
+      gameId,
+      playerId: String(pid),
+      pendingCast,
+      spellCastContext,
+      finalTargets,
+    })) {
+      if (typeof game.bumpSeq === "function") {
+        game.bumpSeq();
       }
-
-      finalManaCost = finalManaCost + additionalCost;
-      striveCostMessage = ` (Strive: +${striveCostPer} × ${additionalTargets} for ${finalTargets.length} targets)`;
-      debug(1, `[Resolution] Strive cost added: base ${manaCost} + ${additionalCost} = ${finalManaCost}`);
+      broadcastGame(io, game, gameId);
+      return;
     }
 
-    // Update the pending cast with the final cost
-    pendingCast.finalManaCost = finalManaCost;
-
-    const existingPaymentStep = ResolutionQueueManager
-      .getStepsForPlayer(gameId, pid as any)
-      .find((s: any) =>
-        s?.type === ResolutionStepType.MANA_PAYMENT_CHOICE &&
-        (s as any)?.spellPaymentRequired === true &&
-        String((s as any)?.effectId || '') === String(effectId)
-      );
-
-    if (!existingPaymentStep) {
-      const paymentCostFields = buildPendingCastPaymentStepCostFields(
-        pendingCast,
-        String(pendingCast.manaCost || manaCost || ''),
-        finalManaCost,
-      );
-      const paymentStep = ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.MANA_PAYMENT_CHOICE,
-        playerId: pid as any,
-        sourceId: cardId,
-        sourceName: cardName,
-        sourceImage: imageUrl,
-        description: `Pay costs to cast ${cardName}.`,
-        mandatory: true,
-
-        spellPaymentRequired: true,
-        cardId,
-        cardName: cardName + striveCostMessage,
-        manaCost: paymentCostFields.manaCost,
-        xValue: pendingCast.xValue,
-        effectId,
-        targets: finalTargets,
-        imageUrl,
-        costAdjustment: paymentCostFields.costAdjustment,
-        costReduction: paymentCostFields.costReduction,
-        convokeOptions: pendingCast.convokeOptions,
-        forcedAlternateCostId: pendingCast.forcedAlternateCostId,
-        ...buildSpellPaymentPresentationFields(pendingCast, { game, playerId: pid }),
-      } as any);
-
-      appendCastSpellContinuationEvent(gameId, game, {
-        playerId: pid,
-        cardId,
-        effectId,
-        pendingSpellCast: {
-          ...(pendingCast || {}),
-        },
-        queuedResolutionStep: {
-          ...(paymentStep as any),
-        },
-      });
-    }
-
-    debug(2, `[Resolution] Spell target selection complete for ${cardName}, requesting payment`);
+    queuePendingCastManaPaymentAfterTargets({
+      io,
+      game,
+      gameId,
+      playerId: String(pid),
+      pendingCast,
+      spellCastContext,
+      finalTargets,
+    });
   } else {
     debugWarn(1, `[Resolution] No pending spell cast found for effectId: ${effectId}`);
   }

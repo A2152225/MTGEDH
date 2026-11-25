@@ -20,6 +20,8 @@ import { recordCardPutIntoGraveyardThisTurn } from "./turn-tracking.js";
 import { batch112DestroyReplacement } from "./batch112Apply.js";
 import { cleanupCardLeavingExile } from "./playable-from-exile.js";
 import { clearPreparedPermanent } from "./prepared.js";
+import { unpairPermanent } from "./soulbond.js";
+import { reportHookFailure } from "../../../../shared/src/hookFailureReporter.js";
 import { applyShieldCounterDamagePrevention } from "./counter-common-effects.js";
 import { filterRestrictedCounterDeltas } from "./counterPlacementRestrictions.js";
 import { tryStaticRegenerateInsteadOfDestroy } from "./replacementBatch16LongTail.js";
@@ -136,10 +138,9 @@ function clearPreparedStateOnBattlefieldExit(state: any, permanent: any): void {
   }
 
   try {
-    const { unpairPermanent } = require('./soulbond.js') as typeof import('./soulbond.js');
     unpairPermanent(state, permanent);
-  } catch {
-    // best-effort soulbond cleanup
+  } catch (err) {
+    reportHookFailure('soulbond.unpair', err, { source: 'counters_tokens', cardName: String(permanent?.card?.name || '') });
   }
 
   const hasPreparedState =

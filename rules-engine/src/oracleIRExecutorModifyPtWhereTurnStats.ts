@@ -47,8 +47,18 @@ function getCardTypesLower(card: any): string {
     .toLowerCase();
 }
 
+/** Live state keeps some turn tallies as event lists (`spellsCastThisTurn: [{ casterId, ... }]`). */
+function recordPlayerId(entry: any): string {
+  return String(entry?.casterId ?? entry?.controller ?? entry?.playerId ?? entry?.caster ?? '').trim();
+}
+
+function countRecords(list: readonly any[], include: (playerId: string) => boolean): number {
+  return list.filter((entry) => entry && typeof entry === 'object' && include(recordPlayerId(entry))).length;
+}
+
 function readControllerValue(value: any, controllerId: string, missingAsZero: boolean): number | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (Array.isArray(value)) return countRecords(value, (playerId) => playerId === String(controllerId));
+  if (!value || typeof value !== 'object') return null;
   const key = String(controllerId);
   if (!Object.prototype.hasOwnProperty.call(value, key)) {
     return missingAsZero ? 0 : null;
@@ -59,7 +69,8 @@ function readControllerValue(value: any, controllerId: string, missingAsZero: bo
 }
 
 function sumOpponentsValue(value: any, state: GameState, controllerId: string): number | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (Array.isArray(value)) return countRecords(value, (playerId) => Boolean(playerId) && playerId !== controllerId);
+  if (!value || typeof value !== 'object') return null;
 
   const players = Array.isArray(state.players) ? state.players : [];
   if (players.length > 0) {
@@ -79,7 +90,8 @@ function sumOpponentsValue(value: any, state: GameState, controllerId: string): 
 }
 
 function sumAllValues(value: any): number | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (Array.isArray(value)) return countRecords(value, () => true);
+  if (!value || typeof value !== 'object') return null;
   return Object.values(value as Record<string, unknown>).reduce<number>((sum, amount) => {
     const n = Number(amount);
     return sum + (Number.isFinite(n) ? Math.max(0, n) : 0);

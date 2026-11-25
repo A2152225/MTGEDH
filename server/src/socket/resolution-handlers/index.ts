@@ -27,6 +27,9 @@ export {
   handleCounterTargetResponse,
 } from "./counterManipulationResponseHandlers.js";
 
+// DAMAGE_DIVISION: CR 601.2d split among chosen targets after a spell's targets are locked in.
+export { handleDamageDivisionResponse } from "./damageDivisionResponseHandlers.js";
+
 // STATION_CREATURE_SELECTION: tap a creature to charge a Station permanent.
 export { handleStationCreatureSelectionResponse } from "./stationCreatureSelectionResponseHandlers.js";
 

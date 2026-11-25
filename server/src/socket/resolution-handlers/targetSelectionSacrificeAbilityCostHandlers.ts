@@ -13,6 +13,7 @@
  * Wired through resolutionHandlerDeps. Must not import resolution.ts.
  */
 
+import { permanentHasCreatureTypeNow } from "../../state/creatureTypeNow.js";
 import type { Server } from "socket.io";
 import { appendEvent } from "../../db/index.js";
 import type { GameContext } from "../../state/context.js";
@@ -48,6 +49,8 @@ import {
   getEffectiveToughness,
   getPlayerName,
 } from "../util.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
+import { applyStepActivationX, readActivationStepXValue, stripExtendedDiscardCostClauses } from '../interaction-handlers/activationCostXAndDiscardClauses.js';
 
 /** TARGET_SELECTION with `sacrificeAbilityAsCost`: pay the sacrifice cost and continue the ability. */
 export async function handleSacrificeAbilityAsCostTargetSelection(
@@ -65,8 +68,9 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
   const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
   const abilityId = String(stepAny?.abilityId || '').trim();
   const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
-  const abilityText = String(stepAny?.abilityText || step.description || '');
-  const manaCost = String(stepAny?.manaCost || '');
+  // CR 601.2b / 602.2b: X was announced with the activation; substitute it before validating mana.
+  const abilityText = applyStepActivationX(stepAny, String(stepAny?.abilityText || step.description || ''));
+  const manaCost = applyStepActivationX(stepAny, String(stepAny?.manaCost || ''));
   const requiresTap = Boolean(stepAny?.requiresTap);
   const lifeToPayForCost = Number(stepAny?.lifeToPayForCost || 0);
   const prePaidLifeForCost = Number(stepAny?.prePaidLifeForCost || 0);
@@ -108,7 +112,7 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
   const discardClauseRegex =
     /\bdiscard\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(?:creature|artifact|enchantment|land|instant|sorcery|planeswalker|nonland|noncreature)\s+)?cards?\b/gi;
 
-  let remainingNonManaCostText = manaCost
+  let remainingNonManaCostText = stripExtendedDiscardCostClauses(manaCost)
     .replace(/\{[^}]+\}/g, ' ')
     .replace(/\bpay\s+(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+life\b/gi, ' ')
     .replace(/\bsacrifice\b[^,]*/gi, ' ');
@@ -200,12 +204,19 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
       case 'permanent':
         okType = true;
         break;
+      // Mirrors the prompt builder (interactionActivateSacrificeCostPrompt): "Sacrifice a nonland
+      // permanent" / "Sacrifice a Food" (Ragost, Deft Gastronaut) parse as nonland_permanent.
+      case 'nonland_permanent':
+      case 'nonland':
+        okType = !tl.includes('land');
+        break;
       default:
         // Unknown type: be conservative.
         okType = false;
     }
     if (!okType) return false;
     if (sacrificeSubtype) {
+      if (sacrificeType === 'creature') return permanentHasCreatureTypeNow(perm, sacrificeSubtype);
       const sub = String(sacrificeSubtype).toLowerCase();
       return tl.includes(sub);
     }
@@ -347,7 +358,7 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
       : 0,
   })) return;
 
-  const activatedAbilityText = String(stepAny?.activatedAbilityText || '').trim()
+  const activatedAbilityText = applyStepActivationX(stepAny, String(stepAny?.activatedAbilityText || '')).trim()
     || (manaCost ? `${manaCost}: ${abilityText}` : abilityText);
 
   // Mirror tap/discard cost paths: after paying the sacrifice cost, prompt for
@@ -527,7 +538,9 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
             debugWarn(1, '[Resolution] appendEvent(pushTriggeredAbility mana sac-cost) failed:', err);
           }
         }
-      } catch {}
+      } catch (err) {
+        reportHookFailure('triggers.abilityActivated', err, { source: 'targetSelectionSacrificeAbilityCostHandlers' });
+      }
     }
 
     if (producesAllAtOnce && produces.length > 1) {
@@ -590,7 +603,7 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
       const permKey = String(permanentId);
       const k = abilityId ? `${permKey}:${abilityId}` : permKey;
       (stateAny.addedManaWithThisAbilityThisTurn[String(controllerId)] as any)[k] = true;
-    } catch {}
+    } catch (err) { reportHookFailure('payment.addedManaWithThisAbility', err, { source: 'targetSelectionSacrificeAbilityCostHandlers' }); }
 
     persistSacrificeActivationEvent({ usesStack: false });
 
@@ -629,6 +642,7 @@ export async function handleSacrificeAbilityAsCostTargetSelection(
     sourceName: cardName,
     description: abilityText,
     activatedAbilityText: activatedAbilityText || undefined,
+    ...(readActivationStepXValue(stepAny) !== undefined ? { xValue: readActivationStepXValue(stepAny) } : null),
     sacrificedPermanents: sacrificedIds,
     lastSacrificedPermanents: sacrificedPermanentSnapshots,
   } as any;

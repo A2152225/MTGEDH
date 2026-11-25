@@ -12,6 +12,7 @@ import { queueGenericTriggeredAbility } from '../triggerEmissionFamilyUtils.js';
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 import { queueParsedActionTriggers, parsedEffectDuplicates } from './queueParsedSpecialRuntimeIr.js';
 import { maybeQueueDiceExchangeFromLastDieRoll } from '../diceExchangeBasePTPrompt.js';
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 
 const ABILITY_WORD = /^\s*(?:[\d,]+\s+)?[a-z][a-z' ]{0,40}?\s+(?:\u2014|--?)\s+(?=(?:when|whenever|at)\b)/i;
 
@@ -183,6 +184,6 @@ export function queueFreshDieRollTriggers(ctx: GameContext, onlyPlayerId?: strin
       }
     }
   }
-  try { maybeQueueDiceExchangeFromLastDieRoll(ctx, state); } catch { /* best-effort */ }
+  try { maybeQueueDiceExchangeFromLastDieRoll(ctx, state); } catch (err) { reportHookFailure('triggers.diceExchange', err, { source: 'playLandSaddleDieRollHooks' }); /* best-effort */ }
   return queued;
 }

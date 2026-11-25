@@ -28,6 +28,19 @@ import { ResolutionQueueManager } from "../../resolution/index.js";
 import { getOrInitManaPool, recordCreatureSpellHasteManaProduced } from "../../../socket/util.js";
 import { getActivatedAbilityScopeText, parseSearchCriteria } from "../../../socket/interaction.js";
 
+function applyRetainedManaFromEvent(state: any, playerId: string, mana: Record<string, number>, retainUntil: string): void {
+  const bucketKey = retainUntil === 'until_end_of_combat' ? 'untilEndCombat' : 'untilEndTurn';
+  if (retainUntil !== 'until_end_of_combat' && retainUntil !== 'until_end_of_turn') return;
+  state.temporaryRetainedMana = state.temporaryRetainedMana || {};
+  const playerBuckets = state.temporaryRetainedMana[playerId] = state.temporaryRetainedMana[playerId] || {};
+  const bucket = playerBuckets[bucketKey] = { ...(playerBuckets[bucketKey] || {}) };
+  for (const [color, amountRaw] of Object.entries(mana || {})) {
+    const amount = Number(amountRaw || 0);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    bucket[color] = Math.max(0, Number(bucket[color] || 0)) + amount;
+  }
+}
+
 export function applyManaPoolEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
 
@@ -396,6 +409,8 @@ export function applyManaPoolEvents(ctx: GameContext, e: GameEvent): boolean {
                 ? recordedMana
                 : (perm ? inferLegacyManaReplay(ctx.state, perm, playerId, manaColor, (e as any).abilityId) : {});
               applyRecordedManaToPool(ctx, playerId, manaToApply);
+              const retainUntil = String((e as any).retainUntil || '');
+              if (retainUntil) applyRetainedManaFromEvent(ctx.state, playerId, manaToApply, retainUntil);
               if ((e as any).manaGrantsCreatureSpellHasteUntilEndOfTurn === true) {
                 for (const [poolKey, rawAmount] of Object.entries(manaToApply || {})) {
                   const amount = Number(rawAmount || 0);
@@ -422,7 +437,7 @@ export function applyManaPoolEvents(ctx: GameContext, e: GameEvent): boolean {
               );
             }
 
-            if (perm) {
+            if (perm && (e as any).skipSourceTap !== true) {
               (perm as any).tapped = true;
               
               // Yuna, Grand Summoner: "Grand Summon — {T}: Add one mana of any color. When you next cast a creature spell this turn, that creature enters with two additional +1/+1 counters on it."

@@ -1,4 +1,5 @@
 import type { PlayerID } from '../../../../shared/src/index.js';
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import type { GameContext } from '../context.js';
 import { uid, triggerLifeGainEffects } from '../utils.js';
 import { resolveOpponentDirectedDamage } from './game-state-effects.js';
@@ -368,7 +369,8 @@ export function queueDealsDamageToPlayerTriggersFromPermanent(
         refs,
       );
       if (ok === false) continue;
-    } catch {
+    } catch (err) {
+      reportHookFailure('intervening-if.eval', err, { source: 'triggerLifeDamageUtils' });
       // Conservative fallback: keep the trigger.
     }
 

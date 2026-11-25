@@ -218,14 +218,17 @@ function isRedundantActivationRestrictionUnknownStep(step: OracleEffectStep): bo
 }
 
 function isRedundantSpellTimingRestrictionUnknownStep(step: OracleEffectStep): boolean {
-  if (!step || step.kind !== 'unknown') return false;
+  if (!step || (step.kind !== 'unknown' && step.kind !== 'grant_static_ability')) return false;
 
   const normalized = normalizeOracleText(String(step.raw || ''))
     .replace(/^then\b\s*/i, '')
     .trim();
   if (!normalized) return false;
 
-  return /^cast this spell only during the declare attackers step and only if you(?:'|�)?ve been attacked this step[.)]*$/i.test(normalized);
+  // Cast-timing restrictions are enforced at cast time, not as resolution effects.
+  // "Cast this spell only during combat." was previously parsed as grant_static_ability
+  // and skipped at execution, tripping the all-or-nothing gate (Mandate of Peace).
+  return /^cast this spell only (?:during|before|after|if|while)\b.+$/i.test(normalized);
 }
 
 export function pruneRedundantSpellTimingRestrictionUnknownAbilities(

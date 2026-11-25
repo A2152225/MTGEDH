@@ -26,6 +26,7 @@ import { resolveEnchantedControllerId, resolveEnchantedPlayerId } from './phaseW
 import { getPermanentPowerMaybe, getPermanentToughnessMaybe } from './intervening-if-permanent-and-player.js';
 import { getEffectiveColors } from '../effectiveColors.js';
 import { oracleTextWithGrantedTriggers } from './grantedOracleTriggerScan.js';
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 
 /** CR 702.14 prints landwalk as "[quality]walk" (islandwalk, nonbasic landwalk). */
 function hasLandwalkForm(text: string): boolean {
@@ -592,7 +593,8 @@ export function collectMatchingParsedEventLines(options: {
         ) === false) {
           continue;
         }
-      } catch {
+      } catch (err) {
+        reportHookFailure('triggers.interveningIf', err, { source: 'triggerConditionFamilyMatch' });
         // Keep the line when the intervening-if check cannot run.
       }
     }

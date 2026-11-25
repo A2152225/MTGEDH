@@ -32,6 +32,7 @@ import {
 } from "../util";
 import { reserveCastSpellPaymentPermanentId } from "../castSpellPaymentSelectionUtils.js";
 import { resolveGroupedPermanentRef } from "../tokenGroupResolve.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 export function getFloatingPaymentPoolKey(permanentId: string, mana: string, pool?: any): string | null {
   return getFloatingPaymentPoolColorKey(permanentId, mana, pool);
@@ -388,7 +389,8 @@ export function restorePlayerCastSpellPaymentCheckpoint(
       (game.state as any).lifeLostThisTurn = (game.state as any).lifeLostThisTurn || {};
       const lost = Number((game.state as any).lifeLostThisTurn[String(playerId)] || 0);
       (game.state as any).lifeLostThisTurn[String(playerId)] = Math.max(0, lost - paidLife);
-    } catch {
+    } catch (err) {
+      reportHookFailure('payment.lifeLostRollback', err, { source: 'gameActionsCastSpellPaymentSources' });
       // Best-effort rollback only.
     }
   }

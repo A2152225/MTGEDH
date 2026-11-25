@@ -22,6 +22,7 @@ import { debugWarn } from "../../utils/debug.js";
 import { stampPermanentEntryTimestamp, stampAttachmentTimestamp } from '../../../../rules-engine/src/permanentTimestamps.js';
 import { maybeQueuePickAxeAttachChoice } from '../../state/modules/batch101LongTailApply.js';
 import { maybeQueueSanctuaryBladeColorChoice } from '../../state/modules/batch102Apply.js';
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 import { queueTapTriggersForTappedPermanents } from "../../state/modules/tap-trigger-queue.js";
 import { broadcastGame, emitToPlayer, getPlayerName } from "../util.js";
@@ -120,10 +121,10 @@ export async function attachEquipmentToPermanentById(
 
   try {
     maybeQueuePickAxeAttachChoice({ ...(gameRef as any), state: gameRef.state, gameId: currentGameId }, equipment, targetPermanentId);
-  } catch {}
+  } catch (err) { reportHookFailure('resolution.attachFollowup', err, { source: 'targetSelectionTapCostAndAttachHandlers' }); }
   try {
     maybeQueueSanctuaryBladeColorChoice({ ...(gameRef as any), state: gameRef.state, gameId: currentGameId }, equipment, targetPermanentId);
-  } catch {}
+  } catch (err) { reportHookFailure('resolution.attachFollowup', err, { source: 'targetSelectionTapCostAndAttachHandlers' }); }
 
   return true;
 }

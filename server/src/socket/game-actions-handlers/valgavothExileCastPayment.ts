@@ -6,6 +6,7 @@
 // tryPromptValgavothExileLifeCost.
 
 import { playersCannotPayLifeToCastOrActivateNonMana } from "../../state/modules/karnsSylexPayLifeRestriction.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import {
   getValgavothExileCastLifeCost,
   VALGAVOTH_EXILE_LIFE_COST_ID,
@@ -27,10 +28,10 @@ function hasIndependentPlayFromExilePermission(state: any, playerId: string, car
   }
   try {
     if (mayPlayCardsExiledWithSourceThisTurn(state, playerId, card)) return true;
-  } catch { /* hook optional */ }
+  } catch (err) { reportHookFailure('hook.optional.mayPlayCardsExiledWithSourceThisTurn', err, { source: 'valgavothExileCastPayment' }); /* hook optional */ }
   try {
     if (getPlayableFromExileDurablePermissionForCard(state, playerId, card, 'cast')) return true;
-  } catch { /* hook optional */ }
+  } catch (err) { reportHookFailure('hook.optional.getPlayableFromExileDurablePermissionForCard', err, { source: 'valgavothExileCastPayment' }); /* hook optional */ }
   return false;
 }
 

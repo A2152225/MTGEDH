@@ -21,6 +21,8 @@ import {
 } from "../../state/resolution/index.js";
 import { debugWarn } from "../../utils/debug.js";
 import { requestCastSpellForSocket } from "../game-actions.js";
+import { reportHookFailure } from "../../../../shared/src/hookFailureReporter.js";
+import { createForwardingGameActionSocket } from "../resolutionSyntheticCastSocketUtils.js";
 import { batch113ColoredXLimit } from "../../state/modules/batch113Remaining.js";
 
 function cappedSpellX(game: any, step: any, selected: number): number {
@@ -185,29 +187,30 @@ export async function handleXValueSelectionResponse(
     const minValue = Math.max(0, Math.floor(Number(stepAny.minValue ?? 0)));
     const maxValue = Math.max(minValue, Math.floor(Number(stepAny.maxValue ?? minValue)));
     const chosen = Math.max(minValue, Math.min(maxValue, selectedXValue));
-    await requestCastSpellForSocket(
-      io,
-      {
-        data: { playerId: pid },
-        emit: (_event: string, _payload: any) => {},
-      } as any,
-      {
-        gameId,
-        cardId: stepAny?.spellCardId,
-        faceIndex: stepAny?.spellFaceIndex,
-        fromZone: stepAny?.spellFromZone,
-      },
-      {
-        skipPriorityCheck: true,
-        forcedAlternateCostId: typeof stepAny?.spellForcedAlternateCostId === 'string' ? stepAny.spellForcedAlternateCostId : undefined,
-        castWithoutPayingManaCost: stepAny?.spellCastWithoutPayingManaCost === true,
-        bypassExilePermissionCheck: stepAny?.spellBypassExilePermissionCheck === true,
-        ignoreTimingRestrictions: stepAny?.spellIgnoreTimingRestrictions === true,
-        xValue: Number.isFinite(stepAny?.spellXValue) ? Math.max(0, Math.floor(Number(stepAny.spellXValue))) : undefined,
-        timesKicked: Number.isFinite(stepAny?.spellTimesKicked) ? Math.max(0, Math.floor(Number(stepAny.spellTimesKicked))) : undefined,
-        replicateCount: chosen,
-      },
-    );
+    try {
+      await requestCastSpellForSocket(
+        io,
+        createForwardingGameActionSocket(io, gameId, String(pid)).socket as any,
+        {
+          gameId,
+          cardId: stepAny?.spellCardId,
+          faceIndex: stepAny?.spellFaceIndex,
+          fromZone: stepAny?.spellFromZone,
+        },
+        {
+          skipPriorityCheck: true,
+          forcedAlternateCostId: typeof stepAny?.spellForcedAlternateCostId === 'string' ? stepAny.spellForcedAlternateCostId : undefined,
+          castWithoutPayingManaCost: stepAny?.spellCastWithoutPayingManaCost === true,
+          bypassExilePermissionCheck: stepAny?.spellBypassExilePermissionCheck === true,
+          ignoreTimingRestrictions: stepAny?.spellIgnoreTimingRestrictions === true,
+          xValue: Number.isFinite(stepAny?.spellXValue) ? Math.max(0, Math.floor(Number(stepAny.spellXValue))) : undefined,
+          timesKicked: Number.isFinite(stepAny?.spellTimesKicked) ? Math.max(0, Math.floor(Number(stepAny.spellTimesKicked))) : undefined,
+          replicateCount: chosen,
+        },
+      );
+    } catch (err) {
+      reportHookFailure('cast.xValueContinuation', err, { source: 'xValueSelectionResponseHandlers', cardName: String(stepAny?.sourceName || stepAny?.spellCardId || 'spell') });
+    }
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);
     return;
@@ -223,27 +226,28 @@ export async function handleXValueSelectionResponse(
       return;
     }
 
-    await requestCastSpellForSocket(
-      io,
-      {
-        data: { playerId: pid },
-        emit: (_event: string, _payload: any) => {},
-      } as any,
-      {
-        gameId,
-        cardId: stepAny?.spellCardId,
-        faceIndex: stepAny?.spellFaceIndex,
-        fromZone: stepAny?.spellFromZone,
-      },
-      {
-        skipPriorityCheck: true,
-        forcedAlternateCostId: typeof stepAny?.spellForcedAlternateCostId === 'string' ? stepAny.spellForcedAlternateCostId : undefined,
-        castWithoutPayingManaCost: stepAny?.spellCastWithoutPayingManaCost === true,
-        bypassExilePermissionCheck: stepAny?.spellBypassExilePermissionCheck === true,
-        ignoreTimingRestrictions: stepAny?.spellIgnoreTimingRestrictions === true,
-        xValue: cappedSpellX(game, stepAny, selectedXValue),
-      },
-    );
+    try {
+      await requestCastSpellForSocket(
+        io,
+        createForwardingGameActionSocket(io, gameId, String(pid)).socket as any,
+        {
+          gameId,
+          cardId: stepAny?.spellCardId,
+          faceIndex: stepAny?.spellFaceIndex,
+          fromZone: stepAny?.spellFromZone,
+        },
+        {
+          skipPriorityCheck: true,
+          forcedAlternateCostId: typeof stepAny?.spellForcedAlternateCostId === 'string' ? stepAny.spellForcedAlternateCostId : undefined,
+          castWithoutPayingManaCost: stepAny?.spellCastWithoutPayingManaCost === true,
+          bypassExilePermissionCheck: stepAny?.spellBypassExilePermissionCheck === true,
+          ignoreTimingRestrictions: stepAny?.spellIgnoreTimingRestrictions === true,
+          xValue: cappedSpellX(game, stepAny, selectedXValue),
+        },
+      );
+    } catch (err) {
+      reportHookFailure('cast.xValueContinuation', err, { source: 'xValueSelectionResponseHandlers', cardName: String(stepAny?.sourceName || stepAny?.spellCardId || 'spell') });
+    }
 
     if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     broadcastGame(io, game, gameId);

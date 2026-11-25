@@ -24,6 +24,8 @@ export const ORACLE_IR_ACTIVATED_ONLY_STEP_KINDS = new Set<string>([
   'roll_visit_attractions',
   // Class enchantment level abilities: "{W}: Level 2" / "{3}{W}: Level 3"
   'gain_class_level',
+  // Licids: "{U}, {T}: ~ loses this ability and becomes an Aura enchantment ... Attach it to target creature."
+  'become_aura',
 ]);
 
 /** Union used by tryApplyOracleIRToActivatedAbility — must be fully wired before IR runs. */
@@ -240,6 +242,11 @@ export function describeOracleIrMandatoryExecutionIncomplete(
     if (continuationBridged) continue;
     if (discardBridged && step.kind === 'discard') continue;
     reasons.push(`skipped_mandatory_step: ${summarizeOracleIrStep(step)}`);
+    // Triage aid (DEBUG_STATE>=2): surface the executor's skip message for this step.
+    for (const gap of result.automationGaps || []) {
+      if (String(gap.raw || '') !== String(step.raw || '')) continue;
+      debugWarn(2, `[oracleIR] skip detail (${String(step.kind)}): ${String(gap.message || gap.reasonCode || '')}`);
+    }
   }
 
   // A conditional whose condition was false did everything it had to do (Guinan, Ancient Advisor:

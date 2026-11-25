@@ -50,9 +50,8 @@ export interface TurnPlanHookResult {
  * Smoke38 mild 24 → 18.2%; smoke39 disable (0) → 30% (no lift vs smoke14 window) — keep 20.
  */
 export const TURN_PLAN_SKIP_BF = 20;
-/** Cap actionable plays fed to rank+planTurn (keep enum cost bounded). */
-// Smoke63: 10→14 with planTurn default beam 8→12 — consider more plays.
-export const TURN_PLAN_MAX_ACTIONABLE = 14;
+/** Cap actionable plays fed to rank+planTurn (beam already ≤8; keep enum cost bounded). */
+export const TURN_PLAN_MAX_ACTIONABLE = 10;
 
 /** MAIN2 holds up interaction; MAIN1 dumps mana into development. */
 export function shouldHoldUpInteractionForStep(step: unknown): boolean {

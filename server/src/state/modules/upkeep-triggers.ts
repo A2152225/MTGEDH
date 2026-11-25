@@ -13,6 +13,7 @@
  */
 
 import type { GameContext } from "../context.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import { debug, debugWarn, debugError } from "../../utils/debug.js";
 import { isInterveningIfSatisfied } from "./triggers/intervening-if.js";
 import { queueCounterRemovedTriggers } from "./triggers/counters.js";
@@ -346,7 +347,7 @@ export function sacrificePermanent(ctx: GameContext, permanentId: string, player
       if (shouldBlockOpponentForcedActionFromContext(ctx, String(playerId || permanent?.controller || ''))) {
         return null;
       }
-    } catch { /* hook optional */ }
+    } catch (err) { reportHookFailure('hook.optional.shouldBlockOpponentForcedActionFromContext', err, { source: 'upkeep-triggers.sacrificePermanent' }); /* hook optional */ }
     const cardName = permanent.card?.name || "Unknown";
 
     // Per-turn tracking for intervening-if templates like:

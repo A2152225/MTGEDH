@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { evaluateConditionalEntersTappedFromBattlefield } from '../../rules-engine/src/oracleIREtbTappedPattern.js';
 import {
   detectETBTappedPattern,
   evaluateConditionalLandETB,
@@ -71,5 +72,44 @@ describe('conditional land ETB — shock and battle lands', () => {
   it('taps Canopy Vista without two basic lands and untaps with two', () => {
     expect(evaluateConditionalLandETB(CANOPY_VISTA_ORACLE, 3, [], undefined, 0).shouldEnterTapped).toBe(true);
     expect(evaluateConditionalLandETB(CANOPY_VISTA_ORACLE, 3, [], undefined, 2).shouldEnterTapped).toBe(false);
+  });
+});
+
+const DRAGONSKULL_ORACLE =
+  'This land enters tapped unless you control a Swamp or a Mountain.\n{T}: Add {B} or {R}.';
+
+describe('conditional land ETB — check lands with a second article', () => {
+  it('enters tapped when the only land is a Plains', () => {
+    const result = evaluateConditionalLandETB(DRAGONSKULL_ORACLE, 1, ['Plains']);
+    expect(result.shouldEnterTapped).toBe(true);
+    expect(result.reason).toMatch(/swamp or mountain/i);
+    expect(evaluateConditionalEntersTappedFromBattlefield(DRAGONSKULL_ORACLE, {
+      landCount: 1,
+      basicLandCount: 1,
+      landTypes: ['plains'],
+      hasLegendaryCreature: false,
+      opponentCount: 3,
+      opponentLandCount: 0,
+    })).toBe(true);
+  });
+
+  it('enters untapped when a Mountain is controlled, including the older template', () => {
+    expect(evaluateConditionalLandETB(DRAGONSKULL_ORACLE, 1, ['Mountain']).shouldEnterTapped).toBe(false);
+    expect(evaluateConditionalLandETB(
+      'Dragonskull Summit enters the battlefield tapped unless you control a Swamp or Mountain.\n{T}: Add {B} or {R}.',
+      1,
+      ['Swamp'],
+    ).shouldEnterTapped).toBe(false);
+  });
+
+  it('still offers a reveal when the second land type has an article', () => {
+    const result = evaluateConditionalLandETB(
+      "As this land enters, you may reveal a Mountain or a Plains card from your hand. If you don't, this land enters tapped.",
+      0,
+      [],
+      [{ name: 'Plains', type_line: 'Basic Land — Plains' }],
+    );
+    expect(result.requiresRevealPrompt).toBe(true);
+    expect(result.revealTypes).toEqual(['mountain', 'plains']);
   });
 });

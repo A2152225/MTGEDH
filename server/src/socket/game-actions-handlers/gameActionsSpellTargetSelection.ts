@@ -22,6 +22,8 @@ import { permanentMatchesTargetRequirementStatKeywordFilters } from "../../rules
 import { stackItemMeetsSingleTargetRequirement } from "../../rules-engine/targeting-handlers/targetingStackObjectSingleTarget.js";
 import { cardManaValue } from "../../state/utils";
 import { resolveCastSpellParsedTargeting } from "./gameActionsCastSpellParsedTargeting.js";
+import { stripCastTargetReminderText } from "./castTargetReminderText.js";
+import { permanentMatchesCastTargetPatternExtras, splitMultiTargetClause } from "./castSpellTargetPatternFallbacks.js";
 
 export { shouldPreferParsedTargetReqs } from "./gameActionsCastSpellParsedTargeting.js";
 
@@ -180,6 +182,10 @@ function expandEmbeddedTargetClauses(clauseText: string): string[] {
     ];
   }
 
+  // Generic "target X fights target Y" / "choose target X and target Y" / "destroy target A and target B".
+  const multiTargetSplit = splitMultiTargetClause(normalized);
+  if (multiTargetSplit) return multiTargetSplit;
+
   return [normalized];
 }
 
@@ -300,7 +306,8 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
         else if (targetTypeLower.includes('noncreature')) typeMatches = !typeLine.includes('creature');
         else typeMatches = typeLine.includes(targetTypeLower);
         if (!typeMatches) return false;
-        return permanentMatchesTargetRequirementStatKeywordFilters(permanent, game.state, targetReqs, playerId);
+        return permanentMatchesTargetRequirementStatKeywordFilters(permanent, game.state, targetReqs, playerId)
+          && permanentMatchesCastTargetPatternExtras(permanent, targetReqs);
       });
 
       for (const permanent of permanents) {
@@ -340,7 +347,8 @@ export function buildSpellTargetListFromRequirements(game: any, playerId: string
       if (targetTypeLower === 'any') {
         const permanents = (game.state.battlefield || []).filter((permanent: any) => {
           const typeLine = String(permanent?.card?.type_line || '').toLowerCase();
-          return typeLine.includes('creature') || typeLine.includes('planeswalker');
+          return (typeLine.includes('creature') || typeLine.includes('planeswalker') || typeLine.includes('battle'))
+            && permanentMatchesCastTargetPatternExtras(permanent, targetReqs);
         });
 
         for (const permanent of permanents) {
@@ -506,7 +514,7 @@ export function buildSpellTargetSelectionClauses(
   maxTargets: number;
   targetDescription: string;
 }> {
-  const clauses = splitSpellTargetClauses(oracleText).flatMap((clauseText) => expandEmbeddedTargetClauses(clauseText));
+  const clauses = splitSpellTargetClauses(stripCastTargetReminderText(oracleText)).flatMap((clauseText) => expandEmbeddedTargetClauses(clauseText));
   const targetClauses: Array<{
     clauseText: string;
     validTargetList: Array<{ id: string; kind: string; name: string; isOpponent?: boolean; controller?: string; imageUrl?: string; typeLine?: string; life?: number }>;

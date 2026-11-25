@@ -77,7 +77,49 @@ export type AIOptionSelectionDecision = {
   cancelled: boolean;
 };
 
+/**
+ * Public entry: the per-prompt heuristics below, then the answer fitted to the step's
+ * minSelections/maxSelections (several branches answer one id even when the step needs two, e.g.
+ * Brainstorm's "put two cards from your hand on top").
+ */
 export function chooseAIOptionSelectionsForStep(
+  game: any,
+  playerId: PlayerID,
+  step: any
+): AIOptionSelectionDecision {
+  return fitAIOptionSelectionCount(step, chooseAIOptionSelectionsByHeuristic(game, playerId, step));
+}
+
+const DECLINE_OPTION_ID_RE = /^(?:no|decline|decline_ward_cost|decline_land_would_enter|skip|cancel)$/i;
+
+/** Pads (with further non-decline options, in listed order) or trims string selections to the step's bounds. */
+export function fitAIOptionSelectionCount(step: any, decision: AIOptionSelectionDecision): AIOptionSelectionDecision {
+  if (decision.cancelled || !Array.isArray(decision.selections)) return decision;
+  if (step?.landWouldEnterSacrificeChoice === true) return decision;
+  const options = Array.isArray(step?.options) ? step.options : [];
+  if (options.length === 0) return decision;
+  const minRaw = Number(step?.minSelections);
+  const maxRaw = Number(step?.maxSelections);
+  const minSelections = Number.isFinite(minRaw) ? Math.max(0, Math.floor(minRaw)) : 0;
+  const maxSelections = Number.isFinite(maxRaw) && maxRaw >= 0 ? Math.floor(maxRaw) : Infinity;
+  const original = decision.selections.map((id) => String(id));
+  if (original.length >= minSelections && original.length <= maxSelections) return decision;
+
+  let selections = Array.from(new Set(original.filter(Boolean)));
+  if (selections.length > maxSelections) selections = selections.slice(0, maxSelections);
+  if (selections.length < minSelections) {
+    selections = selections.filter((id) => !DECLINE_OPTION_ID_RE.test(id));
+    const optionIds = options.map((option: any) => String(option?.id || option?.value || option || '')).filter(Boolean);
+    for (const id of optionIds) {
+      if (selections.length >= minSelections) break;
+      if (selections.includes(id) || DECLINE_OPTION_ID_RE.test(id)) continue;
+      selections.push(id);
+    }
+  }
+  return { ...decision, selections };
+}
+
+function chooseAIOptionSelectionsByHeuristic(
   game: any,
   playerId: PlayerID,
   step: any

@@ -139,6 +139,15 @@ export function getTypeSpecificFields(step: ResolutionStep): Record<string, any>
       if ('title' in step) fields.title = (step as any).title;
       break;
 
+    case ResolutionStepType.DAMAGE_DIVISION:
+      if ('totalAmount' in step) fields.totalAmount = (step as any).totalAmount;
+      if ('minPerTarget' in step) fields.minPerTarget = (step as any).minPerTarget;
+      if ('validTargets' in step) fields.validTargets = (step as any).validTargets;
+      if ('message' in step) fields.message = (step as any).message;
+      if ('title' in step) fields.title = (step as any).title;
+      if ('effectId' in step) fields.effectId = (step as any).effectId;
+      break;
+
     case ResolutionStepType.MANA_COLOR_SELECTION:
       if ('selectionKind' in step) fields.selectionKind = (step as any).selectionKind;
       if ('permanentId' in step) fields.permanentId = (step as any).permanentId;

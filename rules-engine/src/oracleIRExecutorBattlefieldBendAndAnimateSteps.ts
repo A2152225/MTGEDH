@@ -531,11 +531,14 @@ export function applyAnimatePermanentStep(
         sourceId: String(ctx.sourceId || '').trim() || undefined,
         sourceName: String(ctx.sourceName || '').trim() || undefined,
         ...(normalizedAbilities.length > 0 ? { grantedAbilities: normalizedAbilities } : {}),
+        ...(step.duration === 'end_of_turn' ? { animateRevert: buildAnimateRevertSnapshot(permanent) } : {}),
       } as any);
     }
 
+    const animateColors = Array.isArray(step.colors) && step.colors.length > 0 ? [...step.colors] : null;
     animated = {
       ...animated,
+      ...(animateColors ? { colors: animateColors, card: { ...((animated as any).card || {}), colors: animateColors } } : {}),
       ...(typeof step.power === 'number' ? { power: step.power, basePower: step.power, effectivePower: undefined } : {}),
       ...(typeof step.toughness === 'number' ? { toughness: step.toughness, baseToughness: step.toughness, effectiveToughness: undefined } : {}),
       ...(grantedAbilities.length > 0 ? { grantedAbilities } : {}),
@@ -551,6 +554,16 @@ export function applyAnimatePermanentStep(
     applied: true,
     state: { ...(state as any), battlefield: processedBattlefield } as GameState,
     log: [`Animated ${targetIds.size} permanent(s)`],
+  };
+}
+
+/** Characteristics an until-end-of-turn animation overwrites; null marks an absent field (JSON-safe). */
+function buildAnimateRevertSnapshot(permanent: any): any {
+  const pick = (source: any, keys: readonly string[]) =>
+    Object.fromEntries(keys.map((key) => [key, source?.[key] === undefined ? null : JSON.parse(JSON.stringify(source[key]))]));
+  return {
+    ...pick(permanent, ['power', 'basePower', 'toughness', 'baseToughness', 'type_line', 'grantedTypes', 'subtypes', 'colors']),
+    card: pick(permanent?.card || {}, ['type_line', 'subtypes', 'colors']),
   };
 }
 

@@ -360,6 +360,15 @@ export function isUncategorizedFallbackExecutableStep(step: OracleEffectStep): b
   return isTriggerStepRuntimeWired(step);
 }
 
+function isSelfToTargetMoveCountersStep(step: OracleEffectStep): boolean {
+  const from = (step as any).from;
+  const to = (step as any).to;
+  if (from?.kind !== 'raw' || to?.kind !== 'raw') return false;
+  const fromText = String(from.text || '').trim().toLowerCase();
+  const toText = String(to.text || '').trim().toLowerCase();
+  return /^(?:it|this (?:creature|permanent))$/.test(fromText) && /^target\b/.test(toText);
+}
+
 export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
   if (step.kind === 'unknown') return true;
 
@@ -373,6 +382,13 @@ export function isTriggerStepRuntimeWired(step: OracleEffectStep): boolean {
 
   if (step.kind === 'copy_permanent') {
     return isSupportedCopyPermanentTriggerPattern(step);
+  }
+
+  // "When this creature dies, put its counters on target creature you control" (Spiteful Squad):
+  // the executor moves the source's last-known counters (CR 608.2h). Other move_counters shapes
+  // (graft, Forgotten Ancient upkeep spreads) stay on their legacy handlers.
+  if (step.kind === 'move_counters' && !isOptionalTriggerStep(step) && isSelfToTargetMoveCountersStep(step)) {
+    return true;
   }
 
   if (isOptionalTriggerStep(step)) {

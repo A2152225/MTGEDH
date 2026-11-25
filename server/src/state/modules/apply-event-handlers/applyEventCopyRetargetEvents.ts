@@ -7,6 +7,7 @@
 // Handles: copyTriggeredAbilityResolve, copyTriggeredSpellResolve, resolvedSpellCopyChoiceResolve, resolvedSpellCopyResolve, copyRetargetChoiceResolve, assignTriggeredAbilityTargets, retargetAbilityCopyResolve, retargetSpellCopyResolve, myriadChoice
 import type { GameContext } from "../../context";
 import type { GameEvent } from "../../types";
+import { normalizeDamageDivisionMap, stampDamageDivisionOnHost } from "../dividedDamageDivision.js";
 import { applyMyriadTokenCopies } from "../triggerMyriadTokenUtils.js";
 import {
   generateDeterministicId,
@@ -315,6 +316,8 @@ export function applyCopyRetargetEvents(ctx: GameContext, e: GameEvent): boolean
           const stackItem = stack.find((item: any) => item && String(item?.id || '') === triggerStackItemId);
           if (stackItem) {
             stackItem.targets = targets.slice();
+            const division = normalizeDamageDivisionMap((e as any).damageDivisionByTargetId);
+            if (division) stampDamageDivisionOnHost(stackItem, division);
             if (targets.length === 1) {
               rememberChosenCreature((ctx as any).state, String(stackItem.permanentId || stackItem.source || ''), targets[0]);
             }

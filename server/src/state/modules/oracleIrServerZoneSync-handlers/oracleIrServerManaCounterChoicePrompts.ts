@@ -11,7 +11,7 @@
 // Called from applyOracleIRStepsOnServer in the parent; not part of the public API.
 
 import type { PlayerID } from '../../../../../shared/src/index.js';
-import type { OracleEffectStep, OracleQuantity } from '../../../../../rules-engine/src/oracleIR.js';
+import type { OracleEffectStep } from '../../../../../rules-engine/src/oracleIR.js';
 import type {
   OracleIRExecutionContext,
   OracleIRExecutionResult,
@@ -81,9 +81,11 @@ function buildAddManaColorSelectionPrompt(
   if (!playerId) return null;
 
   const rawText = String(step.raw || '').trim();
-  const amount = resolveOracleQuantity(state, params.controller, step.amount as OracleQuantity, irCtx)
-    ?? (step.amount?.kind === 'number' ? Math.max(0, Math.floor(step.amount.value)) : 1)
-    ?? 1;
+  // "Add one mana of any color" omits amount; the executor treats that as 1.
+  const amount = step.amount
+    ? (resolveOracleQuantity(state, params.controller, step.amount, irCtx)
+      ?? (step.amount.kind === 'number' ? Math.max(0, Math.floor(step.amount.value)) : 1))
+    : 1;
   const requiresCombinationChoice = /any combination of/i.test(rawText) && amount > 1;
   const requiresRepeatedSingleChoice = /any one color/i.test(rawText) && amount > 1;
 

@@ -20,6 +20,7 @@ import {
   type ResolutionStepResponse,
 } from "../state/resolution/index.js";
 import { getEffectivePower, getEffectiveToughness } from "./util.js";
+import { permanentMatchesTargetTypes } from './permanentTargetTypeFilter.js';
 
 export type StepResponseClusterPreCompleteValidationArgs = {
   socket: Socket;
@@ -263,7 +264,8 @@ export function validateStepResponseClusterStepsBeforeComplete(
       }
 
       const targetCount = Math.max(1, Number(stepAny.targetCount || 1));
-      if (targetIds.length !== targetCount) {
+      const minTargetCount = Number.isFinite(Number(stepAny.minTargetCount)) ? Math.max(1, Number(stepAny.minTargetCount)) : targetCount;
+      if (targetIds.length < minTargetCount || targetIds.length > targetCount) {
         socket.emit('error', { code: 'INVALID_TARGET_COUNT', message: `Expected ${targetCount} target(s), got ${targetIds.length}` });
         return false;
       }
@@ -317,21 +319,9 @@ export function validateStepResponseClusterStepsBeforeComplete(
         }
 
         const types = Array.isArray(targetFilter.types) ? targetFilter.types : [];
-        if (types.length > 0) {
-          const typeLine = String(perm.card?.type_line || '').toLowerCase();
-          if (requireAllTypes) {
-            const matchesAll = types.every((t: any) => typeLine.includes(String(t).toLowerCase()));
-            if (!matchesAll) {
-              socket.emit('error', { code: 'INVALID_TARGET', message: 'Target does not match required type' });
-              return false;
-            }
-          } else {
-            const matchesAny = types.some((t: any) => typeLine.includes(String(t).toLowerCase()));
-            if (!matchesAny) {
-              socket.emit('error', { code: 'INVALID_TARGET', message: 'Target does not match required type' });
-              return false;
-            }
-          }
+        if (types.length > 0 && !permanentMatchesTargetTypes(perm, types, requireAllTypes)) {
+          socket.emit('error', { code: 'INVALID_TARGET', message: 'Target does not match required type' });
+          return false;
         }
 
         const subtypes = Array.isArray(targetFilter.subtypes) ? targetFilter.subtypes : [];

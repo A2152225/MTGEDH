@@ -52,6 +52,12 @@ export function filterLibraryCardsForSearch(library: any[], filter: any, gameSta
     manaPool: gameState.manaPool || {},
   } : undefined;
 
+  // Disjunctive filter ({ anyOf: [...] }): a card matching any part qualifies.
+  if (Array.isArray(searchCriteria.anyOf) && searchCriteria.anyOf.length > 0) {
+    return (Array.isArray(library) ? library : []).filter((card: any) =>
+      searchCriteria.anyOf.some((part: any) => filterLibraryCardsForSearch([card], part, gameState, controllerId).length > 0));
+  }
+
   for (const card of Array.isArray(library) ? library : []) {
     let matches = true;
 

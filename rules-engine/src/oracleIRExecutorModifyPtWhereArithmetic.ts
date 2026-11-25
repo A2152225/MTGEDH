@@ -25,8 +25,20 @@ export function tryEvaluateModifyPtWhereArithmetic(args: {
   controllerId: PlayerID;
   raw: string;
   evaluateInner: EvaluateInner;
+  sourceObjectType?: string;
 }): number | null {
   const { state, controllerId, raw, evaluateInner } = args;
+
+  {
+    // "the number of other spells you've cast this turn" (Thunder Salvo): a resolving spell was itself
+    // cast this turn, so it is excluded from its own count.
+    const m = raw.match(/^x is the number of other (.+? you(?:'ve| have)? cast this turn)$/i);
+    if (m) {
+      const inner = evaluateInner(`the number of ${String(m[1] || '')}`);
+      if (inner === null) return null;
+      return Math.max(0, inner - (String(args.sourceObjectType || '') === 'spell' ? 1 : 0));
+    }
+  }
 
   {
     const m = raw.match(/^x is the damage dealt to your opponents this turn$/i);

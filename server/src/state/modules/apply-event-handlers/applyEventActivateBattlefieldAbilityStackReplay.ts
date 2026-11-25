@@ -126,6 +126,12 @@ export function applyActivateBattlefieldAbilityStackReplay(ctx: GameContext, e: 
                   activatedAbilityText: activatedAbilityText || undefined,
                   xValue: typeof (e as any).xValue === 'number' ? (e as any).xValue : undefined,
                 };
+                // AI legacy tutor: the search is queued when the rebuilt item resolves.
+                if (persistedAbilityType === 'tutor' && (e as any).searchOnResolution === true) {
+                  rebuiltStackItem.abilityType = 'tutor';
+                  rebuiltStackItem.searchOnResolution = true;
+                  rebuiltStackItem.searchParams = { ...((((e as any).searchParams) as any) || {}) };
+                }
 
                 // Cost replay already moved the discarded cards, so they can be snapshotted here.
                 attachActivationCostDiscardedCards(ctx.state, rebuiltStackItem, String(playerId), (e as any).discardedCardIds);

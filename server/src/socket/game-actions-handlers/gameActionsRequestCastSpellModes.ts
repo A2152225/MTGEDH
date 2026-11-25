@@ -7,7 +7,8 @@
  *
  * Public entry symbols: tryPromptRequestCastSpellModes.
  */
-import { opponentTurnCastProhibitionReason, zoneCastProhibitionReason } from "../../state/modules/batch31CastLocks.js"; // B31
+import { opponentTurnCastProhibitionReason, zoneCastProhibitionReason } from "../../state/modules/batch31CastLocks.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js'; // B31
 import { isCastingLimitedToSorceryTiming } from "../../state/modules/opponentSorceryTimingLock.js"; // B31
 import type { Socket } from "socket.io";
 import { extractAdditionalCostModesFromOracleText } from "../../state/modules/additionalCostModeOracleText.js";
@@ -33,6 +34,7 @@ import {
   expandManaCostWithChosenX,
 } from "./gameActionsCastCostFormatting.js";
 import { checkMiracle } from "./gameActionsCastFaceAndMiracleSelection.js";
+import { restrictModalModesToLegalTargets } from "./castModalModeTargetAvailability.js";
 import {
   abandonedCastModeCardUpdates,
   adjustModalSpellInfoForCurrentCast,
@@ -43,6 +45,7 @@ import {
   getSpellModeAdditionalCost,
 } from "./gameActionsModalCastModeCosts.js";
 import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHeroicTriggers.js";
+import { maybeQueueRequestCastPayXLifeAnnouncement } from "./queueRequestCastPayXLifeAnnouncement.js";
 import { computeSpellCastXUpperBound } from "./spellCastXUpperBound.js";
 import { queueReplicateCastCountPrompt } from "./replicateCastPrompt.js";
 import { queueOffspringCastPrompt } from "./offspringCastPrompt.js";
@@ -481,6 +484,27 @@ export function tryPromptRequestCastSpellModes(
       return;
     }
 
+    if (maybeQueueRequestCastPayXLifeAnnouncement({
+      game,
+      gameId,
+      playerId,
+      cardId,
+      cardName,
+      cardInHand,
+      cardForCast,
+      oracleText: baseOracleText,
+      typeLine: spellTypeLine,
+      chosenXValue,
+      selectedFaceIndex,
+      castSourceZone,
+      options,
+      isFreeCast,
+      bypassExilePermissionCheck,
+      ignoreTimingRestrictions,
+    })) {
+      return;
+    }
+
     const additionalCostModeInfo = isInstantOrSorcery ? extractAdditionalCostModesFromOracleText(baseOracleText) : undefined;
     if (additionalCostModeInfo && (!Array.isArray(selectedAdditionalCostModes) || selectedAdditionalCostModes.length === 0)) {
       const existing = ResolutionQueueManager
@@ -532,7 +556,10 @@ export function tryPromptRequestCastSpellModes(
     }
 
     const modalSpellInfo = isInstantOrSorcery && !spellOracleUsesTeamworkChooseBoth(baseOracleText)
-      ? adjustModalSpellInfoForCurrentCast(extractModalModesForSpellCast(baseOracleText, cardName), game.state, String(playerId), baseOracleText)
+      ? restrictModalModesToLegalTargets(
+        adjustModalSpellInfoForCurrentCast(extractModalModesForSpellCast(baseOracleText, cardName), game.state, String(playerId), baseOracleText),
+        game.state, String(playerId), baseOracleText, cardName,
+      )
       : undefined;
     if (modalSpellInfo && (!Array.isArray(selectedModes) || selectedModes.length === 0)) {
       const existing = ResolutionQueueManager
@@ -591,7 +618,8 @@ export function tryPromptRequestCastSpellModes(
     stampGrantedReplicateCost(game.state, playerId, [cardInHand, cardForCast], String(cardInHand?.oracle_text || oracleTextRaw || ''));
     try {
       stampGrantedCastKeywords(game.state, playerId, [cardInHand, cardForCast], 'hand');
-    } catch {
+    } catch (err) {
+      reportHookFailure('hook.optional.stampGrantedCastKeywords', err, { source: 'gameActionsRequestCastSpellModes' });
       /* hook optional */
     }
     const replicateCost = readReplicateManaCost(cardInHand, String(cardInHand?.oracle_text || oracleTextRaw || ''));

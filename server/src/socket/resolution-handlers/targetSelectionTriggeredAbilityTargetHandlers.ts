@@ -38,6 +38,9 @@ import { contextHasBlockingNonPaymentResolutionSteps } from "../../state/resolut
 import { ResolutionQueueManager } from "../../state/resolution/index.js";
 import { debugWarn } from "../../utils/debug.js";
 import { broadcastGame } from "../util.js";
+import { maybeQueueDamageDivisionAfterTriggerTargets } from "./queueDamageDivisionAfterTriggerTargets.js";
+import { resumeTargetedTriggeredAbilityAfterTargets } from "./resumeTargetedTriggeredAbilityAfterTargets.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 /** CR 704.3: after the ability finishes and before the next player gets priority. */
 function runStateBasedActionsAfterFinishedAbility(ctx: any): void {
@@ -61,7 +64,7 @@ function unresolvedBlockingStepIds(gameId: string, exceptStepId: string): Set<st
       const id = String(s.id || '');
       if (id && id !== exceptStepId) ids.add(id);
     }
-  } catch {}
+  } catch (err) { reportHookFailure('resolution.queueScan', err, { source: 'targetSelectionTriggeredAbilityTargetHandlers' }); }
   return ids;
 }
 
@@ -136,6 +139,37 @@ export function handleTargetedTriggeredAbilityTargetSelection(
     targets: triggerTargets,
     triggerType: stepAny?.triggerItem?.triggerType || stepAny?.targetedTriggeredAbilityTriggerType,
   };
+  if (maybeQueueDamageDivisionAfterTriggerTargets({
+    game,
+    gameId,
+    playerId: String(pid),
+    triggerItem,
+    triggerStackItemId,
+    sourceName,
+    description,
+    controller,
+    sourceImage: stepAny?.sourceImage,
+  })) {
+    if (typeof (game as any).bumpSeq === 'function') {
+      (game as any).bumpSeq();
+    }
+    broadcastGame(io, game, gameId);
+    return;
+  }
+
+  resumeTargetedTriggeredAbilityAfterTargets({
+    io,
+    game,
+    gameId,
+    stepId: String((step as any).id || ''),
+    triggerItem,
+    triggerStackItemId,
+    sourceName,
+    description,
+    controller,
+  });
+  return;
+
   const effectText = resolveTriggerStackItemEffectText(triggerItem, { state: game.state });
   const ctx = ((game as any).ctx || game) as any;
   const lowerDescription = description.toLowerCase();

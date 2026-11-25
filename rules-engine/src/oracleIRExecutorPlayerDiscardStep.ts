@@ -19,6 +19,7 @@ import {
   withDiscardLedgerFlags,
 } from './oracleIRExecutorPlayerStepShared';
 import type { PlayerStepHandlerResult } from './oracleIRExecutorPlayerStepTypes';
+import { applyHandExileChoiceStep, isHandExileChoiceStep } from './oracleIRExecutorExileFromHandChoice';
 import {
   discardCardsForPlayer,
   discardSpecificCardsForPlayer,
@@ -97,6 +98,20 @@ function handCardMatchesDiscardTarget(
   return cardMatchesLookChooseSelector(card, normalized, null, chosenType);
 }
 
+/**
+ * "You choose a nonland card from it. That player discards that card." (revealedHandChoice): the
+ * controller picks from the revealed player's hand. Returns the chooser, or null for ordinary discards.
+ */
+function revealedHandChooserId(
+  step: Extract<OracleEffectStep, { kind: 'discard' }>,
+  ctx: OracleIRExecutionContext | undefined,
+): PlayerID | null {
+  const chooserKind = String((step as any)?.chooser?.kind || '');
+  if ((step as any)?.revealedHandChoice !== true && chooserKind !== 'you') return null;
+  const controllerId = String(ctx?.controllerId || '').trim();
+  return controllerId ? (controllerId as PlayerID) : null;
+}
+
 export function buildDiscardSelectionOptionsForPlayer(
   state: GameState,
   step: Extract<OracleEffectStep, { kind: 'discard' }>,
@@ -104,6 +119,7 @@ export function buildDiscardSelectionOptionsForPlayer(
   playerId: PlayerID,
 ): {
   readonly playerId: PlayerID;
+  readonly handOwnerPlayerId?: PlayerID;
   readonly options: readonly { id: string; label: string; description?: string; imageUrl?: string }[];
   readonly discardCount: number;
   readonly minDiscardCount?: number;
@@ -114,7 +130,8 @@ export function buildDiscardSelectionOptionsForPlayer(
 } | null {
   const player = state.players.find((candidate) => candidate.id === playerId) as any;
   const hand = Array.isArray(player?.hand) ? player.hand : [];
-  if (hand.length === 0) return null;
+  const revealedChooserId = revealedHandChooserId(step, ctx);
+  if (hand.length === 0 && !revealedChooserId) return null;
 
   const eligibleHand = step.target
     ? hand.filter((card: any) => handCardMatchesDiscardTarget(card, step.target, ctx))
@@ -133,6 +150,27 @@ export function buildDiscardSelectionOptionsForPlayer(
       };
     })
     .filter((option): option is NonNullable<typeof option> => Boolean(option));
+
+  if (revealedChooserId) {
+    // The chooser sees the revealed hand's eligible cards (validated against that hand), even a lone one.
+    const revealedAmount = resolveStepAmountForPlayer(
+      state,
+      ctx.controllerId,
+      step.amount,
+      ctx,
+      playerId,
+      { whereX: step.whereX },
+    );
+    const revealedDiscardCount = Math.min(Math.max(0, (revealedAmount ?? 1) | 0), options.length);
+    return {
+      playerId: revealedChooserId,
+      handOwnerPlayerId: playerId,
+      options,
+      discardCount: revealedDiscardCount,
+      currentHandSize: hand.length,
+      maxHandSize: Math.max(0, hand.length - revealedDiscardCount),
+    };
+  }
 
   if ((step.amount as any)?.kind === 'any_number') {
     if (options.length === 0) return null;
@@ -189,6 +227,7 @@ export function buildDiscardSelectionOptions(
   ctx: OracleIRExecutionContext,
 ): {
   readonly playerId: PlayerID;
+  readonly handOwnerPlayerId?: PlayerID;
   readonly options: readonly { id: string; label: string; description?: string; imageUrl?: string }[];
   readonly discardCount: number;
   readonly minDiscardCount?: number;
@@ -208,6 +247,7 @@ export function applyDiscardStep(
   step: Extract<OracleEffectStep, { kind: 'discard' }>,
   ctx: OracleIRExecutionContext
 ): PlayerStepHandlerResult {
+  if (isHandExileChoiceStep(step)) return applyHandExileChoiceStep(state, step, ctx);
   const bridgeOptions = buildPlayerZoneBridgeOptions(ctx, 'discard');
   const unlessCondition = step.unlessCondition;
   if (unlessCondition) {
@@ -519,6 +559,26 @@ export function applyDiscardStep(
 
     let chosenIds = getNormalizedChosenIds(ctx);
     chosenIds = filterChosenHandCardIds(state, players[0], chosenIds);
+    if (revealedHandChooserId(step, ctx)) {
+      const revealedPlayer = state.players.find((p) => p.id === players[0]) as any;
+      const revealedHand = Array.isArray(revealedPlayer?.hand) ? revealedPlayer.hand : [];
+      const eligibleIds: string[] = revealedHand
+        .filter((card: any) => handCardMatchesDiscardTarget(card, step.target, ctx))
+        .map((card: any) => String(card?.id || '').trim())
+        .filter(Boolean);
+      if (eligibleIds.length === 0) {
+        return withDiscardLedgerFlags({
+          applied: true,
+          state,
+          log: [`${players[0]} reveals no card matching ${String((step.target as any)?.text || 'the choice')}: ${step.raw}`],
+          lastDiscardedCardCount: 0,
+          lastDiscardedCards: [],
+        });
+      }
+      const eligible = new Set(eligibleIds);
+      chosenIds = chosenIds.filter((id) => eligible.has(id));
+      if (chosenIds.length === 0 && eligibleIds.length <= Math.max(0, amount | 0)) chosenIds = eligibleIds;
+    }
     const targetText = String((step.target as any)?.text || '').trim().toLowerCase();
     if (
       chosenIds.length !== Math.max(0, amount | 0) &&

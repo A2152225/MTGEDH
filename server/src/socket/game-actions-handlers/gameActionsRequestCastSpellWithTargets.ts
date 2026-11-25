@@ -7,6 +7,7 @@
  * Public entry symbols: tryQueueRequestCastSpellWithTargets.
  */
 import type { Server, Socket } from "socket.io";
+import { permanentMatchesAdditionalCostTypeFilter } from '../additionalCostTypeFilter.js';
 import type { PlayerID } from "../../../../shared/src/index.js";
 import type { GameContext } from "../../state/context.js";
 import { buildCounterRemovalCostOptions } from "../../state/modules/counter-removal-costs.js";
@@ -183,7 +184,7 @@ export function tryQueueRequestCastSpellWithTargets(
           sourceImage: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
           castSpellFromHandArgs: { cardId, faceIndex: selectedFaceIndex, fromZone: castSourceZone, xValue: chosenXValue, alternateCostId: options?.forcedAlternateCostId, castWithoutPayingManaCost: isFreeCast, bypassExilePermissionCheck, ignoreTimingRestrictions, skipPriorityCheck: true },
         })) return;
-        if (!requestCastAdditionalCostPaid && additionalCost?.type === 'pay_life') {
+        if (!requestCastAdditionalCostPaid && additionalCost?.type === 'pay_life' && !additionalCost.payLifeIsX) {
           const startingLife = game.state.startingLife || 40;
           const currentLife = game.state.life?.[playerId] ?? startingLife;
           if (!tryPayInlineCastAdditionalLifeCost({
@@ -292,9 +293,7 @@ export function tryQueueRequestCastSpellWithTargets(
         } else if (!requestCastAdditionalCostPaid && additionalCost?.type === 'sacrifice') {
           const validSacrificeTargets = (game.state?.battlefield || []).filter((p: any) => {
             if (String(p?.controller || '') !== String(playerId)) return false;
-            const typeLine = String(p?.card?.type_line || '').toLowerCase();
-            if (!additionalCost.filter) return true;
-            return typeLine.includes(String(additionalCost.filter).toLowerCase());
+            return permanentMatchesAdditionalCostTypeFilter(p, additionalCost.filter);
           });
 
           if (validSacrificeTargets.length < additionalCost.amount) {

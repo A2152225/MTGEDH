@@ -304,6 +304,8 @@ export interface OracleIRExecutionContext extends OracleIRSelectorContext {
   readonly sourceManaSpentTotal?: number;
   /** Keywords granted to a resolving spell after it left the stack ("that spell gains deathtouch"). */
   readonly sourceGrantedAbilities?: readonly string[];
+  /** CR 608.2h: the source's last battlefield state once it has left (death / leaves triggers). */
+  readonly sourceLastKnownPermanent?: unknown;
   /** Whether the resolving source is a spell or an ability. */
   readonly sourceObjectType?: 'spell' | 'ability';
   /** Colors of the resolving source spell when relevant to source-sensitive checks. */

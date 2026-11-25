@@ -445,6 +445,15 @@ export function copyStackItem(
     targets: newTargets || original.targets,
     timestamp: Date.now(),
   };
+
+  if (newTargets) {
+    const originalIds = (original.targets || []).map((target: any) => String(typeof target === 'string' ? target : target?.id || '').trim()).filter(Boolean).join(',');
+    const nextIds = newTargets.map((target: any) => String(typeof target === 'string' ? target : target?.id || '').trim()).filter(Boolean).join(',');
+    if (originalIds !== nextIds) {
+      delete (copy as any).damageDivisionByTargetId;
+      if (copy.card && typeof copy.card === 'object') delete (copy.card as any).damageDivisionByTargetId;
+    }
+  }
   
   // Copies are put on top of the stack
   stack.push(copy);

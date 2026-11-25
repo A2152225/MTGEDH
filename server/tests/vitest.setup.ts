@@ -1,7 +1,8 @@
 import path from 'node:path';
+import { formatHookFailuresForAssert, getHookFailures, resetHookFailures } from '../src/utils/hookFailureReporter.js';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { beforeAll, afterAll, beforeEach } from 'vitest';
+import { beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { getOracleIrGapTelemetrySnapshot, loadOracleIrGapTelemetrySnapshotFromAppendLog } from '../src/state/modules/oracleIrGapTelemetry.js';
 import { ensureLocalCardLookupIndexSync, resetLocalCardLookupForTests } from '../src/services/localCardLookup.js';
 import { resetCompiledOracleIROverlayDatabaseForTests } from '../src/services/oracleIrCompiledOverlayDatabase.js';
@@ -70,6 +71,7 @@ function warnIgnoredCensusEnv(censusRun: boolean): void {
 }
 
 beforeEach(() => {
+  resetHookFailures();
   // Default-off in tests so legacy-path suites stay stable; IR-primary tests opt in with =1.
   // P4e: ORACLE_IR_*_LEGACY is ignored — PRIMARY=0 is the only opt-out.
   // Census (`ORACLE_IR_CENSUS_PRIMARY=1` or ORACLE_IR_CENSUS_{SPELL,TRIGGER}_PRIMARY=1)
@@ -86,6 +88,19 @@ beforeEach(() => {
   delete process.env.ORACLE_IR_TRIGGER_LEGACY;
   process.env.ORACLE_IR_SPELL_PRIMARY = censusSpell ? '1' : '0';
   delete process.env.ORACLE_IR_SPELL_LEGACY;
+});
+
+
+afterEach((context) => {
+  const failures = getHookFailures();
+  const skip = String(process.env.MTGEDH_SKIP_HOOK_FAILURE_CHECK || '').trim() === '1';
+  resetHookFailures();
+  if (!skip && failures.length > 0) {
+    const title = context?.task?.name || 'test';
+    throw new Error(
+      `Silent hook failure(s) during ${title} (set MTGEDH_SKIP_HOOK_FAILURE_CHECK=1 to bypass):\n${formatHookFailuresForAssert(failures)}`,
+    );
+  }
 });
 
 beforeAll(() => {

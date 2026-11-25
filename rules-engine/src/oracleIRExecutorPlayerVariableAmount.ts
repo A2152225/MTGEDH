@@ -5,6 +5,7 @@
 import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { readSourceLastKnownStat } from './oracleIRExecutorSourceLastKnown';
 import { resolveSingleCreatureTargetId } from './oracleIRExecutorCreatureStepUtils';
 import type { ModifyPtRuntime } from './oracleIRExecutorModifyPtStepHandlers';
 import {
@@ -135,6 +136,11 @@ export function resolveVariableAmount(
     if (moved.length === 1 && (amount.subject === 'it' || amount.subject === 'that_card' || amount.subject === 'that_creature')) {
       const movedAmount = readObjectStat(moved[0], amount.stat);
       if (movedAmount !== null) return movedAmount;
+    }
+
+    if (amount.subject === 'it' || amount.subject === 'this_creature' || amount.subject === 'this_permanent' || amount.subject === 'source') {
+      const lastKnownAmount = readSourceLastKnownStat(state, ctx, amount.stat);
+      if (lastKnownAmount !== null) return lastKnownAmount;
     }
 
     if (amount.subject === 'it' || amount.subject === 'that_creature') {

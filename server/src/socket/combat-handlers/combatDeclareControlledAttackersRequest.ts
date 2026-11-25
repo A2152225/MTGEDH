@@ -5,6 +5,7 @@
 // Public entry symbols: handleDeclareControlledAttackers.
 
 import type { Server, Socket } from "socket.io";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import { appendEvent } from "../../db/index.js";
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { getAttackTriggersForCreatures } from "../../state/modules/triggers/combat.js";
@@ -317,7 +318,8 @@ export async function handleDeclareControlledAttackers(
                 debug(2, `[combat] Skipping controlled attack trigger due to unmet intervening-if: ${trigger.cardName} - ${trigger.description}`);
                 continue;
               }
-            } catch {
+            } catch (err) {
+              reportHookFailure('intervening-if.eval', err, { source: 'combatDeclareControlledAttackersRequest' });
               // Conservative fallback: keep the trigger if evaluation fails.
             }
 

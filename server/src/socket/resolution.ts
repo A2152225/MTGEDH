@@ -400,6 +400,7 @@ import { validateTargetSelectionStepsBeforeComplete } from "./resolutionRegister
 import { validateActivationCostStepsBeforeComplete } from "./resolutionRegisterPreCompleteValidationForActivationCostSteps.js";
 import { validateFaceDownAndKeywordStepsBeforeComplete } from "./resolutionRegisterPreCompleteValidationForFaceDownAndKeywordSteps.js";
 import { getFilteredValidTargetsForStep } from "./resolution-handlers/resolutionTargetSelectionDistinctTargetUtils.js";
+import { buildAIPhyrexianManaChoiceResponse } from "./ai-handlers/aiPhyrexianManaChoice.js";
 import { validateModeTriggerAndOpeningHandStepsBeforeComplete } from "./resolutionRegisterPreCompleteValidationForModeAndTriggerSteps.js";
 import {
   validateOptionChoicePayCostPromptsBeforeComplete,
@@ -576,6 +577,8 @@ export async function handleAIResolutionStep(
       case ResolutionStepType.TARGET_SELECTION:
       case ResolutionStepType.MUTATE_TARGET_SELECTION:
       case ResolutionStepType.COUNTER_MOVEMENT:
+      case ResolutionStepType.COUNTER_DISTRIBUTION:
+      case ResolutionStepType.DAMAGE_DIVISION:
       case ResolutionStepType.COUNTER_TARGET: {
         response = buildAiTargetSelectionStepResponse(game, gameId, step, {
           getFilteredValidTargetsForStep,
@@ -695,6 +698,7 @@ export async function handleAIResolutionStep(
           break;
         }
 
+        response = buildAIPhyrexianManaChoiceResponse(game, step);
         break;
       }
       

@@ -9,6 +9,8 @@
  */
 
 import { parseSacrificeCost, type SacrificeType } from "../../../../shared/src/textUtils";
+import { normalizeSelfNameInActivationCost } from "./activationCostSelfName.js";
+import { stripActivationCostPrefix } from "./activationCostExtras.js";
 import { isSacrificeCreatureOfChosenTypeCost } from "../../state/modules/chosen-creature-type.js";
 import { detectUtilityLandAbility } from "../../state/modules/triggered-abilities";
 import { checkOpponentHasMoreLands } from "../../state/modules/stackLandCountUtils.js";
@@ -212,6 +214,30 @@ export function trySetupActivateBattlefieldAbilityParse(
     sacrificeCount = 1;
     mustBeOther = false;
     requiredChargeCounters = null;
+  }
+  // "Sacrifice <printed name>" / "Exile <printed name>" are self costs too (CR 201.5).
+  manaCost = normalizeSelfNameInActivationCost(manaCost, cardName);
+  // "Cohort — {T}, ..." / "Blow Up — {2}, ...": ability words and flavor names are not costs.
+  const costPrefix = stripActivationCostPrefix(manaCost, game.state, String(pid), permanent);
+  if (costPrefix.blockedReason) {
+    socket.emit('error', { code: 'ACTIVATION_CONDITION_NOT_MET', message: `Cannot activate ${cardName}: ${costPrefix.blockedReason}` });
+    return true;
+  }
+  if (costPrefix.prefix) {
+    manaCost = costPrefix.cost;
+    requiresTap = requiresTap || /\{t\}/i.test(manaCost);
+    if (!sacrificeType && !isPowerUpActivation) {
+      const prefixedSacrifice = parseSacrificeCost(manaCost);
+      if (prefixedSacrifice.requiresSacrifice && prefixedSacrifice.sacrificeType) {
+        sacrificeType = prefixedSacrifice.sacrificeType;
+        sacrificeSubtype = prefixedSacrifice.creatureSubtype;
+        sacrificeCount = prefixedSacrifice.sacrificeCount || 1;
+        mustBeOther = Boolean(prefixedSacrifice.mustBeOther);
+      }
+    }
+  }
+  if (!sacrificeType && !isPowerUpActivation && parseSacrificeCost(manaCost).sacrificeType === 'self') {
+    sacrificeType = 'self';
   }
   const droughtCount = batch113SwampSacrificeCount(game.state, pid, String(manaCost || ''), 'ability');
   if (droughtCount > 0 && !sacrificeType) {

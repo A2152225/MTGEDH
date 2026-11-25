@@ -27,6 +27,7 @@ import {
 } from './DeckManagerModal-handlers/deckManagerModalSaveCacheHandlers';
 import { renderDeckManagerModalServerPanel } from './DeckManagerModal-handlers/deckManagerModalServerPanel';
 import { VariantDeckBuilder } from './VariantDeckBuilder';
+import { copyPreconDecklistIntoEditor } from './DeckManagerModal-handlers/deckManagerModalCopyPrecon';
 
 type SavedLocalDeck = { id: string; name: string; text: string; savedAt: number };
 
@@ -81,6 +82,7 @@ export function DeckManagerModal({
   const [cachingDeckId, setCachingDeckId] = useState<string | null>(null);
   const [randomDeckMessage, setRandomDeckMessage] = useState<string | null>(null);
   const [pickingRandomDeck, setPickingRandomDeck] = useState(false);
+  const [copyingPreconKey, setCopyingPreconKey] = useState<string | null>(null);
 
   const {
     cards: resolvedPreviewCards,
@@ -823,8 +825,25 @@ export function DeckManagerModal({
 
           {tab === 'precons' && (
             <PreconBrowser
+              copyingDeckKey={copyingPreconKey}
               onSelectDeck={(commanders, deckName, setName, year, setCode, colorIdentity) => {
                 importPreconDeck(commanders, deckName, setName, year, setCode, colorIdentity);
+              }}
+              onCopyDecklist={(_commanders, deckName, _setName, _year, setCode) => {
+                if (copyingPreconKey) return;
+                const key = `${setCode}:${deckName}`;
+                setCopyingPreconKey(key);
+                void copyPreconDecklistIntoEditor({
+                  setCode,
+                  deckName,
+                  clearEditMode,
+                  setLocalName,
+                  setLocalText,
+                  setLocalErr,
+                  setTab,
+                  syncPreviewToText,
+                  resolveAllFromText,
+                }).finally(() => setCopyingPreconKey(null));
               }}
             />
           )}

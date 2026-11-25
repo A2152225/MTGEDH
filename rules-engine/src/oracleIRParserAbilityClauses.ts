@@ -440,8 +440,14 @@ export function buildAbilityClauses(args: {
   effectText: string;
   cardName?: string;
   parseEffectClauseToStep: (rawClause: string) => OracleEffectStep;
+  /**
+   * Spell text: "If <cond>, <effect>. Then <effect>." keeps the Then sentence unconditional
+   * (Blizzard Brawl's fight happens without three snow permanents).
+   */
+  keepThenSentenceUnconditional?: boolean;
 }): string[] {
   const { effectText, cardName, parseEffectClauseToStep } = args;
+  const keepThenSentenceUnconditional = args.keepThenSentenceUnconditional === true;
   const combinedClauses: string[] = [];
   const rawClauses = mergeWhereXContinuationClauses(
     splitIntoClauses(effectText).flatMap(splitTrailingGrantedDiesTriggerFollowup)
@@ -454,7 +460,13 @@ export function buildAbilityClauses(args: {
     const clauseForIfLead = String(clause || '')
       .replace(/^[A-Z][A-Za-z' -]{1,40}\s*[-—–]\s+/u, '')
       .trim();
-    if (/^if\b/i.test(clauseForIfLead) && /^then\b/i.test(String(nextClause || ''))) {
+    // A capitalized "Then" opens a new sentence; ", then" stays inside the If clause.
+    const startsNewThenSentence = /^Then\b/.test(String(nextClause || '').trim());
+    if (
+      !(keepThenSentenceUnconditional && startsNewThenSentence)
+      && /^if\b/i.test(clauseForIfLead)
+      && /^then\b/i.test(String(nextClause || ''))
+    ) {
       const combined = `${clause}, ${nextClause}`;
       if (tryParseLeadingConditionalStep({ rawClause: combined, cardName, parseEffectClauseToStep })) {
         combinedClauses.push(combined);

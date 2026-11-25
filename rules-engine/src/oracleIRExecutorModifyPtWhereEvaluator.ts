@@ -99,7 +99,13 @@ export function evaluateModifyPtWhereX(
   };
 
   {
-    const arithmetic = tryEvaluateModifyPtWhereArithmetic({ state, controllerId, raw, evaluateInner });
+    const arithmetic = tryEvaluateModifyPtWhereArithmetic({
+      state,
+      controllerId,
+      raw,
+      evaluateInner,
+      sourceObjectType: String((ctx as any)?.sourceObjectType || ''),
+    });
     if (arithmetic !== null) return arithmetic;
   }
 

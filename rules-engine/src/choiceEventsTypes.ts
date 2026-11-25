@@ -175,6 +175,8 @@ export interface DiscardSelectionEvent extends BaseChoiceEvent {
   readonly currentHandSize: number;
   readonly maxHandSize: number;
   readonly reason: 'cleanup' | 'effect';
+  /** Revealed-hand discard: whose hand `hand` lists (the chooser is `playerId`). */
+  readonly handOwnerPlayerId?: string;
 }
 
 export interface TokenCeasesToExistEvent extends BaseChoiceEvent {

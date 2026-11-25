@@ -22,6 +22,7 @@ import { recordDilemmaFacedOnce } from './triggers/trekPlayerEventTriggers.js';
 import { resolvePermanentChosenColorSymbol } from './mana-abilities.js';
 import { debug, debugWarn } from '../../utils/debug.js';
 import { readActivationCostDiscardedCards } from './activationCostDiscardedCardEvidence.js';
+import { activationSourceLastKnownContext } from './sacrificedCostLastKnown.js';
 import {
   resolveCompiledOverlayForCard,
   extractOracleCardLookupKeys,
@@ -502,6 +503,8 @@ export function tryApplyOracleIRToActivatedAbility(
             }
           : {}),
         ...(discardedCostCards.length > 0 ? { lastDiscardedCards: discardedCostCards } : {}),
+        // CR 608.2h: a source sacrificed as the cost resolves from its last-known state.
+        ...activationSourceLastKnownContext(params.sourceItem, sourcePermanentId || undefined, battlefield),
         ...oracleIrTargetBindingToBaseContext(targetBinding),
         selectorContext: {
           ...oracleIrTargetBindingToBaseContext(targetBinding).selectorContext,

@@ -3,6 +3,7 @@
  * (Game of Chaos template).
  */
 import type { PlayerID } from '../../../../shared/src/index.js';
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import type { GameContext } from '../context.js';
 import { generateCoinFlipResultWithIgnoreOne } from '../../../../rules-engine/src/coinFlipIgnoreOneReplacement.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
@@ -68,7 +69,7 @@ export function resolveFlipCoinLifeStakesIteration(
       won = true;
       markCoinFlipEventThisTurn(state, controllerId);
     }
-  } catch { /* hook optional */ }
+  } catch (err) { reportHookFailure('hook.optional.shouldForceFirstFlipHeadsAndWin', err, { source: 'flipCoinLifeStakes' }); /* hook optional */ }
 
   if (won) {
     applyLifeDelta(state, controllerId, stake);

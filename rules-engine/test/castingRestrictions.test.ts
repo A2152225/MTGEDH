@@ -505,6 +505,71 @@ describe('Casting Restrictions', () => {
       expect(notAttacked.canCast).toBe(false);
       expect(legal.canCast).toBe(true);
     });
+
+    it('treats battlefield permanent.attacking as the live "attacked this step" combat state', () => {
+      const oracleText = "Cast this spell only during the declare attackers step and only if you've been attacked this step.";
+      const attackingYou = {
+        id: 'atk-1',
+        controller: 'player1',
+        attacking: 'player2',
+        card: { name: 'Grizzly Bears', type_line: 'Creature - Bear' },
+      };
+      const attackingSomeoneElse = { ...attackingYou, attacking: 'player3' };
+
+      const legal = checkSpellTimingRestriction(oracleText, 'player2', 'player1', {
+        phase: 'combat',
+        step: 'declareAttackers',
+        battlefield: [attackingYou],
+      } as any);
+      const notYou = checkSpellTimingRestriction(oracleText, 'player2', 'player1', {
+        phase: 'combat',
+        step: 'declareAttackers',
+        battlefield: [attackingSomeoneElse],
+      } as any);
+      const fromIdList = checkSpellTimingRestriction(oracleText, 'player2', 'player1', {
+        phase: 'combat',
+        step: 'declareAttackers',
+        battlefield: [attackingYou],
+        combat: { attackers: ['atk-1'] },
+      } as any);
+
+      expect(legal.canCast).toBe(true);
+      expect(notYou.canCast).toBe(false);
+      expect(fromIdList.canCast).toBe(true);
+    });
+
+    it('enforces remaining "cast this spell only during/before/after" combat gates', () => {
+      const check = (text: string, current: string, active: string, state: any) =>
+        checkSpellTimingRestriction(text, current, active, state);
+
+      expect(check('Cast this spell only during combat.', 'p1', 'p1', { phase: 'precombatMain' }).canCast).toBe(false);
+      expect(check('Cast this spell only during combat.', 'p1', 'p1', { phase: 'combat', step: 'declareBlockers' }).canCast).toBe(true);
+
+      expect(check("Cast this spell only during combat on an opponent's turn.", 'p1', 'p1', { phase: 'combat', step: 'declareAttackers' }).canCast).toBe(false);
+      expect(check("Cast this spell only during combat on an opponent's turn.", 'p2', 'p1', { phase: 'combat', step: 'declareAttackers' }).canCast).toBe(true);
+      expect(check("Cast this spell only during combat on an opponent's turn.", 'p2', 'p1', { phase: 'precombatMain' }).canCast).toBe(false);
+
+      expect(check('Cast this spell only during combat before blockers are declared.', 'p1', 'p1', { phase: 'combat', step: 'declareAttackers' }).canCast).toBe(true);
+      expect(check('Cast this spell only during combat before blockers are declared.', 'p1', 'p1', { phase: 'combat', step: 'declareBlockers' }).canCast).toBe(false);
+
+      expect(check('Cast this spell only during combat after blockers are declared.', 'p1', 'p1', { phase: 'combat', step: 'declareBlockers' }).canCast).toBe(true);
+      expect(check('Cast this spell only during combat after blockers are declared.', 'p1', 'p1', { phase: 'combat', step: 'declareAttackers' }).canCast).toBe(false);
+
+      expect(check('Cast this spell only during the declare blockers step.', 'p1', 'p1', { phase: 'combat', step: 'declareBlockers' }).canCast).toBe(true);
+      expect(check('Cast this spell only during the declare blockers step.', 'p1', 'p1', { phase: 'combat', step: 'declareAttackers' }).canCast).toBe(false);
+
+      expect(check('Cast this spell only before blockers are declared.', 'p1', 'p1', { phase: 'precombatMain' }).canCast).toBe(true);
+      expect(check('Cast this spell only before blockers are declared.', 'p1', 'p1', { phase: 'combat', step: 'combatDamage' }).canCast).toBe(false);
+
+      expect(check('Cast this spell only after combat.', 'p1', 'p1', { phase: 'combat', step: 'endCombat' }).canCast).toBe(false);
+      expect(check('Cast this spell only after combat.', 'p1', 'p1', { phase: 'postcombatMain' }).canCast).toBe(true);
+
+      expect(check('Cast this spell only during combat on your turn.', 'p1', 'p1', { phase: 'combat', step: 'beginCombat' }).canCast).toBe(true);
+      expect(check('Cast this spell only during combat on your turn.', 'p2', 'p1', { phase: 'combat', step: 'beginCombat' }).canCast).toBe(false);
+
+      expect(check("Cast this spell only during the declare blockers step on an opponent's turn.", 'p2', 'p1', { phase: 'combat', step: 'declareBlockers' }).canCast).toBe(true);
+      expect(check("Cast this spell only during the declare blockers step on an opponent's turn.", 'p1', 'p1', { phase: 'combat', step: 'declareBlockers' }).canCast).toBe(false);
+    });
   });
 
   describe('hasValidTargetsForSpell', () => {

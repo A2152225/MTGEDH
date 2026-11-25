@@ -3,10 +3,14 @@ import { COMMANDER_PRECONS, formatColorIdentity, searchPrecons, type PreconDeck,
 
 interface PreconBrowserProps {
   onSelectDeck: (commanders: string[], deckName: string, setName: string, year: number, setCode: string, colorIdentity: string) => void;
+  /** Load the baked list into the editor (and the clipboard) for editing. */
+  onCopyDecklist?: (commanders: string[], deckName: string, setName: string, year: number, setCode: string, colorIdentity: string) => void;
+  /** `${setCode}:${deckName}` while that deck's list is loading. */
+  copyingDeckKey?: string | null;
   onClose?: () => void;
 }
 
-export function PreconBrowser({ onSelectDeck, onClose }: PreconBrowserProps) {
+export function PreconBrowser({ onSelectDeck, onCopyDecklist, copyingDeckKey, onClose }: PreconBrowserProps) {
   const [expandedYears, setExpandedYears] = useState<Set<number>>(new Set());
   const [expandedSets, setExpandedSets] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,6 +48,37 @@ export function PreconBrowser({ onSelectDeck, onClose }: PreconBrowserProps) {
     onSelectDeck(deck.commanders, deck.name, set.name, year, set.code, deck.colorIdentity);
   };
 
+  const handleCopyDecklist = (deck: PreconDeck, set: PreconSet, year: number) => {
+    onCopyDecklist?.(deck.commanders, deck.name, set.name, year, set.code, deck.colorIdentity);
+  };
+
+  const renderDeckActions = (deck: PreconDeck, set: PreconSet, year: number) => {
+    const key = `${set.code}:${deck.name}`;
+    const copying = copyingDeckKey === key;
+    return (
+      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+        {onCopyDecklist && (
+          <button
+            type="button"
+            onClick={() => handleCopyDecklist(deck, set, year)}
+            disabled={!!copyingDeckKey}
+            title="Copy this precon into the editor so you can edit and save your own version"
+            style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+          >
+            {copying ? 'Copying…' : 'Copy Decklist'}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => handleDeckSelect(deck, set, year)}
+          style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+        >
+          Import
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div style={containerStyle}>
       <div style={headerStyle}>
@@ -79,13 +114,7 @@ export function PreconBrowser({ onSelectDeck, onClose }: PreconBrowserProps) {
                   {set.name} ({year}) • {deck.commanders.join(' & ')}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => handleDeckSelect(deck, set, year)}
-                style={{ fontSize: 11, whiteSpace: 'nowrap' }}
-              >
-                Import
-              </button>
+              {renderDeckActions(deck, set, year)}
             </div>
           ))}
         </div>
@@ -135,13 +164,7 @@ export function PreconBrowser({ onSelectDeck, onClose }: PreconBrowserProps) {
                                     {deck.commanders.join(' & ')}
                                   </div>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeckSelect(deck, set, yearData.year)}
-                                  style={{ fontSize: 11 }}
-                                >
-                                  Import
-                                </button>
+                                {renderDeckActions(deck, set, yearData.year)}
                               </div>
                             ))}
                           </div>

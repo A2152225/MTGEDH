@@ -14,6 +14,7 @@ import { applyRecordedBeamUpReturnCost, applyRecordedGraveyardKeywordNonManaCost
 import { replayGraveyardSpellCastActivation, replayDisturbCastActivation } from "./applyEventGraveyardSpellCastReplay.js";
 import { replayUnearthActivation, replayEmbalmEternalizeActivation, replayScavengeEncoreActivation, replayExileToAddCountersActivation } from "./applyEventGraveyardPermanentAbilityReplay.js";
 import { replayGraveyardTutorActivation, replayGraveyardReturnActivation } from "./applyEventGraveyardReturnTutorReplay.js";
+import { replayGraveyardExileStackAbility } from "./applyEventGraveyardExileStackAbilityReplay.js";
 
 export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEvent): boolean {
   switch (e.type) {
@@ -97,7 +98,9 @@ export function applyActivateGraveyardAbilityEvents(ctx: GameContext, e: GameEve
             break;
           }
 
-          if (cardId && pid && ['flashback', 'jump-start', 'retrace', 'escape', 'graveyard-cast', 'beam-me-up'].includes(String(abilityType))) {
+          if (cardId && pid && abilityType === 'graveyard-exile-stack-ability') {
+              replayGraveyardExileStackAbility(ctx, e, cardId, pid);
+          } else if (cardId && pid && ['flashback', 'jump-start', 'retrace', 'escape', 'graveyard-cast', 'beam-me-up'].includes(String(abilityType))) {
               replayGraveyardSpellCastActivation(ctx, e, cardId, pid, abilityType);
           } else if (cardId && pid && abilityType === 'unearth') {
               replayUnearthActivation(ctx, e, cardId, pid, abilityType);

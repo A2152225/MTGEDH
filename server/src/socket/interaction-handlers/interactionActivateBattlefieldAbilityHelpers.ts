@@ -231,16 +231,19 @@ export function parseTapUntapAbilityText(text: string): {
 
   // Extract target types
   const types: string[] = [];
-  const typePattern = /target (creature|land|artifact|enchantment|planeswalker|permanent|creature or land|land or creature)s?/g;
+  // Keep color / non-type adjectives ("green creature", "nonenchantment creature") on the entry;
+  // permanentTargetTypeFilter matches each word.
+  const typePattern = /target ((?:(?:non-?[a-z]+|white|blue|black|red|green|colorless|multicolored)\s+)*)(creature|land|artifact|enchantment|planeswalker|permanent|creature or land|land or creature)s?/g;
   
   let match;
   while ((match = typePattern.exec(lowerText)) !== null) {
-    const typeStr = match[1];
+    const prefix = String(match[1] || '');
+    const typeStr = match[2];
     if (typeStr.includes(' or ')) {
       // Handle "creature or land"
-      types.push(...typeStr.split(' or ').map(t => t.trim()));
+      types.push(...typeStr.split(' or ').map(t => `${prefix}${t.trim()}`));
     } else {
-      types.push(typeStr);
+      types.push(`${prefix}${typeStr}`);
     }
   }
 

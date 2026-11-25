@@ -206,7 +206,12 @@ export function parseAbilityToIRAbility(
     };
   }
 
-  const clauses = buildAbilityClauses({ effectText, cardName, parseEffectClauseToStep });
+  const clauses = buildAbilityClauses({
+    effectText,
+    cardName,
+    parseEffectClauseToStep,
+    keepThenSentenceUnconditional: ability.type === AbilityType.SPELL,
+  });
 
   const steps: OracleEffectStep[] = [];
 

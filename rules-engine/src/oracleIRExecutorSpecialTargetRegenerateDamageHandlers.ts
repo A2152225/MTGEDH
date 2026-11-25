@@ -7,6 +7,7 @@ import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 import { permanentMatchesType } from './oracleIRExecutorBattlefieldOps';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
+import { collectExplicitBoundTargetIds } from './oracleIRExecutorBoundTargetLooseFilter';
 import { createRegenerationShield } from './keywordAbilities/regeneration';
 import {
   createTargetAllDamagePreventionEffect,
@@ -140,6 +141,8 @@ export function trySpecialDealDamageStep(
     };
   }
 
+  // Real chosen targets: the deal_damage recipient fallback applies and divides the damage.
+  if (/divided as you choose among/.test(raw) && collectExplicitBoundTargetIds(ctx).length > 0) return null;
   if (!/divided as you choose among any number of target(?:s| creatures)/.test(raw)) {
     if (/divided as you choose among one, two, or three targets/.test(raw)) {
       let targetIds = collectBoundIds(ctx).slice(0, 3);

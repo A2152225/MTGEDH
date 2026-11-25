@@ -61,6 +61,7 @@ import {
   applySelectedManaPaymentForResolutionCost,
   extractResolutionPaymentItems,
 } from "./resolutionManaPaymentApplication.js";
+import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 /** MANA_PAYMENT_CHOICE: activated-ability payment prompt plus its post-payment continuation. */
 export async function tryHandleManaPaymentChoiceActivation(
@@ -606,7 +607,7 @@ export async function tryHandleManaPaymentChoiceActivation(
       const permKey = String(permanentId);
       const k = abilityId ? `${permKey}:${abilityId}` : permKey;
       (stateAny.addedManaWithThisAbilityThisTurn[String(pid)] as any)[k] = true;
-    } catch {}
+    } catch (err) { reportHookFailure('payment.addedManaWithThisAbility', err, { source: 'manaPaymentChoiceActivationHandlers' }); }
 
     try {
       appendEvent(gameId, (game as any).seq ?? 0, 'activateBattlefieldAbility', {

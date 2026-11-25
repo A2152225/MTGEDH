@@ -27,7 +27,8 @@
     "typecheck:rules-engine": "npm run typecheck --workspace=rules-engine",
     "test:server": "npm run test:vitest --workspace=server",
     "test:server:watch": "npx vitest server/tests",
-    "lint": "node -e \"console.error('No lint configured. Use npm run typecheck or npm test.'); process.exit(1)\""
+    "lint": "npm run lint:require",
+    "lint:require": "node tools/ban-cjs-require.mjs"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

@@ -301,6 +301,18 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     } else if (/\bup to four target\b/.test(lower)) {
       minTargets = 0;
       maxTargets = 4;
+    } else if (/\bone, two, three, or four targets?\b/.test(lower)) {
+      minTargets = 1;
+      maxTargets = 4;
+    } else if (/\bone, two, or three targets?\b/.test(lower)) {
+      minTargets = 1;
+      maxTargets = 3;
+    } else if (/\btwo or three targets?\b/.test(lower)) {
+      minTargets = 2;
+      maxTargets = 3;
+    } else if (/\bone or two targets?\b/.test(lower)) {
+      minTargets = 1;
+      maxTargets = 2;
     } else if (/\btwo target\b/.test(lower)) {
       minTargets = 2;
       maxTargets = 2;

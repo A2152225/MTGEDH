@@ -9,6 +9,8 @@
 import type { PlayerID } from "../../../../shared/src/types.js";
 import { CardCategory, cardAnalyzer } from "../../../../rules-engine/src/CardAnalyzer.js";
 import { aiEngine } from "./aiScheduler.js";
+import { lookupLocalCardByNameSync } from "../../services/localCardLookup.js";
+import { normalizeCardName } from "../../state/modules/chosen-name-restrictions.js";
 
 export function chooseAIPlayerChoiceId(game: any, playerId: PlayerID, step: any): string | undefined {
   const listedPlayers = Array.isArray(step?.players) ? step.players : [];
@@ -114,6 +116,83 @@ function scoreVisibleCardNameCandidate(game: any, playerId: PlayerID, candidateN
   return score;
 }
 
+/** A real card name and its type line, or undefined when the name is not a card (tokens, test names). */
+export type CardNameRecordResolver = (name: string) => { name: string; typeLine: string } | undefined;
+
+/** Well-known real names used when nothing visible qualifies; the first one the restriction allows wins. */
+const FALLBACK_CARD_NAMES: ReadonlyArray<{ name: string; typeLine: string }> = [
+  { name: 'Sol Ring', typeLine: 'Artifact' },
+  { name: 'Counterspell', typeLine: 'Instant' },
+  { name: 'Demonic Tutor', typeLine: 'Sorcery' },
+  { name: 'Llanowar Elves', typeLine: 'Creature — Elf Druid' },
+  { name: 'Rhystic Study', typeLine: 'Enchantment' },
+  { name: 'Jace, the Mind Sculptor', typeLine: 'Legendary Planeswalker — Jace' },
+  { name: 'Command Tower', typeLine: 'Land' },
+  { name: 'Forest', typeLine: 'Basic Land — Forest' },
+];
+
+const CARD_TYPE_WORDS = ['artifact', 'battle', 'creature', 'enchantment', 'instant', 'land', 'planeswalker', 'sorcery'];
+
+/**
+ * Whether a card with this type line satisfies a "choose a [restriction] card name" phrase:
+ * "nonland" / "non-X" exclude X, "other than a basic land" excludes basic lands, and any plain
+ * card-type words ("creature", "artifact or enchantment") require at least one of them.
+ */
+export function cardNameRestrictionAllows(typeLine: string, restrictionText: string): boolean {
+  const type = String(typeLine || '').toLowerCase();
+  let text = String(restrictionText || '').toLowerCase();
+  const basicLandExcluded = /other than (?:a |an )?basic land/.test(text);
+  text = text.replace(/other than (?:a |an )?basic land(?: card)?(?: name)?/g, ' ');
+  if (basicLandExcluded && /\bbasic\b/.test(type) && /\bland\b/.test(type)) return false;
+  for (const match of text.matchAll(/\bnon-?([a-z]{3,})/g)) {
+    if (new RegExp(`\\b${match[1]}\\b`).test(type)) return false;
+  }
+  const required = CARD_TYPE_WORDS.filter((word) => new RegExp(`(?:^|[^a-z-])${word}\\b`).test(text));
+  return required.length === 0 || required.some((word) => new RegExp(`\\b${word}\\b`).test(type));
+}
+
+/** Resolves through the local card database the same way the step validator does (exact normalized name). */
+export function resolveRealCardNameRecord(name: string): { name: string; typeLine: string } | undefined {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return undefined;
+  try {
+    const record: any = lookupLocalCardByNameSync(trimmed);
+    const canonical = String(record?.name || '').trim();
+    if (!canonical || normalizeCardName(canonical) !== normalizeCardName(trimmed)) return undefined;
+    const typeLine = String(record?.type_line || record?.card_faces?.[0]?.type_line || '');
+    return { name: canonical, typeLine };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * First ranked visible name that is a real card allowed by the restriction; otherwise the first
+ * allowed fallback name. Never returns a token/test name the step validator would reject.
+ */
+export function pickCardNameForChoice(
+  rankedVisibleNames: readonly string[],
+  restrictionText: string,
+  resolve: CardNameRecordResolver = resolveRealCardNameRecord,
+): string {
+  for (const candidate of rankedVisibleNames) {
+    const record = resolve(candidate);
+    if (record && cardNameRestrictionAllows(record.typeLine, restrictionText)) return record.name;
+  }
+  const allowed = FALLBACK_CARD_NAMES.filter((entry) => cardNameRestrictionAllows(entry.typeLine, restrictionText));
+  const verified = allowed.find((entry) => resolve(entry.name));
+  return (verified || allowed[0] || FALLBACK_CARD_NAMES[0]).name;
+}
+
+/** Restriction phrase from the step, or the "choose a ... card name" phrase of its description. */
+function cardNameRestrictionTextForStep(step: any): string {
+  const explicit = String(step?.restrictionText || '').trim();
+  if (explicit) return explicit;
+  const description = String(step?.description || step?.reason || '').toLowerCase();
+  const match = /(?:name|choose)\s+(?:a|an)\s+(.*?)card name/.exec(description);
+  return match ? match[1] : '';
+}
+
 export function chooseAICardNameSelection(game: any, playerId: PlayerID, step: any): string {
   const candidateNames = Array.isArray(step?.candidateNames)
     ? step.candidateNames
@@ -139,17 +218,14 @@ export function chooseAICardNameSelection(game: any, playerId: PlayerID, step: a
       .map((stackItem: any) => String(stackItem.card.name || '').trim()),
   ].filter(Boolean);
 
-  if (visibleOpponentNames.length > 0) {
-    return visibleOpponentNames
-      .map((candidateName: string) => ({
-        candidateName,
-        score: scoreVisibleCardNameCandidate(game, playerId, candidateName),
-      }))
-      .sort((left, right) => right.score - left.score)[0]?.candidateName || visibleOpponentNames[0];
-  }
+  const rankedVisibleNames = Array.from(new Set(visibleOpponentNames))
+    .map((candidateName: string) => ({
+      candidateName,
+      score: scoreVisibleCardNameCandidate(game, playerId, candidateName),
+    }))
+    .sort((left, right) => right.score - left.score)
+    .map((entry) => entry.candidateName);
 
-  const restrictionText = String(step?.restrictionText || '').toLowerCase();
-  if (restrictionText.includes('land')) return 'Forest';
-  return 'Sol Ring';
+  return pickCardNameForChoice(rankedVisibleNames, cardNameRestrictionTextForStep(step));
 }
 
