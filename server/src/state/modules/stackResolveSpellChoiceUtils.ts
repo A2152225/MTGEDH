@@ -147,16 +147,35 @@ function applyInstantSorceryChosenColorEffects(
 
   debug(2, `[applyInstantSorceryChosenColorEffects] ${effectiveCard.name} resolving with chosen color: ${existingChosenColor}`);
 
-  const protectionPattern = /(?:(\w+)\s+)?creatures?\s+(?:you control\s+)?(?:gains?|have)\s+protection from the chosen colou?r\s+(?:until end of turn)?/i;
+  // Brave: "White creatures … protection from the chosen color"
+  // Borg Incursion: "artifact creatures … protection from the color of your choice"
+  const protectionPattern = /(?:(artifact|enchantment|land|white|blue|black|red|green)\s+)?creatures?\s+(?:you control\s+)?(?:gains?|have)\s+protection from the (?:chosen colou?r|colou?r of your choice)\b/i;
   const protectionMatch = oracleTextLower.match(protectionPattern);
 
   if (!protectionMatch) {
     return;
   }
 
-  const restrictionColor = protectionMatch[1]?.toLowerCase();
+  const restrictionWord = String(protectionMatch[1] || '').toLowerCase();
+  const colorMap: Record<string, string> = {
+    white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G',
+  };
+  const restrictionColorCode = colorMap[restrictionWord] || '';
+  const restrictionType = (!restrictionColorCode && restrictionWord) ? restrictionWord : '';
   const battlefield = state.battlefield || [];
   let affectedCount = 0;
+  // Borg Incursion / token swarms: share one protection entry + grantedAbility string
+  // across hundreds of identical creatures so SBA fingerprints and replay patch
+  // clones stay batched instead of allocating unique arrays per permanent.
+  const sharedProtection = {
+    from: existingChosenColor,
+    untilEndOfTurn: true,
+    source: effectiveCard.name,
+    grantedBy: card?.id,
+  };
+  const sharedGrantedAbility = `Protection from ${existingChosenColor} (until end of turn)`;
+  const sharedProtectionList = [sharedProtection];
+  const sharedGrantedList = [sharedGrantedAbility];
 
   for (const perm of battlefield) {
     if (!perm || perm.controller !== controller) continue;
@@ -164,25 +183,24 @@ function applyInstantSorceryChosenColorEffects(
     const permTypeLine = String(perm?.card?.type_line || '').toLowerCase();
     if (!permTypeLine.includes('creature')) continue;
 
-    if (restrictionColor) {
+    if (restrictionType && !permTypeLine.includes(restrictionType)) continue;
+
+    if (restrictionColorCode) {
       const permColors = (perm?.card?.colors || []) as string[];
-      const colorMap: Record<string, string> = {
-        white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G',
-      };
-      const requiredColorCode = colorMap[restrictionColor];
-      if (!permColors.includes(requiredColorCode)) continue;
+      if (!permColors.includes(restrictionColorCode)) continue;
     }
 
-    perm.temporaryProtection = perm.temporaryProtection || [];
-    perm.temporaryProtection.push({
-      from: existingChosenColor,
-      untilEndOfTurn: true,
-      source: effectiveCard.name,
-      grantedBy: card?.id,
-    });
+    if (!Array.isArray(perm.temporaryProtection) || perm.temporaryProtection.length === 0) {
+      perm.temporaryProtection = sharedProtectionList;
+    } else {
+      perm.temporaryProtection.push(sharedProtection);
+    }
 
-    perm.grantedAbilities = perm.grantedAbilities || [];
-    perm.grantedAbilities.push(`Protection from ${existingChosenColor} (until end of turn)`);
+    if (!Array.isArray(perm.grantedAbilities) || perm.grantedAbilities.length === 0) {
+      perm.grantedAbilities = sharedGrantedList;
+    } else {
+      perm.grantedAbilities.push(sharedGrantedAbility);
+    }
     affectedCount += 1;
   }
 
@@ -260,8 +278,9 @@ export function tryResolveInstantSorceryPreResolutionChoices(
     });
   }
 
-  const spellColorChoicePattern = /^choose a colou?r\b/i;
-  const hasColorChoiceSpell = spellColorChoicePattern.test(oracleTextLower.trim());
+  // Leading "Choose a color." (Brave) or embedded "color of your choice" (Borg Incursion).
+  const hasColorChoiceSpell = /^choose a colou?r\b/i.test(oracleTextLower.trim())
+    || /\bcolou?r of your choice\b/i.test(oracleTextLower);
   const existingChosenColor = card?.chosenColor || item?.chosenColor;
 
   if (hasColorChoiceSpell && !existingChosenColor && !isReplaying) {

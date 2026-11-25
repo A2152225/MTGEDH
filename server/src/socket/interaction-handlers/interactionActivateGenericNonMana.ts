@@ -20,11 +20,8 @@ import { ResolutionQueueManager, ResolutionStepType } from "../../state/resoluti
 import { cardManaValue, parsePT, parseWordNumber } from "../../state/utils";
 import {
   canPermanentBeTargetedByPlayer,
-  canPlayerBeTargetedByPlayer,
-  normalizeRequirementTargetType,
   parseAbilityTargeting,
   parseTargetRequirements,
-  selectionRequiresSharedCardType,
 } from "../../rules-engine/targeting.js";
 import { isPermanentCurrentlyAttacking } from "../../state/modules/triggeredAbilityBattlefieldTargetMatch.js";
 import { filterLibraryCardsForSearch } from "../library-search.js";
@@ -42,6 +39,7 @@ import type {
 } from "./interactionActivateGenericAbilityState.js";
 import { detectTutorEffect, parseSearchCriteria } from "./interactionTutorSearchCriteriaParsing.js";
 import { reviewActivatedAbilityTargets } from "../../../../rules-engine/src/aiActivatedAbilityTargets.js";
+import { buildActivatedAbilityValidTargets } from "../resolutionActivatedAbilityTargetingUtils.js";
 
 export async function tryHandleActivateGenericNonMana(
   ctx: ActivateBattlefieldAbilityContext,
@@ -486,113 +484,35 @@ export async function tryHandleActivateGenericNonMana(
         const normalized = String(targetType || '').toLowerCase();
         return normalized === 'player' || normalized === 'opponent';
       });
-    const hasParsedMultiTargetSelection = parsedGraveyardTargetReqs.needsTargets
+    // Queue TARGET_SELECTION for any parsed non-graveyard target reqs (any target,
+    // creature subtypes / subtype unions, multi-target lists, players). Previously
+    // only multi-target / players-only fired here, so Triskelion / Swarmyard /
+    // Villainous Hideout stacked with empty targets and IR all-or-nothing failed.
+    const hasParsedEffectTargetSelection = parsedGraveyardTargetReqs.needsTargets
       && parsedTargetTypes.length > 0
-      && !hasParsedGraveyardTargets
-      && (
-        Number(parsedGraveyardTargetReqs.maxTargets ?? parsedGraveyardTargetReqs.minTargets ?? 0) > 1
-        || selectionRequiresSharedCardType(parsedGraveyardTargetReqs.targetDescription, resolvedAbilityText)
-        || parsedTargetTypesArePlayersOnly
-      );
+      && !hasParsedGraveyardTargets;
 
-    if (hasParsedMultiTargetSelection) {
-      const battlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
-      const players = Array.isArray(game.state?.players) ? game.state.players : [];
-      const targetControllerConstraint = String(parsedGraveyardTargetReqs.targetControllerConstraint || 'any').toLowerCase();
-      const validTargets: Array<Record<string, any>> = [];
+    if (hasParsedEffectTargetSelection) {
+      const uniqueTargets = buildActivatedAbilityValidTargets(
+        game,
+        String(pid),
+        parsedGraveyardTargetReqs,
+        { sourcePermanentId: String(permanentId), abilityText: resolvedAbilityText },
+      ).map((target) => ({
+        id: String(target.id),
+        label: target.name || String(target.id),
+        name: target.name || String(target.id),
+        description: target.type === 'player' ? 'Player' : (target as any).typeLine || target.type || 'Permanent',
+        imageUrl: target.imageUrl,
+        type: target.type,
+        controller: target.controller,
+        zoneOwnerId: target.zoneOwnerId,
+        life: target.life,
+        isOpponent: target.isOpponent,
+        tapped: (target as any).tapped === true,
+        typeLine: (target as any).typeLine,
+      }));
 
-      for (const rawTargetType of parsedGraveyardTargetReqs.targetTypes) {
-        const targetType = normalizeRequirementTargetType(String(rawTargetType || ''));
-
-        if (
-          targetType === 'creature'
-          || targetType === 'permanent'
-          || targetType === 'artifact'
-          || targetType === 'enchantment'
-          || targetType === 'land'
-          || targetType === 'planeswalker'
-          || targetType.includes('nonland')
-          || targetType.includes('noncreature')
-        ) {
-          validTargets.push(...battlefield
-            .filter((target: any) => {
-              if (!target?.id || !target?.card) return false;
-
-              const typeLine = String(target.card?.type_line || '').toLowerCase();
-              if (targetControllerConstraint === 'you' && String(target.controller || '') !== String(pid)) return false;
-              if (targetControllerConstraint === 'opponent' && String(target.controller || '') === String(pid)) return false;
-              if (targetType === 'permanent' && !canPermanentBeTargetedByPlayer(target as any, game.state as any, pid as any)) return false;
-              if (targetType.includes('nonland') && typeLine.includes('land')) return false;
-              if (targetType.includes('noncreature') && typeLine.includes('creature')) return false;
-              if (!targetType.includes('nonland') && !targetType.includes('noncreature') && targetType !== 'permanent' && !typeLine.includes(targetType)) return false;
-
-              return canPermanentBeTargetedByPlayer(target as any, game.state as any, pid as any);
-            })
-            .map((target: any) => ({
-              id: String(target.id),
-              label: target.card?.name || 'Permanent',
-              description: target.card?.type_line || 'Permanent',
-              imageUrl: target.card?.image_uris?.small || target.card?.image_uris?.normal,
-              type: 'permanent',
-              controller: target.controller,
-              tapped: target.tapped === true,
-              typeLine: target.card?.type_line,
-              oracleText: target.card?.oracle_text,
-              cmc: Number(target.card?.cmc ?? 0),
-              isToken: target.isToken === true,
-              isOpponent: String(target.controller || '') !== String(pid),
-            })));
-          continue;
-        }
-
-        if (targetType === 'player' || targetType === 'opponent' || targetType === 'any') {
-          const lifeDict = game.state?.life || {};
-          const startingLife = game.state?.startingLife || 40;
-
-          validTargets.push(...players
-            .filter((player: any) => {
-              if (!player?.id) return false;
-              if (targetType === 'opponent' && String(player.id) === String(pid)) return false;
-              if (targetControllerConstraint === 'opponent' && String(player.id) === String(pid)) return false;
-              if (!canPlayerBeTargetedByPlayer(player.id, game.state, pid as PlayerID)) return false;
-              return true;
-            })
-            .map((player: any) => ({
-              id: String(player.id),
-              label: player.name || String(player.id),
-              description: 'Player',
-              type: 'player',
-              isOpponent: String(player.id) !== String(pid),
-              life: lifeDict[player.id] ?? player.life ?? startingLife,
-            })));
-
-          if (targetType === 'any') {
-            validTargets.push(...battlefield
-              .filter((target: any) => {
-                if (!target?.id || !target?.card) return false;
-                const typeLine = String(target.card?.type_line || '').toLowerCase();
-                if (!typeLine.includes('creature') && !typeLine.includes('planeswalker')) return false;
-                return canPermanentBeTargetedByPlayer(target as any, game.state as any, pid as any);
-              })
-              .map((target: any) => ({
-                id: String(target.id),
-                label: target.card?.name || 'Permanent',
-                description: target.card?.type_line || 'Permanent',
-                imageUrl: target.card?.image_uris?.small || target.card?.image_uris?.normal,
-                type: 'permanent',
-                controller: target.controller,
-                tapped: target.tapped === true,
-                typeLine: target.card?.type_line,
-                oracleText: target.card?.oracle_text,
-                cmc: Number(target.card?.cmc ?? 0),
-                isToken: target.isToken === true,
-                isOpponent: String(target.controller || '') !== String(pid),
-              })));
-          }
-        }
-      }
-
-      const uniqueTargets = validTargets.filter((target, index, all) => all.findIndex((candidate) => String(candidate.id) === String(target.id)) === index);
       if (uniqueTargets.length < parsedGraveyardTargetReqs.minTargets) {
         socket.emit('error', {
           code: 'NO_VALID_TARGETS',

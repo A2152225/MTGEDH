@@ -43,8 +43,10 @@ function minimalState(args: {
 }
 
 describe('shouldUseAttackPlannerFast', () => {
-  it('triggers on large board or large attack pool', () => {
-    expect(shouldUseAttackPlannerFast(25, 1)).toBe(true);
+  it('marks boards where full planAttacks should be skipped (engine uses v0, not greedy fast)', () => {
+    // Land-heavy mid-game: bf 25–48 still runs full planAttacks when attackPool ≤8.
+    expect(shouldUseAttackPlannerFast(48, 1)).toBe(false);
+    expect(shouldUseAttackPlannerFast(49, 1)).toBe(true);
     expect(shouldUseAttackPlannerFast(10, 9)).toBe(true);
     expect(shouldUseAttackPlannerFast(24, 8)).toBe(false);
   });

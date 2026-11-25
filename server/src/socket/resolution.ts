@@ -487,10 +487,15 @@ export async function handleAIResolutionStep(
     const game = ensureGame(gameId);
     if (!game) return;
 
+    // Align with isUnresolvedStep: completed/cancelled are spliced out of steps, but
+    // ACTIVE (or missing status) must still be treated as live — strict PENDING-only
+    // skipped Borg Incursion color_choice after activate/race.
     const stillPending = ResolutionQueueManager.getQueue(gameId).steps.some(
       (queuedStep) =>
         queuedStep.id === step.id
-        && queuedStep.status === ResolutionStepStatus.PENDING,
+        && queuedStep.status !== ResolutionStepStatus.COMPLETED
+        && queuedStep.status !== ResolutionStepStatus.CANCELLED
+        && queuedStep.status !== ResolutionStepStatus.TIMED_OUT,
     );
     if (!stillPending) {
       // Another AI listener may have completeStep'd without applying side effects
@@ -515,6 +520,16 @@ export async function handleAIResolutionStep(
           && queued?.spellPaymentRequired === true
           && (String(queued?.cardId || '') === cardId || String(queued?.sourceId || '') === cardId),
       );
+      const stackHasUncoloredMatchingSpell = (() => {
+        if (step.type !== ResolutionStepType.COLOR_CHOICE) return false;
+        const stack = Array.isArray((game?.state as any)?.stack) ? (game.state as any).stack : [];
+        if (stack.length === 0) return false;
+        const top = stack[stack.length - 1];
+        if (top?.chosenColor || top?.card?.chosenColor) return false;
+        const sourceName = String(stepAny?.cardName || step.sourceName || '').trim().toLowerCase();
+        const topName = String(top?.sourceName || top?.card?.name || top?.name || '').trim().toLowerCase();
+        return Boolean(sourceName) && sourceName === topName;
+      })();
       const shouldCatchUp = Boolean(completed?.response) && (
         step.type === ResolutionStepType.MUTATE_TARGET_SELECTION
         || (
@@ -524,6 +539,7 @@ export async function handleAIResolutionStep(
           && spellCardStillInSourceZone
           && !hasQueuedSpellPayment
         )
+        || (step.type === ResolutionStepType.COLOR_CHOICE && stackHasUncoloredMatchingSpell)
       );
       if (shouldCatchUp && completed?.response && claimAiResolutionSideEffect(gameId, step.id)) {
         await applyResolutionStepSideEffects(io, game, gameId, step, completed.response);

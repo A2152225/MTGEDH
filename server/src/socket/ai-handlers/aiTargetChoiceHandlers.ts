@@ -297,6 +297,10 @@ function scoreStackTargetChoice(
   const analysis = cardAnalyzer.analyzeCard(stackItem.card);
   let score = stackItem.controller === playerId ? -120 : 50;
 
+  // Prefer countering the highest-MV enemy spell when several are legal.
+  const manaValue = Number(stackItem.card?.cmc ?? stackItem.cmc ?? 0) || 0;
+  score += manaValue * 10;
+
   score += analysis.comboPotential * 8;
   if (analysis.categories.includes(CardCategory.TUTOR)) score += 12;
   if (analysis.categories.includes(CardCategory.REMOVAL)) score += 8;

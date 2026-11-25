@@ -291,6 +291,7 @@ export {
   lowerDiscoverKeywordAbilities,
   pruneRedundantDiscoverReminderUnknownAbilities,
   lowerConniveKeywordAbilities,
+  pruneRedundantConniveReminderAbilities,
   lowerRecruitKeywordAbilities,
 } from './oracleIRParserPostprocessAmassDiscoverConniveRecruitKeywords';
 

@@ -215,6 +215,7 @@ import {
 } from "./resolution-handlers/optionChoiceLookedAtCardsAndPileHandlers.js";
 import {
   handleAttachEquipmentToPermanentChoice,
+  handleMoveChosenHandCardToExileChoice,
   handleMoveChosenHandCardToLibraryChoice,
   handleSacrificeAnotherPermanentForBenefitAskChoice,
 } from "./resolution-handlers/optionChoicePermanentAndHandCardPrompts.js";
@@ -445,6 +446,7 @@ export type ResolutionHandlerDeps = {
   handlePayManaToLookAndChooseCardChoice: ResolutionStepHandler;
   handleChoosePileFromSplitChoice: ResolutionStepHandler;
   handleMoveChosenHandCardToLibraryChoice: ResolutionStepHandler;
+  handleMoveChosenHandCardToExileChoice: ResolutionStepHandler;
   handleSacrificeAnotherPermanentForBenefitAskChoice: ResolutionStepHandler;
   handleAttachEquipmentToPermanentChoice: ResolutionStepHandler;
   handleSpellAdditionalCostBlightOrPayChoice: ResolutionStepHandler;
@@ -639,6 +641,7 @@ export function createResolutionHandlerDeps(
     handlePayManaToLookAndChooseCardChoice,
     handleChoosePileFromSplitChoice,
     handleMoveChosenHandCardToLibraryChoice,
+    handleMoveChosenHandCardToExileChoice,
     handleSacrificeAnotherPermanentForBenefitAskChoice,
     handleAttachEquipmentToPermanentChoice,
     handleSpellAdditionalCostBlightOrPayChoice,

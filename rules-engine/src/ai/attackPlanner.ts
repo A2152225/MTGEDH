@@ -29,8 +29,18 @@ import { bestDamageSavingBlocks, findLethal } from './lethalCheck.js';
 import { estimateCrackBack } from './crackBack.js';
 import { FEATURE_SCALE } from './evaluatorFeatures.js';
 
-/** Nudge focus-fire toward lower life when WP deltas are tiny (EDH "press the weak"). */
-export const LIFE_PRESSURE_BONUS = 0.025;
+/** Nudge focus-fire toward lower life when WP deltas are tiny (EDH "press the weak").
+ * Smoke5 raised 0.025→0.06 (kept). Smoke24 0.12 → 0%; smoke35 0.04 → 16.7% — keep 0.06. */
+export const LIFE_PRESSURE_BONUS = 0.06;
+
+/**
+ * Min win-prob gain to keep a voluntary attacker / focus-fire wave.
+ * Smoke19 −0.05 regressed (20% + stall). Smoke26 0 cleared 0–23 (37.5%) but
+ * confirm 24–47 was 18.2% (combined ~26%) — keep −0.02.
+ * Smoke34 late turn≥55→0 also regressed (23.1%) — reverted.
+ * Smoke45 close-out (floor 0 when opp life ≤12) → 16.7% — reverted.
+ */
+export const ATTACK_VOLUNTARY_GAIN_FLOOR = -0.02;
 
 export interface AttackDeclaration {
   creatureId: string;
@@ -203,6 +213,7 @@ export function planAttacks(args: {
   // Past this budget the caller switches to planAttacksFast. Without the cap a
   // single declare-attackers tick ran long enough to trip the 180s harness stall
   // (b5 selfplay-7000-5-1 at turn 69, selfplay-7000-4-3 at turn 84).
+  // Smoke37 1200 → 25% decisive — keep 800.
   const PLAN_BUDGET_MS = 800;
   const deadline = t0 + PLAN_BUDGET_MS;
   const overBudget = () => {
@@ -390,7 +401,7 @@ export function planAttacks(args: {
         };
       }
     }
-    if (best && best.gain > -0.02) scored.push(best);
+    if (best && best.gain > ATTACK_VOLUNTARY_GAIN_FLOOR) scored.push(best);
   }
 
   // Goaded: only choose targets (must attack).
@@ -426,6 +437,7 @@ export function planAttacks(args: {
 
   // Focus fire: among voluntary attackers with positive gain, pick the single
   // defender that maximizes collective win-prob (usually the lowest life).
+  // Smoke23 split-vs-focus comparison regressed (18.2%) — keep always-focus.
   scored.sort((a, b) => b.gain - a.gain);
   let chosen: AttackDeclaration[] = [...goadedChosen];
   if (scored.length > 0) {
@@ -460,7 +472,7 @@ export function planAttacks(args: {
         bestFocus = { targetId: def.id, gain: score };
       }
     }
-    if (bestFocus && bestFocus.gain > -0.02) {
+    if (bestFocus && bestFocus.gain > ATTACK_VOLUNTARY_GAIN_FLOOR) {
       chosen = [
         ...goadedChosen,
         ...voluntaryIds.map((id) => ({
@@ -501,13 +513,14 @@ export function planAttacks(args: {
 
   // Prefer not to send tiny negative-gain attacks.
   chosen = chosen.filter(
-    (a) => goadedIds.has(a.creatureId) || (byGain.get(a.creatureId) || 0) > -0.02,
+    (a) => goadedIds.has(a.creatureId) || (byGain.get(a.creatureId) || 0) > ATTACK_VOLUNTARY_GAIN_FLOOR,
   );
   // Re-trim after filter.
   trimCrackBack();
 
   // Low life: if holding all blockers takes 0 and attacking takes avoidable
-  // damage near your life total, stay home (C1).
+  // damage near your life total, stay home (C1). Smoke11 raised to ≤18/−5 →
+  // 3–9 / 25% (no lift vs smoke9); reverted.
   if (myLife <= 10 && chosen.some((a) => !goadedIds.has(a.creatureId))) {
     const holdCrack = estimateCrackBack(crackArgs(new Set()));
     const attackCrack = estimateCrackBack(

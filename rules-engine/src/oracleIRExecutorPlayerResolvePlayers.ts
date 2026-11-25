@@ -148,9 +148,13 @@ export function resolvePlayers(
       return opponents.length === 1 ? [opponents[0]] : [];
     }
     case 'target_opponent': {
-      const bound = normalizeId(ctx.selectorContext?.targetOpponentId);
+      const bound =
+        normalizeId(ctx.selectorContext?.targetOpponentId)
+        ?? normalizeId(ctx.targetOpponentId);
       if (bound && opponentIdSet.has(bound)) return [bound];
-      const boundPlayer = normalizeId(ctx.selectorContext?.targetPlayerId);
+      const boundPlayer =
+        normalizeId(ctx.selectorContext?.targetPlayerId)
+        ?? normalizeId(ctx.targetPlayerId);
       if (boundPlayer && opponentIdSet.has(boundPlayer)) return [boundPlayer];
       const chosenOpponents = Array.isArray(ctx.selectorContext?.chosenObjectIds)
         ? dedupeOpponents(ctx.selectorContext.chosenObjectIds as PlayerID[])
@@ -362,6 +366,21 @@ export function resolvePlayersFromDamageTarget(
   }
   if (t === 'target player') return resolvePlayers(state, { kind: 'target_player' }, ctx);
   if (t === 'target opponent') return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
+  // "target opponent or planeswalker" / "target player or planeswalker":
+  // bound PW → leave players empty so permanent damage path runs; else treat as player/opponent.
+  if (
+    t === 'target opponent or planeswalker'
+    || t === 'target player or planeswalker'
+  ) {
+    const boundPermanentId = normalizeId(ctx.targetPermanentId)
+      || normalizeId(ctx.selectorContext?.targetPermanentId);
+    if (boundPermanentId) return [];
+    return resolvePlayers(
+      state,
+      { kind: t.startsWith('target player') ? 'target_player' : 'target_opponent' },
+      ctx,
+    );
+  }
   if (
     t === 'that player' ||
     t === 'the player' ||
@@ -381,6 +400,23 @@ export function resolvePlayersFromDamageTarget(
     return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
   }
   if (t === 'that opponent') return resolvePlayers(state, { kind: 'target_opponent' }, ctx);
+  if (t === 'a random opponent' || t === 'one random opponent') {
+    const opponents = resolvePlayers(state, { kind: 'each_opponent' }, ctx);
+    if (opponents.length === 0) return [];
+    if (opponents.length === 1) return [opponents[0]];
+    const seedSource = String(
+      (ctx as any)?.randomSeed
+      ?? (ctx as any)?.sourceId
+      ?? (state as any)?.turnNumber
+      ?? opponents.join('|'),
+    );
+    let hash = 0;
+    for (let i = 0; i < seedSource.length; i++) {
+      hash = ((hash << 5) - hash + seedSource.charCodeAt(i)) | 0;
+    }
+    const index = Math.abs(hash) % opponents.length;
+    return [opponents[index]!];
+  }
   if (isThoseOpponentsSelector(t)) return resolvePlayers(state, { kind: 'each_of_those_opponents' }, ctx);
   if (t === 'each player') return resolvePlayers(state, { kind: 'each_player' }, ctx);
   if (t === 'each of your opponents' || t === 'each of the opponents') return resolvePlayers(state, { kind: 'each_opponent' }, ctx);

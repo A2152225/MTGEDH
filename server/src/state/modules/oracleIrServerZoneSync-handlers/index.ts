@@ -91,6 +91,10 @@ export {
   queueDiscoverCastOrHandPromptsFromOracleIRResult,
 } from "./oracleIrServerImpulseDiscoverGyPermissionPrompts.js";
 export { queueDuringResolutionShareTypeCastPromptFromOracleIRResult } from "./oracleIrServerImpulseDuringResolutionCastPrompts.js";
+export {
+  isImpulseExileTargetPlayerChoiceStep,
+  queueImpulseExileTargetPlayerPromptsFromOracleIRResult,
+} from "./oracleIrServerImpulseTargetPlayerPrompts.js";
 export { queueRevealedLibraryCastPromptsFromOracleIRResult } from "./oracleIrServerRevealedLibraryCastPrompts.js";
 
 // Optional-step choice prompts and optional life-payment helpers.

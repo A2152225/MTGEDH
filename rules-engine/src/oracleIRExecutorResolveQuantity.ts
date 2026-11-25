@@ -35,7 +35,10 @@ import {
 } from './oracleIRLedgerCardAccess';
 import { resolveReferencedObject } from './oracleIRExecutorReferenceUtils';
 import { readCurrentPower, readCurrentToughness } from './oracleIRExecutorCurrentPowerToughness';
-import { resolveRevealedThisWayCount } from './oracleIRExecutorRevealedCardsThisWay';
+import {
+  resolveGreatestManaValueAmongRevealedThisWay,
+  resolveRevealedThisWayCount,
+} from './oracleIRExecutorRevealedCardsThisWay';
 
 export function resolveControllerSpellCastCountThisTurn(
   state: GameState,
@@ -170,6 +173,8 @@ export function resolveOracleQuantity(
     if (!raw) return null;
     const fromCombat = tryEvaluateCombatDamageReferenceCount(state, controllerId, raw, ctx);
     if (fromCombat !== null) return Math.max(0, fromCombat);
+    const fromRevealedMv = resolveGreatestManaValueAmongRevealedThisWay(raw, ctx, runtime as any);
+    if (fromRevealedMv !== null) return Math.max(0, fromRevealedMv);
     const evaluated = evaluateModifyPtWhereX(
       state,
       controllerId,
@@ -287,6 +292,9 @@ export function resolveOracleQuantity(
 
     const revealedThisWay = resolveRevealedThisWayCount(normalized, ctx, runtime as any);
     if (revealedThisWay !== null) return revealedThisWay;
+
+    const greatestRevealedMv = resolveGreatestManaValueAmongRevealedThisWay(normalized, ctx, runtime as any);
+    if (greatestRevealedMv !== null) return greatestRevealedMv;
 
     // Generic "the number of <counter> counters on this <noun>" / "... on it" (e.g. Tangle Wire's
     // fade counters), not tied to any specific counter type.

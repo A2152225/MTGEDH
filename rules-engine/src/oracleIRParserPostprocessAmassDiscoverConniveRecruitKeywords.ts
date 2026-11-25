@@ -8,6 +8,7 @@
 //   lowerDiscoverKeywordAbilities
 //   pruneRedundantDiscoverReminderUnknownAbilities
 //   lowerConniveKeywordAbilities
+//   pruneRedundantConniveReminderAbilities
 //   lowerRecruitKeywordAbilities
 
 import type { OracleEffectStep, OracleIRAbility, OracleQuantity } from './oracleIR';
@@ -517,6 +518,116 @@ export function lowerConniveKeywordAbilities(
   return abilities.map((ability) => {
     const lowered = tryLowerConniveKeywordSteps(ability.steps);
     return lowered ? { ...ability, steps: lowered } : ability;
+  });
+}
+
+function normalizeConniveReminderRaw(raw: string): string {
+  return normalizeOracleText(String(raw || ''))
+    .replace(/^[()\s]+/, '')
+    .replace(/[.)\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function isConniveReminderDrawStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'draw') return false;
+  const normalized = normalizeConniveReminderRaw(String(step.raw || ''));
+  return /^draw (?:a card|\d+ cards?)$/i.test(normalized);
+}
+
+function isConniveReminderDiscardStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'discard') return false;
+  const normalized = normalizeConniveReminderRaw(String(step.raw || ''));
+  return /^discard (?:a card|\d+ cards?)$/i.test(normalized);
+}
+
+function isConniveReminderCounterConditionalStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'conditional') return false;
+  const normalized = normalizeConniveReminderRaw(String(step.raw || ''));
+  return (
+    /^if (?:you discarded a nonland card|a nonland card was discarded this way),?\s*put (?:a|\d+|x) \+1\/\+1 counters? on (?:this|that) creature(?: where x is the number of nonland cards discarded this way)?$/i
+      .test(normalized)
+  );
+}
+
+function isConniveReminderUnknownStep(step: OracleEffectStep): boolean {
+  if (step.kind !== 'unknown') return false;
+  const normalized = normalizeConniveReminderRaw(String(step.raw || ''));
+  return (
+    /^draw a card,?\s*then discard a card\.?\s*if you discarded a nonland card,?\s*put a \+1\/\+1 counter on that creature$/i
+      .test(normalized)
+    || isConniveReminderCounterConditionalStep({
+      ...step,
+      kind: 'conditional',
+      condition: { kind: 'if', raw: normalized },
+      steps: [],
+      raw: normalized,
+    } as OracleEffectStep)
+  );
+}
+
+/**
+ * Native `connive` already encodes draw/discard/+1/+1. Strip reminder tails that
+ * pollute activated lines like Villainous Hideout.
+ */
+export function pruneRedundantConniveReminderAbilities(
+  abilities: readonly OracleIRAbility[]
+): OracleIRAbility[] {
+  return abilities.map((ability) => {
+    const text = normalizeOracleText(String(ability.text || ability.effectText || ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+    const hasConnive =
+      ability.steps.some((step) => step.kind === 'connive')
+      || /\bconnives?\b/.test(text);
+    if (!hasConnive) return ability;
+
+    const nextSteps: OracleEffectStep[] = [];
+    for (let index = 0; index < ability.steps.length; index += 1) {
+      const step = ability.steps[index];
+      if (!step) continue;
+
+      if (step.kind === 'connive') {
+        nextSteps.push(step);
+        // Drop immediately following reminder expansion: draw → discard → conditional,
+        // or a lone reminder conditional / unknown reminder blob.
+        let lookAhead = index + 1;
+        if (
+          lookAhead < ability.steps.length
+          && isConniveReminderDrawStep(ability.steps[lookAhead]!)
+          && lookAhead + 1 < ability.steps.length
+          && isConniveReminderDiscardStep(ability.steps[lookAhead + 1]!)
+          && lookAhead + 2 < ability.steps.length
+          && isConniveReminderCounterConditionalStep(ability.steps[lookAhead + 2]!)
+        ) {
+          index += 3;
+          continue;
+        }
+        while (lookAhead < ability.steps.length) {
+          const tail = ability.steps[lookAhead]!;
+          if (isConniveReminderCounterConditionalStep(tail) || isConniveReminderUnknownStep(tail)) {
+            index = lookAhead;
+            lookAhead += 1;
+            continue;
+          }
+          break;
+        }
+        continue;
+      }
+
+      if (
+        isConniveReminderCounterConditionalStep(step)
+        || isConniveReminderUnknownStep(step)
+      ) {
+        continue;
+      }
+
+      nextSteps.push(step);
+    }
+
+    return nextSteps.length === ability.steps.length ? ability : { ...ability, steps: nextSteps };
   });
 }
 

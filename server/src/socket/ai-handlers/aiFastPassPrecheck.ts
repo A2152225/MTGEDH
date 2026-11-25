@@ -22,6 +22,7 @@ import { getAIHandlerDeps } from "../aiHandlerDeps.js";
 import { isAIPlayer } from "./aiPlayerRegistry.js";
 import { debug } from "../../utils/debug.js";
 import { aiStallNowMs, noteAIStallCount, noteAIStallDuration } from "./aiStallDiagnostics.js";
+import { isSwarmBattlefield } from "./aiSwarmBoardShortCircuit.js";
 
 type FastPassFingerprint = { seq: number; priority: string; phase: string; step: string; stackLength: number };
 
@@ -93,6 +94,15 @@ async function defaultPrecheck(gameId: string, playerId: PlayerID): Promise<bool
     return false;
   }
   const before = fingerprint(game);
+
+  // Token swarms: never enumerate response candidates (O(tokens) ability scans).
+  // handleAIPriority swarm short-circuit will pass / empty-declare.
+  if (isSwarmBattlefield(game)) {
+    noteAIStallCount('precheck:swarm-force-pass');
+    noteAIStallCount('precheck:verdict-pass');
+    fastPassDecisions.set(decisionKey(gameId, playerId), before);
+    return true;
+  }
 
   const deps = getAIHandlerDeps();
   const responseContext = typeof deps.getAIActionContext === 'function' ? deps.getAIActionContext(game) : game;

@@ -92,6 +92,14 @@ async function handleStepResponseBody(
         await handleOptionalTriggeredAbilityChoiceResponse(io, game, gameId, step, response);
         return;
       }
+      // Borg Incursion / choose_color: if EP runtime was lost (AI completeStep race,
+      // missing metadata), fall back to legacy color stamp + resolveTopOfStack so the
+      // prompt cannot re-queue forever (gate shards 144/298 tick-timeout).
+      if (step.type === ResolutionStepType.COLOR_CHOICE) {
+        debugWarn(1, '[Resolution] EffectProgram color_choice resume failed; legacy fallback:', resumed.reason || resumed.status);
+        await getResolutionHandlerDeps().handleColorChoiceResponse(io, game, gameId, step, response);
+        return;
+      }
       debugWarn(1, '[Resolution] EffectProgram prompt could not resume:', resumed.reason || resumed.status);
       return;
     }

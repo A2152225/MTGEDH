@@ -11,11 +11,11 @@ Answers follow the plan appendix; held-out set is the plan’s suggested set.
 | --- | --- | --- | --- |
 | v0 | **19/28** | **26/36** | MAIN1 step fix unblocks sequencing |
 | v1 | — | **27/36** | `out/puzzles-v1-heldout.json` |
-| v2 | **25/28** | **35/36** | attack + block + turn planners (P2-5…P2-7); only P-hold-counter left |
+| v2 | **25/28** | **36/36** | attack + block + turn planners + hold-counter stack policy |
 
 Combat fixtures honor `AI_BRAIN` / `decideAttackers` / `decideBlockers`. Priority fixtures use shared `puzzleGameActionMocks` and `step: MAIN1` so `canAct` allows sorcery-speed casts.
 
-v2 clears lethal/crack-back/target/block/sequencing puzzles via `planAttacks` / `planBlocks` / `planTurn`. Remaining gaps: C1 full hold, P-hold-counter-for-winner, P-no-self-wipe.
+v2 clears lethal/crack-back/target/block/sequencing/hold-counter puzzles via `planAttacks` / `planBlocks` / `planTurn` / `hold_counter_for_bigger`. Remaining knownFailing gaps for weaker brains: C1 full hold, P-no-self-wipe (v0).
 
 ## P2-7 turn planner
 

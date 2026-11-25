@@ -37,6 +37,8 @@ export interface ScoreContext {
   handSize: number;
   mode: 'main' | 'response';
   stackTop?: StackItemView;
+  /** Max CMC among enemy spells under the stack top (0 if none). */
+  bestEnemyUnderStackCmc: number;
   cand: CandidateView;
   profile: CardAIProfile;
 }
@@ -130,6 +132,14 @@ export function buildScoreContext(obs: Observation): Omit<ScoreContext, 'cand' |
 
   const mode: 'main' | 'response' = obs.stack.length > 0 ? 'response' : 'main';
   const stackTop = obs.stack.length > 0 ? obs.stack[obs.stack.length - 1] : undefined;
+  let bestEnemyUnderStackCmc = 0;
+  if (obs.stack.length > 1) {
+    for (let i = 0; i < obs.stack.length - 1; i++) {
+      const item = obs.stack[i];
+      if (String(item.controller) === String(obs.seat)) continue;
+      if (item.cmc > bestEnemyUnderStackCmc) bestEnemyUnderStackCmc = item.cmc;
+    }
+  }
 
   return {
     obs,
@@ -145,6 +155,7 @@ export function buildScoreContext(obs: Observation): Omit<ScoreContext, 'cand' |
     handSize: obs.self.hand.length,
     mode,
     stackTop,
+    bestEnemyUnderStackCmc,
   };
 }
 

@@ -387,6 +387,8 @@ function mapDelayedTriggerTimingToFlickerReturnAt(
   timing: string | undefined,
 ): 'next_end_step' | 'owners_next_end_step' | 'end_of_combat' {
   const normalized = String(timing || '').trim();
+  // your_next_end_step also covers "that player's next end step" from the
+  // delayed-trigger parser (Eternal Wanderer flicker → owner return).
   if (normalized === 'your_next_end_step') return 'owners_next_end_step';
   if (normalized === 'end_of_combat') return 'end_of_combat';
   return 'next_end_step';

@@ -65,12 +65,21 @@ function stepCapKeyFor(game: any, playerId: string, step: any): string {
  * Idempotent per step.id so a STEP_ADDED early-gate and a builder can both call
  * this without double-counting the same prompt instance.
  */
+/** Prompts that must not be soft-capped — cancelling them leaves a stack object
+ *  that immediately re-queues the same choice (Borg Incursion color_choice storms). */
+const NEVER_SOFT_CAP_STEP_TYPES = new Set([
+  'color_choice',
+  'creature_type_choice',
+  'card_name_choice',
+]);
+
 export function takeAiResolutionStepCapSlot(
   game: any,
   playerId: string,
   step: any,
 ): 'answer' | 'block' {
   if (!game?.state || !step) return 'answer';
+  if (NEVER_SOFT_CAP_STEP_TYPES.has(String(step?.type || '').toLowerCase())) return 'answer';
   const stepCapKey = stepCapKeyFor(game, playerId, step);
   const stepCounts = ((game.state as any)._aiResolutionStepCounts ||= {}) as Record<string, number>;
   const blockedSources = ((game.state as any)._aiBlockedResolutionSources ||= {}) as Record<string, boolean>;

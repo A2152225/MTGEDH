@@ -393,6 +393,7 @@ export {
 // OPTION_CHOICE prompts that pick one of the player's own cards or permanents.
 export {
   handleAttachEquipmentToPermanentChoice,
+  handleMoveChosenHandCardToExileChoice,
   handleMoveChosenHandCardToLibraryChoice,
   handleSacrificeAnotherPermanentForBenefitAskChoice,
 } from "./optionChoicePermanentAndHandCardPrompts.js";

@@ -94,6 +94,7 @@ import {
   lowerAmassReminderAbilities,
   lowerAmongThemChoosePlayerChoiceAbilities,
   lowerConniveKeywordAbilities,
+  pruneRedundantConniveReminderAbilities,
   lowerCurrentResidualUnknownAbilities,
   lowerDiscoverKeywordAbilities,
   lowerEmpowerJaceKeywordAbilities,
@@ -233,7 +234,9 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   const normalizedOracleText = normalizeOracleText(oracleText);
   const needsGameplayPreNormalize = /\b(?:you may cast either half|that door unlocks on the battlefield)\b/i.test(normalizedOracleText)
     || /\(as a siege enters\b/i.test(normalizedOracleText)
-    || /\([^)]*(?:this creature|this card|it's an artifact|it's an enchantment|it's an creature)\b[^)]*\)/i.test(normalizedOracleText);
+    || /\([^)]*(?:this creature|this card|it's an artifact|it's an enchantment|it's an creature)\b[^)]*\)/i.test(normalizedOracleText)
+    // Populate / keyword reminders bleed a fake create_token step if left in parens.
+    || /\b(?:populate|proliferate|investigate|surveil|scry|connive)\b[\s.]*\(/i.test(normalizedOracleText);
   const parsingOracleText = needsGameplayPreNormalize
     ? (normalizeOracleForParsing(normalizedOracleText) || normalizedOracleText)
     : normalizedOracleText;
@@ -387,6 +390,7 @@ export function parseOracleTextToIR(oracleText: string, cardName?: string): Orac
   abilities = lowerAmassReminderAbilities(abilities);
   abilities = pruneRedundantAmassSubtypeReminderUnknownAbilities(abilities);
   abilities = lowerConniveKeywordAbilities(abilities);
+  abilities = pruneRedundantConniveReminderAbilities(abilities);
   abilities = lowerRecruitKeywordAbilities(abilities);
   abilities = lowerEmpowerJaceKeywordAbilities(abilities);
   abilities = pruneRedundantEmpowerJaceReminderUnknownAbilities(abilities);

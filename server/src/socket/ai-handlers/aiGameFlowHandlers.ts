@@ -30,6 +30,32 @@ import { playerCannotReceivePriority } from "../../state/modules/priorityEligibi
  * Handle AI game flow - called when game state changes
  * Ensures AI progresses through pre-game, commander selection, and turn phases
  */
+/**
+ * True when CLEANUP must be forced forward because the turn player is out of the
+ * game. Dead TP themselves or any living AI seat may drive the advance — living
+ * seats are the ones checkAndTriggerAI can still wake when priority is null.
+ */
+export function shouldAdvanceCleanupForEliminatedTurnPlayer(
+  state: any,
+  playerId: string,
+  ctx?: any,
+): boolean {
+  const stepUpper = String(state?.step || '').toUpperCase();
+  if (stepUpper !== 'CLEANUP') return false;
+  const stackLen = Array.isArray(state?.stack) ? state.stack.length : 0;
+  if (stackLen !== 0) return false;
+  const turnPlayerId = String(state?.turnPlayer || '').trim();
+  if (!turnPlayerId) return false;
+  const players = Array.isArray(state?.players) ? state.players : [];
+  const turnPlayer = players.find((p: any) => String(p?.id || '') === turnPlayerId);
+  const eligibilityCtx = ctx || { state };
+  if (!playerCannotReceivePriority(turnPlayer, eligibilityCtx)) return false;
+  if (String(playerId) === turnPlayerId) return true;
+  const caller = players.find((p: any) => String(p?.id || '') === String(playerId || ''));
+  if (!caller?.isAI) return false;
+  return !playerCannotReceivePriority(caller, eligibilityCtx);
+}
+
 export async function handleAIGameFlow(
   io: Server,
   gameId: string,
@@ -64,8 +90,30 @@ export async function handleAIGameFlow(
       const { executePassPriority } = await import('./aiPriorityPassCombatExecutors.js');
       await executePassPriority(io, gameId, playerId);
     } else {
-      debug(1, '[AI] handleAIGameFlow: AI player has left the game, skipping:', { gameId, playerId });
+      // Re-gate stagnant stalls: dead turn player in CLEANUP with priority=null.
+      if (shouldAdvanceCleanupForEliminatedTurnPlayer(game.state, playerId, ctx)) {
+        debug(1, '[AI] handleAIGameFlow: eliminated turn player in CLEANUP; advancing turn:', {
+          gameId,
+          playerId,
+        });
+        const { executeAdvanceStep } = await import('./aiAdvanceAndDecisionExecutors.js');
+        await executeAdvanceStep(io, gameId, playerId);
+      } else {
+        debug(1, '[AI] handleAIGameFlow: AI player has left the game, skipping:', { gameId, playerId });
+      }
     }
+    return;
+  }
+
+  // Living AI: same CLEANUP soft-lock when the turn player is already out.
+  if (shouldAdvanceCleanupForEliminatedTurnPlayer(game.state, playerId, ctx)) {
+    debug(1, '[AI] handleAIGameFlow: living AI advancing CLEANUP for eliminated turn player:', {
+      gameId,
+      playerId,
+      turnPlayer: game.state.turnPlayer,
+    });
+    const { executeAdvanceStep } = await import('./aiAdvanceAndDecisionExecutors.js');
+    await executeAdvanceStep(io, gameId, playerId);
     return;
   }
   

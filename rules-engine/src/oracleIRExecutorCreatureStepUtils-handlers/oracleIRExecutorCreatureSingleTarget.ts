@@ -9,6 +9,7 @@
  */
 
 import type { BattlefieldPermanent, GameState } from '../../../shared/src';
+import { normalizeCreatureTypeWord } from '../../../shared/src/creatureTypes';
 import type { OracleObjectSelector } from '../oracleIR';
 import type { OracleIRExecutionContext } from '../oracleIRExecutionTypes';
 import { normalizeOracleText } from '../oracleIRExecutorPlayerUtils';
@@ -20,7 +21,7 @@ import {
   readCreatureStatForComparison,
   readPowerForComparison,
 } from './oracleIRExecutorCreatureBattlefieldHelpers';
-import { getProcessedBattlefield } from './oracleIRExecutorCreatureBattlefieldLookup';
+import { getProcessedBattlefield, permanentHasSubtype } from './oracleIRExecutorCreatureBattlefieldLookup';
 
 export function resolveMentorTargetCreatureIdFromBattlefield(
   battlefield: readonly BattlefieldPermanent[],
@@ -337,6 +338,26 @@ export function resolveSingleCreatureTargetId(
 
   if (targetText.includes('target creature you control')) {
     return pickFromControllerPool(controlledCreatures);
+  }
+
+  // "Target Villain you control" / "target Dragon" / "target Elf creature you control"
+  const subtypeTargetMatch = targetText.match(
+    /^target ([a-z][a-z0-9' -]*?)(?: creature)?(?: you control| an opponent controls)?$/i,
+  );
+  if (subtypeTargetMatch) {
+    const subtype = normalizeCreatureTypeWord(String(subtypeTargetMatch[1] || '').trim());
+    if (subtype) {
+      const youControlOnly = /\byou control\b/i.test(targetText);
+      const opponentOnly = /\ban opponent controls\b/i.test(targetText);
+      const pool = creatures.filter((permanent) => {
+        if (!permanentHasSubtype(permanent, subtype)) return false;
+        const ctrl = String((permanent as any)?.controller || '').trim();
+        if (youControlOnly && ctrl !== controllerId) return false;
+        if (opponentOnly && (!ctrl || ctrl === controllerId)) return false;
+        return true;
+      });
+      return pickFromControllerPool(pool);
+    }
   }
 
   if (

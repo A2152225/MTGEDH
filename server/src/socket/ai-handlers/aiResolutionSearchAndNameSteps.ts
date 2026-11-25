@@ -121,11 +121,12 @@ export async function handleAIResolutionSearchAndNameSteps(
             return byName[color] || '';
           })
           .filter(Boolean);
-        const chosenCode = chooseAIManaColorForActivation(
-          game,
-          playerId,
-          colorCodes.length > 0 ? colorCodes : ['W', 'U', 'B', 'R', 'G'],
-        );
+        const palette = colorCodes.length > 0 ? colorCodes : ['W', 'U', 'B', 'R', 'G'];
+        // Swarm boards: skip need-weight scans — protection color is nearly free information.
+        const bfLen = Array.isArray(game?.state?.battlefield) ? game.state.battlefield.length : 0;
+        const chosenCode = bfLen >= 80
+          ? palette[0]
+          : chooseAIManaColorForActivation(game, playerId, palette);
         const codeToColorName: Record<string, string> = {
           W: 'white',
           U: 'blue',
@@ -135,7 +136,14 @@ export async function handleAIResolutionSearchAndNameSteps(
           C: 'colorless',
         };
         const colorName = codeToColorName[chosenCode] || 'colorless';
-        ResolutionQueueManager.completeStep(gameId, step.id, createResponse([colorName]));
+        const response = createResponse([colorName]);
+        // completeStep alone only records the choice. Without side effects, Borg Incursion
+        // (and similar) stay on the stack without chosenColor and re-queue color_choice —
+        // gate shards 144/298: seq tens of thousands, prompt still pending at tick-timeout.
+        if (ResolutionQueueManager.completeStep(gameId, step.id, response)) {
+          const { applyResolutionStepSideEffects } = await import('../resolution.js');
+          await applyResolutionStepSideEffects(io, game, gameId, step, response);
+        }
         debug(1, `[AI] color_choice: Selected ${colorName}`);
         break;
       }

@@ -46,6 +46,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'add_player_counter',
   'deal_damage',
   'prevent_damage',
+  'damage_cant_be_prevented',
   'double_counters',
   'discard',
   'mill',
@@ -79,6 +80,7 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'populate',
   'schedule_delayed_trigger',
   'explore',
+  'time_travel',
   'connive',
   'unless_pays_mana',
   'unless_pays_life',
@@ -116,6 +118,9 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'set_base_pt',
   'cant_attack',
   'cant_block',
+  // Domineering Will / "They block this turn if able" — executor applies force_block;
+  // missing from fallback set caused repeated smoke all_or_nothing_failure.
+  'force_block',
   'remove_counter',
   'regenerate',
   'grant_graveyard_permission',
@@ -123,6 +128,11 @@ export const ORACLE_IR_FALLBACK_STEP_KINDS = new Set<string>([
   'modify_graveyard_permissions',
   'copy_spell',
   'pay_mana',
+  // Saga/upkeep energy payments (Vault 112 III) — executor + X_VALUE_SELECTION already exist.
+  'pay_energy',
+  // Trigger die tables (Journey to the Lost City) — was activated-only and blocked fallback.
+  'roll_die',
+  'die_roll_results',
   'join_forces',
   'tempting_offer',
   'add_extra_combat',
@@ -193,14 +203,21 @@ export function normalizeTriggerEffectForIrAudit(effectText: string): string {
   const raw = String(effectText || '').trim();
   if (!raw) return raw;
 
-  const executionNormalized = normalizeTriggerEffectDescriptionForExecution(raw);
   const preserveModalBullets = /[\u2022•]/.test(raw) && /\bchoose\b/i.test(raw);
+  // Journey-style d20 tables: "1—9 | …\n10—19 | …" need newlines for die_roll_results.
+  // normalizeGameplayEffectText collapses \s+ → space, so preserve newlines via placeholder.
+  const preserveDieRollBands = /\d+\s*[-\u2013\u2014]\s*\d+\s*\|/.test(raw)
+    || /^\s*\d+\s*\|/m.test(raw);
 
-  let processed = executionNormalized
+  let processed = preserveDieRollBands
+    ? normalizeGameplayEffectTextPreservingNewlines(raw)
+    : normalizeTriggerEffectDescriptionForExecution(raw);
+
+  processed = processed
     .replace(/\btap enchanted (?:land|creature|permanent):[\s\S]*$/i, ' ')
     .replace(/\bactivate only if[\s\S]*$/i, ' ');
 
-  if (!preserveModalBullets) {
+  if (!preserveModalBullets && !preserveDieRollBands) {
     processed = processed.replace(/\s+/g, ' ').trim();
   } else {
     processed = processed
@@ -211,6 +228,16 @@ export function normalizeTriggerEffectForIrAudit(effectText: string): string {
   }
 
   return processed.length >= 4 ? processed : raw;
+}
+
+/** Like normalizeGameplayEffectText but keeps newlines (die-roll / modal band tables). */
+function normalizeGameplayEffectTextPreservingNewlines(effectText: string): string {
+  const text = String(effectText || '').trim();
+  if (!text) return '';
+  return normalizeGameplayEffectText(text.replace(/\n/g, ' <<<NL>>> '))
+    .replace(/\s*<<<NL>>>\s*/g, '\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
 }
 
 export function oracleObjectSelectorText(selector: OracleObjectSelector | undefined): string {

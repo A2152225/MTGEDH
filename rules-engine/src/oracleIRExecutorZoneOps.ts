@@ -395,6 +395,7 @@ export {
   parseMoveZoneEnchantedCreatureAndAurasToHand,
   parseMoveZoneExileItFromTheirGraveyardWithStash,
   parseMoveZoneExileXTargetCardsFromTargetPlayerGraveyard,
+  parseMoveZoneNTargetCardsFromOpponentOrPlayerGraveyard,
   parseMoveZoneExileXTargetCreatureCardsFromGraveyards,
   parseMoveZoneForEachOpponentUpToOneNonlandBounce,
   parseMoveZoneMechtitanReturnExiledExceptSelf,

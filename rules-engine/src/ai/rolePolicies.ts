@@ -113,6 +113,20 @@ export const POLICIES: Record<PolicyRole, Consideration[]> = {
           : 0,
       atLeast(1),
     ),
+    // Hold Counterspell when a much bigger enemy spell sits under a cheap top
+    // (Shock over Expropriate). Input 0 ⇒ drop; 1 ⇒ allow.
+    gate('hold_counter_for_bigger', (c) => {
+      if (c.mode !== 'response' || !c.stackTop) return 1;
+      if (c.stackTop.controller === c.obs.seat) return 1;
+      const top = Number(c.stackTop.cmc) || 0;
+      const under = Number(c.bestEnemyUnderStackCmc) || 0;
+      if (under <= 0) return 1;
+      // Classic: CMC≥5 under a CMC≤2 top (Expropriate under Shock).
+      if (under >= 5 && top <= 2) return 0;
+      // Broader: under beats top by 4+ and top is not itself a big spell.
+      if (under >= top + 4 && top < 4) return 0;
+      return 1;
+    }, atLeast(1)),
     pref('counter_big_spell', (c) => c.stackTop?.cmc ?? 0, rampCurve(2, 7), 60),
     pref(
       'counter_leader_spell',

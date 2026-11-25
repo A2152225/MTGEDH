@@ -234,4 +234,118 @@ describe('AI resume kick after reconnect', () => {
     cleanupGameAI(restoringId);
     games.delete(restoringId);
   });
+
+  it('checkAndTriggerAI wakes living AI turn player in CLEANUP when priority is null', async () => {
+    const cleanupId = 'ai_resume_kick_cleanup_living_tp';
+    extraGameIds.push(cleanupId);
+    const game = createInitialGameState(cleanupId);
+    games.set(cleanupId, game as any);
+
+    (game.state as any).players = [
+      { id: 'ai_tp', name: 'King', isAI: true, difficulty: 0.5 },
+      { id: 'ai_2', name: 'Chaos', isAI: true, difficulty: 0.5 },
+    ];
+    (game.state as any).priority = null;
+    (game.state as any).turnPlayer = 'ai_tp';
+    (game.state as any).phase = 'ending';
+    (game.state as any).step = 'CLEANUP';
+    (game.state as any).stack = [];
+
+    registerAIPlayer(cleanupId, 'ai_tp' as any, 'King', 0.5);
+    registerAIPlayer(cleanupId, 'ai_2' as any, 'Chaos', 0.5);
+
+    const scheduleCalls: string[] = [];
+    const io = { to: () => ({ emit: () => undefined }) } as any;
+    const aiModule = await import('../src/socket/ai.js');
+    vi.spyOn(aiModule, 'scheduleAIGameFlow').mockImplementation(((_io, _gameId, playerId) => {
+      scheduleCalls.push(String(playerId));
+    }) as any);
+    vi.spyOn(aiModule, 'scheduleAIPriority').mockImplementation((() => undefined) as any);
+
+    checkAndTriggerAI(io, game as any, cleanupId);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(scheduleCalls).toContain('ai_tp');
+  });
+
+  it('checkAndTriggerAI wakes living AI turn player in CLEANUP with stack and null priority', async () => {
+    const cleanupId = 'ai_resume_kick_cleanup_stack';
+    extraGameIds.push(cleanupId);
+    const game = createInitialGameState(cleanupId);
+    games.set(cleanupId, game as any);
+
+    (game.state as any).players = [
+      { id: 'ai_tp', name: 'King', isAI: true, difficulty: 0.5 },
+      { id: 'ai_2', name: 'Chaos', isAI: true, difficulty: 0.5 },
+    ];
+    (game.state as any).priority = null;
+    (game.state as any).turnPlayer = 'ai_tp';
+    (game.state as any).phase = 'ending';
+    (game.state as any).step = 'CLEANUP';
+    (game.state as any).stack = [{ id: 'trig_1', name: 'Sefris of the Hidden Ways' }];
+
+    registerAIPlayer(cleanupId, 'ai_tp' as any, 'King', 0.5);
+
+    const scheduleCalls: string[] = [];
+    const io = { to: () => ({ emit: () => undefined }) } as any;
+    const aiModule = await import('../src/socket/ai.js');
+    vi.spyOn(aiModule, 'scheduleAIGameFlow').mockImplementation(((_io, _gameId, playerId) => {
+      scheduleCalls.push(String(playerId));
+    }) as any);
+
+    checkAndTriggerAI(io, game as any, cleanupId);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(scheduleCalls).toContain('ai_tp');
+  });
+
+  it('checkAndTriggerAI still wakes pending mana_payment AI under a completing-cast lock', async () => {
+    const paymentId = 'ai_resume_kick_mana_payment_lock';
+    extraGameIds.push(paymentId);
+    const game = createInitialGameState(paymentId);
+    games.set(paymentId, game as any);
+
+    (game.state as any).players = [
+      { id: 'ai_caster', name: 'King', isAI: true, difficulty: 0.5 },
+      { id: 'ai_prio', name: 'Chaos', isAI: true, difficulty: 0.5 },
+    ];
+    (game.state as any).priority = 'ai_prio';
+    (game.state as any).turnPlayer = 'ai_caster';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'BEGIN_COMBAT';
+    (game.state as any).stack = [];
+    // Stuck / mid-cast marker that previously short-circuited the entire wake path.
+    (game.state as any)._completingSpellCastByPlayer = {
+      ai_caster: { cardId: 'fire_covenant_1', startedAt: Date.now() },
+    };
+
+    registerAIPlayer(paymentId, 'ai_caster' as any, 'King', 0.5);
+    registerAIPlayer(paymentId, 'ai_prio' as any, 'Chaos', 0.5);
+
+    ResolutionQueueManager.addStep(paymentId, {
+      type: ResolutionStepType.MANA_PAYMENT_CHOICE,
+      playerId: 'ai_caster' as any,
+      description: 'Pay mana for Adrix and Nev, Twincasters',
+      mandatory: true,
+      status: ResolutionStepStatus.PENDING,
+      cardId: 'adrix_1',
+      sourceName: 'Adrix and Nev, Twincasters',
+      spellPaymentRequired: true,
+    } as any);
+
+    const scheduleCalls: string[] = [];
+    const io = { to: () => ({ emit: () => undefined }) } as any;
+    const aiModule = await import('../src/socket/ai.js');
+    vi.spyOn(aiModule, 'scheduleAIGameFlow').mockImplementation(((_io, _gameId, playerId) => {
+      scheduleCalls.push(String(playerId));
+    }) as any);
+    const prioritySpy = vi.spyOn(aiModule, 'scheduleAIPriority').mockImplementation((() => undefined) as any);
+
+    checkAndTriggerAI(io, game as any, paymentId);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(scheduleCalls).toContain('ai_caster');
+    // Completing-cast lock still suppresses priority wakes.
+    expect(prioritySpy).not.toHaveBeenCalled();
+  });
 });

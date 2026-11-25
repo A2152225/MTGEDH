@@ -7,8 +7,9 @@
  */
 import type { GameState, PlayerID } from '../../shared/src';
 import { getGraveyardCardTypesFromTypeLine } from './oracleIRExecutorZoneOpsAmongMilledResolvers';
-import { cardMatchesType } from './oracleIRExecutorZoneOpsCardTypeMatchers';
+import { cardMatchesType, parseSmallNumberWord } from './oracleIRExecutorZoneOpsCardTypeMatchers';
 import type { SimpleCardType } from './oracleIRExecutorZoneOpsCardTypeMatchers';
+import { normalizeBoundPlayerZoneSelectorText } from './oracleIRExecutorZoneOpsGraveyardCountParsers';
 import { moveTargetedCardFromExile } from './oracleIRExecutorZoneOpsHandExileTargetedMovers';
 
 export function parseMoveZoneCardFromOutsideGame(what: {
@@ -62,6 +63,32 @@ export function parseMoveZoneExileXTargetCardsFromTargetPlayerGraveyard(what: {
     raw === "x target cards from target player's graveyard" ||
     raw === "any number of target cards from target player's graveyard"
   );
+}
+
+/**
+ * Spurnmage Advocate family: "N target cards from (an|target) opponent's/player's graveyard".
+ * Bound chosenObjectIds/targets identify the cards; owner is derived from their graveyard.
+ */
+export function parseMoveZoneNTargetCardsFromOpponentOrPlayerGraveyard(what: {
+  readonly kind: string;
+  readonly text?: string;
+  readonly raw?: string;
+}): { readonly count: number } | null {
+  if (what.kind !== 'raw') return null;
+  const raw = normalizeBoundPlayerZoneSelectorText(String((what as any).text || '').trim())
+    .toLowerCase()
+    .replace(/[.\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!raw) return null;
+
+  const match = raw.match(
+    /^([a-z0-9]+)\s+target\s+cards?\s+from\s+(?:target\s+)?(?:opponent|player)'s\s+graveyard$/i,
+  );
+  if (!match) return null;
+  const count = parseSmallNumberWord(String(match[1] || ''));
+  if (count === null || count <= 0) return null;
+  return { count };
 }
 
 export function parseMoveZoneForEachOpponentUpToOneNonlandBounce(what: {

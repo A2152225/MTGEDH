@@ -61,6 +61,7 @@ export function persistAndResolveTopOfStack(
   game: InMemoryGame,
   gameId: string,
   payload: Record<string, unknown> = {},
+  options?: { bypassBlockingPromptCheck?: boolean },
 ): boolean {
   if (
     typeof (game as any).resolveTopOfStack !== "function"
@@ -73,7 +74,10 @@ export function persistAndResolveTopOfStack(
     return false;
   }
 
-  if (contextHasBlockingNonPaymentResolutionSteps(game, gameId)) {
+  if (
+    !options?.bypassBlockingPromptCheck
+    && contextHasBlockingNonPaymentResolutionSteps(game, gameId)
+  ) {
     debugWarn(
       2,
       '[persistAndResolveTopOfStack] Refusing to resolve stack — blocking non-payment resolution prompt still open',

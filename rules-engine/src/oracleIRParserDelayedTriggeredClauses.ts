@@ -26,6 +26,15 @@ const TIMING_SPECS: readonly {
     leading: /^at\s+the\s+beginning\s+of\s+your\s+next\s+end\s+step,\s*(.+)$/i,
     trailing: /^(.+?)\s+at\s+the\s+beginning\s+of\s+your\s+next\s+end\s+step\s*$/i,
   },
+  // Eternal Wanderer / Cloudshift-family: "that player's next end step" is the
+  // exiled card's owner's end step. Map to your_next_end_step so the server
+  // flicker bridge (owners_next_end_step) schedules the return — without this
+  // the clause stayed a mandatory immediate move_zone (AON skip).
+  {
+    timing: 'your_next_end_step',
+    leading: /^at\s+the\s+beginning\s+of\s+that\s+player(?:'|')?s\s+next\s+end\s+step,\s*(.+)$/i,
+    trailing: /^(.+?)\s+at\s+the\s+beginning\s+of\s+that\s+player(?:'|')?s\s+next\s+end\s+step\s*$/i,
+  },
   {
     timing: 'next_upkeep',
     leading: /^at\s+the\s+beginning\s+of\s+(?:the\s+)?next\s+upkeep,\s*(.+)$/i,

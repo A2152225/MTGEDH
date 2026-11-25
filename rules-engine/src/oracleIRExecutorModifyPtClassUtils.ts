@@ -103,9 +103,15 @@ export function parseClassList(text: string): readonly string[] | null {
 export function parseColorQualifiedClassSpec(
   text: string,
   normalizeManaColorCode: NormalizeManaColorCode
-): { readonly classes: readonly string[]; readonly requiredColor?: string } | null {
+): { readonly classes: readonly string[]; readonly requiredColor?: string; readonly colorlessOnly?: boolean } | null {
   const normalized = String(text || '').trim().toLowerCase().replace(/\s+/g, ' ');
   if (!normalized) return null;
+
+  const colorlessMatch = normalized.match(/^colorless\s+(.+)$/i);
+  if (colorlessMatch) {
+    const classes = parseClassList(String(colorlessMatch[1] || ''));
+    return classes ? { classes, colorlessOnly: true } : null;
+  }
 
   const colorMatch = normalized.match(/^(white|blue|black|red|green)\s+(.+)$/i);
   if (!colorMatch) {
@@ -125,10 +131,13 @@ export function countPermanentsByClasses(
   getColors: GetColors,
   hasExecutorClass: HasExecutorClass,
   typeLineLower: TypeLineLower,
-  requiredColor?: string
+  requiredColor?: string,
+  colorlessOnly?: boolean
 ): number {
   return permanents.filter((permanent: any) => {
-    if (requiredColor && !getColors(permanent).includes(requiredColor)) return false;
+    const colors = getColors(permanent);
+    if (requiredColor && !colors.includes(requiredColor)) return false;
+    if (colorlessOnly && Array.isArray(colors) && colors.length > 0) return false;
     return classes.some((klass) => {
       if (klass === 'permanent') return hasExecutorClass(permanent, 'permanent');
       if (klass === 'nonland permanent') return hasExecutorClass(permanent, 'nonland permanent');

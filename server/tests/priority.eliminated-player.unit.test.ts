@@ -8,6 +8,7 @@ import {
 import { checkPendingInteractions } from '../src/state/modules/turn-handlers/checkPendingInteractions.js';
 import { computeNextStepPhaseAdvance } from '../src/state/modules/turn-handlers/turnStepPhaseAdvance.js';
 import { repairMissingPriorityIfStuck } from '../src/socket/util-handlers/repairMissingPriorityIfStuck.js';
+import { shouldAdvanceCleanupForEliminatedTurnPlayer } from '../src/socket/ai-handlers/aiGameFlowHandlers.js';
 
 function createCtx(state: any): GameContext {
   return {
@@ -130,6 +131,41 @@ describe('eliminated players do not receive priority', () => {
     const repaired = repairMissingPriorityIfStuck(game as any, 'eliminated_priority', '[test]');
     expect(repaired).toBe(true);
     expect(state.priority).toBe('p_alive_ai');
+  });
+});
+
+describe('eliminated turn player during CLEANUP (re-gate stagnant stalls)', () => {
+  it('flags CLEANUP auto-advance when the turn player is eliminated and the stack is empty', () => {
+    const base = {
+      step: 'CLEANUP',
+      turnPlayer: 'p_dead_ai',
+      stack: [] as any[],
+      players: [
+        { id: 'p_dead_ai', isAI: true, hasLost: true },
+        { id: 'p_alive_ai', isAI: true },
+        { id: 'p_human' },
+      ],
+    };
+    expect(shouldAdvanceCleanupForEliminatedTurnPlayer(base, 'p_dead_ai')).toBe(true);
+    // Living AI can also drive the advance — checkAndTriggerAI wakes them when priority is null.
+    expect(shouldAdvanceCleanupForEliminatedTurnPlayer(base, 'p_alive_ai')).toBe(true);
+    expect(shouldAdvanceCleanupForEliminatedTurnPlayer(base, 'p_human')).toBe(false);
+    expect(shouldAdvanceCleanupForEliminatedTurnPlayer({
+      ...base,
+      stack: [{ id: 's1' }],
+    }, 'p_dead_ai')).toBe(false);
+    expect(shouldAdvanceCleanupForEliminatedTurnPlayer({
+      ...base,
+      step: 'END',
+    }, 'p_dead_ai')).toBe(false);
+    expect(shouldAdvanceCleanupForEliminatedTurnPlayer({
+      ...base,
+      players: [
+        { id: 'p_dead_ai', isAI: true },
+        { id: 'p_alive_ai', isAI: true },
+      ],
+      turnPlayer: 'p_alive_ai',
+    }, 'p_alive_ai')).toBe(false);
   });
 });
 
@@ -265,6 +301,39 @@ describe('eliminated turn player during DECLARE_ATTACKERS', () => {
     const pending = checkPendingInteractions(ctx);
     expect(pending.pendingTypes).not.toContain('attacker_declaration');
     expect(state.attackersDeclaredBy).toContain('p_alive_ai');
+  });
+
+  it('treats a defending player who passed priority as having declared empty blockers', () => {
+    // Re-gate shard 281: defender passed without declareBlockers; blocker_declaration
+    // stayed pending and priority ping-ponged forever on DECLARE_BLOCKERS.
+    const state = createEliminatedPriorityState({
+      turnPlayer: 'p_human',
+      priority: 'p_alive_ai',
+      phase: 'combat',
+      step: 'DECLARE_BLOCKERS',
+      blockersDeclaredBy: ['p_alive_ai'],
+      priorityPassedBy: new Set<string>(['p_human', 'p_alive_ai']),
+      battlefield: [
+        {
+          id: 'atk_1',
+          controller: 'p_alive_ai',
+          attacking: 'p_human',
+          tapped: true,
+          card: { name: 'Beater', type_line: 'Creature — Beast', power: '5', toughness: '5' },
+        },
+        {
+          id: 'blk_1',
+          controller: 'p_human',
+          tapped: false,
+          card: { name: 'Wall', type_line: 'Creature — Wall', power: '0', toughness: '4' },
+        },
+      ],
+    });
+    const ctx = createCtx(state);
+
+    const pending = checkPendingInteractions(ctx);
+    expect(pending.pendingTypes).not.toContain('blocker_declaration');
+    expect(state.blockersDeclaredBy).toContain('p_human');
   });
 
   it('skips extra combat when the active player cannot receive priority', () => {

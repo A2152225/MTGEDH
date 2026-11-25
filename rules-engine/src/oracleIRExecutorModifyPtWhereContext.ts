@@ -91,11 +91,12 @@ export interface ModifyPtWhereEvaluatorContext {
   parseClassList(text: string): readonly string[] | null;
   parseColorQualifiedClassSpec(
     text: string
-  ): { readonly classes: readonly string[]; readonly requiredColor?: string } | null;
+  ): { readonly classes: readonly string[]; readonly requiredColor?: string; readonly colorlessOnly?: boolean } | null;
   countByClasses(
     permanents: readonly BattlefieldPermanent[],
     classes: readonly string[],
-    requiredColor?: string
+    requiredColor?: string,
+    colorlessOnly?: boolean
   ): number;
   hasExecutorClass(permanent: BattlefieldPermanent | any, klass: string): boolean;
   countNegatedClass(
@@ -229,7 +230,7 @@ export function createModifyPtWhereEvaluatorContext(
   const parseClassList = (text: string): readonly string[] | null => parseClassListFromUtils(text);
   const parseColorQualifiedClassSpec = (
     text: string
-  ): { readonly classes: readonly string[]; readonly requiredColor?: string } | null =>
+  ): { readonly classes: readonly string[]; readonly requiredColor?: string; readonly colorlessOnly?: boolean } | null =>
     parseColorQualifiedClassSpecFromUtils(text, normalizeManaColorCode);
 
   const getColorsFromPermanent = (perm: any): readonly string[] => getColorsFromObject(perm);
@@ -238,7 +239,8 @@ export function createModifyPtWhereEvaluatorContext(
   const countByClasses = (
     permanents: readonly BattlefieldPermanent[],
     classes: readonly string[],
-    requiredColor?: string
+    requiredColor?: string,
+    colorlessOnly?: boolean
   ): number =>
     countPermanentsByClassesFromUtils(
       permanents,
@@ -246,7 +248,8 @@ export function createModifyPtWhereEvaluatorContext(
       getColorsFromPermanent,
       hasExecutorClass,
       typeLineLower,
-      requiredColor
+      requiredColor,
+      colorlessOnly
     );
   const countNegatedClass = (
     permanents: readonly BattlefieldPermanent[],

@@ -488,6 +488,7 @@ export function applyMoveZoneStep(
     parsedAllPermanentsYouOwn,
     parsedShuffleAnyNumberTargetFromTargetPlayerGy,
     parsedExileXTargetFromTargetPlayerGy,
+    parsedNTargetCardsFromOpponentOrPlayerGy,
     parsedForEachOpponentUpToOneNonlandBounce,
     parsedAnyNumberOpponentOwnedLandsFromExile,
     parsedCreatureFromOwnersGraveyardUnderOwner,

@@ -13,7 +13,8 @@ import type { CombatCreature } from '../combatAutomation.js';
 import { bestDamageSavingBlocks } from './lethalCheck.js';
 import { resolveCombat, type DefenderState } from './combatResolver.js';
 
-/** Named discount: other opponents also attack each other (plan default 0.5). */
+/** Named discount: other opponents also attack each other (plan default 0.5).
+ * Smoke17 0.35 and smoke33 0.65 both failed full gate (smoke33 confirm 50% was noise). */
 export const CRACK_BACK_DISCOUNT = 0.5;
 
 export interface CrackBack {

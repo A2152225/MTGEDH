@@ -9,6 +9,7 @@ import { permanentMatchesSelector, permanentMatchesType } from './oracleIRExecut
 import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
 import { getExecutorTypeLineLower } from './oracleIRExecutorPermanentUtils';
 import { typeLineHasSubtype } from './oracleIRExecutorBattlefieldSubtypeUtils';
+import { resolveTargetSubtypeUnionBattlefieldPermanents } from './oracleIRExecutorBattlefieldSubtypeCompoundResolvers';
 import { permanentMatchesSelectorKeywords } from './oracleIRSelectorKeywordQualifier';
 
 const BASIC_LAND_TYPES = ['plains', 'island', 'swamp', 'mountain', 'forest'] as const;
@@ -385,6 +386,12 @@ export function resolveTargetPrefixedPermanents(
 ): BattlefieldPermanent[] | null {
   const text = normalizeExtendedTargetText(targetText);
   if (!/^target\b/.test(text)) return null;
+
+  // "target Insect, Rat, Spider, or Squirrel" (multi-subtype OR).
+  const subtypeUnionMatches = resolveTargetSubtypeUnionBattlefieldPermanents(battlefield, text, ctx);
+  if (subtypeUnionMatches !== null) {
+    return subtypeUnionMatches.length > 0 ? subtypeUnionMatches.slice(0, 1) : [];
+  }
 
   if (/^target attacking creatures?(?: you control| an opponent controls)?$/i.test(text)) {
     const boundIds = new Set(collectBoundIds(ctx));

@@ -1,6 +1,7 @@
 // Extracted from oracleIRExecutorBattlefieldStepHandlers.ts.
-// Cluster: resolveSubtypeOrCompoundBattlefieldPermanents, filterIllegalDirectTargetPermanents.
-// Public entries: those two resolvers.
+// Cluster: resolveSubtypeOrCompoundBattlefieldPermanents, filterIllegalDirectTargetPermanents,
+// splitSubtypeUnion, resolveTargetSubtypeUnionBattlefieldPermanents.
+// Public entries: those resolvers plus the subtype-union helpers.
 
 import type { GameState, BattlefieldPermanent } from '../../shared/src';
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
@@ -104,15 +105,72 @@ export function resolveSubtypeOrCompoundBattlefieldPermanents(
   );
 }
 
-/** "merfolk and/or knight", "ape or a monkey" → ['merfolk', 'knight'] (single subtype stays one entry). */
-function splitSubtypeUnion(raw: string): string[] {
-  const parts = String(raw || '')
-    .split(/\s+(?:and\/or|or)\s+(?:an?\s+)?/i)
-    .map(part => part.trim());
+/**
+ * "merfolk and/or knight", "ape or a monkey", "Insect, Rat, Spider, or Squirrel"
+ * → ['merfolk', 'knight'] (single subtype stays one entry).
+ */
+export function splitSubtypeUnion(raw: string): string[] {
+  const normalized = String(raw || '')
+    .replace(/\s*,\s*(?:and\/or|or)\s+/gi, ',')
+    .replace(/\s+(?:and\/or|or)\s+/gi, ',')
+    .replace(/\s*,\s*/g, ',')
+    .trim();
+  if (!normalized) return [];
+  const parts = normalized
+    .split(',')
+    .map(part => part.replace(/^(?:an?\s+)/i, '').trim())
+    .filter(Boolean);
   const valid = parts.every(
-    part => /^[a-z][a-z-]*(?: [a-z][a-z-]*)?$/i.test(part) && !/^(?:creature|artifact|enchantment|land|permanent|nonland|planeswalker)s?$/i.test(part)
+    part =>
+      /^[a-z][a-z-]*(?: [a-z][a-z-]*)?$/i.test(part) &&
+      !/^(?:creature|artifact|enchantment|land|permanent|nonland|planeswalker)s?$/i.test(part)
   );
   return valid ? parts : [];
+}
+
+/**
+ * "target Insect, Rat, Spider, or Squirrel" (and similar multi-subtype OR targets).
+ * Prefers bound target ids; unbound auto-resolves only when exactly one legal permanent exists.
+ * Returns null when the text is not a multi-subtype OR target phrase.
+ */
+export function resolveTargetSubtypeUnionBattlefieldPermanents(
+  battlefield: readonly BattlefieldPermanent[],
+  targetText: string,
+  ctx: OracleIRExecutionContext
+): BattlefieldPermanent[] | null {
+  const text = String(targetText || '')
+    .replace(/\u2019/g, "'")
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  const match = text.match(/^target\s+(.+)$/i);
+  if (!match) return null;
+  const subtypes = splitSubtypeUnion(String(match[1] || ''));
+  if (subtypes.length < 2) return null;
+
+  const legal = battlefield.filter(
+    perm =>
+      permanentMatchesType(perm, 'creature') &&
+      subtypes.some(subtype => typeLineHasSubtype(perm, subtype))
+  );
+
+  const boundIds = new Set(
+    [
+      String(ctx.targetPermanentId || '').trim(),
+      String(ctx.targetCreatureId || '').trim(),
+      String(ctx.selectorContext?.targetPermanentId || '').trim(),
+      String(ctx.selectorContext?.targetCreatureId || '').trim(),
+      ...(Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext.chosenObjectIds.map(id => String(id || '').trim()).filter(Boolean)
+        : []),
+    ].filter(Boolean)
+  );
+
+  if (boundIds.size > 0) {
+    return legal.filter(perm => boundIds.has(String((perm as any)?.id || '').trim()));
+  }
+  // Singular "target …": only auto-resolve when exactly one legal permanent exists.
+  return legal.length === 1 ? legal : [];
 }
 
 /**

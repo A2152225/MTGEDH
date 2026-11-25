@@ -303,27 +303,47 @@ export function applyImpulseExileTopStep(
   ctx: OracleIRExecutionContext,
   runtime?: ModifyPtRuntime
 ): ExileTopStepHandlerResult {
+  const whoKind = String((step.who as any)?.kind || '');
   const players = resolvePlayers(state, step.who, ctx);
   if (players.length === 0) {
+    const opponentCount = (state.players || []).filter(
+      (player: any) => String(player?.id || '').trim() !== String(ctx.controllerId || '').trim()
+        && !player?.hasLeft
+        && !player?.leftGame
+        && !player?.conceded,
+    ).length;
+    const requiresChoice =
+      (whoKind === 'target_opponent' || whoKind === 'target_player')
+      && opponentCount > 1;
     return {
       applied: false,
-      message: `Skipped impulse exile top (unsupported player selector): ${step.raw}`,
-      reason: 'unsupported_player_selector',
+      message: `Skipped impulse exile top (${requiresChoice ? 'targeting-dependent player' : 'unsupported player selector'}): ${step.raw}`,
+      reason: requiresChoice ? 'player_choice_required' : 'unsupported_player_selector',
+      options: requiresChoice ? { classification: 'player_choice' } : undefined,
     };
   }
 
-  // resolvePlayers falls back to the only opponent for an unbound target_player, which would exile
-  // from a library nobody targeted. Whose library is looked at is decided when the target is chosen,
-  // so defer to the resolution queue instead of guessing.
-  if (String((step.who as any)?.kind || '') === 'target_player') {
+  // resolvePlayers falls back to the only opponent for an unbound target_player / target_opponent,
+  // which would exile from a library nobody targeted when multiple opponents exist. Whose library
+  // is looked at is decided when the target is chosen, so defer instead of guessing.
+  if (whoKind === 'target_player' || whoKind === 'target_opponent') {
     let boundTargetPlayerId = String(
       (ctx as any).targetPlayerId ||
         (ctx as any).targetOpponentId ||
         (ctx as any).thatPlayerId ||
         ctx.selectorContext?.targetPlayerId ||
+        ctx.selectorContext?.targetOpponentId ||
         ctx.selectorContext?.thatPlayerId ||
         ''
     ).trim();
+    if (!boundTargetPlayerId) {
+      const chosenIds = Array.isArray(ctx.selectorContext?.chosenObjectIds)
+        ? ctx.selectorContext!.chosenObjectIds
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)
+        : [];
+      if (chosenIds.length === 1) boundTargetPlayerId = chosenIds[0];
+    }
     if (!boundTargetPlayerId) {
       const targetSpellId = String(ctx.targetSpellId || ctx.selectorContext?.targetSpellId || '').trim();
       if (targetSpellId) {
@@ -334,7 +354,14 @@ export function applyImpulseExileTopStep(
         boundTargetPlayerId = String(stackItem?.controller || stackItem?.owner || '').trim();
       }
     }
-    if (!boundTargetPlayerId) {
+    // Sole-opponent fallback from resolvePlayers is fine without an explicit binding.
+    const opponentCount = (state.players || []).filter(
+      (player: any) => String(player?.id || '').trim() !== String(ctx.controllerId || '').trim()
+        && !player?.hasLeft
+        && !player?.leftGame
+        && !player?.conceded,
+    ).length;
+    if (!boundTargetPlayerId && opponentCount > 1) {
       return {
         applied: false,
         message: `Skipped impulse exile top (targeting-dependent player): ${step.raw}`,
@@ -460,7 +487,11 @@ export function applyImpulseExileTopStep(
     }
 
     if (returnUncastToBottom && result.exiled.length > 0) {
-      const untilHit = shareTypeUntilHitCardStillInExile(impulseStep, keptExiled, ctx);
+      // Keep the until-hit card in exile so during-resolution "you may cast that card" can prompt.
+      // Non-hit exiles go to the bottom now; the hit bottoms on decline (or after cast fails).
+      const untilHit =
+        shareTypeUntilHitCardStillInExile(impulseStep, keptExiled, ctx)
+        || untilInstantOrSorceryHitCardStillInExile(impulseStep, keptExiled);
       const cardsToBottom = untilHit
         ? keptExiled.filter((card) => {
             const id = String((card as any)?.id ?? (card as any)?.cardId ?? '').trim();
@@ -485,6 +516,28 @@ export function applyImpulseExileTopStep(
     lastExiledCardCount: totalExiled,
     lastExiledCards: exiledCardsThisStep,
   }, ledgerRecordedViaBridge);
+}
+
+function untilInstantOrSorceryHitCardStillInExile(
+  step: { readonly amount?: unknown },
+  keptExiled: readonly any[],
+): any | null {
+  const amountRaw = normalizeOracleText(String(
+    step?.amount && typeof step.amount === 'object' && step.amount !== null && 'raw' in step.amount
+      ? (step.amount as { raw?: string }).raw
+      : '',
+  ));
+  if (
+    amountRaw !== 'until they exile an instant or sorcery card'
+    && amountRaw !== 'until you exile an instant or sorcery card'
+  ) {
+    return null;
+  }
+  const last = keptExiled.length > 0 ? keptExiled[keptExiled.length - 1] : null;
+  if (!last) return null;
+  const typeLine = getCardTypeLineLower(last);
+  if (!typeLine.includes('instant') && !typeLine.includes('sorcery')) return null;
+  return last;
 }
 
 function shareTypeUntilHitCardStillInExile(

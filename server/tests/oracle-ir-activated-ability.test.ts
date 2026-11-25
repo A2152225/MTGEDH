@@ -336,14 +336,15 @@ describe('oracle IR activated ability execution', () => {
   });
 
   it('handles perpetual P/T loyalty through IR', () => {
+    // Use 5 toughness so -3/-3 does not SBA-kill the target mid-suite (2/2 was order-flaky).
     const ctx = {
       state: {
         players: [{ id: 'p1', name: 'Player 1' }, { id: 'p2', name: 'Player 2' }],
         battlefield: [{
-          id: 'bear_1',
+          id: 'bear_perpetual_1',
           controller: 'p2',
           owner: 'p2',
-          card: { id: 'bear_card_1', name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+          card: { id: 'bear_card_perpetual_1', name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '5' },
         }],
         life: { p1: 40, p2: 40 },
         turnNumber: 1,
@@ -352,7 +353,7 @@ describe('oracle IR activated ability execution', () => {
           p2: { hand: [], library: [], graveyard: [], exile: [] },
         },
       },
-      gameId: 'test_loyalty_ir_perpetual_pt',
+      gameId: `test_loyalty_ir_perpetual_pt_${Date.now()}`,
       bumpSeq: () => {},
       libraries: new Map(),
     } as any;
@@ -362,12 +363,14 @@ describe('oracle IR activated ability execution', () => {
       sourceName: 'Generic Planeswalker',
       oracleText: '+1: Target creature an opponent controls perpetually gets -3/-3.',
       sourcePermanentId: 'pw_1',
-      targets: ['bear_1'],
+      targets: ['bear_perpetual_1'],
       allowOptional: true,
     });
 
     expect(result.handled).toBe(true);
-    const modifiers = ctx.state.battlefield[0].modifiers || [];
+    const bear = (ctx.state.battlefield || []).find((p: any) => p?.id === 'bear_perpetual_1');
+    expect(bear).toBeTruthy();
+    const modifiers = bear.modifiers || [];
     expect(modifiers.some((mod: any) => mod.type === 'powerToughness' && mod.power === -3 && mod.toughness === -3)).toBe(true);
   });
 

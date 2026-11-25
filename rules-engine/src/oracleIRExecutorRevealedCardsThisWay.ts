@@ -3,13 +3,17 @@
  * deals damage equal to the number of nonland cards revealed this way to any target. If the revealed land card
  * was a Mountain, this artifact deals double that damage instead."
  *
+ * Alexander, Ship's Fool: "... deals X damage ... where X is the greatest mana value among cards revealed this way."
+ *
  * Cluster: reading the cards a reveal step just showed.
  *   - "the number of nonland cards revealed this way" / "twice the number of ..." (damage amount)
+ *   - "the greatest mana value among cards revealed this way" (damage / PT amount)
  *   - "the revealed land card was a Mountain" (condition for the doubled replacement)
  * Both read the cards recorded on the execution context by the reveal_top step (lastRevealedCards, falling
  * back to lastMovedCards), so they only answer when a reveal actually happened first.
  */
 import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
+import { getCardManaValue } from './oracleIRExecutorPlayerUtils';
 
 function readTypeLine(card: any): string {
   return String(card?.type_line ?? card?.card?.type_line ?? card?.typeLine ?? '').toLowerCase();
@@ -56,6 +60,34 @@ export function resolveRevealedThisWayCount(
     }
   }).length;
   return match[1] ? counted * 2 : counted;
+}
+
+const GREATEST_MV_AMONG_REVEALED_THIS_WAY =
+  /^(?:x is )?the greatest mana value among cards revealed this way$/i;
+
+/**
+ * "the greatest mana value among cards revealed this way" — max CMC among lastRevealedCards.
+ * Returns 0 when cards were revealed but all lack a readable mana value; null when the raw text
+ * does not match or nothing was revealed yet.
+ */
+export function resolveGreatestManaValueAmongRevealedThisWay(
+  normalizedRaw: string,
+  ctx: OracleIRExecutionContext,
+  runtime?: { readonly lastMovedCards?: readonly any[] },
+): number | null {
+  const raw = String(normalizedRaw || '').trim();
+  if (!GREATEST_MV_AMONG_REVEALED_THIS_WAY.test(raw)) return null;
+  const cards = readRevealedCards(ctx, runtime);
+  if (cards.length === 0) return null;
+  let greatest = 0;
+  let sawValue = false;
+  for (const card of cards) {
+    const mv = getCardManaValue(card);
+    if (mv === null || !Number.isFinite(mv)) continue;
+    sawValue = true;
+    greatest = Math.max(greatest, Math.max(0, Math.floor(mv)));
+  }
+  return sawValue ? greatest : 0;
 }
 
 /**

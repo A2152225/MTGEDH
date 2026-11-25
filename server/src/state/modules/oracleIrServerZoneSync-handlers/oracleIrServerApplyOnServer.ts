@@ -164,6 +164,8 @@ import {
 } from './oracleIrServerMillCounterPreparedSync.js';
 import { queueSacrificeChoicePromptsFromOracleIRResult } from './oracleIrServerApplyDeps.js';
 import { queueHandCardToLibraryChoicePromptsFromOracleIRResult } from './oracleIrServerHandCardToLibraryPrompts.js';
+import { queueHandCardToExileChoicePromptsFromOracleIRResult } from './oracleIrServerHandCardToExilePrompts.js';
+import { queueImpulseExileTargetPlayerPromptsFromOracleIRResult } from './oracleIrServerImpulseTargetPlayerPrompts.js';
 
 export function applyOracleIRStepsOnServer(
   ctx: GameContext,
@@ -563,6 +565,18 @@ export function applyOracleIRStepsOnServer(
     irCtx,
   });
   queueHandCardToLibraryChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueHandCardToExileChoicePromptsFromOracleIRResult(ctx, state, result, {
+    controller,
+    sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
+    sourceId: String(irCtx.sourceId || '').trim() || undefined,
+    irCtx,
+  });
+  queueImpulseExileTargetPlayerPromptsFromOracleIRResult(ctx, state, result, {
     controller,
     sourceName: String(irCtx.sourceName || '').trim() || 'Ability',
     sourceId: String(irCtx.sourceId || '').trim() || undefined,

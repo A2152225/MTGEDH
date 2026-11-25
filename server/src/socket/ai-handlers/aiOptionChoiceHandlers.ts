@@ -341,6 +341,20 @@ export function chooseAIOptionSelectionsForStep(
     return chooseAIMoveChosenHandCardToLibrarySelection(game, playerId, step, options, resolveOptionId);
   }
 
+  if (step?.moveChosenHandCardToExileChoice === true) {
+    // Same ranking as hand→library: exile the least useful offered hand card.
+    return chooseAIMoveChosenHandCardToLibrarySelection(
+      game,
+      playerId,
+      {
+        ...step,
+        moveChosenHandCardToLibraryController: step.moveChosenHandCardToExileController || playerId,
+      },
+      options,
+      resolveOptionId,
+    );
+  }
+
   if (step?.attachEquipmentToPermanentChoice === true) {
     return chooseAIAttachEquipmentToPermanentChoiceSelection(game, playerId, step, options, resolveOptionId);
   }

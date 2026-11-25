@@ -155,7 +155,11 @@ export function hasExhaustedOnceDuringEachGraveyardCastActivation(
 }
 
 export function isRecognizedActivatedAbilityCostText(cost: string): boolean {
-  const costLower = String(cost || '').trim().toLowerCase();
+  const trimmed = String(cost || '').trim();
+  const costLower = trimmed.toLowerCase();
+  // Full-card oracle often reaches here as "Whenever … get {E}{E}\nPay {E}{E}".
+  // Trigger prefixes are never activation costs (Aethergeode Miner AON path).
+  if (/^(?:whenever|when|at the beginning of)\b/i.test(trimmed)) return false;
   return (
     cost.includes('{') ||
     costLower.includes('tap') ||

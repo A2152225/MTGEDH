@@ -328,6 +328,20 @@ describe('rankCandidates', () => {
     );
   });
 
+  it('holds counterspell when a much bigger enemy spell sits under a cheap top', () => {
+    const shockOverExpro = baseObs({
+      stack: [
+        { id: 's_expro', controller: 'p2', name: 'Expropriate', cmc: 7, type: 'spell' },
+        { id: 's_shock', controller: 'p2', name: 'Shock', cmc: 1, type: 'spell' },
+      ],
+    });
+    const profiles = () =>
+      profile({ name: 'Counterspell', roles: ['counterspell'], timing: 'instant' });
+    const c = [cand({ index: 0, kind: 'cast_spell', name: 'Counterspell', v0Priority: 60 })];
+    expect(buildScoreContext(shockOverExpro).bestEnemyUnderStackCmc).toBe(7);
+    expect(rankCandidates(shockOverExpro, c, profiles)[0].dropped).toBe(true);
+  });
+
   it('passes through cards with no profile at exact v0Priority', () => {
     const obs = baseObs();
     const ranked = rankCandidates(

@@ -462,6 +462,20 @@ export async function executeAILegacyActivateAbility(
         } else {
           // Regular non-mana ability
           persistedAbilityType = 'generic';
+          // Legacy stack path historically used targets: []. IR then skipped
+          // target_opponent steps (Chaos Wand) with unsupported_player_selector.
+          let legacyTargets: string[] = [];
+          if (/\btarget opponent\b/i.test(activatedAbilityText) && !persistedChosenOpponentId) {
+            const opponents = (game.state?.players || [])
+              .filter((p: any) => p?.id && String(p.id) !== String(playerId) && !p.hasLost && !p.leftGame && !p.conceded)
+              .map((p: any) => String(p.id));
+            if (opponents.length > 0) {
+              persistedChosenOpponentId = opponents[Math.floor(aiRandom() * opponents.length)];
+            }
+          }
+          if (persistedChosenOpponentId) {
+            legacyTargets = [String(persistedChosenOpponentId)];
+          }
           const stackItem = {
             id: `stack_ability_${Date.now()}_${permanent.id}`,
             type: 'ability',
@@ -477,7 +491,8 @@ export async function executeAILegacyActivateAbility(
               oracle_text: card.oracle_text,
               image_uris: card.image_uris,
             },
-            targets: [],
+            targets: legacyTargets,
+            ...(persistedChosenOpponentId ? { targetOpponentId: persistedChosenOpponentId } : {}),
           };
           
           game.state.stack.push(stackItem as any);

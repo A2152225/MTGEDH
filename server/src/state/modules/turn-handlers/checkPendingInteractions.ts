@@ -292,7 +292,16 @@ export function checkPendingInteractions(ctx: GameContext): {
           }
         }
         
-        const blockersDeclaredBy = state.blockersDeclaredBy || [];
+        if (!Array.isArray(state.blockersDeclaredBy)) {
+          state.blockersDeclaredBy = [];
+        }
+        const blockersDeclaredBy: string[] = state.blockersDeclaredBy;
+        const priorityPassedBy = state.priorityPassedBy;
+        const defenderAlreadyPassed = (defenderId: string): boolean => {
+          if (priorityPassedBy instanceof Set) return priorityPassedBy.has(defenderId);
+          if (Array.isArray(priorityPassedBy)) return priorityPassedBy.includes(defenderId);
+          return false;
+        };
         
         // Check if ALL defending players have declared blockers
         const allDefendersHaveDeclared = Array.from(defendingPlayersSet).every(defenderId => 
@@ -318,6 +327,15 @@ export function checkPendingInteractions(ctx: GameContext): {
             // If this defender has NO potential blockers, auto-declare empty blockers for them
             if (!hasPotentialBlockers) {
               debug(2, `${ts()} [checkPendingInteractions] Auto-declaring empty blockers for ${defenderId} (no valid blockers)`);
+              blockersDeclaredBy.push(defenderId);
+              queueParsedAttacksUnblockedTriggersOnce(ctx, String(defenderId));
+              continue;
+            }
+
+            // Re-gate shard 281: defender passed priority without declaring → empty blocks.
+            // Otherwise blocker_declaration stays pending forever and priority ping-pongs.
+            if (defenderAlreadyPassed(defenderId)) {
+              debug(2, `${ts()} [checkPendingInteractions] Auto-declaring empty blockers for ${defenderId} (passed priority without declare)`);
               blockersDeclaredBy.push(defenderId);
               queueParsedAttacksUnblockedTriggersOnce(ctx, String(defenderId));
               continue;

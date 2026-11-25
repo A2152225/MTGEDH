@@ -1,7 +1,8 @@
 // server/src/state/modules/oracleIrServerZoneSync-handlers/oracleIrServerImpulseDuringResolutionCastPrompts.ts
 // Origin parent: server/src/state/modules/oracleIrServerZoneSync.ts
-// Cluster: during-resolution "that player may cast that card" after share-a-type
-//   impulse exile (Possibility Storm). The original stack spell is not "that card".
+// Cluster: during-resolution "you/that player may cast that card" after impulse exile
+//   until-hit (Possibility Storm share-a-type; Chaos Wand instant/sorcery). The original
+//   stack spell is not "that card" for replacement effects.
 // Public entry symbol: queueDuringResolutionShareTypeCastPromptFromOracleIRResult.
 // Called from applyOracleIRStepsOnServer; not part of the public API.
 
@@ -17,11 +18,15 @@ import { ResolutionQueueManager } from '../../resolution/index.js';
 import { getOrCreatePlayerZones } from '../triggerLibraryMillUtils.js';
 import { queueCastFromExileResolutionPrompt } from '../triggerCastFromExileUtils.js';
 
-function appliedShareTypeImpulseSteps(result: OracleIRExecutionResult): OracleEffectStep[] {
+function appliedDuringResolutionUntilHitImpulseSteps(result: OracleIRExecutionResult): OracleEffectStep[] {
   return (result.appliedSteps || []).filter((step) => {
     if (step.kind !== 'impulse_exile_top') return false;
+    if (String((step as any)?.duration || '') !== 'during_resolution') return false;
     const amountRaw = String((step as any)?.amount?.raw || '').toLowerCase();
-    return /shares a card type with it/.test(amountRaw);
+    return (
+      /shares a card type with it/.test(amountRaw)
+      || /until (?:they|you) exile an instant or sorcery card/.test(amountRaw)
+    );
   });
 }
 
@@ -134,7 +139,7 @@ export function queueDuringResolutionShareTypeCastPromptFromOracleIRResult(
 ): void {
   const gameId = String((ctx as any).gameId || '').trim();
   if (!gameId || gameId === 'unknown' || (ctx as any).isReplaying) return;
-  if (appliedShareTypeImpulseSteps(result).length === 0) return;
+  if (appliedDuringResolutionUntilHitImpulseSteps(result).length === 0) return;
 
   const originalSpellIds = collectOriginalStackSpellIds(state, params.irCtx);
   const hitCards = collectExileCards(state).filter((card) => {

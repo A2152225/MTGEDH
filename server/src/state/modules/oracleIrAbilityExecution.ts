@@ -171,6 +171,29 @@ export function collectActivatedAbilitySteps(
     return applyCompiledOverlayToActivatedSteps(innerText, sourceName, steps, options);
   }
 
+  // Full-card oracle often arrives as trigger lines + an activated line. Prefer the
+  // last line-scoped Cost: Effect so "Whenever … get {E}\nPay {E}: Exile…" does not
+  // treat the trigger as part of the cost (Aethergeode Miner self-play AON).
+  const activatedLines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^([^:]+):\s*(.+)$/s);
+      if (!match) return null;
+      const cost = String(match[1] || '').trim();
+      if (!isRecognizedActivatedAbilityCostText(cost)) return null;
+      return line;
+    })
+    .filter((line): line is string => Boolean(line));
+  // Only rewrite when full-card text spans lines (single-line Cost: Effect keeps prior path).
+  if (activatedLines.length > 0 && raw.includes('\n')) {
+    const scoped = activatedLines[activatedLines.length - 1];
+    const ir = parseOracleTextToIR(scoped, sourceName);
+    const steps = (ir.abilities || []).flatMap((ability) => ability.steps || []);
+    return applyCompiledOverlayToActivatedSteps(scoped, sourceName, steps, options);
+  }
+
   const costEffectSplit = raw.match(/^([^:]+):\s*(.+)$/s);
   if (costEffectSplit && isRecognizedActivatedAbilityCostText(String(costEffectSplit[1] || '').trim())) {
     const ir = parseOracleTextToIR(raw, sourceName);
@@ -401,11 +424,54 @@ export function tryApplyOracleIRToActivatedAbility(
     }
 
     const state = (ctx as any).state;
-    const targetBinding = inferOracleIrTargetBinding(state, params.targets || [], params.controller);
-    const sourcePermanentId = String(params.sourcePermanentId || params.stackItemId || '').trim();
-    const sourcePermanent = (state?.battlefield || []).find(
-      (perm: any) => perm && String(perm.id || '') === sourcePermanentId,
+    const sourceItemTargets = Array.isArray((params.sourceItem as any)?.targets)
+      ? (params.sourceItem as any).targets
+      : [];
+    const sourceItemOpponentId = String(
+      (params.sourceItem as any)?.targetOpponentId
+      || (params.sourceItem as any)?.targetPlayerId
+      || '',
+    ).trim();
+    const mergedTargetIds = [
+      ...(Array.isArray(params.targets) ? params.targets : []),
+      ...sourceItemTargets,
+      ...(sourceItemOpponentId ? [sourceItemOpponentId] : []),
+    ]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+    const targetBinding = inferOracleIrTargetBinding(state, mergedTargetIds, params.controller);
+    // Prefer the battlefield permanent that activated (item.source / sourcePermanentId). Stack item
+    // ids are not permanents — using them as sourceId makes "Exile this creature" / flicker fail
+    // with no_steps_applied_or_queued (Aethergeode Miner and similar).
+    const explicitSourcePermanentId = String(
+      params.sourcePermanentId
+      || (params.sourceItem as any)?.source
+      || '',
+    ).trim();
+    const stackItemId = String(params.stackItemId || '').trim();
+    const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+    const stackIdIsBattlefieldPermanent = Boolean(
+      stackItemId
+      && battlefield.some((perm: any) => perm && String(perm.id || '') === stackItemId),
     );
+    let sourcePermanentId = explicitSourcePermanentId
+      || (stackIdIsBattlefieldPermanent ? stackItemId : '');
+    // Energy flicker / similar "this creature" effects need a battlefield id. When the stack
+    // item omitted source, uniquely match controller + sourceName (Aethergeode Miner pattern).
+    if (!sourcePermanentId && params.sourceName) {
+      const nameMatches = battlefield.filter(
+        (perm: any) =>
+          perm
+          && String(perm.controller || '') === String(params.controller || '')
+          && String(perm?.card?.name || '').trim() === String(params.sourceName || '').trim(),
+      );
+      if (nameMatches.length === 1) {
+        sourcePermanentId = String(nameMatches[0]?.id || '').trim();
+      }
+    }
+    const sourcePermanent = sourcePermanentId
+      ? battlefield.find((perm: any) => perm && String(perm.id || '') === sourcePermanentId)
+      : undefined;
     const chosenCreatureType = String(
       sourcePermanent?.chosenCreatureType
       || params.sourceItem?.chosenCreatureType
@@ -424,7 +490,7 @@ export function tryApplyOracleIRToActivatedAbility(
     const irCtx = buildOracleIRExecutionContext(
       {
         controllerId: params.controller,
-        sourceId: params.sourcePermanentId || params.stackItemId,
+        sourceId: sourcePermanentId || undefined,
         sourceName: params.sourceName,
         sourceObjectType: 'ability',
         ...(typeof params.teamworkWasPaid === 'boolean' ? { teamworkWasPaid: params.teamworkWasPaid } : {}),
@@ -476,11 +542,11 @@ export function tryApplyOracleIRToActivatedAbility(
       const effectProgramResult = startOracleEffectProgramOnServer(ctx, {
         controller: params.controller,
         sourceName: params.sourceName,
-        sourceId: params.sourcePermanentId || params.stackItemId,
+        sourceId: sourcePermanentId || undefined,
         steps,
         irCtx,
         executionOptions,
-        programIdPrefix: `activated:${params.sourcePermanentId || params.stackItemId || params.sourceName}`,
+        programIdPrefix: `activated:${sourcePermanentId || stackItemId || params.sourceName}`,
         metadata: {
           family: 'activated_ability_resolution',
           ...(params.sourceItem ? { triggerItem: params.sourceItem } : {}),

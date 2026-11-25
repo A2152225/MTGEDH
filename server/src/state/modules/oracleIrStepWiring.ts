@@ -14,8 +14,8 @@ import { isOracleIrContinuationBridged } from './oracleIrContinuationBridge.js';
  * Kept explicit so new activated-only kinds are reviewed alongside ACTIVATED wiring.
  */
 export const ORACLE_IR_ACTIVATED_ONLY_STEP_KINDS = new Set<string>([
-  'roll_die',
-  'die_roll_results',
+  // roll_die / die_roll_results / pay_energy live in ORACLE_IR_FALLBACK_STEP_KINDS
+  // (triggers + activated share the same executor / prompt bridges).
   'copy_spell',
   'choose_mode',
   'player_choice',

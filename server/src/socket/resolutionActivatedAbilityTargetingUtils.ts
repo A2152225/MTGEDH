@@ -239,7 +239,22 @@ export function buildActivatedAbilityValidTargets(
           })));
         break;
       default: {
+        // Creature subtypes ("villain", "insect", "rat", …) and subtype unions.
+        // activatedAbilityPermanentTargetMatches ends with typeLine.includes(targetType).
         if (!targetType.startsWith('graveyard_')) {
+          if (targetType.length > 0) {
+            validTargets.push(...stateBattlefield
+              .filter((perm: any) => activatedAbilityPermanentTargetMatches(perm, targetType, controllerId, targetReqs))
+              .map((perm: any) => ({
+                id: String(perm.id),
+                name: perm.card?.name || 'Creature',
+                type: 'permanent',
+                controller: perm.controller,
+                typeLine: perm.card?.type_line || '',
+                tapped: perm?.tapped === true,
+                imageUrl: perm.card?.image_uris?.small || perm.card?.image_uris?.normal,
+              })));
+          }
           break;
         }
         const graveyardOwnerIds = (targetReqs.graveyardScope === 'any'

@@ -14,7 +14,8 @@ import { playerIsLegalAttackTarget } from './playerInGameStatus';
 import { planAIBlocks } from './aiEngineBlockPlanning';
 import { aiRandom } from './aiRandom';
 import { planAttacks } from './ai/attackPlanner.js';
-import { planAttacksFast, shouldUseAttackPlannerFast } from './ai/attackPlannerFast.js';
+import { shouldUseAttackPlannerFast } from './ai/attackPlannerFast.js';
+import { planLethalAttacksOnly } from './ai/attackPlannerLethalOnly.js';
 import { planBlocks } from './ai/blockPlanner.js';
 import {
   filterStickyAttacksToLegal,
@@ -320,80 +321,65 @@ export function makeBasicAttackDecision(
     || (player as any)?.aiBrain
     || (typeof process !== 'undefined' ? process.env?.AI_BRAIN : undefined);
   if (seatBrain === 'v2') {
-    // planAttacks×resolveCombat can hang the exclusive AI action on huge boards.
-    // Use a bounded greedy fast path instead of falling into full v0 evaluation.
+    // Large boards / big attack pools: skip full planAttacks (resolveCombat hang risk)
+    // but do NOT take the greedy planAttacksFast path — that overcommits vs v1's
+    // evaluateCombatValue declare path and drove Phase 2 decisive win rate ~27%.
+    // Still try a cheap lethal-only pass before the budgeted v0 path.
     const boardSize = Array.isArray(globalBattlefield) ? globalBattlefield.length : 0;
     const attackPool = legalAttackerIds.length + goadedAttackers.length;
-    if (shouldUseAttackPlannerFast(boardSize, attackPool)) {
-      const planned = planAttacksFast({
-        gameState: context.gameState,
-        playerId: context.playerId,
-        legalAttackerIds,
-        goaded: goadedAttackers,
-        battlefield: globalBattlefield,
-      });
-      writeStickyAttackPlan(context.gameState, context.playerId, planned.attackers);
-      return {
-        type: AIDecisionType.DECLARE_ATTACKERS,
-        playerId: context.playerId,
-        action: { attackers: planned.attackers },
-        reasoning: `v2 attack planner fast (${planned.reason}, ${planned.ms.toFixed(1)}ms, board=${boardSize}, pool=${attackPool})`,
-        confidence: 0.8,
-      };
-    }
-    try {
-      const planned = planAttacks({
-        gameState: context.gameState,
-        playerId: context.playerId,
-        legalAttackerIds,
-        goaded: goadedAttackers,
-        battlefield: globalBattlefield,
-      });
-      if (planned.reason === 'time-budget' || planned.ms > 2_500) {
-        console.warn(
-          `[ai] v2 attack planner too slow (${planned.ms.toFixed(0)}ms, ${planned.reason}); using fast path`,
-        );
-        const fast = planAttacksFast({
+    const skipFullPlanner = shouldUseAttackPlannerFast(boardSize, attackPool);
+    if (!skipFullPlanner) {
+      try {
+        const planned = planAttacks({
           gameState: context.gameState,
           playerId: context.playerId,
           legalAttackerIds,
           goaded: goadedAttackers,
           battlefield: globalBattlefield,
         });
-        writeStickyAttackPlan(context.gameState, context.playerId, fast.attackers);
-        return {
-          type: AIDecisionType.DECLARE_ATTACKERS,
-          playerId: context.playerId,
-          action: { attackers: fast.attackers },
-          reasoning: `v2 attack planner fast-after-slow (${fast.reason}, ${fast.ms.toFixed(1)}ms)`,
-          confidence: 0.8,
-        };
+        if (planned.reason === 'time-budget' || planned.ms > 2_500) {
+          // Incomplete planAttacks (often goaded-only) — try lethal-only, else v0.
+          // Do not also discard a finished wp-greedy plan into a second full v0
+          // eval: that double combat cost stagnated smoke3 shards 19/21.
+          console.warn(
+            `[ai] v2 attack planner too slow (${planned.ms.toFixed(0)}ms, ${planned.reason}); trying lethal-only then v0`,
+          );
+        } else {
+          writeStickyAttackPlan(context.gameState, context.playerId, planned.attackers);
+          return {
+            type: AIDecisionType.DECLARE_ATTACKERS,
+            playerId: context.playerId,
+            action: { attackers: planned.attackers },
+            reasoning: `v2 attack planner (${planned.reason}, ${planned.ms.toFixed(1)}ms)`,
+            confidence: 0.85,
+          };
+        }
+      } catch (err) {
+        console.warn('[ai] v2 attack planner failed; trying lethal-only then v0', err);
       }
-      writeStickyAttackPlan(context.gameState, context.playerId, planned.attackers);
-      return {
-        type: AIDecisionType.DECLARE_ATTACKERS,
-        playerId: context.playerId,
-        action: { attackers: planned.attackers },
-        reasoning: `v2 attack planner (${planned.reason}, ${planned.ms.toFixed(1)}ms)`,
-        confidence: 0.85,
-      };
-    } catch (err) {
-      console.warn('[ai] v2 attack planner failed, using fast path', err);
-      const fast = planAttacksFast({
+    }
+    // Large-board skip or planner timeout/error: still close if findLethal is cheap.
+    try {
+      const lethalOnly = planLethalAttacksOnly({
         gameState: context.gameState,
         playerId: context.playerId,
         legalAttackerIds,
         goaded: goadedAttackers,
         battlefield: globalBattlefield,
+        maxMs: 8,
       });
-      writeStickyAttackPlan(context.gameState, context.playerId, fast.attackers);
-      return {
-        type: AIDecisionType.DECLARE_ATTACKERS,
-        playerId: context.playerId,
-        action: { attackers: fast.attackers },
-        reasoning: `v2 attack planner fast-after-error (${fast.reason}, ${fast.ms.toFixed(1)}ms)`,
-        confidence: 0.75,
-      };
+      if (lethalOnly && lethalOnly.attackers.length > 0) {
+        writeStickyAttackPlan(context.gameState, context.playerId, lethalOnly.attackers);
+        return {
+          type: AIDecisionType.DECLARE_ATTACKERS,
+          playerId: context.playerId,
+          action: { attackers: lethalOnly.attackers },
+          reasoning: `v2 lethal-only (${lethalOnly.reason}, ${lethalOnly.ms.toFixed(1)}ms)`,
+          confidence: 0.9,
+        };
+      }
+    } catch (err) {
+      console.warn('[ai] v2 lethal-only attack check failed; using v0 declare path', err);
     }
   }
 
@@ -646,6 +632,7 @@ export function makeBasicBlockDecision(
   }
 
   // Decide large-combat BEFORE evaluateCombatValue×N (cardAnalyzer per blocker hung exclusive AI).
+  // Smoke43 tiny-pool v2 exception on bf>24 → 9.1% decisive — reverted to bf>24 skip.
   const largeCombat =
     attackerCreatures.length > 8
     || blockerPermanents.length > 8

@@ -14,11 +14,12 @@ import { clearTemporaryEtbTriggers } from '../triggerEtbEntryEffects.js';
 import { clearMarkedPermanentDamage } from "../counter-common-effects.js";
 import { syncPreparedPermanentAfterControlChange } from "../prepared.js";
 import { removeControlEffects, syncControlFromRegistry } from "../continuousEffectRegistry.js";
-import { queueParsedSubjectEvent } from "../triggerEmissionFamilyUtils.js";
+import { emitParsedSubjectEvent } from "../triggerEmissionFamilyUtils.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../resolution/index.js";
 import { clearTemporaryGraveyardKeywordGrants, clearTemporaryPlayableFromGraveyardPermissions } from "../graveyard-permissions.js";
 import { expireDelayedDealtDamageWatchers } from "../triggers/dealt-damage-watchers.js";
 import { batch112SkipDamageCleanup } from "../batch112Apply.js";
+import { playerCannotReceivePriority } from "../priorityEligibility.js";
 
 /** Small helper to prepend ISO timestamp to debug logs */
 function ts() {
@@ -581,6 +582,29 @@ function setupCleanupDiscard(ctx: GameContext, playerId: string): { needsInterac
 
     const gameId = (ctx as any).gameId;
     if (!gameId) return { needsInteraction: false, discardCount: 0 };
+
+    // Eliminated turn players never discard to hand size — queuing a prompt for them
+    // soft-locks CLEANUP (priority is null; AI wake skips seats that cannot receive priority).
+    const seat = (Array.isArray(state.players) ? state.players : [])
+      .find((p: any) => String(p?.id || '') === String(playerId || ''));
+    if (playerCannotReceivePriority(seat, ctx as any)) {
+      try {
+        const leftover = ResolutionQueueManager
+          .getStepsForPlayer(gameId, playerId as any)
+          .filter((s: any) =>
+            s?.type === ResolutionStepType.DISCARD_SELECTION
+            && String((s as any)?.reason || '') === 'cleanup'
+            && String(s?.status || '').toLowerCase() !== 'completed'
+            && String(s?.status || '').toLowerCase() !== 'cancelled'
+          );
+        for (const step of leftover) {
+          ResolutionQueueManager.cancelStep(gameId, String(step.id || ''));
+        }
+      } catch {
+        // Best-effort only
+      }
+      return { needsInteraction: false, discardCount: 0 };
+    }
     
     const maxHandSize = getMaxHandSize(ctx, playerId);
     if (maxHandSize === Infinity) {

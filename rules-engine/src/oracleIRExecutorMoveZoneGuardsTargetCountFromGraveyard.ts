@@ -22,12 +22,27 @@ import {
   returnAllOwnedMatchingCardsToPlayerHand,
 } from './oracleIRExecutorZoneOps';
 import {
+  findBoundCardZoneLocation,
   getChosenObjectIds,
   getOpponents,
   getTargetPlayerId,
   resolveMoveZoneGraveyardCount,
 } from './oracleIRExecutorMoveZoneReferenceResolvers';
 import { requiresExplicitControllerOverride } from './oracleIRExecutorMoveZoneContextualCardResolvers';
+import { moveTargetedCardFromGraveyard } from './oracleIRExecutorZoneOps';
+
+function resolveGraveyardOwnerFromChosenIds(
+  state: MoveZoneGuardArgs['nextState'],
+  preferredIds: readonly string[],
+): string {
+  for (const cardId of preferredIds) {
+    const location = findBoundCardZoneLocation(state, cardId);
+    if (location?.zone === 'graveyard' && location.playerId) {
+      return String(location.playerId);
+    }
+  }
+  return '';
+}
 
 export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZoneGuardArgs): MoveZoneStepHandlerResult | undefined {
   const { state, step, ctx, log, controllerId, effectiveWithCounters, finalizeAppliedResult, attachmentResolution } = args;
@@ -37,6 +52,7 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
   const {
     parsedCountFromGraveyard,
     parsedTargetCountFromGraveyard,
+    parsedNTargetCardsFromOpponentOrPlayerGy,
   } = args.zoneQueries;
   const {
     parsedEachOpponentsGy,
@@ -48,8 +64,90 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
     parsedTargetPlayerExile,
   } = args.referenceQueries;
 
+  // Spurnmage Advocate: N target cards from (an|target) opponent's/player's GY → hand via bound targets.
+  if (parsedNTargetCardsFromOpponentOrPlayerGy && step.to === 'hand') {
+    const preferred = getChosenObjectIds(ctx);
+    const requiredCount = parsedNTargetCardsFromOpponentOrPlayerGy.count;
+    const gyChosen = preferred.filter((id) => findBoundCardZoneLocation(nextState, id)?.zone === 'graveyard');
+    if (gyChosen.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped move zone (needs player card selection): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: {
+          classification: 'player_choice',
+          metadata: {
+            requiredCount,
+            availableCount: 0,
+            zone: 'graveyard',
+            destination: 'hand',
+          },
+        },
+      };
+    }
+
+    let targetPlayerId = getTargetPlayerId(ctx) || resolveGraveyardOwnerFromChosenIds(nextState, gyChosen);
+    if (!targetPlayerId) {
+      return {
+        applied: false,
+        message: `Skipped move zone (unsupported selector): ${step.raw}`,
+        reason: 'unsupported_selector',
+      };
+    }
+
+    const ownerGyIds = gyChosen.filter((id) => {
+      const location = findBoundCardZoneLocation(nextState, id);
+      return location?.zone === 'graveyard' && String(location.playerId) === String(targetPlayerId);
+    });
+    if (ownerGyIds.length < requiredCount) {
+      return {
+        applied: false,
+        message: `Skipped move zone (needs player card selection): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: {
+          classification: 'player_choice',
+          metadata: {
+            requiredCount,
+            availableCount: ownerGyIds.length,
+            zone: 'graveyard',
+            destination: 'hand',
+            targetPlayerId,
+          },
+        },
+      };
+    }
+
+    const cardIds = ownerGyIds.slice(0, requiredCount);
+    let workingState = nextState;
+    const combinedLog: string[] = [];
+    const movedCards: any[] = [];
+    for (const cardId of cardIds) {
+      const ownerPlayer = (workingState.players || []).find((p: any) => p.id === targetPlayerId) as any;
+      const before = (Array.isArray(ownerPlayer?.graveyard) ? ownerPlayer.graveyard : [])
+        .find((card: any) => String(card?.id || '').trim() === cardId);
+      const result = moveTargetedCardFromGraveyard(workingState, targetPlayerId as any, cardId, { cardType: 'any' }, 'hand');
+      if (result.kind !== 'applied') {
+        return {
+          applied: false,
+          message: `Skipped move zone (failed to move targeted card): ${step.raw}`,
+          reason: 'failed_to_apply',
+        };
+      }
+      workingState = result.state;
+      combinedLog.push(...(result.log || []));
+      if (before) movedCards.push(before);
+    }
+    return finalizeAppliedResult({
+      kind: 'applied',
+      state: workingState,
+      log: combinedLog.length > 0 ? combinedLog : [`Returned ${cardIds.length} target graveyard card(s) to hand: ${step.raw}`],
+      lastMovedCards: movedCards,
+    } as any);
+  }
+
   if (parsedTargetCountFromGraveyard) {
-    const targetPlayerId = getTargetPlayerId(ctx);
+    const preferred = getChosenObjectIds(ctx);
+    let targetPlayerId = getTargetPlayerId(ctx) || resolveGraveyardOwnerFromChosenIds(nextState, preferred);
     if (!targetPlayerId) {
       return {
         applied: false,
@@ -74,13 +172,19 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
       };
     }
 
+    const preferredForOwner = preferred.filter((id) => {
+      const location = findBoundCardZoneLocation(nextState, id);
+      return location?.zone === 'graveyard' && String(location.playerId) === String(targetPlayerId);
+    });
+
     const result =
       step.to === 'hand'
         ? returnExactMatchingFromGraveyardToHand(
             nextState,
             targetPlayerId,
             parsedTargetCountFromGraveyard.count,
-            parsedTargetCountFromGraveyard.cardType
+            parsedTargetCountFromGraveyard.cardType,
+            preferredForOwner,
           )
         : step.to === 'battlefield'
           ? putExactMatchingFromGraveyardOntoBattlefieldWithController(

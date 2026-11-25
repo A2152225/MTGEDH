@@ -12,6 +12,7 @@ import type { GameContext } from "../../state/context.js";
 import { canPlayerPayLife } from "../../state/modules/game-state-effects-handlers/gameStateEffectsLifeModifierOraclePatterns.js";
 import { playersCannotPayLifeToCastOrActivateNonMana } from "../../state/modules/karnsSylexPayLifeRestriction.js";
 import { isActivatedManaAbilityText } from "../../state/modules/ability-cost-adjustments.js";
+import { energyCostError, parseEnergyCost, payEnergyCost } from "../../state/modules/equipNonManaCosts.js";
 import { parseWordNumber } from "../../state/utils";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug } from "../../utils/debug.js";
@@ -48,6 +49,54 @@ export async function tryHandleActivatePayLifeExileCounters(
   let manaCost = costState.manaCost;
   let pendingLifePaymentForCost = costState.pendingLifePaymentForCost;
   const pendingCounterRemovals = costState.pendingCounterRemovals;
+
+  // ========================================================================
+  // PAY ENERGY AS AN ACTIVATION COST (generic)
+  // Examples: "Pay {E}{E}: Exile this creature…", "{E}{E}{E}: …"
+  // {E} is not mana — without this, parseManaCost ignores it and the ability is free.
+  // ========================================================================
+  {
+    const costStr = String(manaCost || '').trim();
+    const energyOnly = parseEnergyCost(costStr);
+    const payEnergyClause = costStr.match(/\bpay\s+((?:\{E\})+)\b/i);
+    const energyFromClause = payEnergyClause
+      ? (String(payEnergyClause[1] || '').match(/\{E\}/gi) || []).length
+      : null;
+    const energyAmount = energyOnly ?? energyFromClause;
+    if (energyAmount !== null && energyAmount > 0) {
+      const remainingAfterEnergy = costStr
+        .replace(/\{E\}/gi, ' ')
+        .replace(/\bpay\b/gi, ' ')
+        .replace(/\{[^}]+\}/g, ' ')
+        .replace(/[\s,]+/g, ' ')
+        .trim();
+      if (remainingAfterEnergy.length > 0) {
+        socket.emit('error', {
+          code: 'UNSUPPORTED_COST',
+          message: `Cannot activate ${cardName}: energy cost with additional non-mana components is not supported yet (${remainingAfterEnergy}).`,
+        });
+        return true;
+      }
+      const err = energyCostError(game.state, String(pid), `Pay ${'{E}'.repeat(energyAmount)}`);
+      if (err) {
+        socket.emit('error', {
+          code: 'INSUFFICIENT_ENERGY',
+          message: `Cannot activate ${cardName}: ${err}`,
+        });
+        return true;
+      }
+      if (!payEnergyCost(game.state, String(pid), `Pay ${'{E}'.repeat(energyAmount)}`)) {
+        socket.emit('error', {
+          code: 'INSUFFICIENT_ENERGY',
+          message: `Cannot activate ${cardName}: failed to pay ${energyAmount} energy.`,
+        });
+        return true;
+      }
+      manaCost = '';
+      costState.manaCost = manaCost;
+      debug(2, `[activateBattlefieldAbility] ${cardName} paid ${energyAmount} energy as activation cost`);
+    }
+  }
 
   // ========================================================================
   // PAY LIFE AS AN ACTIVATION COST (generic)

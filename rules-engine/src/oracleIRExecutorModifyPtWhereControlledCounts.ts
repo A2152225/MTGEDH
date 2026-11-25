@@ -4,6 +4,7 @@ import type { OracleIRExecutionContext } from './oracleIRExecutionTypes';
 type ColorQualifiedClassSpec = {
   readonly classes: readonly string[];
   readonly requiredColor?: string;
+  readonly colorlessOnly?: boolean;
 };
 
 type ResolveContextPlayer = () => { readonly id?: string } | null;
@@ -11,7 +12,8 @@ type ParseColorQualifiedClassSpec = (value: string) => ColorQualifiedClassSpec |
 type CountByClasses = (
   pool: readonly BattlefieldPermanent[],
   classes: readonly string[],
-  requiredColor?: string
+  requiredColor?: string,
+  colorlessOnly?: boolean
 ) => number;
 
 export function tryEvaluateModifyPtWhereControlledCounts(args: {
@@ -106,7 +108,7 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
       let opponentCount = 0;
       for (const opponentId of opponentIds) {
         const oppPermanents = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === opponentId);
-        const hasMatchingPermanent = countByClasses(oppPermanents, spec.classes, spec.requiredColor) > 0;
+        const hasMatchingPermanent = countByClasses(oppPermanents, spec.classes, spec.requiredColor, spec.colorlessOnly) > 0;
         if (hasMatchingPermanent) opponentCount += 1;
       }
 
@@ -135,7 +137,7 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
     if (m) {
       const spec = parseColorQualifiedClassSpec(String(m[1] || ''));
       if (spec) {
-        return countByClasses(controlled, spec.classes, spec.requiredColor);
+        return countByClasses(controlled, spec.classes, spec.requiredColor, spec.colorlessOnly);
       }
     }
   }
@@ -145,7 +147,7 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
     if (m) {
       const spec = parseColorQualifiedClassSpec(String(m[1] || ''));
       if (spec) {
-        return countByClasses(opponentsControlled, spec.classes, spec.requiredColor);
+        return countByClasses(opponentsControlled, spec.classes, spec.requiredColor, spec.colorlessOnly);
       }
     }
   }
@@ -158,7 +160,7 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
         const targetOpponentId = String(ctx?.selectorContext?.targetOpponentId || '').trim();
         if (!targetOpponentId) return null;
         const targetControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === targetOpponentId);
-        return countByClasses(targetControlled, spec.classes, spec.requiredColor);
+        return countByClasses(targetControlled, spec.classes, spec.requiredColor, spec.colorlessOnly);
       }
     }
   }
@@ -198,7 +200,7 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
         }
         const idSet = new Set(targetOpponentIds);
         const pool = battlefield.filter((p: any) => idSet.has(String((p as any)?.controller || '').trim()));
-        return countByClasses(pool, spec.classes, spec.requiredColor);
+        return countByClasses(pool, spec.classes, spec.requiredColor, spec.colorlessOnly);
       }
     }
   }
@@ -211,7 +213,7 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
         const targetOpponentId = String(ctx?.selectorContext?.targetOpponentId || '').trim();
         if (!targetOpponentId) return null;
         const targetControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === targetOpponentId);
-        return countByClasses(targetControlled, spec.classes, spec.requiredColor);
+        return countByClasses(targetControlled, spec.classes, spec.requiredColor, spec.colorlessOnly);
       }
     }
   }
@@ -226,7 +228,7 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
         const playerId = String((player as any)?.id || '').trim();
         if (!playerId) return null;
         const targetControlled = battlefield.filter((p: any) => String((p as any)?.controller || '').trim() === playerId);
-        return countByClasses(targetControlled, spec.classes, spec.requiredColor);
+        return countByClasses(targetControlled, spec.classes, spec.requiredColor, spec.colorlessOnly);
       }
     }
   }
@@ -242,7 +244,7 @@ export function tryEvaluateModifyPtWhereControlledCounts(args: {
         if (ids.length === 0) return null;
         const idSet = new Set(ids);
         const pool = battlefield.filter((p: any) => idSet.has(String((p as any)?.controller || '').trim()));
-        return countByClasses(pool, spec.classes, spec.requiredColor);
+        return countByClasses(pool, spec.classes, spec.requiredColor, spec.colorlessOnly);
       }
     }
   }

@@ -7,6 +7,7 @@
 
 import type { Server } from "socket.io";
 import { appendEvent } from "../db/index.js";
+import { readEffectProgramQueueMetadata } from "../state/effects/index.js";
 import {
   ResolutionQueueManager,
   ResolutionStepType,
@@ -48,21 +49,47 @@ export async function handleColorChoiceResponse(
   }
   
   const permanentId = (step as any).permanentId || (step as any).sourceId;
-  const spellId = (step as any).spellId;
+  const metadata = readEffectProgramQueueMetadata(step);
+  // Effect Program color prompts often store the stack id on metadata / sourceId only
+  // (Borg Incursion). Matching finalizeEffectProgramSpellColorChoiceAfterResume.
+  const spellId = String(
+    (step as any).spellId
+    || metadata?.effectProgramSourceId
+    || (step as any).sourceId
+    || '',
+  ).trim();
   const cardName = (step as any).cardName || (step as any).sourceName || 'Permanent';
   
   // Check if this is a spell color choice (instant/sorcery on stack)
   // vs a permanent ETB color choice
   const state = game.state || {};
   
-  if (spellId) {
-    // This is a spell on the stack that needs color choice (e.g., Brave the Elements)
-    const stack = state.stack || [];
-    const spellOnStack = stack.find((s: any) =>
-      s.id === spellId
-      || s.cardId === spellId
-      || s.card?.id === spellId
-    );
+  {
+    // This is a spell on the stack that needs color choice (e.g., Brave the Elements /
+    // Borg Incursion). Prefer explicit spellId, then top-of-stack name match when EP
+    // metadata was lost so the prompt cannot re-queue forever.
+    const stack = Array.isArray(state.stack) ? state.stack : [];
+    let spellOnStack = spellId
+      ? stack.find((s: any) =>
+        s && (
+          String(s.id || '') === spellId
+          || String(s.cardId || '') === spellId
+          || String(s.card?.id || '') === spellId
+        )
+      )
+      : undefined;
+    if (
+      !spellOnStack
+      && stack.length > 0
+      && ((step as any)?.effectProgramPrompt === true || Boolean(spellId))
+    ) {
+      const sourceName = String(cardName || '').trim().toLowerCase();
+      const top = stack[stack.length - 1];
+      const topName = String(top?.sourceName || top?.card?.name || top?.name || '').trim().toLowerCase();
+      if (sourceName && topName === sourceName) {
+        spellOnStack = top;
+      }
+    }
     
     if (spellOnStack) {
       // Store chosen color on the spell
@@ -79,7 +106,7 @@ export async function handleColorChoiceResponse(
           playerId: pid,
           resolvedStepId: String(step.id || '').trim(),
           resolvedStepType: String(step.type || '').trim(),
-          spellId: spellId,
+          spellId: String(spellOnStack.id || spellId),
           cardName: cardName,
           color: colorLower,
         });
@@ -101,12 +128,14 @@ export async function handleColorChoiceResponse(
         (game as any).bumpSeq();
       }
 
+      // Bypass blocking check: the answered color_choice is already completed, but an EP
+      // twin may still sit in the queue (Borg Incursion) and would refuse resolve otherwise.
       if (persistAndResolveTopOfStack(game, gameId, {
         playerId: pid,
-        spellId,
+        spellId: String(spellOnStack.id || spellId),
         cardName,
         reason: 'spellColorChoice',
-      })) {
+      }, { bypassBlockingPromptCheck: true })) {
         debug(2, `[Resolution] Resumed stack resolution after spell color choice for ${cardName}`);
       } else {
         debugWarn(1, `[Resolution] Game missing resolveTopOfStack after spell color choice for ${cardName}`);
@@ -114,7 +143,9 @@ export async function handleColorChoiceResponse(
       return;
     }
 
-    debugWarn(2, `[Resolution] Spell color choice: spell ${spellId} not found on stack for ${cardName}`);
+    if (spellId || (step as any)?.effectProgramPrompt === true) {
+      debugWarn(2, `[Resolution] Spell color choice: spell ${spellId || cardName} not found on stack for ${cardName}`);
+    }
   }
   
   // Default case: permanent ETB color choice

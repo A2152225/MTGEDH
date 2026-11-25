@@ -112,6 +112,7 @@ import {
   parseMoveZoneOwnedNonlandPermanentYouOwn,
   parseMoveZoneShuffleAnyNumberTargetCardsFromTargetPlayerGraveyard,
   parseMoveZoneExileXTargetCardsFromTargetPlayerGraveyard,
+  parseMoveZoneNTargetCardsFromOpponentOrPlayerGraveyard,
   parseMoveZoneForEachOpponentUpToOneNonlandBounce,
   parseMoveZoneAnyNumberOpponentOwnedLandsFromExile,
   parseMoveZoneCreatureFromOwnersGraveyardUnderOwner,
@@ -188,6 +189,8 @@ export function parseMoveZoneWhatZoneQueries(step: Extract<OracleEffectStep, { k
     parseMoveZoneShuffleAnyNumberTargetCardsFromTargetPlayerGraveyard(step.what as any);
   const parsedExileXTargetFromTargetPlayerGy =
     parseMoveZoneExileXTargetCardsFromTargetPlayerGraveyard(step.what as any);
+  const parsedNTargetCardsFromOpponentOrPlayerGy =
+    parseMoveZoneNTargetCardsFromOpponentOrPlayerGraveyard(step.what as any);
   const parsedForEachOpponentUpToOneNonlandBounce = parseMoveZoneForEachOpponentUpToOneNonlandBounce(
     step.what as any,
     step.raw
@@ -362,6 +365,7 @@ export function parseMoveZoneWhatZoneQueries(step: Extract<OracleEffectStep, { k
     parsedAllPermanentsYouOwn,
     parsedShuffleAnyNumberTargetFromTargetPlayerGy,
     parsedExileXTargetFromTargetPlayerGy,
+    parsedNTargetCardsFromOpponentOrPlayerGy,
     parsedForEachOpponentUpToOneNonlandBounce,
     parsedAnyNumberOpponentOwnedLandsFromExile,
     parsedCreatureFromOwnersGraveyardUnderOwner,

@@ -64,4 +64,40 @@ describe('activated ability target scope (multi-type lists, "another target")', 
       .sort();
     expect(ids).toEqual(['jace', 'my_walker', 'shark']);
   });
+
+  it('parses Swarmyard-style multi-subtype OR and lists every matching creature', () => {
+    const text = '{T}: Regenerate target Insect, Rat, Spider, or Squirrel.';
+    const reqs = parseTargetRequirements(text);
+    expect(reqs.needsTargets).toBe(true);
+    expect(reqs.targetTypes.map((t) => String(t).toLowerCase()).sort()).toEqual([
+      'insect',
+      'rat',
+      'spider',
+      'squirrel',
+    ]);
+
+    const board = game();
+    board.state.battlefield.push(
+      { id: 'rat', controller: 'p1', owner: 'p1', card: { id: 'rat', name: 'Pack Rat', type_line: 'Creature — Rat' } },
+      { id: 'insect', controller: 'p1', owner: 'p1', card: { id: 'insect', name: 'Bug', type_line: 'Creature — Insect' } },
+      { id: 'bear', controller: 'p1', owner: 'p1', card: { id: 'bear', name: 'Bear', type_line: 'Creature — Bear' } },
+    );
+    const ids = buildActivatedAbilityValidTargets(board, 'p1', reqs, { sourcePermanentId: 'yard', abilityText: text })
+      .map((target) => target.id)
+      .sort();
+    expect(ids).toEqual(['insect', 'rat']);
+  });
+
+  it('lists creature subtypes such as Villain for activated targeting', () => {
+    const text = '{3}, {T}: Target Villain you control connives.';
+    const reqs = parseTargetRequirements(text);
+    expect(reqs.targetTypes.map((t) => String(t).toLowerCase())).toEqual(['villain']);
+    const board = game();
+    board.state.battlefield.push(
+      { id: 'villain', controller: 'p1', owner: 'p1', card: { id: 'v', name: 'Audit Villain', type_line: 'Creature — Human Villain' } },
+    );
+    const ids = buildActivatedAbilityValidTargets(board, 'p1', reqs, { sourcePermanentId: 'hideout', abilityText: text })
+      .map((target) => target.id);
+    expect(ids).toEqual(['villain']);
+  });
 });

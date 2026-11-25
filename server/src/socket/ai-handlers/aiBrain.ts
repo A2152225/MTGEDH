@@ -132,6 +132,7 @@ export function applyBrain(
       .sort((a, b) => b.score - a.score || a.index - b.index);
 
     // v2 keeps v1 scoring/drops; turn planner then reorders among survivors.
+    // Smoke44 v2 tempo bias → 20% decisive — reverted.
     const out = (brain === 'v1' || brain === 'v2')
       ? keep.map((r) => sorted[r.index])
       : sorted;

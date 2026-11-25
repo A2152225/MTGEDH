@@ -281,6 +281,11 @@ export async function handleOptionChoiceResponse(
     return;
   }
 
+  if (stepData?.moveChosenHandCardToExileChoice === true) {
+    await getResolutionHandlerDeps().handleMoveChosenHandCardToExileChoice(io, game, gameId, step, response);
+    return;
+  }
+
   if (stepData?.sacrificeAnotherPermanentForBenefitChoice === true) {
     await getResolutionHandlerDeps().handleSacrificeAnotherPermanentForBenefitAskChoice(io, game, gameId, step, response);
     return;

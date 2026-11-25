@@ -61,6 +61,11 @@ describe('oracle IR step wiring guardrails', () => {
     ResolutionQueueManager.removeQueue('oracle_ir_wiring_shock_growth');
     ResolutionQueueManager.removeQueue('oracle_ir_wiring_resume_owner');
   });
+  it('wires time_travel and damage_cant_be_prevented for spell fallback', () => {
+    expect(ORACLE_IR_FALLBACK_STEP_KINDS.has('time_travel')).toBe(true);
+    expect(ORACLE_IR_FALLBACK_STEP_KINDS.has('damage_cant_be_prevented')).toBe(true);
+  });
+
   it('includes reanimation rider kinds in fallback and activated allowlists', () => {
     expect(ORACLE_IR_FALLBACK_STEP_KINDS.has('cant_attack')).toBe(true);
     expect(ORACLE_IR_ACTIVATED_STEP_KINDS.has('cant_attack')).toBe(true);

@@ -11,6 +11,7 @@
 //   requiresTargeting, GroupedTargetRequirement.
 // Stat/keyword filters live in targetingParseTargetRequirementRestrictions.ts.
 
+import { isCreatureTypeWord } from '../../../../shared/src/creatureTypes.js';
 import { inferManaValueConstraintFromText, type DynamicManaValueContext } from '../../state/modules/graveyard-mana-value.js';
 import type { StatRequirement, TargetRestriction } from './targetingSpellSpecTypes.js';
 import {
@@ -751,6 +752,20 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     return finish({ needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription });
   }
 
+  // Theater of Horrors / similar: "target opponent or planeswalker" (player OR PW).
+  // Must run before the single-type matcher, which would only keep "opponent".
+  const opponentOrPlaneswalkerMatch = t.match(
+    /target\s+(opponent|player)\s+or\s+planeswalker/i,
+  );
+  if (opponentOrPlaneswalkerMatch) {
+    const playerKind = String(opponentOrPlaneswalkerMatch[1] || 'opponent').toLowerCase();
+    minTargets = 1;
+    maxTargets = 1;
+    targetTypes.push(playerKind, 'planeswalker');
+    targetDescription = `target ${playerKind} or planeswalker`;
+    return finish({ needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription });
+  }
+
   // Check for standard "target X" patterns
   // Include counterspell subjects: "target noncreature spell", "target creature spell", "target spell"
   // Prefixes (tapped / attacking or blocking / …) are stripped into targetRestriction.
@@ -779,6 +794,62 @@ export function parseTargetRequirements(oracleText?: string, options?: DynamicMa
     targetTypes.push('ability');
     targetDescription = 'target ability';
     return { needsTargets: true, targetTypes, minTargets, maxTargets, targetDescription };
+  }
+
+  // Multi-subtype OR: "target Insect, Rat, Spider, or Squirrel" (Swarmyard).
+  // Must run before the single-subtype matcher, which would only keep "Insect".
+  // Require a trailing ", or X" / " or X" so bare "target Insect" stays single-type.
+  const multiSubtypeTargetMatch = t.match(
+    /target\s+([a-z][a-z0-9'-]+(?:,\s*[a-z][a-z0-9'-]+)*(?:,?\s+(?:and\/or|or)\s+[a-z][a-z0-9'-]+))(?:\s+(you\s+control|an\s+opponent\s+controls))?/i,
+  );
+  if (multiSubtypeTargetMatch) {
+    const subtypeRaw = String(multiSubtypeTargetMatch[1] || '')
+      .replace(/\s*,\s*(?:and\/or|or)\s+/gi, ',')
+      .replace(/\s+(?:and\/or|or)\s+/gi, ',')
+      .replace(/\s*,\s*/g, ',')
+      .trim();
+    const subtypes = subtypeRaw
+      .split(',')
+      .map((part) => part.replace(/^(?:an?\s+)/i, '').trim().toLowerCase())
+      .filter(Boolean);
+    if (subtypes.length >= 2 && subtypes.every((subtype) => isCreatureTypeWord(subtype))) {
+      minTargets = 1;
+      maxTargets = 1;
+      targetTypes.push(...subtypes);
+      const scope = String(multiSubtypeTargetMatch[2] || '').trim().toLowerCase();
+      targetDescription = `target ${String(multiSubtypeTargetMatch[1] || '').trim()}${scope ? ` ${scope}` : ''}`;
+      return finish({
+        needsTargets: true,
+        targetTypes,
+        minTargets,
+        maxTargets,
+        targetDescription,
+        ...(scope === 'you control' ? { targetControllerConstraint: 'you' as const } : {}),
+        ...(scope === 'an opponent controls' ? { targetControllerConstraint: 'opponent' as const } : {}),
+      });
+    }
+  }
+
+  // Creature-type targets: "Target Villain you control", "target Dragon", etc.
+  const creatureTypeTargetMatch = t.match(
+    /target\s+([a-z][a-z0-9'-]*)(?:\s+creature)?(?:\s+(you\s+control|an\s+opponent\s+controls))?/i,
+  );
+  if (creatureTypeTargetMatch && isCreatureTypeWord(String(creatureTypeTargetMatch[1] || ''))) {
+    minTargets = 1;
+    maxTargets = 1;
+    const subtype = String(creatureTypeTargetMatch[1] || '').trim().toLowerCase();
+    targetTypes.push(subtype);
+    const scope = String(creatureTypeTargetMatch[2] || '').trim().toLowerCase();
+    targetDescription = `target ${subtype}${scope ? ` ${scope}` : ''}`;
+    return finish({
+      needsTargets: true,
+      targetTypes,
+      minTargets,
+      maxTargets,
+      targetDescription,
+      ...(scope === 'you control' ? { targetControllerConstraint: 'you' as const } : {}),
+      ...(scope === 'an opponent controls' ? { targetControllerConstraint: 'opponent' as const } : {}),
+    });
   }
   
   return { needsTargets: false, targetTypes: [], minTargets: 0, maxTargets: 0, targetDescription: '' };

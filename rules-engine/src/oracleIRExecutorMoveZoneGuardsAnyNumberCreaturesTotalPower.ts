@@ -300,6 +300,22 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
 
   if (parsedSingleCardFromHand && step.to === 'exile') {
     const preferredIds = getChosenObjectIds(ctx);
+    const handPlayer = nextState.players.find((p) => p.id === controllerId) as any;
+    const handCards = Array.isArray(handPlayer?.hand) ? handPlayer.hand : [];
+    const typedHandMatches = handCards.filter((card: any) => {
+      const cardId = String(card?.id || '').trim();
+      return Boolean(cardId) && cardMatchesType(card, parsedSingleCardFromHand.cardType);
+    });
+    // Multi-card hand with no preferred ids needs a player choice (Azor's Gateway, etc.).
+    // Returning "unavailable" here skips the step as impossible and never queues a prompt.
+    if (typedHandMatches.length > 1 && preferredIds.length === 0) {
+      return {
+        applied: false,
+        message: `Skipped move zone (needs player card selection): ${step.raw}`,
+        reason: 'player_choice_required',
+        options: { classification: 'player_choice' },
+      };
+    }
     const cardId = resolveTypedCardIdFromPlayerZone(
       nextState,
       controllerId,
@@ -308,6 +324,14 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
       preferredIds
     );
     if (!cardId) {
+      if (typedHandMatches.length > 0) {
+        return {
+          applied: false,
+          message: `Skipped move zone (needs player card selection): ${step.raw}`,
+          reason: 'player_choice_required',
+          options: { classification: 'player_choice' },
+        };
+      }
       return {
         applied: false,
         message: `Skipped move zone (hand card unavailable): ${step.raw}`,
@@ -333,6 +357,29 @@ export function tryApplyMoveZoneGuardsFromAnyNumberCreaturesTotalPower(args: Mov
         reason: 'impossible_action',
         options: { persist: false },
       };
+    }
+    // Stamp "exiled with this" so later conditionals (Azor's Gateway MV set) can see the link.
+    const sourceId = String(ctx.sourceId || '').trim();
+    if (sourceId && result.kind === 'applied') {
+      const stampedPlayers = (result.state.players || []).map((player: any) => {
+        if (String(player?.id || '') !== String(controllerId)) return player;
+        const exile = Array.isArray(player?.exile) ? player.exile : [];
+        return {
+          ...player,
+          exile: exile.map((card: any) => {
+            if (String(card?.id || '').trim() !== cardId) return card;
+            return {
+              ...card,
+              exiledWith: sourceId,
+              exiledWithSourceId: sourceId,
+            };
+          }),
+        };
+      });
+      return finalizeAppliedResult({
+        ...result,
+        state: { ...result.state, players: stampedPlayers as any },
+      });
     }
     return finalizeAppliedResult(result);
   }

@@ -43,6 +43,10 @@ import {
 } from "./aiPriorityPassCombatExecutors.js";
 import { handleAiPendingResolutionStepWithLoopBreak } from "./aiResolutionStepLoopBreak.js";
 import {
+  isSwarmBattlefield,
+  tryAISwarmBoardShortCircuit,
+} from "./aiSwarmBoardShortCircuit.js";
+import {
   maybeForceUnstickAfterStackSighting,
   tryPassOnStackedTargetedTrigger,
 } from "./aiStuckStackUnstick.js";
@@ -77,6 +81,7 @@ import {
   traceContextFromGame,
 } from "./aiDecisionTrace.js";
 import { getSeatBrain, takeShadow } from "./aiBrain.js";
+import { shouldQuietPassEmptyStackOffTurn } from "./aiOffTurnQuietPass.js";
 import { applyTurnPlanToMainCandidates } from "./aiTurnPlanHook.js";
 import { getLegalAttackers, getGoadedAttackers } from "../../../../rules-engine/src/actions/combat.js";
 import { planAttacks } from "../../../../rules-engine/src/ai/attackPlanner.js";
@@ -224,6 +229,22 @@ export async function handleAIPriority(
   if (await maybeForceUnstickAfterStackSighting(io, game, gameId, playerId)) {
     stage('stuck-stack-cleared');
     return;
+  }
+
+  // Token swarms (Borg / Goblin Storm): never run response enum or combat planners.
+  // Honor the boolean: false means null-priority cases the short-circuit cannot
+  // handle — fall through to tryHandleAiCleanupStep instead of soft-locking.
+  if (isSwarmBattlefield(game)) {
+    stage('swarm-short-circuit');
+    const swarmHandled = await tryAISwarmBoardShortCircuit(io, game, gameId, playerId, {
+      executePassPriority,
+      executeDeclareAttackers,
+      executeDeclareBlockers,
+      executeAdvanceStep,
+      handleAIResolutionStep,
+    });
+    stage('swarm-short-circuit-done');
+    if (swarmHandled) return;
   }
 
   // If THIS AI has pending resolution steps, resolve them before priority actions.
@@ -479,21 +500,17 @@ export async function handleAIPriority(
       if (opponentMain && stackEmpty && await tryAITapManaRocksOtherPlayersWillUntap(io, gameId, playerId, game)) {
         return;
       }
-      // Empty-stack off-turn: do not run full response enumeration. That churn
-      // prevented all-pass on END (seq tens of thousands, no turn advance) and also
-      // burned exclusive-AI wall time on opponent MAIN1 (bf≈40 × every priority seat
-      // re-scanned abilities/spells inside one harness tick → 180s tick-timeout).
-      // Flash/instant on empty-stack opponent main is skipped here; pass is correct.
-      const quietEmptyStackPhase =
-        stackEmpty
-        && (
-          phase === 'ending'
-          || phase === 'end'
-          || phase === 'beginning'
-          || phase.includes('begin')
-          || phase.includes('main')
-          || step.includes('main')
-        );
+      // Empty-stack off-turn: usually quiet-pass (stall hygiene). v2 may still scan
+      // flash/instant at EOT when bf is small — see aiOffTurnQuietPass (not MAIN flash).
+      const quietEmptyStackPhase = shouldQuietPassEmptyStackOffTurn({
+        stackEmpty,
+        phase,
+        step,
+        brain: getSeatBrain(game, playerId),
+        battlefieldSize: Array.isArray(game?.state?.battlefield)
+          ? game.state.battlefield.length
+          : 0,
+      });
       if (
         !quietEmptyStackPhase
         && !consumeAIFastPassDecision(gameId, playerId, game)

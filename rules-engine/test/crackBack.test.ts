@@ -55,8 +55,8 @@ describe('P2-3 estimateCrackBack', () => {
       ],
     });
     expect(out.worstCase).toBe(12);
-    // table = 12 + 0.5*(3+3) = 15
-    expect(out.tableEstimate).toBe(15);
+    // table = 12 + CRACK_BACK_DISCOUNT*(3+3)
+    expect(out.tableEstimate).toBe(12 + CRACK_BACK_DISCOUNT * 6);
   });
 
   it('commander reaching 21 is lethal while life is still 40', () => {

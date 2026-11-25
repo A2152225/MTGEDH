@@ -57,6 +57,7 @@ export function tryApplyMoveZoneGuardsUnsupportedSelectorEarlyOut(args: MoveZone
     parsedAllPermanentsYouOwn,
     parsedShuffleAnyNumberTargetFromTargetPlayerGy,
     parsedExileXTargetFromTargetPlayerGy,
+    parsedNTargetCardsFromOpponentOrPlayerGy,
     parsedForEachOpponentUpToOneNonlandBounce,
     parsedAnyNumberOpponentOwnedLandsFromExile,
     parsedCreatureFromOwnersGraveyardUnderOwner,
@@ -329,6 +330,7 @@ export function tryApplyMoveZoneGuardsUnsupportedSelectorEarlyOut(args: MoveZone
     !parsedOwnedNonlandPermanentYouOwn &&
     !parsedShuffleAnyNumberTargetFromTargetPlayerGy &&
     !parsedExileXTargetFromTargetPlayerGy &&
+    !parsedNTargetCardsFromOpponentOrPlayerGy &&
     !parsedForEachOpponentUpToOneNonlandBounce &&
     !parsedAnyNumberOpponentOwnedLandsFromExile &&
     !parsedCreatureFromOwnersGraveyardUnderOwner &&

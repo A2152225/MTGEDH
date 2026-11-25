@@ -261,6 +261,75 @@ export function applyChoicePromptEvents(ctx: GameContext, e: GameEvent): boolean
         break;
       }
 
+      case "moveChosenHandCardToExileChoiceResolve": {
+        try {
+          const replayGameId = String((ctx as any).gameId || '').trim();
+          const playerId = String((e as any).playerId || '').trim();
+          const controllerId = String((e as any).controllerId || playerId).trim() || playerId;
+          const sourceId = String((e as any).sourceId || '').trim();
+          const sourceName = String((e as any).sourceName || '').trim();
+          const resolvedStepId = String((e as any).resolvedStepId || '').trim();
+          const chosenCardId = String((e as any).chosenCardId || '').trim();
+
+          if (replayGameId) {
+            clearReplayQueuedSteps(replayGameId, (step: any) => {
+              if (!step) return false;
+              const stepId = String((step as any)?.id || '').trim();
+              if (resolvedStepId && stepId === resolvedStepId) return true;
+              return (
+                String((step as any)?.type || '') === String(ResolutionStepType.OPTION_CHOICE) &&
+                (step as any)?.moveChosenHandCardToExileChoice === true &&
+                (!playerId || String((step as any)?.playerId || '').trim() === playerId) &&
+                (!sourceId || String((step as any)?.sourceId || '').trim() === sourceId) &&
+                (!sourceName || String((step as any)?.moveChosenHandCardToExileSourceName || (step as any)?.sourceName || '').trim() === sourceName)
+              );
+            });
+          }
+
+          if (controllerId && chosenCardId) {
+            const stateAny = ctx.state as any;
+            const zones = (stateAny.zones = stateAny.zones || {});
+            const zone = (zones[controllerId] = zones[controllerId] || { hand: [], handCount: 0, exile: [], exileCount: 0 });
+            zone.hand = Array.isArray(zone.hand) ? zone.hand : [];
+            zone.exile = Array.isArray(zone.exile) ? zone.exile : [];
+
+            const handIndex = (zone.hand as any[]).findIndex((card: any) => String(card?.id || '') === chosenCardId);
+            let movedCard = handIndex >= 0 ? (zone.hand as any[]).splice(handIndex, 1)[0] : undefined;
+            if (!movedCard) {
+              const alreadyExiled = (zone.exile as any[]).some((card: any) => String(card?.id || '') === chosenCardId);
+              const snapshot = (e as any).movedCardSnapshot;
+              if (!alreadyExiled && snapshot && typeof snapshot === 'object') movedCard = { ...snapshot };
+            }
+            if (movedCard) {
+              const exiledCard = {
+                ...movedCard,
+                zone: 'exile',
+                ...(sourceId ? { exiledWith: sourceId, exiledWithSourceId: sourceId } : {}),
+              };
+              (zone.exile as any[]).push(exiledCard);
+              const handPlayer = (Array.isArray(stateAny.players) ? stateAny.players : [])
+                .find((entry: any) => String(entry?.id || '') === controllerId);
+              if (handPlayer && Array.isArray(handPlayer.hand)) {
+                handPlayer.hand = handPlayer.hand.filter((card: any) => String(card?.id || '') !== chosenCardId);
+              }
+              if (handPlayer) {
+                const playerExile = Array.isArray(handPlayer.exile) ? handPlayer.exile : [];
+                if (!playerExile.some((card: any) => String(card?.id || '') === chosenCardId)) {
+                  handPlayer.exile = [...playerExile, exiledCard];
+                }
+              }
+            }
+            zone.handCount = (zone.hand as any[]).length;
+            zone.exileCount = (zone.exile as any[]).length;
+          }
+
+          ctx.bumpSeq();
+        } catch (err) {
+          debugWarn(1, 'applyEvent(moveChosenHandCardToExileChoiceResolve): failed', err);
+        }
+        break;
+      }
+
       case "attachEquipmentToPermanentChoiceResolve": {
         try {
           const replayGameId = String((ctx as any).gameId || '').trim();

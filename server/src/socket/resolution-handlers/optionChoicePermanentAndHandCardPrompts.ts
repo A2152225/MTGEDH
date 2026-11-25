@@ -9,6 +9,7 @@
  * `attachEquipmentToPermanentChoice` (decline, report that the player controls no Equipment, or
  * queue the TARGET_SELECTION that picks which Equipment attaches to the already-chosen permanent).
  * Public entry symbols: handleMoveChosenHandCardToLibraryChoice,
+ * handleMoveChosenHandCardToExileChoice,
  * handleSacrificeAnotherPermanentForBenefitAskChoice, handleAttachEquipmentToPermanentChoice.
  *
  * Every branch always returned, including the sacrifice prompt's unmatched-stage fallthrough, so
@@ -46,6 +47,9 @@ export async function handleMoveChosenHandCardToLibraryChoice(
   const playerId = response.playerId;
 
   const anyNumber = stepData.moveChosenHandCardToLibraryAnyNumber === true;
+  const multiSelect = anyNumber || stepData.moveChosenHandCardToLibraryMultiSelect === true
+    || Number(stepData.moveChosenHandCardToLibraryRequiredCount || 0) > 1;
+  const requiredCount = Number(stepData.moveChosenHandCardToLibraryRequiredCount || 0);
   const selectedIds = extractOptionChoiceSelectionIds(response.selections);
   const chosenCardId = extractOptionChoiceSelectionId(response.selections);
   const controllerId = String(stepData.moveChosenHandCardToLibraryController || playerId);
@@ -54,11 +58,15 @@ export async function handleMoveChosenHandCardToLibraryChoice(
   const position = String(stepData.moveChosenHandCardToLibraryPosition || 'top').toLowerCase() === 'bottom'
     ? 'bottom'
     : 'top';
-  const requestedIds = (anyNumber ? selectedIds : (chosenCardId ? [chosenCardId] : []))
+  const requestedIds = (multiSelect ? selectedIds : (chosenCardId ? [chosenCardId] : []))
     .map((id) => String(id || '').trim())
     .filter((id) => id && id !== PUT_NO_HAND_CARDS_OPTION_ID);
   if (!anyNumber && requestedIds.length === 0) {
     debugWarn(2, `[Resolution] moveChosenHandCardToLibraryChoice: missing selection`);
+    return;
+  }
+  if (!anyNumber && requiredCount > 0 && requestedIds.length !== requiredCount) {
+    debugWarn(2, `[Resolution] moveChosenHandCardToLibraryChoice: expected ${requiredCount} cards, got ${requestedIds.length}`);
     return;
   }
 
@@ -142,6 +150,96 @@ export async function handleMoveChosenHandCardToLibraryChoice(
 
   // Oracle IR bridge prompts (oracleIrServerHandCardToLibraryPrompts) carry any steps that follow
   // the move ("..., then shuffle", etc.); continue them now that the card is placed.
+  if (String(stepData.oracleIrResumeStepsJson || '').trim()) {
+    const ctx = ((game as any).ctx || game) as any;
+    ctx.gameId = gameId;
+    ctx.state = game.state;
+    maybeResumeOracleIRStepsAfterResolution(ctx, step);
+    game.state = ctx.state;
+  }
+
+  if (typeof (game as any).bumpSeq === 'function') {
+    (game as any).bumpSeq();
+  }
+}
+
+/** "Exile a card from your hand." (Azor's Gateway and similar). */
+export async function handleMoveChosenHandCardToExileChoice(
+  io: Server,
+  game: any,
+  gameId: string,
+  step: ResolutionStep,
+  response: ResolutionStepResponse,
+): Promise<void> {
+  const stepData = step as any;
+  const playerId = response.playerId;
+  const chosenCardId = extractOptionChoiceSelectionId(response.selections);
+  const controllerId = String(stepData.moveChosenHandCardToExileController || playerId);
+  const sourceName = String(stepData.moveChosenHandCardToExileSourceName || step.sourceName || 'Ability');
+  const sourceId = String(stepData.moveChosenHandCardToExileSourceId || step.sourceId || '').trim();
+  if (!chosenCardId) {
+    debugWarn(2, `[Resolution] moveChosenHandCardToExileChoice: missing selection`);
+    return;
+  }
+
+  const state = game.state || {};
+  const zones = (state.zones = state.zones || {});
+  const z = (zones[controllerId] = zones[controllerId] || {
+    hand: [],
+    handCount: 0,
+    exile: [],
+    exileCount: 0,
+  });
+  z.hand = z.hand || [];
+  z.exile = z.exile || [];
+
+  const handIndex = (z.hand as any[]).findIndex((card: any) => String(card?.id) === chosenCardId);
+  if (handIndex < 0) {
+    debugWarn(2, `[Resolution] moveChosenHandCardToExileChoice: selected card not in hand`);
+    return;
+  }
+  const [card] = (z.hand as any[]).splice(handIndex, 1);
+  const exiledCard = {
+    ...card,
+    zone: 'exile',
+    ...(sourceId ? { exiledWith: sourceId, exiledWithSourceId: sourceId } : {}),
+  };
+  (z.exile as any[]).push(exiledCard);
+  z.handCount = (z.hand as any[]).length;
+  z.exileCount = (z.exile as any[]).length;
+
+  const handPlayer = (Array.isArray(state.players) ? state.players : [])
+    .find((entry: any) => String(entry?.id || '') === controllerId);
+  if (handPlayer && Array.isArray(handPlayer.hand)) {
+    handPlayer.hand = handPlayer.hand.filter((entry: any) => String(entry?.id) !== chosenCardId);
+  }
+  if (handPlayer) {
+    const playerExile = Array.isArray(handPlayer.exile) ? handPlayer.exile : [];
+    handPlayer.exile = [...playerExile, exiledCard];
+  }
+
+  try {
+    await appendEvent(gameId, (game as any).seq || 0, 'moveChosenHandCardToExileChoiceResolve', {
+      playerId,
+      controllerId,
+      sourceId: sourceId || undefined,
+      sourceName,
+      resolvedStepId: String(step.id || '').trim() || undefined,
+      chosenCardId,
+      movedCardSnapshot: { ...exiledCard },
+    });
+  } catch (err) {
+    debugWarn(1, '[Resolution] appendEvent(moveChosenHandCardToExileChoiceResolve) failed:', err);
+  }
+
+  io.to(gameId).emit('chat', {
+    id: `m_${Date.now()}`,
+    gameId,
+    from: 'system',
+    message: `${sourceName}: ${getPlayerName(game, controllerId)} exiled a card from their hand.`,
+    ts: Date.now(),
+  });
+
   if (String(stepData.oracleIrResumeStepsJson || '').trim()) {
     const ctx = ((game as any).ctx || game) as any;
     ctx.gameId = gameId;

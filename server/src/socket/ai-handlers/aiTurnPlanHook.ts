@@ -43,6 +43,22 @@ export interface TurnPlanHookResult {
   reason: string;
 }
 
+/**
+ * Skip planTurn above this battlefield size (stall: shard 19 bf≈34).
+ * Kept at 20 after strength smokes: raising full-rank to 32 looked worse, and a
+ * light priority-only plan for bf 21–48 also regressed smoke6 (1–8 / 11%).
+ * Smoke38 mild 24 → 18.2%; smoke39 disable (0) → 30% (no lift vs smoke14 window) — keep 20.
+ */
+export const TURN_PLAN_SKIP_BF = 20;
+/** Cap actionable plays fed to rank+planTurn (keep enum cost bounded). */
+// Smoke63: 10→14 with planTurn default beam 8→12 — consider more plays.
+export const TURN_PLAN_MAX_ACTIONABLE = 14;
+
+/** MAIN2 holds up interaction; MAIN1 dumps mana into development. */
+export function shouldHoldUpInteractionForStep(step: unknown): boolean {
+  return String(step || '').toUpperCase().includes('MAIN2');
+}
+
 function candidateName(c: AIActionCandidate): string {
   if (c.kind === 'cast_spell') {
     return String(c.spell?.castCard?.name || c.spell?.card?.name || '');
@@ -121,6 +137,28 @@ function toView(c: AIActionCandidate, index: number): CandidateView {
   };
 }
 
+/** Cheap oracle heuristics when the profile table has no roles (~half of cards). */
+function inferPlannerRolesFromOracle(
+  typeLine: string,
+  oracle: string,
+  instantSpeed: boolean,
+): CardRole[] {
+  const roles: CardRole[] = [];
+  const o = String(oracle || '').toLowerCase();
+  const tl = String(typeLine || '').toLowerCase();
+  if (/counter target (spell|ability)/i.test(o)) roles.push('counterspell');
+  if (
+    instantSpeed
+    && (
+      /\bgain protection\b|\bhexproof\b|\bindestructible\b|\bphase out\b|\bprevent all (combat )?damage\b/i.test(o)
+      || (tl.includes('instant') && /\bregenerate\b|\bshroud\b/i.test(o))
+    )
+  ) {
+    roles.push('protection');
+  }
+  return roles;
+}
+
 function toPlanner(
   c: AIActionCandidate,
   index: number,
@@ -136,6 +174,12 @@ function toPlanner(
   const name = candidateName(c);
   const profile = getCardAIProfile(name);
   const roles = [...(profile?.roles || [])] as CardRole[];
+  const instantSpeed = isInstantSpeed(c);
+  if (roles.length === 0) {
+    for (const r of inferPlannerRolesFromOracle(candidateTypeLine(c), candidateOracle(c), instantSpeed)) {
+      if (!roles.includes(r)) roles.push(r);
+    }
+  }
   const { produced, sick } = inferManaProduced(c);
   if (produced > 0 && !roles.includes('ramp')) roles.push('ramp');
   return {
@@ -144,7 +188,7 @@ function toPlanner(
     score,
     manaCost: candidateCmc(c),
     roles,
-    instantSpeed: isInstantSpeed(c),
+    instantSpeed,
     manaProduced: produced || undefined,
     producedManaSick: sick || undefined,
   };
@@ -174,9 +218,8 @@ export function applyTurnPlanToMainCandidates(
   }
 
   const bfSize = Array.isArray(game?.state?.battlefield) ? game.state.battlefield.length : 0;
-  // planTurn+rankCandidates on mid/large boards burns exclusive-AI wall time inside one
-  // self-play tick (shard 19: bf≈34, single tick >180s → tick-timeout). Keep v0 order.
-  if (bfSize > 20 || actionable.length > 10) {
+  // Large boards: planTurn+rankCandidates burned exclusive-AI wall time (shard 19 bf≈34).
+  if (bfSize > TURN_PLAN_SKIP_BF) {
     return {
       candidates,
       plan: null,
@@ -184,6 +227,10 @@ export function applyTurnPlanToMainCandidates(
       reason: `skip-large:bf=${bfSize},n=${actionable.length}`,
     };
   }
+  const planPool =
+    actionable.length > TURN_PLAN_MAX_ACTIONABLE
+      ? actionable.slice(0, TURN_PLAN_MAX_ACTIONABLE)
+      : actionable;
 
   // Reuse the first plan's ordering for the rest of this MAIN1/MAIN2 window so later
   // wakes do not rebuild observation + rank + planTurn after every cast/pass.
@@ -215,7 +262,7 @@ export function applyTurnPlanToMainCandidates(
     const ctx = buildScoreContext(obs);
     const ranked = rankCandidates(
       obs,
-      actionable.map((c, i) => toView(c, i)),
+      planPool.map((c, i) => toView(c, i)),
       getCardAIProfile,
       ctx,
     );
@@ -223,10 +270,10 @@ export function applyTurnPlanToMainCandidates(
 
     const plannerCands: PlannerCandidate[] = [];
     const indexByPlannerId = new Map<string, number>();
-    for (let i = 0; i < actionable.length; i++) {
+    for (let i = 0; i < planPool.length; i++) {
       const score = scoreByIndex.get(i);
-      const fallback = Number(actionable[i].priority) || 0;
-      const pc = toPlanner(actionable[i], i, Number.isFinite(score) ? (score as number) : fallback);
+      const fallback = Number(planPool[i].priority) || 0;
+      const pc = toPlanner(planPool[i], i, Number.isFinite(score) ? (score as number) : fallback);
       if (!pc) continue;
       if (pc.score <= -1e8) continue;
       plannerCands.push(pc);
@@ -236,9 +283,17 @@ export function applyTurnPlanToMainCandidates(
     const manaAvailable = getTotalManaFromPool(
       getAvailableManaCached(game, playerId, () => getAvailableMana(game.state, playerId)),
     );
+    // MAIN1: dump into development (no counter/protection reserve). MAIN2: hold up.
+    // Default hold-up on both mains left v2 under-casting when a Counterspell sat in hand.
+    // Smoke20 soft-dump / exclude-holdup-from-plays regressed (20%) — keep hold-up as-is.
+    // Smoke25 MAIN1 maxPlays 4 → 11.1% decisive — reverted to default 3.
+    // Smoke41 MAIN2 dump when opponents tapped out → 30% decisive — reverted.
+    // Smoke42 counterspell-only hold-up (drop protection) → 27.3% — reverted.
+    const holdUpInteraction = shouldHoldUpInteractionForStep(game?.state?.step);
     const plan = planTurn({
       candidates: plannerCands,
       manaAvailable,
+      holdUpInteraction,
       affordable: (plays) => {
         let floating = manaAvailable;
         for (const p of plays) {
@@ -271,14 +326,14 @@ export function applyTurnPlanToMainCandidates(
       return { candidates, plan, ms: t1 - t0, reason: 'empty-plan' };
     }
 
-    // Prefer planner play order as sticky keys; fall back to scored actionable order.
+    // Prefer planner play order as sticky keys; fall back to scored plan-pool order.
     const stickyKeys: string[] = [];
     for (const play of plan.plays) {
       const idx = indexByPlannerId.get(play.id);
       if (idx === undefined) continue;
-      stickyKeys.push(aiCandidateStableKey(actionable[idx]));
+      stickyKeys.push(aiCandidateStableKey(planPool[idx]));
     }
-    for (const c of actionable) {
+    for (const c of planPool) {
       const key = aiCandidateStableKey(c);
       if (!stickyKeys.includes(key)) stickyKeys.push(key);
     }
@@ -290,13 +345,15 @@ export function applyTurnPlanToMainCandidates(
       return { candidates, plan, ms: t1 - t0, reason: 'first-missing' };
     }
 
-    const first = actionable[firstIdx];
+    const first = planPool[firstIdx];
     const rest = candidates.filter((c) => c !== first);
+    const cappedNote =
+      actionable.length > planPool.length ? `,capped=${planPool.length}/${actionable.length}` : '';
     return {
       candidates: [first, ...rest],
       plan,
       ms: t1 - t0,
-      reason: `first:${firstId}`,
+      reason: `first:${firstId}${cappedNote}`,
     };
   } catch (err) {
     console.warn('[ai] v2 turn planner failed, keeping candidate order', err);

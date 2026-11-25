@@ -61,37 +61,32 @@ export async function tryHandleAiCleanupStep(
       if (aiStep) {
         debug(1, `[AI] Cleanup step - resolving queued step: ${aiStep.type}`);
         await handleAIResolutionStep(io, gameId, playerId, aiStep);
-        if ((game.state as any)._aiProcessingCleanup) {
-          delete (game.state as any)._aiProcessingCleanup[playerId];
-        }
         return true;
       }
-    } catch {
-      // Best-effort only
-    }
 
-    if (stackLen > 0) {
-      if (!game.state.priority) {
-        game.state.priority = game.state.turnPlayer || playerId;
-        (game.state as any).priorityPassedBy = new Set();
+      if (stackLen > 0) {
+        if (!game.state.priority) {
+          game.state.priority = game.state.turnPlayer || playerId;
+          (game.state as any).priorityPassedBy = new Set();
+        }
+        debug(1, '[AI] Cleanup step - stack non-empty (Rule 514.3); passing to resolve', {
+          stackLen,
+          priority: game.state.priority,
+        });
+        await executePassPriority(io, gameId, playerId);
+        return true;
       }
-      debug(1, '[AI] Cleanup step - stack non-empty (Rule 514.3); passing to resolve', {
-        stackLen,
-        priority: game.state.priority,
-      });
+
+      debug(1, '[AI] Cleanup step - no discard needed, auto-advancing');
+      await executeAdvanceStep(io, gameId, playerId);
+      return true;
+    } finally {
+      // Always clear: a thrown advance/pass used to leave the flag set so every later
+      // CLEANUP wake returned early and the turn never ended (s33#143 pattern).
       if ((game.state as any)._aiProcessingCleanup) {
         delete (game.state as any)._aiProcessingCleanup[playerId];
       }
-      await executePassPriority(io, gameId, playerId);
-      return true;
     }
-
-    debug(1, '[AI] Cleanup step - no discard needed, auto-advancing');
-    await executeAdvanceStep(io, gameId, playerId);
-    if ((game.state as any)._aiProcessingCleanup) {
-      delete (game.state as any)._aiProcessingCleanup[playerId];
-    }
-    return true;
   }
 
   // After 514.3 stack resolution, priority can be left on a non-turn seat while the

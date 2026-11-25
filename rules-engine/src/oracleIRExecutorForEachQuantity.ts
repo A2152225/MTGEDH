@@ -197,7 +197,7 @@ export function tryResolveForEachReferenceAmount(
   }
 
   const forEachMatch = normalized.match(
-    /^(?:(\d+)|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|x)\s+(?:cards?\s+)?for\s+each\s+(.+)$/i
+    /^(?:(\d+)|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|x)\s+(?:(?:life|cards?)\s+)?for\s+each\s+(.+)$/i
   );
   if (forEachMatch) {
     const multiplierRaw = String(forEachMatch[1] || '').toLowerCase();

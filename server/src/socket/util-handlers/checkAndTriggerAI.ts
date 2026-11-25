@@ -223,19 +223,14 @@ export function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string
     const stateAny = game.state as any;
     // Live IR soaks drive choices themselves; AI auto-play races the driver.
     if (stateAny?.oracleIrLiveSoak === true) return;
-    const paymentResumeLock = stateAny?._paymentResumeCastLock;
-    const completingCasts = stateAny?._completingSpellCastByPlayer;
-    if (
-      (paymentResumeLock && typeof paymentResumeLock === 'object' && String(paymentResumeLock.playerId || '').trim())
-      || (completingCasts && typeof completingCasts === 'object' && Object.keys(completingCasts).length > 0)
-    ) {
-      return;
-    }
 
     const priority = stateAny?.priority;
     const players = stateAny?.players || [];
 
     // Resume/reconnect: AI-owned resolution prompts must be kicked explicitly.
+    // Do this *before* payment/completing-cast locks: a stuck completing marker (or a
+    // mid-cast lock for a different spell) used to skip this scan entirely, leaving
+    // mana_payment_choice pending forever while another seat held priority (s33#216).
     try {
       const queue = ResolutionQueueManager.getQueue(gameId);
       const pendingAiPlayerIds = new Set<string>();
@@ -263,6 +258,15 @@ export function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string
       }
     } catch (e) {
       debugWarn(2, '[util] checkAndTriggerAI pending-resolution scan failed:', e);
+    }
+
+    const paymentResumeLock = stateAny?._paymentResumeCastLock;
+    const completingCasts = stateAny?._completingSpellCastByPlayer;
+    if (
+      (paymentResumeLock && typeof paymentResumeLock === 'object' && String(paymentResumeLock.playerId || '').trim())
+      || (completingCasts && typeof completingCasts === 'object' && Object.keys(completingCasts).length > 0)
+    ) {
+      return;
     }
     
     // Special case: Kynaios and Tiro style choices
@@ -324,9 +328,48 @@ export function checkAndTriggerAI(io: Server, game: InMemoryGame, gameId: string
       return;
     }
 
-    if (!priority) return;
-
     const ctx = (game as any).ctx || game;
+    const stepUpper = String(stateAny?.step || '').toUpperCase();
+    const stackLen = Array.isArray(stateAny?.stack) ? stateAny.stack.length : 0;
+
+    // CLEANUP withholds priority (Rule 514.1). Broadcasts with priority=null used to
+    // return here without scheduling anyone when the turn player was still alive —
+    // one missed enter-CLEANUP wake then stagnated forever (s33#143). Non-empty stack
+    // under null priority was the same dead end (s33#27 / Rule 514.3).
+    if (!priority) {
+      if (stepUpper === 'CLEANUP') {
+        const turnPlayerId = String(stateAny?.turnPlayer || '').trim();
+        const turnPlayer = players.find((p: any) => p?.id === turnPlayerId);
+        const turnPlayerOut = playerCannotReceivePriority(turnPlayer, ctx);
+        const livingAi = players.find((p: any) =>
+          p?.isAI === true
+          && !playerCannotReceivePriority(p, ctx)
+          && !(p?.spectator || p?.isSpectator)
+        );
+        let wakeId = '';
+        if (turnPlayerOut) {
+          // Dead TP: living AI drives advance (or dead AI TP as last resort).
+          wakeId = String(livingAi?.id || (turnPlayer?.isAI === true ? turnPlayerId : '') || '').trim();
+        } else if (turnPlayer?.isAI === true) {
+          // Living AI TP: gameFlow → tryHandleAiCleanupStep (discard / 514.3 pass / advance).
+          wakeId = turnPlayerId;
+        } else if (stackLen > 0 && livingAi) {
+          // Human TP but stack objects and no priority — living AI can grant/pass 514.3.
+          wakeId = String(livingAi.id || '').trim();
+        }
+        if (wakeId) {
+          void import('../ai.js').then((aiModule) => {
+            if (typeof aiModule.scheduleAIGameFlow === 'function') {
+              aiModule.scheduleAIGameFlow(io, gameId, wakeId, AI_REACTION_DELAY_MS);
+            }
+          }).catch((e) => {
+            debugError(1, '[util] Failed to wake AI for CLEANUP:', { gameId, playerId: wakeId, error: e });
+          });
+        }
+      }
+      return;
+    }
+
     if (reassignPriorityIfHolderCannotReceive(ctx)) {
       if (typeof (game as any).bumpSeq === 'function') (game as any).bumpSeq();
     }

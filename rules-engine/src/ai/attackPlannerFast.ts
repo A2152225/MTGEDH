@@ -1,9 +1,12 @@
 /**
- * Bounded attack planner for large boards (Phase 2 perf).
+ * Bounded attack planner (Phase 2 perf escape hatch).
  *
- * Origin: planAttacks skip-to-v0 path burned exclusive AI time on evaluateCombatValue
- * for every legal attacker. This greedy path keeps goad/must-attack, picks a weak
- * defender, and adds a capped set of high-power voluntaries under a hard time budget.
+ * Origin: full planAttacks×resolveCombat can hang exclusive AI time on huge boards.
+ * Engine wiring (`aiEngineCombatSupport`): large boards and planAttacks time-budget /
+ * errors skip full planAttacks and use the budgeted v0 evaluateCombatValue path —
+ * greedy fast overcommitted and lost the Phase 2 strength gate. This module keeps
+ * shouldUseAttackPlannerFast as the large-board skip predicate; planAttacksFast remains
+ * for tests / optional tooling.
  *
  * Public: planAttacksFast, shouldUseAttackPlannerFast.
  */
@@ -12,12 +15,27 @@ import type { BattlefieldPermanent, PlayerID } from '../../../shared/src/types.j
 import { playerIsLegalAttackTarget } from '../playerInGameStatus.js';
 import type { AttackDeclaration, AttackPlanResult } from './attackPlanner.js';
 
-/** Prefer fast path when full planAttacks would skip/hang (matches engine thresholds). */
+/**
+ * True when full planAttacks should be skipped (large board / attack pool).
+ * Callers should fall through to the v0 declare path, not planAttacksFast.
+ */
 export function shouldUseAttackPlannerFast(
   boardSize: number,
   attackPool: number,
 ): boolean {
-  return boardSize > 24 || attackPool > 8;
+  // Smoke47 diagnostic: always skip full planAttacks → lethal-only then v0.
+  // Set AI_ALWAYS_SKIP_PLAN_ATTACKS=1 for the smoke run; leave default thresholds alone.
+  if (
+    typeof process !== 'undefined'
+    && String(process.env?.AI_ALWAYS_SKIP_PLAN_ATTACKS || '') === '1'
+  ) {
+    return true;
+  }
+  // Land-heavy EDH boards: boardSize 48 (smoke9). attackPool>12 (smoke12) regressed
+  // to 18.2% decisive — keep pool skip at 8; planAttacks self-caps ~800ms then v0.
+  // Smoke36 boardSize 56 → 22.2% decisive — reverted.
+  // Smoke46 bf>48 tiny-pool exception → 11.1% — reverted.
+  return boardSize > 48 || attackPool > 8;
 }
 
 function nowMs(): number {
