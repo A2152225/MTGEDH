@@ -639,6 +639,24 @@ export async function handleDeclareAttackers(
       resolvedAttackers as Array<{ creatureId: string; targetPlayerId?: string; targetPermanentId?: string }>,
     );
 
+    // Battlefront ("opponents you attacked this turn") reads this list when
+    // attack triggers resolve. The execute path records it; this socket path
+    // must too, before those triggers see X as 0.
+    try {
+      const stateAny = game.state as any;
+      stateAny.attackedPlayersThisTurnByPlayer = stateAny.attackedPlayersThisTurnByPlayer || {};
+      const attackedList: string[] = Array.isArray(stateAny.attackedPlayersThisTurnByPlayer[String(playerId)])
+        ? stateAny.attackedPlayersThisTurnByPlayer[String(playerId)]
+        : [];
+      stateAny.attackedPlayersThisTurnByPlayer[String(playerId)] = attackedList;
+      for (const attacker of resolvedAttackers as Array<{ targetPlayerId?: string }>) {
+        const targetPid = String(attacker?.targetPlayerId || '').trim();
+        if (targetPid && !attackedList.includes(targetPid)) attackedList.push(targetPid);
+      }
+    } catch (e) {
+      debugWarn(1, '[combat] Failed to record attacked players this turn:', e);
+    }
+
     processAttackTriggersAfterDeclaration(
       io,
       game,

@@ -541,13 +541,23 @@ export function applyCreateTokenStep(
     };
   }
 
-  const defendingPlayerId = String(
+  let defendingPlayerId = String(
     ctx.selectorContext?.targetOpponentId ||
       ctx.selectorContext?.targetPlayerId ||
       (ctx as any).targetOpponentId ||
       (ctx as any).targetPlayerId ||
       ''
   ).trim();
+  const attackedThisTurn = (() => {
+    const controllerId = String(ctx.controllerId || '').trim();
+    const list = (state as any)?.attackedPlayersThisTurnByPlayer?.[controllerId];
+    return (Array.isArray(list) ? list : [])
+      .map((id: unknown) => String(id || '').trim())
+      .filter((id: string) => id && id !== controllerId);
+  })();
+  if (!defendingPlayerId && step.attacking === 'defending_player' && attackedThisTurn.length === 1) {
+    defendingPlayerId = attackedThisTurn[0];
+  }
   const blockTargetPermanentId = resolveBlockTargetPermanentId(state, step, ctx);
 
   let nextState = state;

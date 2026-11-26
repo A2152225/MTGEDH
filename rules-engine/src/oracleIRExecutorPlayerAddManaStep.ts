@@ -166,6 +166,19 @@ export function applyAddManaStep(
         };
       }
     }
+    const ofChosenColor = /\bof (?:that|the chosen) colou?r\b/i.test(String(step.raw || ''));
+    if (ofChosenColor) {
+      const chosen = normalizeManaChoice(String(ctx.selectorContext?.chosenMana || '').trim());
+      if (!chosen) {
+        return {
+          kind: 'skip' as const,
+          message: `Skipped add mana (needs chosen color): ${step.raw}`,
+          reason: 'player_choice_required' as const,
+          options: { classification: 'player_choice' as const },
+        };
+      }
+      return { kind: 'resolved' as const, mana: chosen };
+    }
     if (options.length <= 1) {
       return {
         kind: 'resolved' as const,

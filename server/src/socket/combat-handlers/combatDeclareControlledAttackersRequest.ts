@@ -234,6 +234,21 @@ export async function handleDeclareControlledAttackers(
       `🎯 ${combatControl.sourceName}: `,
     );
 
+    try {
+      const stateAny = game.state as any;
+      stateAny.attackedPlayersThisTurnByPlayer = stateAny.attackedPlayersThisTurnByPlayer || {};
+      const attackedList: string[] = Array.isArray(stateAny.attackedPlayersThisTurnByPlayer[String(playerId)])
+        ? stateAny.attackedPlayersThisTurnByPlayer[String(playerId)]
+        : [];
+      stateAny.attackedPlayersThisTurnByPlayer[String(playerId)] = attackedList;
+      for (const attacker of attackers) {
+        const targetPid = String(attacker?.targetPlayerId || '').trim();
+        if (targetPid && !attackedList.includes(targetPid)) attackedList.push(targetPid);
+      }
+    } catch (e) {
+      debugWarn(1, '[combat] Failed to record controlled attacked players this turn:', e);
+    }
+
     // Process attack triggers for controlled combat declarations
     try {
       const attackingCreatures = battlefield.filter((perm: any) => attackerIds.includes(perm.id));

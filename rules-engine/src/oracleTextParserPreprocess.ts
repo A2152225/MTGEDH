@@ -54,6 +54,8 @@ const CONTINUATION_SENTENCE_PATTERNS = [
   /^that\b/i,
   /^return\b/i,
   /^it\b/i,
+  /^untap\b/i,
+  /^add\b/i,
   /^until\b/i,
   /^through\b/i,
   /^as\s+long\s+as\b/i,

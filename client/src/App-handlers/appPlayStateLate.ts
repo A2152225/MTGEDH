@@ -446,6 +446,8 @@ export function useAppPlayStateLate(p: Record<string, any>) {
     cardId: string;
     cardName: string;
     squadCost: string;
+    spellManaCost?: string;
+    availableMana?: Record<string, number>;
     imageUrl?: string;
     effectId?: string;
     // If present, this modal answers a Resolution Queue step.

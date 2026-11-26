@@ -278,6 +278,25 @@ export function buildCostAdjustmentPlan(
     }
   }
 
+  // The spell's own "costs {N} less for each creature" is not a battlefield
+  // static. Payment already counts it once. Castability uses this plan only
+  // when no source-type filter is set, so filtered static passes stay single-counted.
+  if (!options?.sourceTypes) {
+    const ownOracle = String(card?.oracle_text || card?.oracleText || '');
+    const creatureReductionMatch = ownOracle.match(/this spell costs \{?(\d+)\}? less to cast for each creature/i);
+    if (creatureReductionMatch) {
+      const perCreature = parseInt(creatureReductionMatch[1], 10) || 0;
+      const battlefield = Array.isArray(state?.battlefield) ? state.battlefield : [];
+      const creatureCount = battlefield.filter((permanent: any) =>
+        permanent && String(permanent.card?.type_line || permanent.type_line || '').toLowerCase().includes('creature'),
+      ).length;
+      const totalReduction = perCreature * creatureCount;
+      if (totalReduction > 0) {
+        addGenericAdjustment(String(card?.name || 'Spell'), -totalReduction);
+      }
+    }
+  }
+
   return plan;
 }
 

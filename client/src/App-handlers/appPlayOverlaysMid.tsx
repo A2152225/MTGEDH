@@ -205,9 +205,10 @@ export function renderAppPlayOverlaysMid(p: Record<string, any>) {
         cardId={squadCostModalData?.cardId || ''}
         cardName={squadCostModalData?.cardName || ''}
         squadCost={squadCostModalData?.squadCost || ''}
+        spellManaCost={squadCostModalData?.spellManaCost || ''}
         imageUrl={squadCostModalData?.imageUrl}
         effectId={squadCostModalData?.effectId}
-        availableMana={(manaPool as unknown as Record<string, number>) || undefined}
+        availableMana={squadCostModalData?.availableMana || (manaPool as unknown as Record<string, number>) || undefined}
         onConfirm={(timesPaid) => {
           if (safeView?.id && squadCostModalData?.resolutionStepId) {
             socket.emit('submitResolutionResponse', {

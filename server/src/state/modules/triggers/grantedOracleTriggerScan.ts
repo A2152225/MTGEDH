@@ -248,6 +248,16 @@ export function grantedTriggerTextsForPermanent(permanent: any, gameState?: any)
       : (scanState.battlefield || []).some((perm) => /lose all abilities/i.test(String(perm?.card?.oracle_text || perm?.oracle_text || '')));
     if (!loseAll) {
       for (const line of extractQuotedGrantsForRecipient(permanent, scanState)) addLine(out, line);
+      if (Array.isArray(permanent?.temporaryEffects)) {
+        for (const effect of permanent.temporaryEffects) {
+          const description = String(effect?.description || '').trim();
+          if (!description) continue;
+          addLine(out, description);
+          const quoted = /"([^"]+)"/g;
+          let match: RegExpExecArray | null;
+          while ((match = quoted.exec(description))) addLine(out, match[1]);
+        }
+      }
     }
   }
   return [...out];

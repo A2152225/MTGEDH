@@ -57,7 +57,7 @@ export function tryParseTemporaryAbilityClause(args: {
     }
 
     const keywordAndQuoted = normalized.match(
-      /^(?:until end of turn,\s+)?(.+?)\s+gains?\s+((?:banding|flying|trample|vigilance|lifelink|deathtouch|reach|menace|shroud|hexproof|indestructible|fear|intimidate|shadow|horsemanship|first strike|double strike|haste|ward|myriad|infect)(?:\s*,\s*(?:banding|flying|trample|vigilance|lifelink|deathtouch|reach|menace|shroud|hexproof|indestructible|fear|intimidate|shadow|horsemanship|first strike|double strike|haste|ward|myriad|infect))*)\s+and\s+"([^"]+)"(?:\s+until end of turn)?$/i,
+      /^(?:until end of turn,\s+)?(.+?)\s+gains?\s+((?:banding|flying|trample|vigilance|lifelink|deathtouch|reach|menace|shroud|hexproof|indestructible|fear|intimidate|shadow|horsemanship|first strike|double strike|haste|ward|myriad|infect)(?:\s*,\s*(?:banding|flying|trample|vigilance|lifelink|deathtouch|reach|menace|shroud|hexproof|indestructible|fear|intimidate|shadow|horsemanship|first strike|double strike|haste|ward|myriad|infect))*)\s*,?\s+and\s+"([^"]+)"(?:\s+until end of turn)?$/i,
     );
     if (keywordAndQuoted && (/^until end of turn,/i.test(normalized) || /\buntil end of turn$/i.test(normalized) || /"[^"]+"$/.test(normalized))) {
       const targetText = String(keywordAndQuoted[1] || '').trim();

@@ -6,7 +6,7 @@
 
 import { KNOWN_COMBAT_DAMAGE_TRIGGERS } from "./card-data-tables.js";
 import { buildCardNameRegexAlternatives } from "./cardNameRegexAlternatives.js";
-import { mergeDetectorOracleWithContinuousGrants } from "./detectorGrantedOracle.js";
+import { mergeDetectorOracleWithContinuousGrants, stripGrantedQuotedTriggers } from "./detectorGrantedOracle.js";
 import { appendCombatDamageDetectionEarly } from "./combat-damage-detection-early.js";
 import { appendCombatDamageDetectionLate } from "./combat-damage-detection-late.js";
 import { appendCombatDamageDetectionMid } from "./combat-damage-detection-mid.js";
@@ -21,7 +21,11 @@ import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js
 export function detectCombatDamageTriggers(card: any, permanent: any, gameState?: any): TriggeredAbility[] {
   if (!permanentHasTriggeredAbilities(permanent, gameState, { event: 'damage' })) return []; // Humility / Torpor Orb gate
   const triggers: TriggeredAbility[] = [];
-  const { oracleText } = mergeDetectorOracleWithContinuousGrants(card?.oracle_text || "", permanent, gameState);
+  const { oracleText } = mergeDetectorOracleWithContinuousGrants(
+    stripGrantedQuotedTriggers(card?.oracle_text || ""),
+    permanent,
+    gameState,
+  );
   const lowerOracle = oracleText.toLowerCase();
   const cardName = card?.name || "Unknown";
   const lowerName = cardName.toLowerCase();

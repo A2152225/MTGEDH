@@ -326,7 +326,13 @@ export function resolveTokenAmount(
   const raw = String(step.raw || '').trim();
   const twiceXMultiplier = /\bcreate(?:s)?\s+twice\s+x\b/i.test(raw) ? 2 : 1;
 
-  const suffixForEachMatch = raw.match(/\bfor each\s+(.+?)\.?$/i);
+  // "For each X, create ..." is a leading count, handled below. A suffix
+  // "create ... token for each X" is the only form this match should own.
+  // Treating the leading form as a suffix fed the create clause into a
+  // battlefield count and produced 0 tokens.
+  const suffixForEachMatch = /^for each\b/i.test(raw)
+    ? null
+    : raw.match(/\bfor each\s+(.+?)\.?$/i);
   if (suffixForEachMatch) {
     const countedExpression = String(suffixForEachMatch[1] || '').trim();
     const count =

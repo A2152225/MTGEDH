@@ -271,21 +271,22 @@ export function tryParseSimpleCreateTokenClause(args: {
     "(?:its controller|its owner|that [a-z0-9][a-z0-9 ,.'-]*?(?:'s|'s)? (?:controller|owner)|you|each player|each opponent|target player|target opponent|that player|that opponent|they)\\s+";
   const forEachCreate = clause.match(
     new RegExp(
-      `^for each\\s+(.+?),\\s+(?:(${forEachCreateWhoPrefix}))?create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+(tapped\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`,
+      `^for each\\s+(.+?),\\s+(?:(${forEachCreateWhoPrefix}))?create(?:s)?\\s+(${TOKEN_AMOUNT_PATTERN})\\s+((?:tapped\\s+and\\s+attacking|tapped)\\s+)?(.+?)\\s+(?:creature\\s+)?token(?:s)?\\b`,
       'i'
     )
   );
   if (forEachCreate) {
     const countedExpression = String(forEachCreate[1] || '').trim();
     if (/\bvote$/i.test(countedExpression)) return null;
-    const tappedAndAttacking = hasTappedAndAttackingClause(clause);
+    const tappedPhrase = String(forEachCreate[4] || '');
+    const tappedAndAttacking = /\battacking\b/i.test(tappedPhrase) || hasTappedAndAttackingClause(clause);
     const whoSubject = String(forEachCreate[2] || '').trim();
     return withMeta({
       kind: 'create_token',
       who: whoSubject ? parseCreateTokenWhoFromSubject(whoSubject) : { kind: 'you' },
       amount: { kind: 'x' },
       token: String(forEachCreate[5] || '').trim(),
-      entersTapped: Boolean(forEachCreate[4]) || tappedAndAttacking || undefined,
+      entersTapped: Boolean(tappedPhrase) || tappedAndAttacking || undefined,
       ...(tappedAndAttacking ? { attacking: 'defending_player' as const } : {}),
       raw: rawClause,
     });

@@ -15,6 +15,7 @@ import { canPlayerPayLife } from "../../state/modules/game-state-effects-handler
 import { getDeclarativeLeaveBattlefieldReplacementHint as getLeaveBattlefieldReplacementHint } from "../../state/modules/leaveBattlefieldReplacementHint.js";
 import { queueLifePaymentTriggers } from "../../state/modules/triggers/pay-life.js";
 import { tryPayInlineCastAdditionalLifeCost } from "./payCastSpellAdditionalLifeCost.js";
+import { getAvailableMana } from "../../state/modules/mana-check.js";
 import { ResolutionQueueManager, ResolutionStepType } from "../../state/resolution/index.js";
 import { debug, debugWarn } from "../../utils/debug.js";
 import { getEffectivePower, getPlayerName } from "../util";
@@ -459,6 +460,8 @@ export function tryQueueRequestCastSpellWithTargets(
             cardId,
             cardName,
             squadCost: getSquadDisplayedCost(String(cardInHand?.oracle_text || oracleTextRaw || ''), additionalCost.cost),
+            spellManaCost: String((cardInHand as any)?.mana_cost || (cardForCast as any)?.mana_cost || ''),
+            availableMana: getAvailableMana(game.state, playerId as any),
             imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
             castSpellFromHandArgs: {
               cardId,

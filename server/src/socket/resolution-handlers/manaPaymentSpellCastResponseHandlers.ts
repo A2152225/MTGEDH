@@ -114,6 +114,24 @@ export async function handleSpellPaymentChoiceResponse(
       ? zoneCards.find((card: any) => card && String(card.id) === String(cardId))
       : undefined;
     const clearedCastModes = Boolean(spellCard && clearAbandonedCastModeChoice(spellCard));
+    const clearSquadChoice = Boolean(
+      spellCard && (
+        (spellCard as any).additionalCostPaid === true
+        || (spellCard as any).squadTimesPaid != null
+        || (spellCard as any).additionalCostMethod
+      ),
+    );
+    if (clearSquadChoice && spellCard) {
+      delete (spellCard as any).squadTimesPaid;
+      delete (spellCard as any).additionalCostPaid;
+      delete (spellCard as any).additionalCostMethod;
+    }
+    const cardUpdates = {
+      ...(clearedCastModes ? abandonedCastModeCardUpdates() : {}),
+      ...(clearSquadChoice
+        ? { squadTimesPaid: null, additionalCostPaid: null, additionalCostMethod: null }
+        : {}),
+    };
 
     appendCastSpellContinuationEvent(gameId, game, {
       playerId: pid,
@@ -122,7 +140,7 @@ export async function handleSpellPaymentChoiceResponse(
       resolvedStepId: String((step as any).id || '').trim(),
       resolvedStepType: String((step as any).type || ''),
       cancelled: true,
-      ...(clearedCastModes ? { cardUpdates: abandonedCastModeCardUpdates() } : {}),
+      ...(Object.keys(cardUpdates).length > 0 ? { cardUpdates } : {}),
     });
 
     io.to(gameId).emit('chat', {

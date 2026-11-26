@@ -5,11 +5,13 @@
  * Public: countAttackingCreaturesMatching, countCreaturesBlockedByTarget,
  *   countCreaturesBlockingTarget, countBasicLandTypesAmongLandsYouControl,
  *   countArtifactsYouControl, countOtherAttackingAurochs,
+ *   countOtherAttackingCreaturesSharingCreatureType,
  *   countControlledCreaturesWithSubtype, countPartyCreatures,
  *   countBloodTokensForPlayer
  */
 
 import type { GameState, PlayerID } from '../../../shared/src';
+import { extractCreatureTypes } from '../../../shared/src/creatureTypes.js';
 
 export function countAttackingCreaturesMatching(
   state: GameState,
@@ -46,6 +48,40 @@ export function countAttackingCreaturesMatching(
       if (!subtypePattern.test(typeLine)) return false;
     }
     return true;
+  }).length;
+}
+
+export function countOtherAttackingCreaturesSharingCreatureType(
+  state: GameState,
+  targetCreatureId: string,
+): number {
+  const targetId = String(targetCreatureId || '').trim();
+  const battlefield = Array.isArray((state as any).battlefield) ? (state as any).battlefield : [];
+  const target = battlefield.find(
+    (permanent: any) => String(permanent?.id || permanent?.permanentId || '').trim() === targetId,
+  );
+  if (!target) return 0;
+  const targetTypes = new Set(
+    extractCreatureTypes(
+      String(target?.card?.type_line || target?.type_line || ''),
+      String(target?.card?.oracle_text || target?.oracle_text || ''),
+    ).map((type) => type.toLowerCase()),
+  );
+  if (targetTypes.size === 0) return 0;
+  const combat: any = (state as any).combat || {};
+  const attackingIds = Array.isArray(combat.attackers)
+    ? combat.attackers.map((entry: any) => String(entry?.permanentId || entry?.id || '').trim()).filter(Boolean)
+    : [];
+  return battlefield.filter((permanent: any) => {
+    const permanentId = String(permanent?.id || permanent?.permanentId || '').trim();
+    if (!permanentId || permanentId === targetId) return false;
+    const isAttacking = Boolean(permanent?.attacking) || attackingIds.includes(permanentId);
+    if (!isAttacking) return false;
+    const types = extractCreatureTypes(
+      String(permanent?.card?.type_line || permanent?.type_line || ''),
+      String(permanent?.card?.oracle_text || permanent?.oracle_text || ''),
+    );
+    return types.some((type) => targetTypes.has(String(type).toLowerCase()));
   }).length;
 }
 

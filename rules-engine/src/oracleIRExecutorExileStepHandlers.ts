@@ -156,9 +156,11 @@ function resolveExileCounts(
   const exileCountByPlayer = new Map<PlayerID, number>();
   for (const playerId of players) {
     if (amount?.kind === 'x') {
-      const xFromCtx = Number(ctx.xValue);
-      if (Number.isFinite(xFromCtx)) {
-        exileCountByPlayer.set(playerId, Math.max(0, Math.floor(xFromCtx)));
+      // null/undefined must not become 0. Number(null) is 0, which skipped
+      // "where X is the number of opponents you attacked this turn".
+      const announcedX = ctx.xValue;
+      if (announcedX != null && Number.isFinite(Number(announcedX))) {
+        exileCountByPlayer.set(playerId, Math.max(0, Math.floor(Number(announcedX))));
         continue;
       }
       const whereMatch = String(options?.rawHint || '').match(/\bwhere\s+x\s+is\s+(.+)$/i);

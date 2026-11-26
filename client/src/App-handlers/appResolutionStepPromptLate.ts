@@ -570,6 +570,10 @@ export function handleAppResolutionStepPromptLate(
           cardId: String(step.cardId || step.sourceId || step.id),
           cardName: String(step.cardName || step.sourceName || 'Spell'),
           squadCost: String(step.squadCost || ''),
+          spellManaCost: String(step.spellManaCost || ''),
+          availableMana: step.availableMana && typeof step.availableMana === 'object'
+            ? step.availableMana as Record<string, number>
+            : undefined,
           imageUrl: step.imageUrl || step.sourceImage,
           effectId: step.sourceId,
           resolutionStepId: String(step.id),

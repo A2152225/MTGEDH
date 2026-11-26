@@ -15,6 +15,63 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 
+const SQUAD_MANA_COLORS = ['white', 'blue', 'black', 'red', 'green', 'colorless'] as const;
+
+function payManaCost(
+  pool: Record<string, number>,
+  cost: Record<string, number>,
+): Record<string, number> | null {
+  const next: Record<string, number> = {};
+  for (const color of SQUAD_MANA_COLORS) next[color] = Math.max(0, Number(pool[color] || 0));
+  for (const color of SQUAD_MANA_COLORS) {
+    if (color === 'colorless') continue;
+    const need = Math.max(0, Number(cost[color] || 0));
+    if (next[color] < need) return null;
+    next[color] -= need;
+  }
+  let generic = Math.max(0, Number(cost.colorless || 0));
+  for (const color of SQUAD_MANA_COLORS) {
+    if (generic <= 0) break;
+    const paid = Math.min(next[color], generic);
+    next[color] -= paid;
+    generic -= paid;
+  }
+  return generic > 0 ? null : next;
+}
+
+export function maxSquadPayments(
+  pool: Record<string, number>,
+  squadCost: Record<string, number>,
+  spellCost: Record<string, number>,
+): number {
+  const squadTotal = SQUAD_MANA_COLORS.reduce((sum, color) => sum + Math.max(0, Number(squadCost[color] || 0)), 0);
+  if (squadTotal <= 0) return 20;
+  let remaining = payManaCost(pool, spellCost) || { ...pool };
+  let times = 0;
+  while (times < 40) {
+    const next = payManaCost(remaining, squadCost);
+    if (!next) break;
+    remaining = next;
+    times += 1;
+  }
+  return times;
+}
+
+export function canPaySquadTimes(
+  pool: Record<string, number>,
+  squadCost: Record<string, number>,
+  spellCost: Record<string, number>,
+  times: number,
+): boolean {
+  let remaining = payManaCost(pool, spellCost) || { ...pool };
+  for (let index = 0; index < times; index += 1) {
+    const next = payManaCost(remaining, squadCost);
+    if (!next) return false;
+    remaining = next;
+  }
+  return true;
+}
+
 export interface SquadCostModalProps {
   open: boolean;
   cardId: string;
@@ -22,7 +79,8 @@ export interface SquadCostModalProps {
   squadCost: string; // Mana cost like "{1}{W}"
   imageUrl?: string;
   effectId?: string;
-  availableMana?: Record<string, number>; // Player's current mana pool
+  availableMana?: Record<string, number>; // Spendable mana, including lands and Treasures
+  spellManaCost?: string;
   onConfirm: (timesPaid: number) => void;
   onCancel: () => void;
 }
@@ -35,6 +93,7 @@ export function SquadCostModal({
   imageUrl,
   effectId,
   availableMana = {},
+  spellManaCost = '',
   onConfirm,
   onCancel,
 }: SquadCostModalProps) {
@@ -86,24 +145,9 @@ export function SquadCostModal({
   }, []);
 
   const squadMana = parseManaCost(squadCost);
-  
-  // Calculate total mana needed for current selection
-  const totalManaNeeded = Object.entries(squadMana).reduce((acc, [color, amount]) => {
-    acc[color] = amount * timesPaid;
-    return acc;
-  }, {} as Record<string, number>);
-
-  // Check if player can afford the current selection
-  const canAfford = Object.entries(totalManaNeeded).every(([color, needed]) => {
-    return (availableMana[color] || 0) >= needed;
-  });
-
-  // Calculate maximum times player can afford to pay
-  const maxAffordable = Math.min(
-    ...Object.entries(squadMana)
-      .filter(([_, amount]) => amount > 0)
-      .map(([color, amount]) => Math.floor((availableMana[color] || 0) / amount))
-  );
+  const spellMana = parseManaCost(spellManaCost);
+  const maxAffordable = maxSquadPayments(availableMana, squadMana, spellMana);
+  const canAfford = timesPaid === 0 || canPaySquadTimes(availableMana, squadMana, spellMana, timesPaid);
 
   const handleIncrement = useCallback(() => {
     setTimesPaid(prev => Math.min(prev + 1, maxAffordable));

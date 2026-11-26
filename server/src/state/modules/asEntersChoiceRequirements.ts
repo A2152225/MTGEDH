@@ -108,8 +108,11 @@ function collectIrAsEntersChoices(oracleText: string, cardName: string): AsEnter
       // Accept standalone choose_* from as-enters abilities and compound follow-ups.
       if (kind === 'choose_color') {
         if (!looksAsEnters && !/\bchoose\s+a\s+colou?r\b/i.test(raw)) continue;
-        // Skip activated-ability color choices (cost: Choose a color...)
-        if (/^\s*\{/.test(String(ability.text || ability.effectText || ''))) continue;
+        // Skip activated-ability color choices, including ability-word prefixes
+        // ("Battlefront — {T}: Choose a color").
+        const abilityText = String(ability.text || ability.effectText || '');
+        if (String(ability.type || '') === 'activated') continue;
+        if (/^\s*\{/.test(abilityText) || /\{[^}]+\}[^:\n]*:/.test(abilityText)) continue;
         const colors = manaOptionsToColors((step as any).manaOptions);
         const excludedColors = ALL_COLORS.filter((c) => !colors.includes(c));
         const isColorWord = /\bcolou?r\s+word\b/i.test(raw);

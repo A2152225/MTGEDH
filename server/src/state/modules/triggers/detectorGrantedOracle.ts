@@ -29,7 +29,7 @@ const GRANTED_KEYWORD_TRIGGER_REMINDER_RE = /(\b(?:have|has)\s[^.\n(]*\.)\s*\((?
  * A quoted trigger granted to other permanents ("... have flying and "At the beginning of your upkeep, ...")
  * is the recipient's ability, never the source's: drop it from the source's own detector text.
  */
-function stripGrantedQuotedTriggers(text: string): string {
+export function stripGrantedQuotedTriggers(text: string): string {
   return text.split('\n').map((line) => {
     const verb = /\b(?:have|has|gains?)\b/i.exec(line);
     if (!verb || verb.index === 0) return line;

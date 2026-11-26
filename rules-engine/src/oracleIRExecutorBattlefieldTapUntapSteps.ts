@@ -67,7 +67,13 @@ export function applyTapOrUntapStep(
         : {}),
     };
   }
-  if (/^(?:(?:each of )?those permanents|those creatures|them|they)$/i.test(targetText)) {
+  const antecedentFollowUp = /^it$/i.test(targetText)
+    && Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds)
+    && ctx.lastAntecedentBattlefieldPermanentIds.length > 0;
+  if (
+    /^(?:(?:each of )?those permanents|those creatures|them|they)$/i.test(targetText)
+    || antecedentFollowUp
+  ) {
     const battlefield = (state.battlefield || []) as BattlefieldPermanent[];
     const battlefieldIds = new Set(
       battlefield.map((perm: any) => String((perm as any)?.id || '').trim()).filter(Boolean),

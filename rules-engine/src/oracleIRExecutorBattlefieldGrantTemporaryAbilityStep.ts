@@ -425,16 +425,29 @@ export function applyGrantTemporaryAbilityStep(
       });
     }
     const sourceId = String(ctx.sourceId || '').trim();
+    const antecedentIds = (Array.isArray(ctx.lastAntecedentBattlefieldPermanentIds)
+      ? ctx.lastAntecedentBattlefieldPermanentIds
+      : [])
+      .map((id) => String(id || '').trim())
+      .filter((id) => id && id !== sourceId);
+    const antecedentFollowUp = /^(?:it|that creature|that permanent)$/i.test(normalizedTargetText)
+      && antecedentIds.length > 0;
     if (
-      sourceId &&
-      (/\b(?:this creature|this permanent|it also|it gets|it gains|for each \{r\}\{r\} spent to cast it)\b/i.test(stepRaw) ||
+      (antecedentFollowUp || sourceId) &&
+      (antecedentFollowUp ||
+        /\b(?:this creature|this permanent|it also|it gets|it gains|for each \{r\}\{r\} spent to cast it)\b/i.test(stepRaw) ||
         /^(?:it|this creature)$/i.test(normalizedTargetText))
     ) {
       const sourcePermanent = battlefield.find(
         (perm: any) => String((perm as any)?.id || '').trim() === sourceId,
       );
       let stampTargets: BattlefieldPermanent[] = [];
-      if (sourcePermanent && isExecutorCreature(sourcePermanent)) {
+      if (antecedentFollowUp) {
+        const antecedentSet = new Set(antecedentIds);
+        stampTargets = battlefield.filter((perm: any) =>
+          antecedentSet.has(String((perm as any)?.id || '').trim()),
+        );
+      } else if (sourcePermanent && isExecutorCreature(sourcePermanent)) {
         stampTargets = [sourcePermanent];
       } else if (sourcePermanent) {
         const attachedToId = String(

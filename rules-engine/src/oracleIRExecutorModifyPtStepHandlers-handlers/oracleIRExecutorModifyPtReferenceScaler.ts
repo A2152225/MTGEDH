@@ -33,6 +33,7 @@ import {
   countCreaturesBlockedByTarget,
   countCreaturesBlockingTarget,
   countOtherAttackingAurochs,
+  countOtherAttackingCreaturesSharingCreatureType,
   countPartyCreatures,
 } from './oracleIRExecutorModifyPtScalerCountHelpers';
 
@@ -168,6 +169,9 @@ export function resolveReferenceScalerScale(
   }
   if (/^for each other attacking creature$/.test(normalized)) {
     return Math.max(0, countAttackingCreaturesMatching(state, targetCreatureId, { excludeTarget: true }));
+  }
+  if (/^for each other attacking creature that shares a creature type with it$/.test(normalized)) {
+    return Math.max(0, countOtherAttackingCreaturesSharingCreatureType(state, targetCreatureId));
   }
   if (/^for each creature in your party$/.test(normalized)) {
     return Math.max(0, countPartyCreatures(state, controllerId));
