@@ -7,6 +7,7 @@ import {
   parseMoveZoneSingleTargetInstantOrSorceryFromGraveyardOrOwnedFlashbackExile,
   parseMoveZoneTypedCardFromAmongThem,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -86,7 +87,7 @@ describe('Oracle IR gap batch 319 — Glacial Revelation / Time of Ice / Sorcere
     const ir = parseOracleTextToIR("III - Return all tapped creatures to their owners' hands.", 'Time of Ice');
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [], exile: [] }],
       battlefield: [
         {
@@ -107,7 +108,7 @@ describe('Oracle IR gap batch 319 — Glacial Revelation / Time of Ice / Sorcere
           cmc: 1,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], { controllerId, sourceId: 'test' });
     expect(result.automationGaps || []).toHaveLength(0);
     expect((result.state.battlefield || []).map((perm: any) => perm.id)).toEqual(['bf-toi-untapped']);

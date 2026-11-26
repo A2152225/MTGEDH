@@ -11,6 +11,7 @@ import { queueGenericTriggeredAbility, queueParsedSubjectEvent } from '../trigge
 import { collectMatchingParsedEventLines, parsedEventLinesFor } from './triggerConditionFamilyMatch.js';
 import { permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 import { nameFirstPrintedInArabianNights } from './arabianNightsOriginalNames.js';
+import { beginScopedGrantScan } from './grantedOracleTriggerScan.js';
 
 const COLOR_LETTER: Record<string, string> = {
   white: 'W', w: 'W', blue: 'U', u: 'U', black: 'B', b: 'B', red: 'R', r: 'R', green: 'G', g: 'G',
@@ -182,6 +183,8 @@ export function reactToCausedTrigger(
 ): any[] {
   if ((ctx as any)?.isReplaying || (ctx as any)?._queueingCausedTrigger || !causedItem || !cause?.permanent) return [];
   (ctx as any)._queueingCausedTrigger = true;
+  // One quoted-grant source scan for this battlefield-wide check (queued lines go to the stack only).
+  const endGrantScan = beginScopedGrantScan((ctx as any)?.state);
   try {
     const creature = /\bcreature\b/i.test(String(cause.permanent?.card?.type_line || cause.permanent?.type_line || ''));
     const queued: any[] = [];
@@ -210,6 +213,7 @@ export function reactToCausedTrigger(
     }
     return queued;
   } finally {
+    endGrantScan();
     delete (ctx as any)._queueingCausedTrigger;
   }
 }

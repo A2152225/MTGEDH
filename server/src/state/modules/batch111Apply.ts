@@ -71,6 +71,7 @@ import {
 } from './batch111Parsers.js';
 import * as batch111Parsers from './batch111Parsers.js';
 import { createLongTailStaticSourceFilter, longTailStaticSources, parseExportsOf } from './longTailStaticSourceIndex.js';
+import { declarativeSpecAppliesPtLine } from './longTailPtDeclarativeOverlapGuard.js';
 
 const B111_SOURCES = createLongTailStaticSourceFilter('batch111', () => parseExportsOf(batch111Parsers));
 
@@ -277,7 +278,8 @@ export function applyBatch111PowerToughnessAdjustment(
       nextToughness += faceDown.toughness * count;
     }
     const artifacts = mode === 'delta' ? parseSelfPtPerArtifactYouControl(line) : null;
-    if (artifacts && same(source, permanent)) {
+    if (artifacts && same(source, permanent)
+      && !declarativeSpecAppliesPtLine(source, (l) => !!parseSelfPtPerArtifactYouControl(normalizeBatch111Oracle(l, String(source?.card?.name || ''))))) {
       const count = battlefield.filter((perm) => perm && controller(perm) === src && /\bartifact\b/.test(typeLine(perm))).length;
       nextPower += artifacts.power * count;
       nextToughness += artifacts.toughness * count;
@@ -289,7 +291,8 @@ export function applyBatch111PowerToughnessAdjustment(
       nextToughness += equippedArtifacts.toughness;
     }
     const enchantedTeam = mode === 'delta' ? parseEnchantedCreaturesYouControlPt(line) : null;
-    if (enchantedTeam && src === self && isCreature(permanent) && battlefield.some((aura) => isAuraOn(permanent, aura))) {
+    if (enchantedTeam && src === self && isCreature(permanent) && battlefield.some((aura) => isAuraOn(permanent, aura))
+      && !declarativeSpecAppliesPtLine(source, (l) => !!parseEnchantedCreaturesYouControlPt(normalizeBatch111Oracle(l, String(source?.card?.name || ''))))) {
       nextPower += enchantedTeam.power;
       nextToughness += enchantedTeam.toughness;
     }

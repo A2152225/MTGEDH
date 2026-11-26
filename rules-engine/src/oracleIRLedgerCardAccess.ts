@@ -26,6 +26,7 @@ export function snapshotToCardLike(snap: RuntimeObjectSnapshot): Record<string, 
     toughness: snap.toughness,
     colors: [...snap.colors],
     zone: snap.zone,
+    ...(Number.isFinite(Number(snap.manaValue)) && snap.manaValue !== null ? { manaValue: Number(snap.manaValue) } : {}),
     ...(ownerId ? { owner: ownerId, ownerId } : {}),
   };
 }

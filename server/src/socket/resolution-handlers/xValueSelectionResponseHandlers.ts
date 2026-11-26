@@ -48,6 +48,7 @@ import { resumeOracleIRRemainingStepsFromResolution } from "../../state/modules/
 import { applyAssistPaymentChoice, isAssistPaymentChoiceStep } from "../assistPaymentFlow.js";
 import { applyAsEntersPayAnyLifeChoice, isAsEntersPayAnyLifeStep } from "../../state/modules/asEntersPayAnyLife.js";
 import { continuePlaneswalkerAbilityAfterChosenX } from "../interaction-handlers/interactionActivatePlaneswalkerContinueAfterX.js";
+import { continuePayXEnergyActivationAfterX } from "../interaction-handlers/activationPayXEnergyCost.js";
 
 /** X_VALUE_SELECTION: record chosen X for a spell cast, delayed up-to draw, or Blight X activation cost. */
 export async function handleXValueSelectionResponse(
@@ -67,6 +68,11 @@ export async function handleXValueSelectionResponse(
   else if (rawSelection && typeof rawSelection === 'object' && rawSelection.xValue != null) selectedXValue = Number(rawSelection.xValue);
 
   selectedXValue = Number.isFinite(selectedXValue) ? Math.max(0, Math.floor(selectedXValue as number)) : null;
+
+  if (stepAny?.payXEnergyActivation) {
+    await continuePayXEnergyActivationAfterX(io, game, gameId, step, response, selectedXValue);
+    return;
+  }
 
   if (stepAny?.planeswalkerLoyaltyX === true) {
     if (response.cancelled || selectedXValue == null) return;

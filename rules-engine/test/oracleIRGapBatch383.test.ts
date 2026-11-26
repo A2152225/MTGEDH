@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -36,13 +37,13 @@ describe('Oracle IR gap batch 383 — target clusters (Track E2)', () => {
     expect(blackStep).toBeTruthy();
     expectNoTargetGaps(
       [blackStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-black', controller: 'p2', type_line: 'Creature — Zombie', colors: ['B'] },
           { id: 'bf-white', controller: 'p2', type_line: 'Creature — Human', colors: ['W'] },
         ],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-source' }
     );
 
@@ -54,10 +55,10 @@ describe('Oracle IR gap batch 383 — target clusters (Track E2)', () => {
     expect(otherwiseStep).toBeTruthy();
     expectNoTargetGaps(
       [otherwiseStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-human', controller: controllerId, type_line: 'Creature — Human' }],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-source', targetPermanentId: 'bf-human', targetCreatureId: 'bf-human' }
     );
 
@@ -66,13 +67,13 @@ describe('Oracle IR gap batch 383 — target clusters (Track E2)', () => {
     expect(destroyStep).toBeTruthy();
     const destroyResult = expectNoTargetGaps(
       [destroyStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-d-1', controller: 'p2', type_line: 'Creature — Dragon' },
           { id: 'bf-d-2', controller: 'p2', type_line: 'Creature — Human' },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-source',
@@ -93,10 +94,10 @@ describe('Oracle IR gap batch 383 — target clusters (Track E2)', () => {
     expect(counterStep).toBeTruthy();
     expectNoTargetGaps(
       [counterStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Human' }],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-source', targetPermanentId: 'bf-source', targetCreatureId: 'bf-source' }
     );
 
@@ -108,13 +109,13 @@ describe('Oracle IR gap batch 383 — target clusters (Track E2)', () => {
     expect(skipStep).toBeTruthy();
     expectNoTargetGaps(
       [skipStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-fly', controller: 'p2', type_line: 'Creature — Drake', keywords: ['Flying'] },
           { id: 'bf-ground', controller: 'p2', type_line: 'Creature — Bear' },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-source',

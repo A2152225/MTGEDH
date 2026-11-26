@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -97,7 +98,7 @@ describe('Oracle IR gap batch 287 — selector cluster fixes', () => {
     );
     const conditional = ir.abilities[0]?.steps.find((step) => step.kind === 'conditional');
     const steps = conditional?.kind === 'conditional' ? conditional.steps : [];
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: opponentId,
@@ -115,7 +116,7 @@ describe('Oracle IR gap batch 287 — selector cluster fixes', () => {
           card: { id: 'countered-1', name: 'Counterspell', type_line: 'Instant' },
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId,
@@ -136,7 +137,7 @@ describe('Oracle IR gap batch 287 — selector cluster fixes', () => {
       "This Town Ain't Big Enough"
     );
     const steps = ir.abilities[0]?.steps || [];
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [] },
         { id: opponentId, library: [], hand: [], graveyard: [] },
@@ -146,7 +147,7 @@ describe('Oracle IR gap batch 287 — selector cluster fixes', () => {
         { id: 'artifact-1', name: 'Sol Ring', type_line: 'Artifact', controller: opponentId, owner: opponentId },
         { id: 'land-1', name: 'Island', type_line: 'Basic Land — Island', controller: opponentId, owner: opponentId },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId,

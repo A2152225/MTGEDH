@@ -81,7 +81,7 @@ describe('Oracle IR gap batch 46 — draw where-X and quoted token exile', () =>
         },
       ],
       'Intelligence Bobblehead',
-      false,
+      [],
       {
         typeLine: 'Artifact',
         auditContext: { bobbleheadCount: 3 },

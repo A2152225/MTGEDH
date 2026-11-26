@@ -57,6 +57,7 @@ describe('oracleIR battlefield entry commit', () => {
       raw: 'put a creature card from your hand onto the battlefield',
       what: { kind: 'raw', text: 'a creature card from your hand' },
       to: 'battlefield',
+      toRaw: '',
     }];
 
     const ctx = buildOracleIRExecutionContext({
@@ -136,6 +137,7 @@ describe('oracleIR battlefield entry commit', () => {
       raw: 'put a land card from your hand onto the battlefield tapped',
       what: { kind: 'raw', text: 'a land card from your hand' },
       to: 'battlefield',
+      toRaw: '',
       entersTapped: true,
     }];
 

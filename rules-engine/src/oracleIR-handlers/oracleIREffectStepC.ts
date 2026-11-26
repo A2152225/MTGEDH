@@ -506,6 +506,8 @@ export type OracleEffectStepC =
       readonly kind: 'become_aura';
       readonly target: OracleObjectSelector;
       readonly enchant: OracleObjectSelector;
+      /** Licids: "Attach it to target creature." (enchant keeps the printed restriction). */
+      readonly attachTarget?: OracleObjectSelector;
       /** Licids: "You may pay {U} to end this effect." */
       readonly endEffectCost?: string;
       readonly losesThisAbility?: boolean;

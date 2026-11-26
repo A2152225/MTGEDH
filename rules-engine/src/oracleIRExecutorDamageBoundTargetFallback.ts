@@ -193,13 +193,15 @@ export function tryApplyCompoundOrDividedDamage<R extends SplitApplyResult>(
   const secondTarget = String(match[3] || '').trim();
   if (!firstTarget || !secondTarget || /\bdamage\b/i.test(firstTarget)) return null;
   const sourceText = String((step.source as any)?.text || 'this permanent');
+  const { whereX: _whereX, ...stepWithoutWhereX } = step as any;
+  const firstAmountIsX = String((step.amount as any)?.kind || '') === 'x';
   const firstStep = {
-    ...step,
+    ...(firstAmountIsX ? step : stepWithoutWhereX),
     target: { kind: 'raw', text: firstTarget },
     raw: `${sourceText} deals damage to ${firstTarget}`,
   } as unknown as DealDamageStep;
   const secondStep = {
-    ...step,
+    ...(secondAmountRaw === 'x' ? step : stepWithoutWhereX),
     amount: secondAmountRaw === 'x' ? { kind: 'x' } : { kind: 'number', value: Number(secondAmountRaw) },
     target: { kind: 'raw', text: secondTarget },
     raw: `${sourceText} deals ${secondAmountRaw} damage to ${secondTarget}`,

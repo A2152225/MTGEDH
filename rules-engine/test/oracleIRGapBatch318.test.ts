@@ -7,6 +7,7 @@ import {
   parseMoveZoneAllNoncreatureNonlandPermanentsToHand,
   parseMoveZoneCountFromYourGraveyard,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -67,7 +68,7 @@ describe('Oracle IR gap batch 318 — Restock / Simic Guildmage / Filter Out', (
     );
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'attach');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [], exile: [] }],
       battlefield: [
         {
@@ -96,12 +97,12 @@ describe('Oracle IR gap batch 318 — Restock / Simic Guildmage / Filter Out', (
           attachedTo: 'bf-aura-host',
         },
       ],
-    } as GameState;
+    });
     const result = applyAttachStep(state, step as any, {
       controllerId,
       sourceId: 'test',
       selectorContext: { chosenObjectIds: ['bf-aura-enchantment', 'bf-aura-target'] },
-    });
+    }, []);
     expect(result.applied).toBe(true);
     const aura = (result as any).state.battlefield?.find(
       (perm: any) => String(perm?.id || '') === 'bf-aura-enchantment'
@@ -116,7 +117,7 @@ describe('Oracle IR gap batch 318 — Restock / Simic Guildmage / Filter Out', (
     );
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: opponentId, library: [], hand: [], graveyard: [], exile: [] },
@@ -147,7 +148,7 @@ describe('Oracle IR gap batch 318 — Restock / Simic Guildmage / Filter Out', (
           cmc: 1,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], { controllerId, sourceId: 'test' });
     expect(result.automationGaps || []).toHaveLength(0);
     expect(result.state.battlefield || []).toHaveLength(1);

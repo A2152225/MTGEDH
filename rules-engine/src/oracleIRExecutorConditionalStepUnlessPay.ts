@@ -142,9 +142,16 @@ export function tryEvaluateConditionalUnlessPayYouDoOtherwise(
     const movedCardTypeNegatedMatch = normalizedRaw.match(/^it was not (?:a|an)\s+(.+?)(?:\s+card)?$/i);
     if (movedCardTypeNegatedMatch) {
       if (lastActionOutcome?.kind === 'impossible') return false;
-      if (lastActionOutcome?.stepKind !== 'move_zone' && lastActionOutcome?.stepKind !== 'discard') return null;
-
       const descriptor = String(movedCardTypeNegatedMatch[1] || '').trim().toLowerCase();
+      if (lastActionOutcome?.stepKind !== 'move_zone' && lastActionOutcome?.stepKind !== 'discard') {
+        // "If it was a land card, ... Otherwise, ...": a false preceding conditional records its own skipped
+        // action as the outcome, but the "Otherwise" complement still refers to the card moved before it.
+        if (lastActionOutcome?.kind !== 'unsupported') return null;
+        const antecedentMovedCards = collectContextualCardsLedgerFirst(ctx, { lastMovedCards });
+        return antecedentMovedCards.length > 0
+          ? antecedentMovedCards.every((card) => !matchesCardTypeDescriptor(card, descriptor))
+          : null;
+      }
       const movedCards = lastActionOutcome?.stepKind === 'discard'
         ? resolveAntecedentDiscardedCards(ctx, { lastDiscardedCards }) as any[]
         : collectContextualCardsLedgerFirst(ctx, { lastMovedCards }) as any[];

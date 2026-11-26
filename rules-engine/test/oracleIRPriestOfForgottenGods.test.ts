@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState } from '../../shared/src/index.js';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor.js';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 const ABILITY =
   '{T}, Sacrifice another creature: Any number of target players each lose 2 life and sacrifice a creature of their choice. You create a Treasure token and draw a card.';
@@ -10,7 +11,7 @@ function game(options?: { bear?: boolean }): GameState {
   const battlefield = options?.bear
     ? [{ id: 'bear', name: 'Grizzly Bears', controller: 'p2', owner: 'p2', card: { name: 'Grizzly Bears', type_line: 'Creature — Bear' } }]
     : [];
-  return {
+  return asGameState({
     players: [
       { id: 'p1', life: 40, hand: [], library: [{ id: 'drawn', name: 'Swamp' }], exile: [], graveyard: [] },
       { id: 'p2', life: 40, hand: [], library: [], exile: [], graveyard: [] },
@@ -20,7 +21,7 @@ function game(options?: { bear?: boolean }): GameState {
       p1: { hand: [], library: [{ id: 'drawn', name: 'Swamp' }], graveyard: [], exile: [] },
       p2: { hand: [], library: [], graveyard: [], exile: [] },
     },
-  } as GameState;
+  });
 }
 
 function run(state: GameState, chosen: string[]) {

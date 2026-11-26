@@ -4,6 +4,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { executorPermanentHasIndestructible } from '../src/oracleIRExecutorBattlefieldIndestructible';
+import { asGameState } from './helpers/gameStateFixture';
 
 const ATSKNF_TEXT =
   'Choose a creature type. Creatures you control of the chosen type get +1/+0 and gain indestructible until end of turn.';
@@ -11,7 +12,7 @@ const GENEROUS_GIFT_TEXT =
   'Destroy target permanent. Its controller creates a 3/3 green Elephant creature token.';
 
 function makeState(): GameState {
-  return {
+  return asGameState({
     players: [
       { id: 'p_myrel', name: 'Myrel' },
       { id: 'p_neera', name: 'Neera' },
@@ -46,7 +47,7 @@ function makeState(): GameState {
       p_myrel: { hand: [], graveyard: [], exile: [] },
       p_neera: { hand: [], graveyard: [], exile: [] },
     },
-  } as GameState;
+  });
 }
 
 function applySpell(

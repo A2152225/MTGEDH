@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -18,7 +19,7 @@ const baseParams = {
 
 describe('Oracle IR gap batch 353 — top condition clusters', () => {
   it('evaluates life loss threshold, enchant/equip, exiled type match, and no tapped lands', () => {
-    const state = {
+    const state = asGameState({
       players: [
         { id: 'p1', exile: [{ id: 'ex-1', type_line: 'Creature — Human', exiledWithSourceId: 'bf-source' }] },
         { id: 'p2' },
@@ -26,7 +27,7 @@ describe('Oracle IR gap batch 353 — top condition clusters', () => {
       lifeLostThisTurn: { p2: 5 },
       stack: [{ id: 'stack-spell-1', type_line: 'Creature — Elf', card: { type_line: 'Creature — Elf' } }],
       battlefield: [{ id: 'bf-land-1', controller: controllerId, type_line: 'Basic Land — Forest', tapped: false }],
-    } as GameState;
+    });
 
     expect(
       evaluateExtendedConditionalClause({
@@ -71,10 +72,10 @@ describe('Oracle IR gap batch 353 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         lifeLostThisTurn: { p2: 4 },
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-ysh' }
     );
@@ -108,7 +109,7 @@ describe('Oracle IR gap batch 353 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [
           {
             id: controllerId,
@@ -116,7 +117,7 @@ describe('Oracle IR gap batch 353 — top condition clusters', () => {
           },
         ],
         stack: [{ id: 'stack-spell-1', type_line: 'Creature — Elf', card: { type_line: 'Creature — Elf' } }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' }
     );
@@ -131,10 +132,10 @@ describe('Oracle IR gap batch 353 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-land-1', controller: controllerId, type_line: 'Basic Land — Forest', tapped: false }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-shaman' }
     );

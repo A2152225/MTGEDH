@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -40,13 +41,13 @@ describe('Oracle IR gap batch 365 — top condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }],
           battlefield: [
             { id: 'bf-mine-worker', controller: controllerId, name: 'Mine Worker', type_line: 'Artifact Creature — Construct' },
             { id: 'bf-tower-worker', controller: controllerId, name: 'Tower Worker', type_line: 'Artifact Creature — Construct' },
           ],
-        } as GameState,
+        }),
         normalizedRaw: 'you control creatures named mine worker and tower worker',
       })
     ).toBe(true);
@@ -54,12 +55,12 @@ describe('Oracle IR gap batch 365 — top condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: 'they entered or were cast from a graveyard' },
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }],
           battlefield: [
             { id: 'bf-gy-creature-1', controller: controllerId, type_line: 'Creature — Zombie', enteredFromZone: 'graveyard' },
           ],
-        } as GameState,
+        }),
         controllerId,
         ctx: {
           controllerId,
@@ -103,14 +104,14 @@ describe('Oracle IR gap batch 365 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-source', controller: controllerId, name: 'Power Plant Worker', type_line: 'Artifact Creature — Construct' },
           { id: 'bf-mine-worker', controller: controllerId, name: 'Mine Worker', type_line: 'Artifact Creature — Construct' },
           { id: 'bf-tower-worker', controller: controllerId, name: 'Tower Worker', type_line: 'Artifact Creature — Construct' },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -125,12 +126,12 @@ describe('Oracle IR gap batch 365 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-gy-creature-1', controller: controllerId, type_line: 'Creature — Zombie', enteredFromZone: 'graveyard' },
         ],
-      } as GameState,
+      }),
       [step!],
       {
         controllerId,

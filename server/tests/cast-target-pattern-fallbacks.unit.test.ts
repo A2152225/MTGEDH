@@ -78,7 +78,7 @@ describe('cast target pattern fallbacks', () => {
       .toEqual(['Target creature you control', "target creature you don't control"]);
     expect(splitMultiTargetClause('Destroy target Plains and target white creature'))
       .toEqual(['target Plains', 'target white creature']);
-    expect(splitMultiTargetClause('Target creature deals damage equal to its power to target creature')).toBeNull();
+    expect(splitMultiTargetClause('Target creature deals damage equal to its power to target creature')).toEqual(['Target creature', 'target creature']);
     const clauses = buildSpellTargetSelectionClauses(game, 'p1', 'Hunt the Hunter',
       'Target green creature you control gets +2/+2 until end of turn. It fights target green creature an opponent controls.');
     expect(clauses.map((clause) => ids(clause.validTargetList))).toEqual([['my_bear'], ['opp_bear', 'opp_gold']]);

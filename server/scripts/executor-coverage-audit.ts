@@ -54,7 +54,8 @@ import {
   isEligible,
   isIgnorableCardForIrGap,
   loadEffectIrParser,
-} from './trigger-coverage-audit.ts';
+} from './trigger-coverage-audit';
+import { asGameState } from '../../rules-engine/test/helpers/gameStateFixture';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -1804,7 +1805,8 @@ export function enrichAuditStateAndContextForTargets(
     const sourceName = String(nextCtx.sourceName || 'Salvation Colossus').trim();
     const sourceId = 'gy-audit-return-this-card';
     const sourceTypeLine = String(
-      (nextState.battlefield || []).find((perm: any) => String(perm?.id || '').trim() === 'bf-source')
+      ((nextState.battlefield || []) as readonly { readonly id?: unknown; readonly type_line?: unknown }[])
+        .find((perm) => String(perm?.id || '').trim() === 'bf-source')
         ?.type_line || 'Artifact — Equipment'
     ).trim();
     nextState = {
@@ -12156,7 +12158,7 @@ export function enrichAuditStateAndContextForTargets(
             targetSpellId: 'stack-spell-1',
           },
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [
             {
@@ -12167,7 +12169,7 @@ export function enrichAuditStateAndContextForTargets(
               kickedTimes: 1,
             },
           ],
-        } as GameState;
+        });
       }
       if (/it was a human/i.test(conditionRaw)) {
         nextCtx = {
@@ -12300,7 +12302,7 @@ export function enrichAuditStateAndContextForTargets(
             targetPlayerId: 'p2',
           },
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [
             { id: 'p1', name: 'P1' },
@@ -12321,7 +12323,7 @@ export function enrichAuditStateAndContextForTargets(
               tapped: true,
             },
           ],
-        } as GameState;
+        });
       }
       if (/this spell was cast from exile/i.test(conditionRaw)) {
         nextCtx = {
@@ -12483,7 +12485,7 @@ export function enrichAuditStateAndContextForTargets(
             targetSpellId: 'stack-spell-1',
           },
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [
             {
@@ -12504,7 +12506,7 @@ export function enrichAuditStateAndContextForTargets(
               },
             ],
           })),
-        } as GameState;
+        });
       }
       if (/you control no tapped lands/i.test(conditionRaw)) {
         nextState = {
@@ -12649,7 +12651,7 @@ export function enrichAuditStateAndContextForTargets(
         };
         const colorKey = colorMap[colorLetter] || 'red';
         const symbolCount = (conditionRaw.match(/\{[wubrgcs]\}/gi) || []).length;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [
             {
@@ -12663,7 +12665,7 @@ export function enrichAuditStateAndContextForTargets(
               },
             },
           ],
-        } as GameState;
+        });
       }
       if (/an artifact entered the battlefield under your control this turn/i.test(conditionRaw)) {
         (nextState as any).artifactEnteredThisTurn = {
@@ -12816,7 +12818,7 @@ export function enrichAuditStateAndContextForTargets(
             targetSpellId: 'stack-spell-1',
           },
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [
             {
@@ -12828,7 +12830,7 @@ export function enrichAuditStateAndContextForTargets(
               card: { type_line: 'Instant', manaValue: 5, manaSpentTotal: 2 },
             },
           ],
-        } as GameState;
+        });
       }
       if (/a creature is dealt damage this way/i.test(conditionRaw)) {
         nextCtx = {
@@ -12977,7 +12979,7 @@ export function enrichAuditStateAndContextForTargets(
             lifeWasPaidToActivateIt: true,
           },
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [
             {
@@ -12987,7 +12989,7 @@ export function enrichAuditStateAndContextForTargets(
               description: 'Pay 2 life: Draw a card.',
             },
           ],
-        } as GameState;
+        });
       }
       if (/you control creatures named .+ and .+/i.test(conditionRaw)) {
         nextState = {
@@ -13181,7 +13183,7 @@ export function enrichAuditStateAndContextForTargets(
           targetSpellId: 'stack-spell-1',
           noColoredManaSpentToCast: true,
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [
             {
@@ -13191,7 +13193,7 @@ export function enrichAuditStateAndContextForTargets(
               manaSpentBreakdown: { colorless: 2, white: 0, blue: 0, black: 0, red: 0, green: 0 },
             },
           ],
-        } as GameState;
+        });
       }
       if (/^she was a nonland creature$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
@@ -13231,7 +13233,7 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^it has mutate$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [
             {
@@ -13241,7 +13243,7 @@ export function enrichAuditStateAndContextForTargets(
               oracle_text: 'Mutate {1}{G}',
             },
           ],
-        } as GameState;
+        });
       }
       if (/^you control a white or blue permanent$/i.test(conditionRaw.trim())) {
         nextState = {
@@ -13277,18 +13279,18 @@ export function enrichAuditStateAndContextForTargets(
         } as GameState;
       }
       if (/^the token is an aura$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-token', controller: 'p1', isToken: true, type_line: 'Token Enchantment — Aura' }],
-        } as GameState;
+        });
         nextCtx = { ...nextCtx, sourceId: 'bf-token', targetPermanentId: 'bf-token' } as typeof nextCtx;
       }
       if (/^\{[wubrg]\}\{[wubrg]\} was spent to cast this spell$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [{ id: 'stack-spell-1', manaSpentBreakdown: { white: 1, blue: 1, black: 0, red: 0, green: 0 } }],
-        } as GameState;
+        });
       }
       if (/ or more cards are in your graveyard$/i.test(conditionRaw)) {
         nextState = {
@@ -13297,16 +13299,16 @@ export function enrichAuditStateAndContextForTargets(
         } as GameState;
       }
       if (/greatest mana value or tied for the greatest mana value/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-art', controller: 'p1', type_line: 'Artifact', manaValue: 5 }],
-        } as GameState;
+        });
       }
       if (/no mining counters on this land/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Land', counters: { mining: 0 } }],
-        } as GameState;
+        });
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
       }
       if (/ or more artifacts entered the battlefield under your control this turn/i.test(conditionRaw)) {
@@ -13335,17 +13337,17 @@ export function enrichAuditStateAndContextForTargets(
         } as GameState;
       }
       if (/hanweir garrison/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-source', controller: 'p1', owner: 'p1', type_line: 'Land' },
             { id: 'bf-garrison', name: 'Hanweir Garrison', controller: 'p1', owner: 'p1', type_line: 'Creature — Human' },
           ],
-        } as GameState;
+        });
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
       }
       if (/all lands on the battlefield are islands/i.test(conditionRaw)) {
-        nextState = { ...nextState, battlefield: [{ type_line: 'Land — Island' }] } as GameState;
+        nextState = asGameState({ ...nextState, battlefield: [{ type_line: 'Land — Island' }] });
       }
       if (/this permanent attacked this combat/i.test(conditionRaw)) {
         (nextState as any).attackersDeclaredThisCombatByPlayer = { p1: [{ id: 'bf-source' }] };
@@ -13353,13 +13355,13 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^that card is snow$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = { ...nextState, battlefield: [{ id: 'bf-snow', type_line: 'Snow Land — Island' }] } as GameState;
+        nextState = asGameState({ ...nextState, battlefield: [{ id: 'bf-snow', type_line: 'Snow Land — Island' }] });
       }
       if (/you control exactly one creature/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-only', controller: 'p1', type_line: 'Creature — Human' }],
-        } as GameState;
+        });
       }
       if (/no player does/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, optionalOfferAccepted: false } as typeof nextCtx;
@@ -13372,19 +13374,19 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/amount of mana spent to cast that spell was less than its mana value/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [{ id: 'stack-spell-1', manaValue: 5, manaSpentTotal: 2 }],
-        } as GameState;
+        });
       }
       if (/you created a token this turn/i.test(conditionRaw)) {
         (nextState as any).tokensCreatedThisTurn = { p1: 1 };
       }
       if (/god, a demigod, or a legendary enchantment/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-god', controller: 'p1', type_line: 'Legendary Enchantment Creature — God' }],
-        } as GameState;
+        });
       }
       if (/an opponent has 0 or less life/i.test(conditionRaw)) {
         nextState = { ...nextState, players: [{ id: 'p1', life: 20 }, { id: 'p2', life: 0 }] } as GameState;
@@ -13404,34 +13406,34 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/\{s\} of any of that spell's colors was spent/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [{ id: 'stack-spell-1', colors: ['G'], snowManaOfSpellColorsSpentKnown: true, snowManaOfSpellColorsSpent: true }],
-        } as GameState;
+        });
       }
       if (/you had a land enter the battlefield under your control this turn/i.test(conditionRaw)) {
         (nextState as any).landsEnteredBattlefieldThisTurn = { p1: 1 };
       }
       if (/quest counters on this permanent/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           attackersDeclaredThisCombatByPlayer: { p1: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] },
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Artifact', counters: { quest: 1 } }],
-        } as GameState;
+        });
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
       }
       if (/this creature has defender/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Golem', oracle_text: 'Defender' }],
-        } as GameState;
+        });
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
       }
       if (/^a white creature is attacking$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-white', controller: 'p2', type_line: 'Creature — Soldier', colors: ['W'], attacking: true, defendingPlayerId: 'p1' }],
-        } as GameState;
+        });
       }
       if (/each opponent who cast a spell this turn with the same name as that card/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, referencedCardName: 'Lightning Bolt' } as typeof nextCtx;
@@ -13463,23 +13465,23 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/it had power greater than drizzt's power/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-drizzt', lastMovedCards: [{ power: 5 }] } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-drizzt', controller: 'p1', type_line: 'Legendary Creature — Human', power: 3 }],
-        } as GameState;
+        });
       }
       if (/a land you controlled was put into a graveyard from the battlefield this turn/i.test(conditionRaw)) {
         (nextState as any).landYouControlledPutIntoGraveyardFromBattlefieldThisTurn = { p1: true };
       }
       if (/^defending player controls no walls$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, defendingPlayerId: 'p2', sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-source', controller: 'p1', type_line: 'Creature — Dragon', attacking: 'p2' },
             { id: 'bf-human', controller: 'p2', type_line: 'Creature — Human' },
           ],
-        } as GameState;
+        });
       }
       if (/^you have exactly 13 life$/i.test(conditionRaw.trim())) {
         nextState = { ...nextState, players: [{ id: 'p1', life: 13 }] } as GameState;
@@ -13491,7 +13493,7 @@ export function enrichAuditStateAndContextForTargets(
           thatCreatureId: 'bf-attacker',
           blockingCreatureIds: ['bf-wall-1', 'bf-wall-2'],
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-wall-src', controller: 'p1', type_line: 'Creature — Wall' },
@@ -13499,37 +13501,37 @@ export function enrichAuditStateAndContextForTargets(
             { id: 'bf-wall-1', controller: 'p1', type_line: 'Creature — Wall', blocking: 'bf-attacker' },
             { id: 'bf-wall-2', controller: 'p1', type_line: 'Creature — Wall', blocking: 'bf-attacker' },
           ],
-        } as GameState;
+        });
       }
       if (/^x is 5 or more$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, xValue: 5 } as typeof nextCtx;
       }
       if (/^it's a goblin or orc$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-goblin' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-goblin', controller: 'p1', type_line: 'Creature — Goblin' }],
-        } as GameState;
+        });
       }
       if (/^enchanted creature is a wolf or werewolf$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-aura' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-aura', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-wolf' },
             { id: 'bf-wolf', controller: 'p1', type_line: 'Creature — Wolf' },
           ],
-        } as GameState;
+        });
       }
       if (/that creature's power is greater than this creature's/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source', targetCreatureId: 'bf-entering' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-source', controller: 'p1', type_line: 'Creature — Human', power: 2 },
             { id: 'bf-entering', controller: 'p1', type_line: 'Creature — Bear', power: 4 },
           ],
-        } as GameState;
+        });
       }
       if (/a creature card was put into your graveyard from anywhere this turn/i.test(conditionRaw)) {
         (nextState as any).creatureCardPutIntoYourGraveyardThisTurn = { p1: true };
@@ -13539,33 +13541,33 @@ export function enrichAuditStateAndContextForTargets(
         nextState = { ...nextState, spellsCastThisTurn: [{ casterId: 'p2', card: { type_line: 'Instant' } }] } as GameState;
       }
       if (/^you control a green or white permanent$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-green', controller: 'p1', type_line: 'Creature — Elf', colors: ['G'] }],
-        } as GameState;
+        });
       }
       if (/an opponent drew three or more cards this turn/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [{ id: 'p1' }, { id: 'p2' }],
           cardsDrawnThisTurn: { p1: 0, p2: 3 },
-        } as GameState;
+        });
       }
       if (/^exactly one creature is attacking$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-atk', controller: 'p1', type_line: 'Creature — Soldier', attacking: true }],
-        } as GameState;
+        });
       }
       if (/^defending player controls no black permanents$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, defendingPlayerId: 'p2', sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-source', controller: 'p1', type_line: 'Creature — Spirit', attacking: 'p2' },
             { id: 'bf-green', controller: 'p2', type_line: 'Creature — Elf', colors: ['G'] },
           ],
-        } as GameState;
+        });
       }
       if (/^an opponent would mill one or more cards$/i.test(conditionRaw.trim())) {
         /* replacement stub returns true */
@@ -13576,13 +13578,13 @@ export function enrichAuditStateAndContextForTargets(
           sourceId: 'bf-source',
           stackItem: { targets: ['bf-other'] },
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-source', controller: 'p1', type_line: 'Creature — Shapeshifter' },
             { id: 'bf-other', controller: 'p1', type_line: 'Creature — Bear' },
           ],
-        } as GameState;
+        });
       }
       if (/the gift was promised and that creature isn't legendary/i.test(conditionRaw)) {
         nextCtx = {
@@ -13590,20 +13592,20 @@ export function enrichAuditStateAndContextForTargets(
           giftPromised: true,
           targetPermanentId: 'bf-zombie',
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-zombie', controller: 'p1', type_line: 'Creature — Zombie' }],
-        } as GameState;
+        });
       }
       if (/^it has a counter on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', counters: { '+1/+1': 1 } }],
-        } as GameState;
+        });
       }
       if (/a player controls more creatures than each other player/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }],
           battlefield: [
@@ -13613,21 +13615,21 @@ export function enrichAuditStateAndContextForTargets(
             { id: 'c4', controller: 'p3', type_line: 'Creature — Human' },
             { id: 'c5', controller: 'p3', type_line: 'Creature — Human' },
           ],
-        } as GameState;
+        });
       }
       if (/^this artifact has loyalty counters on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-beacon' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-beacon', controller: 'p1', type_line: 'Artifact', counters: { loyalty: 2 } }],
-        } as GameState;
+        });
       }
       if (/you or a player you're attacking has the initiative/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           initiative: 'p1',
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Soldier', attacking: 'p2' }],
-        } as GameState;
+        });
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
       }
       if (/^a creature card is put into a graveyard this way$/i.test(conditionRaw.trim())) {
@@ -13649,14 +13651,14 @@ export function enrichAuditStateAndContextForTargets(
           targetPermanentId: 'bf-a',
           secondTargetPermanentId: 'bf-b',
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-a', controller: 'p2', type_line: 'Creature — Human' },
             { id: 'bf-b', controller: 'p3', type_line: 'Creature — Bear' },
           ],
           players: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }],
-        } as GameState;
+        });
       }
       if (/ten or more creature cards total in all graveyards/i.test(conditionRaw)) {
         nextState = {
@@ -13673,10 +13675,10 @@ export function enrichAuditStateAndContextForTargets(
           targetSpellId: 'stack-spell-1',
           stackItem: { alternateCostId: 'spectacle' },
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [{ id: 'stack-spell-1', alternateCostId: 'spectacle' }],
-        } as GameState;
+        });
       }
       if (/creature spell you cast this turn was countered by a spell or ability an opponent controlled/i.test(conditionRaw)) {
         (nextState as any).creatureSpellsCounteredByOpponentThisTurn = { p1: true };
@@ -13687,10 +13689,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^it was attacking$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p2', type_line: 'Creature — Soldier', attackedThisTurn: true }],
-        } as GameState;
+        });
       }
       if (/^x is 5 or more, for each artifact destroyed this way$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, xValue: 5, lastActionOutcome: { kind: 'applied', stepKind: 'destroy' } } as typeof nextCtx;
@@ -13704,14 +13706,14 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^target opponent controls more lands than you$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetOpponentId: 'p2' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'l1', controller: 'p1', type_line: 'Land' },
             { id: 'l2', controller: 'p2', type_line: 'Land' },
             { id: 'l3', controller: 'p2', type_line: 'Land' },
           ],
-        } as GameState;
+        });
       }
       if (/haven't completed tomb of annihilation/i.test(conditionRaw)) {
         (nextState as any).completedDungeonNames = { p1: [] };
@@ -13727,34 +13729,34 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/enlisted a creature this combat/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Soldier', enlistedThisCombat: true }],
-        } as GameState;
+        });
       }
       if (/^it isn't a token$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', isToken: false }],
-        } as GameState;
+        });
       }
       if (/^you control another spirit$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-source', controller: 'p1', type_line: 'Creature — Spirit' },
             { id: 'bf-other', controller: 'p1', type_line: 'Creature — Spirit' },
           ],
-        } as GameState;
+        });
       }
       if (/three or more mana from creatures was spent to cast it/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [{ id: 'stack-spell-1', manaFromCreaturesSpent: 3 }],
-        } as GameState;
+        });
       }
       if (/you've cast an instant or sorcery spell this turn/i.test(conditionRaw)) {
         nextState = {
@@ -13764,22 +13766,22 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^his sneak cost was paid$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [{ id: 'stack-spell-1', alternateCostId: 'sneak' }],
-        } as GameState;
+        });
       }
       if (/soul counters on this enchantment/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Enchantment', counters: { soul: 2 } }],
           stack: [{ id: 'stack-spell-1', manaValue: 3 }],
-        } as GameState;
+        });
       }
       if (/^no mana was spent to cast that spell$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1', noManaSpentToCast: true } as typeof nextCtx;
-        nextState = { ...nextState, stack: [{ id: 'stack-spell-1', manaSpentTotal: 0 }] } as GameState;
+        nextState = asGameState({ ...nextState, stack: [{ id: 'stack-spell-1', manaSpentTotal: 0 }] });
       }
       if (/^it's not that player's turn$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPlayerId: 'p2', selectorContext: { targetPlayerId: 'p2' } } as typeof nextCtx;
@@ -13787,13 +13789,13 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^you control another knight$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-source', controller: 'p1', type_line: 'Creature — Knight' },
             { id: 'bf-other', controller: 'p1', type_line: 'Creature — Knight' },
           ],
-        } as GameState;
+        });
       }
       if (/sacrificed creature was suspected/i.test(conditionRaw)) {
         nextCtx = {
@@ -13817,10 +13819,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^that permanent is black$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p2', type_line: 'Creature — Zombie', colors: ['B'] }],
-        } as GameState;
+        });
       }
       if (/fourteen or more cards in your graveyard/i.test(conditionRaw)) {
         nextState = {
@@ -13840,13 +13842,13 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^you control another colorless creature$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-source', controller: 'p1', type_line: 'Creature — Eldrazi', colors: [] },
             { id: 'bf-other', controller: 'p1', type_line: 'Creature — Eldrazi', colors: [] },
           ],
-        } as GameState;
+        });
       }
       if (/^you win all the flips$/i.test(conditionRaw.trim())) {
         (nextState as any).lastCoinFlips = { p1: [true, true, true] };
@@ -13859,13 +13861,13 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^you control another elf$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-source', controller: 'p1', type_line: 'Creature — Elf' },
             { id: 'bf-other', controller: 'p1', type_line: 'Creature — Elf' },
           ],
-        } as GameState;
+        });
       }
       if (/return four or more nontoken permanents you control this way/i.test(conditionRaw)) {
         nextCtx = {
@@ -13876,23 +13878,23 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^enchanted creature is untapped$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-aura' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-aura', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-target' },
             { id: 'bf-target', controller: 'p2', type_line: 'Creature — Human', tapped: false },
           ],
-        } as GameState;
+        });
       }
       if (/^enchanted creature is red$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-aura' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-aura', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-target' },
             { id: 'bf-target', controller: 'p2', type_line: 'Creature — Goblin', colors: ['R'] },
           ],
-        } as GameState;
+        });
       }
       if (/^it's night$/i.test(conditionRaw.trim())) {
         nextState = { ...nextState, dayNight: 'night' } as GameState;
@@ -13906,10 +13908,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/that creature's power is 4 or greater/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-atk', attackingCreatureId: 'bf-atk' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-atk', controller: 'p1', type_line: 'Creature — Soldier', power: 5 }],
-        } as GameState;
+        });
       }
       if (/\+1\/\+1 counter was put on a permanent under your control this turn/i.test(conditionRaw)) {
         (nextState as any).putPlusOneCounterOnPermanentThisTurn = { p1: true };
@@ -13918,17 +13920,17 @@ export function enrichAuditStateAndContextForTargets(
         (nextState as any).damageTakenThisTurnByPlayer = { p1: 4 };
       }
       if (/didn't enter the battlefield this turn/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Human', enteredThisTurn: false }],
-        } as GameState;
+        });
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
       }
       if (/all nonland permanents you control are white/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-white', controller: 'p1', type_line: 'Creature — Soldier', colors: ['W'] }],
-        } as GameState;
+        });
       }
       if (/creature entered the battlefield under an opponent's control this turn/i.test(conditionRaw)) {
         (nextState as any).creaturesEnteredBattlefieldUnderOpponentControlThisTurn = { p2: true };
@@ -13941,16 +13943,16 @@ export function enrichAuditStateAndContextForTargets(
         } as typeof nextCtx;
       }
       if (/edgar is in the command zone or on the battlefield/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           commandZone: [{ name: 'Edgar Markov', controller: 'p1', type_line: 'Legendary Creature — Vampire' }],
-        } as GameState;
+        });
       }
       if (/you control four or fewer lands/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'l1', controller: 'p1', type_line: 'Land' }],
-        } as GameState;
+        });
       }
       if (/discarded an instant or sorcery card this way/i.test(conditionRaw)) {
         nextCtx = {
@@ -13964,26 +13966,26 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/doesn't have an indestructible counter on it/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', counters: {} }],
-        } as GameState;
+        });
       }
       if (/^you control a red or green permanent$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-red', controller: 'p1', type_line: 'Creature — Goblin', colors: ['R'] }],
-        } as GameState;
+        });
       }
       if (/three or more wolves and\/or werewolves/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'w1', controller: 'p1', type_line: 'Creature — Wolf' },
             { id: 'w2', controller: 'p1', type_line: 'Creature — Wolf' },
             { id: 'w3', controller: 'p1', type_line: 'Creature — Werewolf' },
           ],
-        } as GameState;
+        });
       }
       if (/one or fewer cards in hand/i.test(conditionRaw)) {
         nextState = {
@@ -14017,44 +14019,44 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/creature you control entered this turn/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', enteredThisTurn: true }],
-        } as GameState;
+        });
       }
       if (/opponent controls seven or more lands/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [{ id: 'p1' }, { id: 'p2' }],
           battlefield: new Array(7).fill(null).map((_, i) => ({ id: `l${i}`, controller: 'p2', type_line: 'Land' })),
-        } as GameState;
+        });
       }
       if (/^it was tapped$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target', lastMovedCards: [{ tapped: true }] } as typeof nextCtx;
       }
       if (/^it's not suspected$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', isSuspected: false }],
-        } as GameState;
+        });
       }
       if (/didn't cast a spell this turn/i.test(conditionRaw)) {
         nextState = { ...nextState, spellsCastThisTurn: [] } as GameState;
       }
       if (/^it has madness$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature', oracle_text: 'Madness {1}{R}' }],
-        } as GameState;
+        });
       }
       if (/^this spell's surge cost was paid$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
-        nextState = { ...nextState, stack: [{ id: 'stack-spell-1', alternateCostId: 'surge' }] } as GameState;
+        nextState = asGameState({ ...nextState, stack: [{ id: 'stack-spell-1', alternateCostId: 'surge' }] });
       }
       if (/^you control more creatures than each other player$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [{ id: 'p1' }, { id: 'p2' }],
           battlefield: [
@@ -14062,20 +14064,20 @@ export function enrichAuditStateAndContextForTargets(
             { id: 'c2', controller: 'p1', type_line: 'Creature — Human' },
             { id: 'c3', controller: 'p2', type_line: 'Creature — Human' },
           ],
-        } as GameState;
+        });
       }
       if (/^you control a blue or black permanent$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-blue', controller: 'p1', type_line: 'Creature — Merfolk', colors: ['U'] }],
-        } as GameState;
+        });
       }
       if (/^that creature is black or red$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p2', type_line: 'Creature — Goblin', colors: ['R'] }],
-        } as GameState;
+        });
       }
       if (/mana from a treasure was spent to cast (?:it|this spell)/i.test(conditionRaw)) {
         nextCtx = {
@@ -14091,7 +14093,7 @@ export function enrichAuditStateAndContextForTargets(
           ...((nextState as any).treasureManaSpentToCastThisTurn || {}),
           p1: true,
         };
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [
             {
@@ -14103,7 +14105,7 @@ export function enrichAuditStateAndContextForTargets(
               card: { type_line: 'Sorcery', manaFromTreasureSpent: true, manaFromTreasureSpentKnown: true },
             },
           ],
-        } as GameState;
+        });
       }
       if (/mana from a treasure was spent to activate this ability/i.test(conditionRaw)) {
         nextCtx = {
@@ -14119,7 +14121,7 @@ export function enrichAuditStateAndContextForTargets(
           ...((nextState as any).treasureManaSpentToActivateThisTurn || {}),
           p1: true,
         };
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [
             {
@@ -14136,7 +14138,7 @@ export function enrichAuditStateAndContextForTargets(
               },
             },
           ],
-        } as GameState;
+        });
       }
       if (/that player controls more lands than each other player/i.test(conditionRaw)) {
         nextCtx = {
@@ -14186,7 +14188,7 @@ export function enrichAuditStateAndContextForTargets(
         } as GameState;
       }
       if (/an opponent discarded a card this turn/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [
             { id: 'p1' },
@@ -14195,10 +14197,10 @@ export function enrichAuditStateAndContextForTargets(
             { id: 'p4' },
           ],
           discardedCardThisTurn: { p1: false, p2: true, p3: false, p4: false },
-        } as GameState;
+        });
       }
       if (/two or more players have lost the game/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [
             { id: 'p1', hasLost: false },
@@ -14207,7 +14209,7 @@ export function enrichAuditStateAndContextForTargets(
             { id: 'p4', hasLost: true },
           ],
           playersLostCount: 2,
-        } as GameState;
+        });
       }
       if (/damage from a creature source is prevented this way/i.test(conditionRaw)) {
         nextCtx = {
@@ -14241,7 +14243,7 @@ export function enrichAuditStateAndContextForTargets(
           },
         } as typeof nextCtx;
         const sourceId = String(nextCtx.sourceId || 'bf-source');
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [
             {
@@ -14266,7 +14268,7 @@ export function enrichAuditStateAndContextForTargets(
               kickerPaidCount: 2,
             },
           ],
-        } as GameState;
+        });
       }
       if (/a card is exiled with it/i.test(conditionRaw)) {
         nextState = {
@@ -14295,7 +14297,7 @@ export function enrichAuditStateAndContextForTargets(
             targetSpellId: 'stack-spell-1',
           },
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [
             {
@@ -14305,7 +14307,7 @@ export function enrichAuditStateAndContextForTargets(
               targets: ['bf-target-1'],
             },
           ],
-        } as GameState;
+        });
       }
       if (/the sacrificed creature was a/i.test(conditionRaw)) {
         nextCtx = {
@@ -14339,10 +14341,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/enlisted a creature this combat/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source', enlistedCreatureThisCombat: true } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Soldier', enlistedThisCombat: true }],
-        } as GameState;
+        });
       }
       if (/target creature you control gets \+2\/\+0 until end of turn if it's night/i.test(conditionRaw)) {
         nextState = { ...nextState, dayNight: 'night' } as GameState;
@@ -14371,10 +14373,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^that creature was cast for its warp cost$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target', warpCostPaid: true } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', warpCostPaid: true, alternateCostId: 'warp' }],
-        } as GameState;
+        });
       }
       if (/^sickness gets more votes$/i.test(conditionRaw.trim())) {
         (nextState as any).councilVoteResults = { sickness: 3, psychosis: 1 };
@@ -14405,35 +14407,35 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/doesn't have the same name as another creature you control or a creature card in your graveyard/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-unique' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [{ id: 'p1', graveyard: [] }],
           battlefield: [{ id: 'bf-unique', controller: 'p1', type_line: 'Creature — Elf', name: 'Elvish Mystic' }],
-        } as GameState;
+        });
       }
       if (/^it doesn't have first strike$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human' }],
-        } as GameState;
+        });
       }
       if (/^it has first strike$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', keywords: ['first strike'] }],
-        } as GameState;
+        });
       }
       if (/^it had a revival counter on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, lastMovedCards: [{ counters: { revival: 1 } }] } as typeof nextCtx;
       }
       if (/unless you return a land you control to its owner's hand|^you return a land you control to its owner's hand$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, unlessReturnedLandToHand: true } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'l1', controller: 'p1', type_line: 'Land' }],
-        } as GameState;
+        });
       }
       if (/four or more card types among cards in your graveyard/i.test(conditionRaw)) {
         nextState = {
@@ -14456,27 +14458,27 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/doesn't have a \+1\/\+1 counter on it/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Human', counters: {} }],
-        } as GameState;
+        });
       }
       if (/creature named fang/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-vanille' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-vanille', controller: 'p1', owner: 'p1', type_line: 'Legendary Creature — Human', name: 'Vanille, Cheerful l\'Cie' },
             { id: 'bf-fang', controller: 'p1', owner: 'p1', type_line: 'Legendary Creature — Human', name: 'Fang' },
           ],
-        } as GameState;
+        });
       }
       if (/twenty or more growth counters on it/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-ascendancy' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-ascendancy', controller: 'p1', type_line: 'Enchantment', counters: { growth: 20 } }],
-        } as GameState;
+        });
       }
       if (/^the card's mana value is 1 or less$/i.test(conditionRaw.trim())) {
         nextCtx = {
@@ -14508,7 +14510,7 @@ export function enrichAuditStateAndContextForTargets(
         } as GameState;
       }
       if (/^you control fewer creatures than an opponent$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [{ id: 'p1', life: 10 }, { id: 'p2', life: 20 }],
           battlefield: [
@@ -14516,7 +14518,7 @@ export function enrichAuditStateAndContextForTargets(
             { id: 'c2', controller: 'p2', type_line: 'Creature — Human' },
             { id: 'c3', controller: 'p2', type_line: 'Creature — Elf' },
           ],
-        } as GameState;
+        });
       }
       if (/would counter a spell/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-guile' } as typeof nextCtx;
@@ -14535,13 +14537,13 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this creature is equipped$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-source', controller: 'p1', type_line: 'Creature — Human', isEquipped: true },
             { id: 'bf-equip', controller: 'p1', type_line: 'Artifact — Equipment', attachedTo: 'bf-source' },
           ],
-        } as GameState;
+        });
       }
       if (/would cause you to draw a card/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-cyclone' } as typeof nextCtx;
@@ -14557,24 +14559,24 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^you control no other creatures$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-lone' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-lone', controller: 'p1', type_line: 'Creature — Spirit' }],
-        } as GameState;
+        });
       }
       if (/^it isn't a vehicle$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-artifact' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-artifact', controller: 'p1', type_line: 'Artifact' }],
-        } as GameState;
+        });
       }
       if (/hasn't been exerted this turn/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-celebrant' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-celebrant', controller: 'p1', type_line: 'Creature — Human', exertedThisTurn: false }],
-        } as GameState;
+        });
       }
       if (/^that artifact had counters on it$/i.test(conditionRaw.trim())) {
         nextCtx = {
@@ -14584,10 +14586,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^there are no arrowhead counters on this artifact$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-arrows' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-arrows', controller: 'p1', type_line: 'Artifact', counters: {} }],
-        } as GameState;
+        });
       }
       if (/^that permanent was a nissa planeswalker$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, lastMovedCards: [{ name: 'Nissa, Voice of Zendikar', type_line: 'Legendary Planeswalker — Nissa' }] } as typeof nextCtx;
@@ -14601,10 +14603,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/four or more cards exiled with this artifact/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-diary' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-diary', controller: 'p1', type_line: 'Artifact', exiledCardCount: 4 }],
-        } as GameState;
+        });
       }
       if (/^each player has 10 or less life$/i.test(conditionRaw.trim())) {
         nextState = {
@@ -14620,51 +14622,51 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this permanent is in the command zone$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'cmd-oloro' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           commandZone: [{ id: 'cmd-oloro', controller: 'p1', type_line: 'Legendary Creature — Avatar' }],
-        } as GameState;
+        });
       }
       if (/two or more other creatures on the battlefield/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-portcullis' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-portcullis', controller: 'p1', type_line: 'Artifact' },
             { id: 'c1', controller: 'p2', type_line: 'Creature — Human' },
             { id: 'c2', controller: 'p2', type_line: 'Creature — Elf' },
           ],
-        } as GameState;
+        });
       }
       if (/combat damage by a zombie this turn/i.test(conditionRaw)) {
         (nextState as any).combatDamageByZombieThisTurn = { p2: true };
       }
       if (/^it's enchanted$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-target', controller: 'p2', type_line: 'Creature — Human' },
             { id: 'bf-aura', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-target' },
           ],
-        } as GameState;
+        });
       }
       if (/freerunning cost was paid/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, freerunningCostPaid: true, targetSpellId: 'stack-spell-1' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           stack: [{ id: 'stack-spell-1', alternateCostId: 'freerunning' }],
-        } as GameState;
+        });
       }
       if (/^you didn't play a card from exile this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).playedFromExileThisTurn = { p1: false };
       }
       if (/doesn't have rampage/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human' }],
-        } as GameState;
+        });
       }
       if (/^a player has more cards in hand than each other player$/i.test(conditionRaw.trim())) {
         nextState = {
@@ -14682,7 +14684,7 @@ export function enrichAuditStateAndContextForTargets(
         } as GameState;
       }
       if (/^you control fewer creatures than an opponent$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [{ id: 'p1', life: 10 }, { id: 'p2', life: 20 }],
           battlefield: [
@@ -14690,17 +14692,17 @@ export function enrichAuditStateAndContextForTargets(
             { id: 'c2', controller: 'p2', type_line: 'Creature — Human' },
             { id: 'c3', controller: 'p2', type_line: 'Creature — Elf' },
           ],
-        } as GameState;
+        });
       }
       if (/that mana is spent on a dragon creature spell/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, manaSpentOnDragonCreatureSpell: true } as typeof nextCtx;
       }
       if (/^there are cards exiled with it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Artifact', exiledCardCount: 1 }],
-        } as GameState;
+        });
       }
       if (/^you controlled that artifact$/i.test(conditionRaw.trim())) {
         nextCtx = {
@@ -14718,10 +14720,10 @@ export function enrichAuditStateAndContextForTargets(
         nextCtx = { ...nextCtx, redDamagePreventedThisWay: true } as typeof nextCtx;
       }
       if (/black creature with flying is attacking/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-atk', controller: 'p2', type_line: 'Creature — Bat', colors: ['B'], keywords: ['flying'], attacking: 'p1' }],
-        } as GameState;
+        });
       }
       if (/mana value less than the sacrificed permanent's mana value/i.test(conditionRaw)) {
         nextCtx = {
@@ -14732,20 +14734,20 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this creature attacked or blocked this turn$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Creature — Human', attackedThisTurn: true }],
-        } as GameState;
+        });
       }
       if (/at least four more creatures than you/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [{ id: 'p1' }, { id: 'p2' }],
           battlefield: [
             { id: 'c1', controller: 'p1', type_line: 'Creature — Human' },
             ...new Array(5).fill(null).map((_, i) => ({ id: `c-opp-${i}`, controller: 'p2', type_line: 'Creature — Human' })),
           ],
-        } as GameState;
+        });
       }
       if (/entered from exile or was cast from exile/i.test(conditionRaw)) {
         nextCtx = {
@@ -14755,10 +14757,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^you control no other colorless creatures$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-colorless' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-colorless', controller: 'p1', type_line: 'Creature — Eldrazi', colors: [] }],
-        } as GameState;
+        });
       }
       if (/historic spell this turn/i.test(conditionRaw)) {
         (nextState as any).historicSpellsCastThisTurn = { p1: true };
@@ -14767,13 +14769,13 @@ export function enrichAuditStateAndContextForTargets(
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target', lastMovedCards: [{ tookDamageThisTurn: true }] } as typeof nextCtx;
       }
       if (/pirate and a vehicle attacked this combat/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'pirate-1', controller: 'p1', type_line: 'Creature — Pirate', attacking: 'p2' },
             { id: 'vehicle-1', controller: 'p1', type_line: 'Artifact — Vehicle', attacking: 'p2' },
           ],
-        } as GameState;
+        });
       }
       if (/at least four more cards in hand than you/i.test(conditionRaw)) {
         nextState = {
@@ -14785,21 +14787,21 @@ export function enrichAuditStateAndContextForTargets(
         (nextState as any).modifiedCreaturesDiedThisTurnByController = { p1: true };
       }
       if (/thirteen or more creatures on the battlefield/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: new Array(13).fill(null).map((_, i) => ({
             id: `c-${i}`,
             controller: i % 2 === 0 ? 'p1' : 'p2',
             type_line: 'Creature — Human',
           })),
-        } as GameState;
+        });
       }
       if (/^it has unearth$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Zombie', oracle_text: 'Unearth {1}{B}' }],
-        } as GameState;
+        });
       }
       if (/dealt damage to another creature this turn/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-wolverine', dealtDamageToAnotherCreatureThisTurn: true } as typeof nextCtx;
@@ -14807,10 +14809,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/one or more \+1\/\+1 counters on it/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-prodigy' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-prodigy', controller: 'p1', type_line: 'Creature — Human', counters: { '+1/+1': 1 } }],
-        } as GameState;
+        });
       }
       if (/^you sacrificed a permanent this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).permanentsSacrificedThisTurnByController = { p1: true };
@@ -14823,10 +14825,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^that creature is 1\/1$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Creature — Human', power: 1, toughness: 1 }],
-        } as GameState;
+        });
       }
       if (/doesn't have the same name as another creature you control or a creature card in your graveyard/i.test(conditionRaw)) {
         nextCtx = {
@@ -14836,7 +14838,7 @@ export function enrichAuditStateAndContextForTargets(
           thisPermanentId: 'bf-source',
           targetPermanentId: 'bf-source',
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [{ id: 'p1', graveyard: [] }],
           battlefield: [{
@@ -14845,7 +14847,7 @@ export function enrichAuditStateAndContextForTargets(
             type_line: 'Creature — Elf',
             name: 'Llanowar Elves',
           }],
-        } as GameState;
+        });
       }
       if (/^no permanents left the battlefield this turn$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-sarevok' } as typeof nextCtx;
@@ -14869,17 +14871,17 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this permanent has one or more \+1\/\+1 counters on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-sarulf' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-sarulf', controller: 'p1', type_line: 'Legendary Creature — Wolf', counters: { '+1/+1': 2 } }],
-        } as GameState;
+        });
       }
       if (/removed a creature card with flying from the draft/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, draftRemovedFlyingCreatureWithSameName: true } as typeof nextCtx;
       }
       if (/^you cast it from your hand and there are five or more other creatures on the battlefield$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source', castFromHand: true, wasCastFromHand: true } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-source', controller: 'p1', type_line: 'Creature — Dragon' },
@@ -14889,7 +14891,7 @@ export function enrichAuditStateAndContextForTargets(
               type_line: 'Creature — Human',
             })),
           ],
-        } as GameState;
+        });
       }
       if (/^it's at least one of the chosen colors$/i.test(conditionRaw.trim())) {
         nextCtx = {
@@ -14901,10 +14903,10 @@ export function enrichAuditStateAndContextForTargets(
             chosenColors: ['W', 'U'],
           },
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p1', type_line: 'Artifact', colors: ['W'] }],
-        } as GameState;
+        });
       }
       if (/^you haven't been dealt combat damage since your last turn$/i.test(conditionRaw.trim())) {
         (nextState as any).combatDamageTakenSinceLastTurn = { p1: false };
@@ -14929,23 +14931,23 @@ export function enrichAuditStateAndContextForTargets(
         } as GameState;
       }
       if (/^you control a black permanent and a red permanent$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-black', controller: 'p1', type_line: 'Creature — Vampire', colors: ['B'] },
             { id: 'bf-red', controller: 'p1', type_line: 'Creature — Goblin', colors: ['R'] },
           ],
-        } as GameState;
+        });
       }
       if (/^you win (one|two|three) or more flips$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, coinFlipsWonThisResolution: 3, flipsWonThisAbility: 3 } as typeof nextCtx;
       }
       if (/^this creature is an angel$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-angel', thisCreatureId: 'bf-angel' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-angel', controller: 'p1', type_line: 'Creature — Angel Spirit' }],
-        } as GameState;
+        });
       }
       if (/non-human creature spell/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, manaSpentOnNonHumanCreatureSpell: true } as typeof nextCtx;
@@ -14960,10 +14962,10 @@ export function enrichAuditStateAndContextForTargets(
           manaSpentToCastTargetSpell: 8,
           referenceSpellManaValue: 8,
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-thopter', controller: 'p1', type_line: 'Artifact Creature — Thopter', power: 2, toughness: 2 }],
-        } as GameState;
+        });
       }
       if (/^the sacrificed permanent was a commander$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sacrificedPermanentWasCommander: true } as typeof nextCtx;
@@ -14972,7 +14974,7 @@ export function enrichAuditStateAndContextForTargets(
         nextCtx = { ...nextCtx, anyPlayerPaidTwo: true, unlessPayWasPaid: true } as typeof nextCtx;
       }
       if (/^there are five colors among permanents you control$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'c-w', controller: 'p1', type_line: 'Creature — Human', colors: ['W'] },
@@ -14981,27 +14983,27 @@ export function enrichAuditStateAndContextForTargets(
             { id: 'c-r', controller: 'p1', type_line: 'Creature — Goblin', colors: ['R'] },
             { id: 'c-g', controller: 'p1', type_line: 'Creature — Elf', colors: ['G'] },
           ],
-        } as GameState;
+        });
       }
       if (/^an enchantment was put into your graveyard from the battlefield this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).enchantmentPutIntoGraveyardFromBattlefieldThisTurn = { p1: true };
       }
       if (/^you attacked with exactly one other creature this combat$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-puppeteer' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-puppeteer', controller: 'p1', type_line: 'Creature — Human', attacking: 'p2' },
             { id: 'bf-other-atk', controller: 'p1', type_line: 'Creature — Human', attacking: 'p2' },
           ],
-        } as GameState;
+        });
       }
       if (/^that creature is white or blue$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-target', targetCreatureId: 'bf-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-target', controller: 'p2', type_line: 'Creature — Merfolk', colors: ['U'] }],
-        } as GameState;
+        });
       }
       if (/^you roll a 6$/i.test(conditionRaw.trim()) || /^you've rolled a 6 this turn$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, lastDieRollResult: 6 } as typeof nextCtx;
@@ -15009,14 +15011,14 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/greatest power among creatures on the battlefield/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-aura', enchantedPermanentId: 'bf-enchanted' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-enchanted', controller: 'p1', type_line: 'Creature — Human', power: 5, toughness: 5 },
             { id: 'bf-aura', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-enchanted' },
             { id: 'bf-weaker', controller: 'p2', type_line: 'Creature — Elf', power: 2, toughness: 2 },
           ],
-        } as GameState;
+        });
       }
       if (/creature or lesson card in your graveyard/i.test(conditionRaw)) {
         nextState = {
@@ -15033,10 +15035,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this permanent was kicked$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Legendary Planeswalker — Jace', wasKicked: true }],
-        } as GameState;
+        });
       }
       if (/^there are fewer than six creature cards in your graveyard$/i.test(conditionRaw.trim())) {
         nextState = {
@@ -15074,21 +15076,21 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/no cards in hand and this enchantment has two or more quest counters/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-quest', targetPlayerId: 'p2' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [{ id: 'p1' }, { id: 'p2', hand: [] }],
           battlefield: [{ id: 'bf-quest', controller: 'p1', type_line: 'Enchantment', counters: { quest: 2 } }],
-        } as GameState;
+        });
       }
       if (/^that spell targets a commander you control$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, spellTargetsCommanderYouControl: true } as typeof nextCtx;
       }
       if (/^it's not a vehicle$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-artifact' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-artifact', controller: 'p1', type_line: 'Artifact' }],
-        } as GameState;
+        });
       }
       if (/^that creature had to attack this combat$/i.test(conditionRaw.trim())) {
         nextCtx = {
@@ -15108,10 +15110,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this creature has two or fewer judgment counters on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-judge' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-judge', controller: 'p1', type_line: 'Creature — Human', counters: { judgment: 1 } }],
-        } as GameState;
+        });
       }
       if (/^you've been dealt damage by two or more creatures this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).creaturesThatDealtDamageToYouThisTurn = { p1: 2 };
@@ -15136,16 +15138,16 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/three or more cards have been exiled with this artifact/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-source' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-source', controller: 'p1', type_line: 'Artifact', exiledCardCount: 3 }],
-        } as GameState;
+        });
       }
       if (/defending player controls no glimmer creatures/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-non-glimmer', controller: 'p2', type_line: 'Creature — Human' }],
-        } as GameState;
+        });
       }
       if (/^the discarded card was an artifact card$/i.test(conditionRaw.trim())) {
         const discarded = { id: 'disc-artifact-1', type_line: 'Artifact', name: 'Discarded Artifact' };
@@ -15171,14 +15173,14 @@ export function enrichAuditStateAndContextForTargets(
         (nextState as any).poisonedPlayersBeingAttacked = ['p2'];
       }
       if (/^defending player controls more lands than you$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-your-land', controller: 'p1', type_line: 'Basic Land — Forest' },
             { id: 'bf-opp-land-1', controller: 'p2', type_line: 'Basic Land — Plains' },
             { id: 'bf-opp-land-2', controller: 'p2', type_line: 'Basic Land — Island' },
           ],
-        } as GameState;
+        });
       }
       if (/^you have three or fewer cards in hand$/i.test(conditionRaw.trim())) {
         nextState = {
@@ -15193,10 +15195,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^that creature has infect$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-infect' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-infect', controller: 'p2', type_line: 'Creature — Phyrexian', keywords: ['infect'] }],
-        } as GameState;
+        });
       }
       if (/^you've cast a noncreature spell this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).noncreatureSpellsCastThisTurn = { p1: true };
@@ -15204,10 +15206,10 @@ export function enrichAuditStateAndContextForTargets(
       if (/haven't cast a spell from your hand this turn and this creature doesn't have a flying counter/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-wingsmith' } as typeof nextCtx;
         (nextState as any).spellsCastFromHandThisTurn = { p1: false };
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-wingsmith', controller: 'p1', type_line: 'Artifact Creature — Construct', counters: {} }],
-        } as GameState;
+        });
       }
       if (/^you sacrificed one or more permanents this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).permanentsSacrificedThisTurnByController = { p1: true };
@@ -15223,10 +15225,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^it's attacking$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-attacker' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-attacker', controller: 'p2', type_line: 'Creature — Human', attacking: 'p1' }],
-        } as GameState;
+        });
       }
       if (/^two cards that share a card type were milled this way$/i.test(conditionRaw.trim())) {
         nextCtx = {
@@ -15248,13 +15250,13 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/midnight scavengers/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-graf-rats', thisCreatureId: 'bf-graf-rats' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-graf-rats', controller: 'p1', owner: 'p1', type_line: 'Creature — Rat', name: 'Graf Rats' },
             { id: 'bf-midnight', controller: 'p1', owner: 'p1', type_line: 'Creature — Human', name: 'Midnight Scavengers' },
           ],
-        } as GameState;
+        });
       }
       if (/^its mana cost contains \{x\}$/i.test(conditionRaw.trim())) {
         nextCtx = {
@@ -15264,31 +15266,31 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/power or toughness equal to the chosen number/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, chosenNumber: 3, selectorContext: { ...(nextCtx.selectorContext || {}), chosenNumber: 3 } } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-squall-target', controller: 'p2', type_line: 'Creature — Human', power: 3, toughness: 2 }],
-        } as GameState;
+        });
       }
       if (/^it isn't a creature or vehicle$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-artifact-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-artifact-target', controller: 'p1', type_line: 'Artifact' }],
-        } as GameState;
+        });
       }
       if (/^it has a \+1\/\+1 counter on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-dual-sun' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-dual-sun', controller: 'p1', type_line: 'Creature — Human', counters: { '+1/+1': 1 } }],
-        } as GameState;
+        });
       }
       if (/ten or more luck counters on it/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-chance' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-chance', controller: 'p1', type_line: 'Enchantment', counters: { luck: 10 } }],
-        } as GameState;
+        });
       }
       if (/^an opponent lost life last turn$/i.test(conditionRaw.trim())) {
         (nextState as any).opponentLostLifeLastTurn = { p2: true };
@@ -15303,23 +15305,23 @@ export function enrichAuditStateAndContextForTargets(
           chosenRingBearerId: 'bf-other-bearer',
           selectorContext: { ...(nextCtx.selectorContext || {}), chosenRingBearerId: 'bf-other-bearer' },
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-other-bearer', controller: 'p1', type_line: 'Legendary Creature — Elf', name: 'Legolas' }],
-        } as GameState;
+        });
       }
       if (/lands with contested counters on them/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-contested-land', controller: 'p2', type_line: 'Land', counters: { contested: 1 } }],
-        } as GameState;
+        });
       }
       if (/^this artifact has a charge counter on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-ventifact' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-ventifact', controller: 'p1', type_line: 'Artifact', counters: { charge: 1 } }],
-        } as GameState;
+        });
       }
       if (/sacrificed creature's toughness was 4 or greater/i.test(conditionRaw)) {
         nextCtx = {
@@ -15328,7 +15330,7 @@ export function enrichAuditStateAndContextForTargets(
         } as typeof nextCtx;
       }
       if (/four or more basic land types among lands that player controls/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-plains', controller: 'p2', type_line: 'Basic Land — Plains' },
@@ -15336,7 +15338,7 @@ export function enrichAuditStateAndContextForTargets(
             { id: 'bf-swamp', controller: 'p2', type_line: 'Basic Land — Swamp' },
             { id: 'bf-mountain', controller: 'p2', type_line: 'Basic Land — Mountain' },
           ],
-        } as GameState;
+        });
       }
       if (/that land had a nonbasic land type/i.test(conditionRaw)) {
         nextCtx = {
@@ -15363,14 +15365,14 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/number of robots you control/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, lastDieRollResult: 2 } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-robot-1', controller: 'p1', type_line: 'Artifact Creature — Robot' },
             { id: 'bf-robot-2', controller: 'p1', type_line: 'Artifact Creature — Robot' },
             { id: 'bf-robot-3', controller: 'p1', type_line: 'Artifact Creature — Robot' },
           ],
-        } as GameState;
+        });
       }
       if (/^you've drawn two or more cards this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).cardsDrawnThisTurn = { p1: 2 };
@@ -15390,7 +15392,7 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/mana value is less than or equal to the number of allies you control/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, targetPermanentId: 'gy-ally-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: (nextState.players || []).map((player: any) =>
             String(player?.id || '').trim() === 'p2'
@@ -15398,7 +15400,7 @@ export function enrichAuditStateAndContextForTargets(
               : player
           ),
           battlefield: [{ id: 'bf-ally-1', controller: 'p1', type_line: 'Creature — Ally' }],
-        } as GameState;
+        });
       }
       if (/^you were the monarch as the turn began$/i.test(conditionRaw.trim())) {
         (nextState as any).wasMonarchAsTurnBegan = { p1: true };
@@ -15428,23 +15430,23 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/three or more cards exiled with this permanent/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-profane' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-profane', controller: 'p1', type_line: 'Enchantment', exiledCardCount: 3 }],
-        } as GameState;
+        });
       }
       if (/fewer than three charge counters on it/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-training-post' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-training-post', controller: 'p1', type_line: 'Artifact', counters: { charge: 1 } }],
-        } as GameState;
+        });
       }
       if (/^you control a demon or devil$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-demon', controller: 'p1', type_line: 'Creature — Demon' }],
-        } as GameState;
+        });
       }
       if (/phyrexian died under your control this turn/i.test(conditionRaw)) {
         (nextState as any).phyrexiansDiedUnderControlThisTurn = { p1: true };
@@ -15460,10 +15462,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this permanent has one or more \+1\/\+1 counters on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-sarulf' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-sarulf', controller: 'p1', type_line: 'Legendary Creature — Wolf', counters: { '+1/+1': 2 } }],
-        } as GameState;
+        });
       }
       if (/^it was historic$/i.test(conditionRaw.trim())) {
         nextCtx = {
@@ -15473,10 +15475,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this land isn't a creature$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-biblioplex' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-biblioplex', controller: 'p1', type_line: 'Land' }],
-        } as GameState;
+        });
       }
       if (/^you spend this mana to cast your commander$/i.test(conditionRaw.trim())) {
         nextCtx = {
@@ -15489,14 +15491,14 @@ export function enrichAuditStateAndContextForTargets(
         (nextState as any).creatureDiedThisTurn = false;
       }
       if (/^a player controls more wizards than each other player$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-wiz-p1', controller: 'p1', type_line: 'Creature — Wizard' },
             { id: 'bf-wiz-p1b', controller: 'p1', type_line: 'Creature — Wizard' },
             { id: 'bf-wiz-p2', controller: 'p2', type_line: 'Creature — Wizard' },
           ],
-        } as GameState;
+        });
       }
       if (/^you cast it during your main phase$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, castDuringMainPhase: true, castDuringYourMainPhase: true } as typeof nextCtx;
@@ -15539,10 +15541,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^that permanent or card has a time counter on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-timebug-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-timebug-target', controller: 'p1', type_line: 'Artifact', counters: { time: 1 } }],
-        } as GameState;
+        });
       }
       if (/^it's your combat phase$/i.test(conditionRaw.trim())) {
         (nextState as any).phase = 'combat';
@@ -15576,14 +15578,14 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this creature is enchanted by two or more auras$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-kitsune', enchantedPermanentId: 'bf-kitsune' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-kitsune', controller: 'p1', type_line: 'Creature — Fox Wizard' },
             { id: 'bf-aura-1', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-kitsune' },
             { id: 'bf-aura-2', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-kitsune' },
           ],
-        } as GameState;
+        });
       }
       if (/^a werewolf is dealt damage this way$/i.test(conditionRaw.trim())) {
         nextCtx = {
@@ -15603,23 +15605,23 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^enchanted creature has toxic$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, enchantedPermanentId: 'bf-toxic-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-toxic-target', controller: 'p1', type_line: 'Creature — Human', keywords: ['toxic'] },
             { id: 'bf-maze-mantle', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-toxic-target' },
           ],
-        } as GameState;
+        });
       }
       if (/that player has this permanent deal 4 damage to them/i.test(conditionRaw)) {
-        nextCtx = { ...nextCtx, unlessDealDamageChoice: 'deal' } as typeof nextCtx;
+        nextCtx = { ...nextCtx, unlessDealDamageChoice: 'deal' };
       }
       if (/^there are no charge counters on this vehicle$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-bankbuster' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-bankbuster', controller: 'p1', type_line: 'Artifact — Vehicle', counters: {} }],
-        } as GameState;
+        });
       }
       if (/^at least eight mana was spent to cast it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, atLeastEightManaSpentToCast: true, manaSpentToCastIt: 8 } as typeof nextCtx;
@@ -15645,10 +15647,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^it was dealt noncombat damage this turn$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetWasDealtNoncombatDamageThisTurn: true, targetPermanentId: 'bf-sigil-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-sigil-target', controller: 'p2', type_line: 'Creature — Human', wasDealtNoncombatDamageThisTurn: true }],
-        } as GameState;
+        });
       }
       if (/additional cost was paid and the revealed card is the chosen type/i.test(conditionRaw)) {
         nextCtx = {
@@ -15662,10 +15664,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this artifact has five or more charge counters on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-coils' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-coils', controller: 'p1', type_line: 'Artifact', counters: { charge: 5 } }],
-        } as GameState;
+        });
       }
       if (/discard a card at random unless you pay \{e\}\{e\}/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, unlessPaysEnergyChoice: 'pay' } as typeof nextCtx;
@@ -15736,25 +15738,25 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^you control more creatures of that type than each other player$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, chosenCreatureType: 'goblin', selectorContext: { ...(nextCtx.selectorContext || {}), chosenCreatureType: 'goblin' } } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-gob-1', controller: 'p1', type_line: 'Creature — Goblin' },
             { id: 'bf-gob-2', controller: 'p1', type_line: 'Creature — Goblin' },
             { id: 'bf-gob-3', controller: 'p2', type_line: 'Creature — Goblin' },
           ],
-        } as GameState;
+        });
       }
       if (/most common color among all permanents/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-barrin-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-barrin-target', controller: 'p2', type_line: 'Creature — Human', colors: ['U'] },
             { id: 'bf-blue-1', controller: 'p1', type_line: 'Creature — Merfolk', colors: ['U'] },
             { id: 'bf-blue-2', controller: 'p2', type_line: 'Creature — Spirit', colors: ['U'] },
           ],
-        } as GameState;
+        });
       }
       if (/^that player has 5 or less life$/i.test(conditionRaw.trim())) {
         nextState = {
@@ -15766,7 +15768,7 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/five or more different mana values are exiled with this permanent/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-azor-gateway' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{
             id: 'bf-azor-gateway',
@@ -15775,7 +15777,7 @@ export function enrichAuditStateAndContextForTargets(
             exiledDistinctManaValueCount: 5,
             cardsExiledWithThis: [{ cmc: 1 }, { cmc: 2 }, { cmc: 3 }, { cmc: 4 }, { cmc: 5 }],
           }],
-        } as GameState;
+        });
       }
       if (/^it's not a spirit$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, lastMovedCards: [{ id: 'bf-human', type_line: 'Creature — Human Detective' }] } as typeof nextCtx;
@@ -15804,10 +15806,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/four or more quest counters on it/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-airbender' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-airbender', controller: 'p1', type_line: 'Enchantment — Saga', counters: { quest: 4 } }],
-        } as GameState;
+        });
       }
       if (/^target opponent has more cards in hand than you$/i.test(conditionRaw.trim())) {
         nextState = {
@@ -15825,10 +15827,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this creature attacked this turn$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-riders' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-riders', controller: 'p1', type_line: 'Creature — Human Soldier', attackedThisTurn: true }],
-        } as GameState;
+        });
       }
       if (/^defending player is poisoned$/i.test(conditionRaw.trim())) {
         (nextState as any).defendingPlayerIsPoisoned = { p2: true };
@@ -15843,14 +15845,14 @@ export function enrichAuditStateAndContextForTargets(
         } as GameState;
       }
       if (/^they control fewer lands than you$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-your-land', controller: 'p1', type_line: 'Basic Land — Forest' },
             { id: 'bf-your-land-2', controller: 'p1', type_line: 'Basic Land — Plains' },
             { id: 'bf-opp-land', controller: 'p2', type_line: 'Basic Land — Island' },
           ],
-        } as GameState;
+        });
       }
       if (/^an opponent gained life this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).opponentGainedLifeThisTurn = true;
@@ -15879,17 +15881,17 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/thirty or more counters among artifacts and creatures you control/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, totalCountersOnArtifactsAndCreaturesYouControl: 30 } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-lux', controller: 'p1', type_line: 'Artifact Creature — Construct', counters: { '+1/+1': 30 } }],
-        } as GameState;
+        });
       }
       if (/^it dealt combat damage to a player this turn$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-wave', dealtCombatDamageToPlayerThisTurn: true } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-wave', controller: 'p1', type_line: 'Creature — Rat', dealtCombatDamageToPlayerThisTurn: true }],
-        } as GameState;
+        });
       }
       if (/^its toughness was less than 1$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, lastMovedCards: [{ id: 'bf-dead', type_line: 'Creature — Human', toughness: 0 }] } as typeof nextCtx;
@@ -15898,23 +15900,23 @@ export function enrichAuditStateAndContextForTargets(
         (nextState as any).lifeLostThisTurn = { p2: 3 };
       }
       if (/wolves of the hunt you control/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-wolf-1', controller: 'p1', name: 'Wolves of the Hunt', type_line: 'Creature — Wolf' },
             { id: 'bf-wolf-2', controller: 'p1', name: 'Wolves of the Hunt', type_line: 'Creature — Wolf' },
           ],
-        } as GameState;
+        });
       }
       if (/^there are seven or more lands on the battlefield$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: Array.from({ length: 7 }, (_, i) => ({
             id: `bf-land-${i}`,
             controller: i < 3 ? 'p1' : 'p2',
             type_line: 'Basic Land — Forest',
           })),
-        } as GameState;
+        });
       }
       if (/^you control no face-down permanents$/i.test(conditionRaw.trim())) {
         const sourceId = String(nextCtx.sourceId || 'bf-source').trim();
@@ -15935,17 +15937,17 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/gets \+2\/\+2 until end of turn if its power is 2/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-swipe-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-swipe-target', controller: 'p1', type_line: 'Creature — Bear', power: 2, toughness: 2 }],
-        } as GameState;
+        });
       }
       if (/^it has four or more quest counters on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-firebender' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-firebender', controller: 'p1', type_line: 'Enchantment', counters: { quest: 4 } }],
-        } as GameState;
+        });
       }
       if (/^you've cast another instant or sorcery spell this turn$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, castAnotherInstantOrSorceryThisTurn: true } as typeof nextCtx;
@@ -15953,17 +15955,17 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^its power is 2$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-power-two' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-power-two', controller: 'p1', type_line: 'Creature — Bear', power: 2, toughness: 2 }],
-        } as GameState;
+        });
       }
       if (/^that creature has flying$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-flying-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-flying-target', controller: 'p2', type_line: 'Creature — Bird', keywords: ['flying'] }],
-        } as GameState;
+        });
       }
       if (/^this spell is the first spell you've cast this game$/i.test(conditionRaw.trim())) {
         (nextState as any).spellsCastThisGame = { p1: 0 };
@@ -15983,13 +15985,13 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^enchanted equipment is attached to a creature$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-hex' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-creature-bearer', controller: 'p1', type_line: 'Creature — Human' },
             { id: 'bf-hex', controller: 'p1', type_line: 'Enchantment — Aura Equipment', attachedTo: 'bf-creature-bearer' },
           ],
-        } as GameState;
+        });
       }
       if (/^they were cast using web-slinging$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, castUsingWebSlinging: true } as typeof nextCtx;
@@ -16016,20 +16018,20 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this enchantment has three or more quest counters on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-bloodchief' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-bloodchief', controller: 'p1', type_line: 'Enchantment', counters: { quest: 3 } }],
-        } as GameState;
+        });
       }
       if (/^you guessed correctly for a card named this permanent$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, guessedCorrectlyForCardNamedThisPermanent: true } as typeof nextCtx;
       }
       if (/^there are cards exiled with this enchantment$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-valakut' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-valakut', controller: 'p1', type_line: 'Enchantment', exiledCardCount: 2 }],
-        } as GameState;
+        });
       }
       if (/three or more card types among the sacrificed permanents/i.test(conditionRaw)) {
         nextCtx = {
@@ -16056,10 +16058,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^there are three or more omen counters on this creature$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-foreboding' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-foreboding', controller: 'p1', type_line: 'Artifact Creature', counters: { omen: 3 } }],
-        } as GameState;
+        });
       }
       if (/first time \+1\/\+1 counters have been put on that permanent this turn/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, firstTimePlusOneCountersPutOnThatPermanentThisTurn: true } as typeof nextCtx;
@@ -16078,13 +16080,13 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this creature is enchanted$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-druid' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-druid', controller: 'p1', type_line: 'Creature — Druid' },
             { id: 'bf-aura-on-druid', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-druid' },
           ],
-        } as GameState;
+        });
       }
       if (/^the discarded card was a zombie card$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, lastDiscardedCards: [{ id: 'disc-zombie', type_line: 'Creature — Zombie' }] } as typeof nextCtx;
@@ -16108,26 +16110,26 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/mightstone and weakstone/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-urza' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-urza', controller: 'p1', owner: 'p1', type_line: 'Legendary Creature — Human Artificer' },
             { id: 'bf-mightstone', controller: 'p1', owner: 'p1', name: 'The Mightstone and Weakstone', type_line: 'Legendary Artifact' },
           ],
-        } as GameState;
+        });
       }
       if (/equipped creature didn't deal combat damage to a creature this turn/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, equippedCreatureDidNotDealCombatDamageToCreatureThisTurn: true } as typeof nextCtx;
       }
       if (/no permanents other than this enchantment and have no cards in hand/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-barren-glory' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: (nextState.players || []).map((player: any) =>
             String(player?.id || '').trim() === 'p1' ? { ...player, hand: [] } : player
           ),
           battlefield: [{ id: 'bf-barren-glory', controller: 'p1', type_line: 'Enchantment' }],
-        } as GameState;
+        });
       }
       if (/three or more cards put into their graveyard from anywhere this turn/i.test(conditionRaw)) {
         (nextState as any).cardsPutIntoGraveyardFromAnywhereThisTurn = { p2: 3 };
@@ -16137,23 +16139,23 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^that permanent was blue or black$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-blue-black-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-blue-black-target', controller: 'p2', type_line: 'Artifact', colors: ['U'] }],
-        } as GameState;
+        });
       }
       if (/^no creature got votes$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, noCreatureGotVotes: true } as typeof nextCtx;
       }
       if (/greater power or toughness than this creature/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-adaptive', targetPermanentId: 'bf-bigger' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-adaptive', controller: 'p1', type_line: 'Artifact Creature', power: 1, toughness: 1 },
             { id: 'bf-bigger', controller: 'p2', type_line: 'Creature — Bear', power: 3, toughness: 3 },
           ],
-        } as GameState;
+        });
       }
       if (/^you have no land cards in hand$/i.test(conditionRaw.trim())) {
         nextState = {
@@ -16173,63 +16175,63 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this permanent attacked this turn$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-attacker' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-attacker', controller: 'p1', type_line: 'Creature — Human', attackedThisTurn: true }],
-        } as GameState;
+        });
       }
       if (/^an opponent was dealt 3 or more damage this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).damageDealtToOpponentsThisTurn = { p2: 3 };
       }
       if (/^that creature's toughness is 1 or greater$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-tough' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-tough', controller: 'p2', type_line: 'Creature — Bear', toughness: 2 }],
-        } as GameState;
+        });
       }
       if (/^that player controls a nonblack$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-nonblack', controller: 'p2', type_line: 'Creature — Human', colors: ['R'] }],
-        } as GameState;
+        });
       }
       if (/^you've discarded a card this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).cardsDiscardedThisTurn = { p1: 1 };
       }
       if (/^this creature was dealt damage this turn$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-damaged', thisCreatureWasDealtDamageThisTurn: true } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-damaged', controller: 'p1', type_line: 'Creature — Wall', dealtDamageThisTurn: true }],
-        } as GameState;
+        });
       }
       if (/^an opponent controls three or more creatures$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-o1', controller: 'p2', type_line: 'Creature — Goblin' },
             { id: 'bf-o2', controller: 'p2', type_line: 'Creature — Goblin' },
             { id: 'bf-o3', controller: 'p2', type_line: 'Creature — Goblin' },
           ],
-        } as GameState;
+        });
       }
       if (/^enchanted creature has flying$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-earthbind', enchantedPermanentId: 'bf-fly-enchanted' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-fly-enchanted', controller: 'p2', type_line: 'Creature — Bird', keywords: ['flying'] },
             { id: 'bf-earthbind', controller: 'p1', type_line: 'Enchantment — Aura', attachedTo: 'bf-fly-enchanted' },
           ],
-        } as GameState;
+        });
       }
       if (/^this permanent is a scout/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-scout' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-scout', controller: 'p1', type_line: 'Creature — Scout' }],
-        } as GameState;
+        });
       }
       if (/another cleric, rogue, warrior, or wizard enter/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, anotherPartyClassEnteredThisTurn: true } as typeof nextCtx;
@@ -16239,10 +16241,10 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^that creature is attacking$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-attacking-target' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-attacking-target', controller: 'p2', type_line: 'Creature — Bear', attacking: true }],
-        } as GameState;
+        });
       }
       if (/\{g\} was spent to cast this spell/i.test(conditionRaw) && /\{u\} was spent to cast this spell/i.test(conditionRaw)) {
         nextCtx = {
@@ -16256,19 +16258,19 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^this creature has fewer than three \+1\/\+1 counters on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-steam-kin' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-steam-kin', controller: 'p1', type_line: 'Creature — Elemental', counters: { '+1/+1': 1 } }],
-        } as GameState;
+        });
       }
       if (/^you control each creature on the battlefield with the greatest power$/i.test(conditionRaw.trim())) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-might-1', controller: 'p1', type_line: 'Creature — Giant', power: 5 },
             { id: 'bf-might-2', controller: 'p2', type_line: 'Creature — Goblin', power: 1 },
           ],
-        } as GameState;
+        });
       }
       if (/^a creature card left your graveyard this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).creatureCardsLeftGraveyardThisTurn = { p1: 1 };
@@ -16334,13 +16336,13 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/named bruna/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-gisela' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-gisela', controller: 'p1', owner: 'p1', type_line: 'Legendary Creature — Angel' },
             { id: 'bf-bruna', controller: 'p1', owner: 'p1', name: 'Bruna, the Fading Light', type_line: 'Legendary Creature — Angel' },
           ],
-        } as GameState;
+        });
       }
       if (/^you discarded it this turn$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, discardedItThisTurn: true } as typeof nextCtx;
@@ -16378,11 +16380,11 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/elf card in your graveyard and this creature has a -1\/-1 counter/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, sourceId: 'bf-safewright' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           players: [{ id: 'p1', graveyard: [{ type_line: 'Creature — Elf' }] }],
           battlefield: [{ id: 'bf-safewright', controller: 'p1', type_line: 'Creature — Elf', counters: { '-1/-1': 1 } }],
-        } as GameState;
+        });
       }
       if (/^they can't$/i.test(conditionRaw.trim())) {
         nextState = { ...nextState, battlefield: [] } as GameState;
@@ -16393,28 +16395,28 @@ export function enrichAuditStateAndContextForTargets(
           targetPermanentId: 'bf-equip-destroy',
           lastMovedCards: [{ id: 'bf-equip-destroy', type_line: 'Artifact — Equipment', wasAttachedToCreature: true, attachedTo: 'bf-bearer' }],
         } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-bearer', controller: 'p2', type_line: 'Creature — Human' }],
-        } as GameState;
+        });
       }
       if (/^you haven't played it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, hasNotPlayedIt: true } as typeof nextCtx;
       }
       if (/^you control no creatures with decayed$/i.test(conditionRaw.trim())) {
-        nextState = { ...nextState, battlefield: [{ id: 'bf-human', controller: 'p1', type_line: 'Creature — Human' }] } as GameState;
+        nextState = asGameState({ ...nextState, battlefield: [{ id: 'bf-human', controller: 'p1', type_line: 'Creature — Human' }] });
       }
       if (/^you didn't activate a loyalty ability of a planeswalker this turn$/i.test(conditionRaw.trim())) {
         (nextState as any).activatedLoyaltyAbilityThisTurn = { p1: false };
       }
       if (/two or more permanents you don't control have an aim counter/i.test(conditionRaw)) {
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [
             { id: 'bf-aim-1', controller: 'p2', type_line: 'Creature — Human', counters: { aim: 1 } },
             { id: 'bf-aim-2', controller: 'p2', type_line: 'Creature — Goblin', counters: { aim: 1 } },
           ],
-        } as GameState;
+        });
       }
       if (/target player discards a card unless they put a card from their hand on top of their library/i.test(conditionRaw)) {
         nextCtx = { ...nextCtx, playerDiscardedThisWay: true } as typeof nextCtx;
@@ -16446,17 +16448,17 @@ export function enrichAuditStateAndContextForTargets(
       }
       if (/^it has fewer than four \+1\/\+1 counters on it$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, targetPermanentId: 'bf-oathsworn' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-oathsworn', controller: 'p1', type_line: 'Creature — Knight', counters: { '+1/+1': 2 } }],
-        } as GameState;
+        });
       }
       if (/^this creature is monstrous$/i.test(conditionRaw.trim())) {
         nextCtx = { ...nextCtx, sourceId: 'bf-crusher' } as typeof nextCtx;
-        nextState = {
+        nextState = asGameState({
           ...nextState,
           battlefield: [{ id: 'bf-crusher', controller: 'p1', type_line: 'Creature — Cyclops', monstrous: true }],
-        } as GameState;
+        });
       }
       if (/^you have 50 or more life$/i.test(conditionRaw.trim())) {
         nextState = {
@@ -17948,7 +17950,7 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
     exiledWithSourceId: 'bf-source',
   };
 
-  return {
+  return asGameState({
     id: 'executor-audit-game',
     format: 'commander',
     players: [
@@ -18836,7 +18838,7 @@ export function buildAuditFixtureState(cardName?: string, typeLine?: string): Ga
     cardLeftGraveyardThisTurn: { p1: true, p2: false, p3: false, p4: false },
     lifePaidThisWay: { p1: true, p2: false, p3: false, p4: false },
     manaPool: { p1: { white: 8, blue: 8, black: 8, red: 8, green: 8, colorless: 8 } },
-  } as GameState;
+  });
 }
 
 export function buildAuditExecutionContext(cardName: string): ReturnType<typeof buildOracleIRExecutionContext> {
@@ -18949,7 +18951,7 @@ export function buildAuditExecutionContext(cardName: string): ReturnType<typeof 
       referenceAmount: 2,
       giftPromised: true,
       abilityResolveCountThisTurn: 3,
-      lifePaidThisWay: true,
+      lifePaidThisWay: 1,
       lastVoteResults: { planeswalk: 3, chaos: 1, truth: 2, consequences: 2 },
       voteChoiceCounts: {
         grace: 2,
@@ -19457,7 +19459,7 @@ async function main(): Promise<void> {
     if (!oracle) continue;
 
     if (args.scope === 'trigger_effects' || args.scope === 'both') {
-      const triggers = parseTriggeredAbilitiesFromText(oracle, card.name);
+      const triggers = parseTriggeredAbilitiesFromText(oracle, 'audit-source', 'p1', card.name);
       for (const trigger of triggers) {
         const effect = String(trigger.effect || '').trim();
         if (!effect) continue;

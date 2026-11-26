@@ -186,8 +186,8 @@ describe('AIEngine', () => {
       });
       
       testGameState.battlefield = [
-        { id: 'creature1', name: 'Grizzly Bears', card: { type_line: 'Creature — Bear', name: 'Grizzly Bears' }, controller: 'ai1', tapped: false },
-        { id: 'creature2', name: 'Serra Angel', card: { type_line: 'Creature — Angel', name: 'Serra Angel' }, controller: 'ai1', tapped: false },
+        { id: 'creature1', owner: 'ai1', card: { id: 'creature1', type_line: 'Creature — Bear', name: 'Grizzly Bears' }, controller: 'ai1', tapped: false },
+        { id: 'creature2', owner: 'ai1', card: { id: 'creature2', type_line: 'Creature — Angel', name: 'Serra Angel' }, controller: 'ai1', tapped: false },
       ];
     });
     
@@ -208,7 +208,7 @@ describe('AIEngine', () => {
     
     it('should not attack with tapped creatures', async () => {
       testGameState.battlefield = [
-        { id: 'creature1', name: 'Grizzly Bears', card: { type_line: 'Creature — Bear', name: 'Grizzly Bears' }, controller: 'ai1', tapped: true },
+        { id: 'creature1', owner: 'ai1', card: { id: 'creature1', type_line: 'Creature — Bear', name: 'Grizzly Bears' }, controller: 'ai1', tapped: true },
       ];
       
       const context: AIDecisionContext = {
@@ -271,8 +271,8 @@ describe('AIEngine', () => {
       });
       
       testGameState.battlefield = [
-        { id: 'creature1', name: 'Grizzly Bears', card: { type_line: 'Creature — Bear', name: 'Grizzly Bears', power: '2', toughness: '2' }, controller: 'ai1', tapped: false },
-        { id: 'creature2', name: 'Serra Angel', card: { type_line: 'Creature — Angel', name: 'Serra Angel', power: '4', toughness: '4' }, controller: 'ai1', tapped: false },
+        { id: 'creature1', owner: 'ai1', card: { id: 'creature1', type_line: 'Creature — Bear', name: 'Grizzly Bears', power: '2', toughness: '2' }, controller: 'ai1', tapped: false },
+        { id: 'creature2', owner: 'ai1', card: { id: 'creature2', type_line: 'Creature — Angel', name: 'Serra Angel', power: '4', toughness: '4' }, controller: 'ai1', tapped: false },
       ];
       
       const context: AIDecisionContext = {
@@ -372,7 +372,7 @@ describe('AIEngine', () => {
       
       testGameState.players[0].life = 10; // Low life
       testGameState.battlefield = [
-        { id: 'creature1', name: 'Grizzly Bears', card: { type_line: 'Creature — Bear', name: 'Grizzly Bears' }, controller: 'ai1', tapped: false },
+        { id: 'creature1', owner: 'ai1', card: { id: 'creature1', type_line: 'Creature — Bear', name: 'Grizzly Bears' }, controller: 'ai1', tapped: false },
       ];
       
       const context: AIDecisionContext = {
@@ -1299,9 +1299,10 @@ describe('AIEngine', () => {
       testGameState.battlefield = [
         { 
           id: 'creature1', 
-          name: 'Grizzly Bears', 
+          owner: 'ai1',
           controller: 'ai1',
           card: { 
+            id: 'creature1',
             name: 'Grizzly Bears', 
             type_line: 'Creature - Bear', 
             power: '2', 
@@ -1314,9 +1315,10 @@ describe('AIEngine', () => {
         },
         { 
           id: 'token1', 
-          name: 'Treasure', 
+          owner: 'ai1',
           controller: 'ai1',
           card: { 
+            id: 'token1',
             name: 'Treasure', 
             type_line: 'Artifact - Treasure',
           },

@@ -10,6 +10,7 @@ import {
   parseMoveZoneMassBattlefieldCreatureBounce,
   parseMoveZoneTypedCardFromAmongThem,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -114,7 +115,7 @@ describe('Oracle IR gap batch 290 — selector cluster fixes', () => {
       'Wave Goodbye'
     );
     const steps = ir.abilities[0]?.steps || [];
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [] }],
       battlefield: [
         {
@@ -135,7 +136,7 @@ describe('Oracle IR gap batch 290 — selector cluster fixes', () => {
           counters: { '+1/+1': 2 },
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, { controllerId, sourceId: 'wave' });
     expect(result.automationGaps?.some((gap) => gap.reasonCode === 'unsupported_selector')).toBe(false);

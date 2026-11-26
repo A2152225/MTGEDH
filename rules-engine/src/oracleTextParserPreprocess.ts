@@ -168,7 +168,12 @@ export function normalizeOracleTextSelfReferences(oracleText: string, cardName?:
   const normalized = buildSelfReferenceAliases(cardName).reduce((text, alias) => {
     if (/^ascend\s+magiccon\b/i.test(alias)) return text;
     const pattern = new RegExp(`(^|[^a-z0-9])(${escapeRegex(alias)})(?=[^a-z0-9]|$)`, 'gi');
-    return text.replace(pattern, '$1this permanent');
+    const singleWord = !/\s/.test(alias.trim());
+    return text.replace(pattern, (whole: string, lead: string, _name: string, offset: number, full: string) => {
+      const after = full.slice(offset + whole.length);
+      if (singleWord && /^\s+(?:target|up to|all|each|another|any|two|three|x)\b/i.test(after)) return whole;
+      return `${lead}this permanent`;
+    });
   }, masked);
   return unmaskCreateTokenDescriptors(normalized, parts);
 }
@@ -193,13 +198,13 @@ export function splitOracleTextIntoParseLines(oracleText: string): string[] {
 
   for (let index = 0; index < rawLines.length; index += 1) {
     let raw = rawLines[index];
-    if (/^Tiered\s*\(/i.test(raw) && index + 1 < rawLines.length && !/^[\u2022â€¢]\s+/.test(rawLines[index + 1])) {
+    if (/^Tiered\s*\(/i.test(raw) && index + 1 < rawLines.length && !/^[\u2022]\s+/.test(rawLines[index + 1])) {
       raw = `${raw}\n${rawLines[index + 1]}`;
       index += 1;
     }
     if (isDieRollResultsTableLine(raw) && abilityLines.length > 0) {
       abilityLines[abilityLines.length - 1] = `${abilityLines[abilityLines.length - 1]}\n${raw}`;
-    } else if (/^[\u2022â€¢]\s+/.test(raw) && abilityLines.length > 0) {
+    } else if (/^[\u2022]\s+/.test(raw) && abilityLines.length > 0) {
       abilityLines[abilityLines.length - 1] = `${abilityLines[abilityLines.length - 1]}\n${raw}`;
     } else {
       abilityLines.push(raw);
@@ -208,7 +213,7 @@ export function splitOracleTextIntoParseLines(oracleText: string): string[] {
 
   const lines: string[] = [];
   for (const abilityLine of abilityLines) {
-    const isModalBulletBlock = /\n\s*[\u2022â€¢]\s+/.test(abilityLine);
+    const isModalBulletBlock = /\n\s*[\u2022]\s+/.test(abilityLine);
     const continuationLines = abilityLine.split('\n').slice(1).map((line) => line.trim()).filter(Boolean);
     const hasDieRollResultsTable = continuationLines.some((line) => isDieRollResultsTableLine(line));
     if (isModalBulletBlock || hasDieRollResultsTable) {

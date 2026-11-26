@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -18,13 +19,13 @@ const baseParams = {
 
 describe('Oracle IR gap batch 347 — top condition clusters', () => {
   it('evaluates dragon beheld, no artifacts, empty battlefield, and nontoken', () => {
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId }],
       battlefield: [
         { id: 'bf-nontoken-creature', controller: controllerId, type_line: 'Creature — Human', isToken: false },
         { id: 'bf-land-1', controller: controllerId, type_line: 'Basic Land — Forest' },
       ],
-    } as GameState;
+    });
 
     expect(
       evaluateExtendedConditionalClause({
@@ -87,10 +88,10 @@ describe('Oracle IR gap batch 347 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId, hand: [{ id: 'h1' }, { id: 'h2' }, { id: 'h3' }] }],
         battlefield: [{ id: 'bf-land-1', controller: controllerId, type_line: 'Basic Land — Island' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'stack-spell-1' }
     );
@@ -105,10 +106,10 @@ describe('Oracle IR gap batch 347 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-pyrohemia', controller: controllerId, type_line: 'Enchantment' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-pyrohemia' }
     );
@@ -123,12 +124,12 @@ describe('Oracle IR gap batch 347 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         battlefield: [
           { id: 'bf-nontoken-creature', controller: controllerId, type_line: 'Creature — Human', isToken: false },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-party', targetPermanentId: 'bf-nontoken-creature' }
     );

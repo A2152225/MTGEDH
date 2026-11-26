@@ -7,6 +7,7 @@ import { tryResolveForEachReferenceAmount } from '../src/oracleIRExecutorForEach
 import { resolveOracleQuantity } from '../src/oracleIRExecutorResolveQuantity';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { tryParseLifeAndCombatClause } from '../src/oracleIRParserLifeAndCombatClauses';
+import { asGameState } from './helpers/gameStateFixture';
 
 const catalog = JSON.parse(
   readFileSync(
@@ -21,7 +22,7 @@ const catalog = JSON.parse(
 };
 
 function makeState(overrides?: Partial<Record<string, unknown>>): GameState {
-  return {
+  return asGameState({
     players: [
       { id: 'p1' as PlayerID, name: 'P1', library: ['a', 'b', 'c'], graveyard: [], life: 40 },
       { id: 'p2' as PlayerID, name: 'P2', library: ['d', 'e', 'f'], graveyard: [], life: 40 },
@@ -52,7 +53,7 @@ function makeState(overrides?: Partial<Record<string, unknown>>): GameState {
     ],
     stack: [],
     ...overrides,
-  } as GameState;
+  });
 }
 
 function parseClause(clause: string, name: string) {
@@ -571,7 +572,7 @@ describe('oracle automation modal choices category', () => {
       const steps = ir.abilities.flatMap(ability => ability.steps);
       expect(steps.length).toBeGreaterThan(0);
       const chooseMode = steps.find(step => step.kind === 'choose_mode') as
-        | { kind: string; modes?: Array<unknown> }
+        | { kind: string; modes?: ReadonlyArray<unknown> }
         | undefined;
       expect(chooseMode).toBeTruthy();
       expect(Array.isArray(chooseMode?.modes)).toBe(true);

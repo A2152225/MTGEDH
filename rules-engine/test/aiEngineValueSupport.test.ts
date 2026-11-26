@@ -9,6 +9,7 @@ const ZULAPORT_ORACLE =
 describe('evaluateDeathTrigger', () => {
   it('scores Zulaport modestly in multiplayer', () => {
     const card = {
+      id: 'zulaport-cutthroat',
       name: 'Zulaport Cutthroat',
       oracle_text:
         'Whenever Zulaport Cutthroat or another creature you control dies, each opponent loses 1 life and you gain 1 life.',

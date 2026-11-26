@@ -4,6 +4,7 @@ import { applyExileStep } from '../src/oracleIRExecutorBattlefieldStepHandlers.j
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor.js';
 import { parseSimpleBattlefieldSelector } from '../src/oracleIRExecutorBattlefieldParser.js';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 const HAYWIRE_MITE_ACTIVATED =
   '{G}, Sacrifice this creature: Exile target noncreature artifact or noncreature enchantment.';
@@ -120,7 +121,7 @@ describe('Haywire Mite noncreature artifact or enchantment exile', () => {
       } as any,
     );
 
-    expect(result.applied).toBe(true);
+    assertApplied(result);
     expect((result.state?.battlefield || []).map((perm: any) => perm.id).sort()).toEqual([
       'bear',
       'ornithopter',
@@ -144,7 +145,7 @@ describe('Haywire Mite noncreature artifact or enchantment exile', () => {
       } as any,
     );
 
-    expect(result.applied).toBe(true);
+    assertApplied(result);
     expect((result.state?.battlefield || []).map((perm: any) => perm.id)).toEqual(['ornithopter']);
   });
 });

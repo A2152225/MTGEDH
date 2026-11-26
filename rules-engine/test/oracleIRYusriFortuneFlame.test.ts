@@ -12,7 +12,7 @@ function attackSteps() {
   const ir = parseOracleTextToIR(YUSRI_ORACLE, "Yusri, Fortune's Flame");
   const attack = (ir.abilities || []).find((ability) =>
     String(ability.type || '').toLowerCase().includes('trigger')
-    || /attacks/i.test(String(ability.raw || ability.text || '')),
+    || /attacks/i.test(String(ability.text || '')),
   ) || ir.abilities?.find((ability) => (ability.steps || []).some((step) => step.kind === 'choose_number' || step.kind === 'flip_coin'));
   return attack?.steps || [];
 }

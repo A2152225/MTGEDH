@@ -15,6 +15,7 @@ import { resolvePlayers } from '../../../../../rules-engine/src/oracleIRExecutor
 import { collectDiscardSelectionOptionsForStep } from '../../../../../rules-engine/src/oracleIRExecutorPlayerStepHandlers.js';
 import { getProliferateChoiceTargets } from '../../../../../rules-engine/src/oracleIRExecutorKeywordStepHandlers.js';
 import type { GameContext } from '../../context.js';
+import { reportHookFailure } from '../../../../../shared/src/hookFailureReporter.js';
 import { ResolutionQueueManager, ResolutionStepType } from '../../resolution/index.js';
 import { getProliferateActionCount } from '../keywordActionRepetition.js';
 import { appendQueuedResolutionPromptEvent } from '../resolutionPromptEvents.js';
@@ -133,8 +134,10 @@ export function queueProliferateChoicePromptsFromOracleIRResult(
     const availableTargets = getProliferateChoiceTargets(state);
     if (availableTargets.length <= 1) continue;
 
+    // Plain "Proliferate." has no `who` selector; resolvePlayers needs one (it reads selector.kind).
+    const proliferateWho = (step as any).who;
     const choosingPlayerId =
-      resolvePlayers(state, (step as any).who, params.irCtx)[0] || params.controller;
+      (proliferateWho ? resolvePlayers(state, proliferateWho, params.irCtx)[0] : undefined) || params.controller;
 
     const skipReplacement = (step as any).skipProliferateReplacement === true
       || (gap.metadata as any)?.skipProliferateReplacement === true;
@@ -179,8 +182,8 @@ export function queueProliferateChoicePromptsFromOracleIRResult(
             ...(target.controller ? { controller: target.controller } : {}),
           })),
         } as any, result, params) as any);
-      } catch {
-        // ignore
+      } catch (err) {
+        reportHookFailure('oracle-ir.proliferate-prompt', err, { source: 'oracleIrServerDiscardProliferatePrompts', cardName: sourceName });
       }
     }
   }

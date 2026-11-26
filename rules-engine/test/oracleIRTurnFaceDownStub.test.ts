@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { applyTurnFaceDownStep } from '../src/oracleIRExecutorBattlefieldTurnFaceSteps';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 describe('turn face down public stub', () => {
   it('keeps the resolved-spell id and publishes a nameless 2/2 creature', () => {
@@ -33,7 +34,7 @@ describe('turn face down public stub', () => {
       { controllerId: p1 } as any,
     );
 
-    expect(result.applied).toBe(true);
+    assertApplied(result);
     const perm = (result.state as any).battlefield[0];
     expect(perm.id).toBe('stack_3gy9zr1p');
     expect(perm.isFaceDown).toBe(true);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseOracleTextToIR } from '../src/oracleIRParser.ts';
-import { parseActivatedAbility } from '../src/oracleTextParser.ts';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
+import { parseActivatedAbility } from '../src/oracleTextParser';
 
 describe('oracle IR gap batch403 — Station threshold activated costs', () => {
   const adagiaThreshold =

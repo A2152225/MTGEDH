@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseOracleTextToIR } from '../src/oracleIRParser.ts';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
 
 function findNestedModifyStep(steps: readonly any[]): any | undefined {
   for (const step of steps) {

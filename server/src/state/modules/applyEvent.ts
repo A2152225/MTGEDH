@@ -65,6 +65,7 @@ import { applyOnCastKeywordAndPlotEvents } from "./apply-event-handlers/applyEve
 import { applyPursuitDrawReplacementEvents } from "./apply-event-handlers/applyEventPursuitDrawReplacementReplay.js";
 import { applyPayLifeReplacementOrderEvents } from "./apply-event-handlers/applyEventPayLifeReplacementOrderReplay.js";
 import { applyCirclingVulturesDiscardEvents } from "./apply-event-handlers/applyEventCirclingVulturesDiscardReplay.js";
+import { applyBecomeAuraEndEffectEvents } from "./apply-event-handlers/applyEventBecomeAuraEndEffectReplay.js";
 import { applyPermanentKeywordEvents } from "./apply-event-handlers/applyEventPermanentKeywordEvents.js";
 import { applySpaceSculptorEvents } from "./apply-event-handlers/applyEventSpaceSculptorEvents.js";
 import { applyTurnPhaseTopLibraryEvents } from "./apply-event-handlers/applyEventTurnPhaseTopLibraryEvents.js";
@@ -95,6 +96,7 @@ import { applyManualActionEvents } from "./apply-event-handlers/applyEventManual
 import { applyUpkeepPaidUntapEvents } from "./apply-event-handlers/applyEventUpkeepPaidUntapEvents.js";
 import { applyUntapCapChoiceEvents } from "./apply-event-handlers/applyEventUntapCapChoiceEvents.js";
 import { applyEquipCostPaymentEvents } from "./apply-event-handlers/applyEventEquipCostPaymentEvents.js";
+import { applyCraftActivationEvents } from "./craftAbility.js";
 export { reset, skip, unskip, remove };
 
 
@@ -119,6 +121,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     if (applyPursuitDrawReplacementEvents(ctx, e)) return;
     if (applyPayLifeReplacementOrderEvents(ctx, e)) return;
     if (applyCirclingVulturesDiscardEvents(ctx, e)) return;
+    if (applyBecomeAuraEndEffectEvents(ctx, e)) return;
     if (applyPermanentKeywordEvents(ctx, e)) return;
     if (applySpaceSculptorEvents(ctx, e)) return;
     if (applyTurnPhaseTopLibraryEvents(ctx, e)) return;
@@ -149,6 +152,7 @@ export function applyEvent(ctx: GameContext, e: GameEvent) {
     if (applyUpkeepPaidUntapEvents(ctx, e)) return;
     if (applyUntapCapChoiceEvents(ctx, e)) return;
     if (applyEquipCostPaymentEvents(ctx, e)) return;
+    if (applyCraftActivationEvents(ctx, e)) return;
     switch (e.type) {
 
       default: {

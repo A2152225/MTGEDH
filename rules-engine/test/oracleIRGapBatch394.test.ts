@@ -6,7 +6,7 @@ import {
   buildAuditFixtureState,
   enrichAuditStateAndContextForCopySteps,
   enrichAuditStateAndContextForTargets,
-} from '../../server/scripts/executor-coverage-audit.ts';
+} from '../../server/scripts/executor-coverage-audit';
 
 function runAuditCard(name: string, oracleText: string, typeLine?: string) {
   const parsed = parseOracleTextToIR(oracleText, name);

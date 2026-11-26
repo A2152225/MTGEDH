@@ -414,6 +414,8 @@ export function tryApplyMainLoopLateSteps(
             break;
           }
           falseConditionalMarkers.add(step);
+          const skippedActionKind = step.steps[step.steps.length - 1]?.kind;
+          if (skippedActionKind) lastActionOutcome = { kind: 'unsupported', stepKind: skippedActionKind } as typeof lastActionOutcome;
           if (appliedSteps.length === 0) appliedSteps.push(step);
           log.push(`Skipped conditional step (condition false): ${step.raw}`);
           break;

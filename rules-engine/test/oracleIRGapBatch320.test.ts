@@ -6,6 +6,7 @@ import {
   parseMoveZoneCountTargetCardsFromSingleGraveyard,
   parseMoveZoneHalfCreaturesTheyControlRoundedUp,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const targetId = 'p2' as PlayerID;
@@ -36,7 +37,7 @@ describe('Oracle IR gap batch 320 — Split the Party / Martyr of Bones / Animal
     );
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: targetId, library: [], hand: [], graveyard: [], exile: [] },
@@ -67,7 +68,7 @@ describe('Oracle IR gap batch 320 — Split the Party / Martyr of Bones / Animal
           cmc: 1,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'test',

@@ -610,6 +610,9 @@ export function maybeResumeOracleIRStepsAfterResolution(
       sourceId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
       sourceName: String(step?.oracleIrSourceName || step?.sourceName || '').trim() || undefined,
       steps: remainingSteps,
+      ...(String(step?.oracleIrTargetPlayerId || '').trim()
+        ? { targetPlayerId: String(step.oracleIrTargetPlayerId).trim() as PlayerID }
+        : {}),
       targetSpellId: String(step?.copyTriggeredAbilityTriggeringStackItemId || '').trim() || undefined,
       ...(resumeContext.chosenObjectIds ? { chosenObjectIds: resumeContext.chosenObjectIds } : {}),
       ...(resumeContext.selectorContext ? { selectorContext: resumeContext.selectorContext } : {}),

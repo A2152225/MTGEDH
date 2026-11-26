@@ -3,6 +3,7 @@ import type { GameState } from '../../shared/src';
 import { applyGainControlStep } from '../src/oracleIRExecutorBattlefieldStepHandlers.js';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
 import { resolvePlayers } from '../src/oracleIRExecutorPlayerUtils.js';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 const HUMBLE_TEXT =
   '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.';
@@ -50,7 +51,7 @@ describe('Oracle IR gain control of this permanent (Humble Defector)', () => {
       },
     } as any);
 
-    expect(result.applied).toBe(true);
+    assertApplied(result);
     const humble = (result.state as any).battlefield.find((perm: any) => perm.id === 'humble_1');
     expect(humble?.controller).toBe('p3');
   });
@@ -72,7 +73,7 @@ describe('Oracle IR gain control of this permanent (Humble Defector)', () => {
       },
     } as any);
 
-    expect(result.applied).toBe(true);
+    assertApplied(result);
     const humble = (result.state as any).battlefield.find((perm: any) => perm.id === 'humble_1');
     expect(humble?.controller).toBe('p2');
   });

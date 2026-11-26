@@ -162,6 +162,7 @@ function collectIrAsEntersChoices(oracleText: string, cardName: string): AsEnter
       }
 
       if (kind === 'choose_opponent') {
+        if (String((ability as any).type || '') === 'activated' || /\btarget opponent\b/i.test(raw)) continue;
         requirements.push({
           kind: 'opponent',
           mandatory: !optional,

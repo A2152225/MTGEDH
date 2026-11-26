@@ -60,7 +60,9 @@ function createScheduledTimeoutDrain() {
   });
 
   return {
-    async drain(maxPasses: number = 20) {
+    // `until`: stop once the asserted outcome exists. A one-seat AI game keeps advancing its own turns
+    // (each step schedules the next), so "no callbacks left" never happens after the fetch resolves.
+    async drain(maxPasses: number = 20, until?: () => boolean) {
       let ran = 0;
       const maxCallbacks = 40;
       for (let pass = 0; pass < maxPasses; pass += 1) {
@@ -75,8 +77,10 @@ function createScheduledTimeoutDrain() {
 
         await Promise.resolve();
         await Promise.resolve();
+        // Let real macrotask work (dynamic imports, node:timers) inside an in-flight AI action settle.
+        await new Promise<void>((resolve) => setImmediate(resolve));
 
-        if (callbacks.length === 0) {
+        if (callbacks.length === 0 || until?.()) {
           return;
         }
       }
@@ -278,7 +282,8 @@ describe('AI shared battlefield follow-up integration', () => {
     const scheduledTimeouts = createScheduledTimeoutDrain();
     try {
       await handleAIPriority(createNoopIo(), gameId, playerId as any);
-      await scheduledTimeouts.drain();
+      await scheduledTimeouts.drain(20, () =>
+        ((game.state as any).battlefield || []).some((perm: any) => String(perm?.card?.name || '') === 'Island'));
     } finally {
       scheduledTimeouts.restore();
     }

@@ -7,10 +7,11 @@ import {
   collectReplayMutationsFromAppliedStep,
 } from '../src/oracleIRReplayMutations';
 import type { GameState, PlayerID } from '../../shared/src';
+import { asGameState } from './helpers/gameStateFixture';
 
 describe('oracle IR replay mutations', () => {
   it('builds createToken mutations from created token ids on battlefield', () => {
-    const state = {
+    const state = asGameState({
       battlefield: [{
         id: 'token_1',
         controller: 'p1',
@@ -25,7 +26,7 @@ describe('oracle IR replay mutations', () => {
           keywords: ['haste'],
         },
       }],
-    } as GameState;
+    });
 
     expect(buildCreateTokenReplayMutations(state, ['token_1'])).toEqual([{
       kind: 'createToken',
@@ -44,7 +45,7 @@ describe('oracle IR replay mutations', () => {
   });
 
   it('persists Helm copy haste grants separately from printed keywords', () => {
-    const state = {
+    const state = asGameState({
       battlefield: [{
         id: 'helm_copy',
         controller: 'p1',
@@ -62,7 +63,7 @@ describe('oracle IR replay mutations', () => {
           oracle_text: 'When The Scorpion God dies, return it to its owner\'s hand.\nhaste',
         },
       }],
-    } as GameState;
+    });
 
     const [mutation] = buildCreateTokenReplayMutations(state, ['helm_copy']) as any[];
     expect(mutation.tokenData.hasHaste).toBe(true);

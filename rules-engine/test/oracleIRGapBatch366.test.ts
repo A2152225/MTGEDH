@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -21,13 +22,13 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }],
           battlefield: [
             { id: 'bf-source', controller: controllerId, power: 2, toughness: 2, type_line: 'Creature — Human Detective' },
             { id: 'bf-entering', controller: controllerId, power: 4, toughness: 1, type_line: 'Creature — Soldier' },
           ],
-        } as GameState,
+        }),
         normalizedRaw:
           "its power is greater than this creature's power or its toughness is greater than this creature's toughness",
         ctx: { controllerId, sourceId: 'bf-source', targetPermanentId: 'bf-entering' },
@@ -37,7 +38,7 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           players: [
             { id: controllerId, life: 20 },
             { id: 'p2', life: 40 },
@@ -52,7 +53,7 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
               type_line: 'Creature — Demon',
             },
           ],
-        } as GameState,
+        }),
         normalizedRaw: "it's attacking the player with the most life or tied for most life",
         ctx: { controllerId, sourceId: 'bf-source' },
       })
@@ -61,7 +62,7 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           players: [
             { id: controllerId, life: 40 },
             { id: 'p2', life: 40 },
@@ -76,7 +77,7 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
               type_line: 'Creature — Soldier',
             },
           ],
-        } as GameState,
+        }),
         normalizedRaw: "that player has another opponent who isn't being attacked",
         ctx: { controllerId, sourceId: 'bf-skyguard', attackingPlayerId: 'p2' },
       })
@@ -91,13 +92,13 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-source', controller: controllerId, power: 2, toughness: 2, type_line: 'Creature — Human Detective' },
           { id: 'bf-entering', controller: controllerId, power: 4, toughness: 1, type_line: 'Creature — Soldier' },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source', targetPermanentId: 'bf-entering' }
     );
@@ -118,7 +119,7 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
       );
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [
           { id: controllerId, life: 20 },
           { id: 'p2', life: 40 },
@@ -133,7 +134,7 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
             type_line: 'Creature — Demon',
           },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -148,7 +149,7 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [
           { id: controllerId, life: 40 },
           { id: 'p2', life: 40 },
@@ -164,7 +165,7 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
             type_line: 'Creature — Soldier',
           },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-skyguard', attackingPlayerId: 'p2' }
     );
@@ -175,7 +176,7 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: "that player has another opponent who isn't being attacked" },
-        nextState: {
+        nextState: asGameState({
           players: [
             { id: controllerId, life: 40 },
             { id: 'p2', life: 40 },
@@ -189,7 +190,7 @@ describe('Oracle IR gap batch 366 — top condition clusters', () => {
               type_line: 'Creature — Soldier',
             },
           ],
-        } as GameState,
+        }),
         controllerId,
         ctx: { controllerId, sourceId: 'bf-skyguard', attackingPlayerId: 'p2' },
         lastActionOutcome: null,

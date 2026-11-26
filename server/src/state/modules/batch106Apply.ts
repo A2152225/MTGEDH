@@ -26,6 +26,7 @@ import {
   parseEnchantedCreatureGetsPTAndHasAfterlife,
 } from './batch106Parsers.js';
 import { createLongTailStaticSourceFilter, longTailStaticSources } from './longTailStaticSourceIndex.js';
+import { declarativeSpecAppliesPtLine } from './longTailPtDeclarativeOverlapGuard.js';
 
 const B106_ENCHANTMENT_TYPE_SOURCES = createLongTailStaticSourceFilter(
   'batch106EnchantmentTypes',
@@ -226,7 +227,7 @@ export function batch106PowerToughnessAdjustment(perm: any, state: any): { power
   if (parseGetsPlusXPowerGreatestGyCreaturePower(oracle)) {
     power += greatestGyCreaturePower(state, controller);
   }
-  if (parseGetsPlusOneForEachOtherSameName(oracle)) {
+  if (parseGetsPlusOneForEachOtherSameName(oracle) && !declarativeSpecAppliesPtLine(perm, parseGetsPlusOneForEachOtherSameName)) {
     const extras = (Array.isArray(state?.battlefield) ? state.battlefield : []).filter((other: any) => {
       if (!other || other === perm || other.phasedOut === true) return false;
       if (String(other.controller || '') !== controller) return false;

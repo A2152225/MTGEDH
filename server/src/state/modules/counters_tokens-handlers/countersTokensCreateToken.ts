@@ -42,6 +42,7 @@ import { applyChoiceBearingTokenReplacements } from "../replacementOrderChoice.j
 import { applyGraveyardTypeEntryCounterGrants } from "../graveyardTypeEntryCounterBonus.js";
 import { applyBattlefieldTypeEntryCounterGrants } from "../battlefieldTypeEntryCounterBonus.js";
 import { runWithSimultaneousEntryBatch } from '../triggers/simultaneousEntryBatch.js';
+import { syncDerivedContinuousEffects } from '../staticEffectSpec.js';
 import { withBattlefieldEntryBatchIndex } from '../../../../../rules-engine/src/battlefieldEntryBatchIndex.js';
 
 function runSBA(ctx: GameContext): void {
@@ -346,6 +347,10 @@ function createTokenUnbatched(
   const plainTokenBatch = !/\blos(?:e|es)\b|daybound|nightbound|\b(?:aura|equipment)\b/i
     .test(`${tokenAbilities.join('\n')} ${typeLine}`);
   const etbGateCache = plainTokenBatch ? new Map<any, boolean>() : undefined;
+  // Plain tokens from one instruction enter simultaneously (CR 603.6a): put them all onto the
+  // battlefield, refresh the derived continuous view once, then run each token's ETB scan. Per-token
+  // interleaving recomputed every continuous effect per token (300 tokens on 300 permanents took minutes).
+  const simultaneousEntered: any[] = [];
   const createTokenEntries = (): void => {
   for (let i = 0; i < Math.max(1, tokensToCreate | 0); i++) {
     const permanentId = uid("tok");
@@ -395,10 +400,28 @@ function createTokenUnbatched(
     }
 
     // Fire ETB triggers (including the token's own ETBs if applicable).
+    if (plainTokenBatch) {
+      simultaneousEntered.push(tokenPerm);
+      continue;
+    }
     try {
       triggerETBEffectsForPermanent(ctx as any, tokenPerm, controller, true, { etbTriggerCache, etbGateCache });
     } catch {
       // Defensive: do not block token creation.
+    }
+  }
+  if (simultaneousEntered.length > 0) {
+    try {
+      syncDerivedContinuousEffects(state);
+    } catch {
+      // best-effort: detectors fall back to recomputing
+    }
+    for (const enteredToken of simultaneousEntered) {
+      try {
+        triggerETBEffectsForPermanent(ctx as any, enteredToken, controller, true, { etbTriggerCache, etbGateCache });
+      } catch {
+        // Defensive: do not block token creation.
+      }
     }
   }
   };

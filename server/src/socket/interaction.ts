@@ -78,6 +78,8 @@ import { creatureHasHaste } from "./game-actions.js";
 import { debug, debugWarn, debugError } from "../utils/debug.js";
 import { filterLibraryCardsForSearch } from "./library-search.js";
 import { pushWheneverYouExertTriggersOntoStack } from "./exert-triggers.js";
+import { rejectActivationWithoutLegalTargets } from "./interaction-handlers/activationPreCostTargetCheck.js";
+import { withActivationTargetsBeforeCosts } from "./interaction-handlers/activationTargetsBeforeCosts.js";
 import { registerManaHandlers } from "./mana-handlers.js";
 import { canPermanentBeTargetedByPlayer, matchesGraveyardCardTargetType as matchesSharedGraveyardCardTargetType, normalizeRequirementTargetType, parseAbilityTargeting, parseTargetRequirements, selectionRequiresSharedCardType } from "../rules-engine/targeting.js";
 import { requestPlayerSelection } from "./player-selection.js";
@@ -197,6 +199,8 @@ import {
 } from "./interaction-handlers/interactionActivateBattlefieldAbilityHelpers.js";
 import { tryHandleActivateMana } from "./interaction-handlers/interactionActivateMana.js";
 import { tryHandleActivateCostPromptTapBlight } from "./interaction-handlers/interactionActivateCostPromptTapBlight.js";
+import { tryHandleActivatePayXEnergyCost } from "./interaction-handlers/activationPayXEnergyCost.js";
+import { tryHandleActivateCraft } from "./interaction-handlers/activationCraftCost.js";
 import { handleTapPermanentRequest } from "./interaction-handlers/interactionTapPermanentSocketHandlers.js";
 import { registerReplacementAndCyclingSocketHandlers } from "./interaction-handlers/interactionReplacementAndCyclingSocketHandlers.js";
 import { tryHandleActivateCostPromptDiscardExileHand } from "./interaction-handlers/interactionActivateCostPromptDiscardExileHand.js";
@@ -332,7 +336,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
   // Activate a battlefield ability (fetch lands, mana abilities, etc.)
   socket.on(
     "activateBattlefieldAbility",
-    async (payload?: { gameId?: unknown; permanentId?: unknown; abilityId?: unknown; xValue?: unknown }) => {
+    withActivationTargetsBeforeCosts(io, socket, async (payload?: { gameId?: unknown; permanentId?: unknown; abilityId?: unknown; xValue?: unknown }) => {
     const gameIdRaw = payload?.gameId;
     const permanentIdRaw = payload?.permanentId;
     const abilityId = payload?.abilityId;
@@ -544,6 +548,9 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     } = parsedActivateAbility;
 
 
+    if (rejectActivationWithoutLegalTargets(activateCtx, abilityText, requiresTap)) return; // CR 602.2b
+    if (tryHandleActivateCraft(activateCtx, [selectedAbilityOracleLine, selectedAbilityFullText, scopedAbilityText, scopedAbilityFullText], abilityText)) return; // CR 702.167
+    if (tryHandleActivatePayXEnergyCost(activateCtx, manaCost, abilityText, requiresTap)) return; // CR 601.2b: X first
     if (await tryHandleActivateCostPromptTapBlight(activateCtx, manaCost, abilityText, requiresTap, abilityConditionText)) return;
 
     
@@ -739,7 +746,7 @@ export function registerInteractionHandlers(io: Server, socket: Socket) {
     }
     
     await applyActivateBattlefieldAbilityPersist(activateCtx, genericMut, genericExtras, isManaAbility);
-  });
+  }));
 
 
 

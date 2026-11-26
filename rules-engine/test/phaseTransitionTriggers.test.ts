@@ -28,8 +28,8 @@ import {
   verifyStepTransition,
   getStepEntryTriggers,
 } from '../src/phaseTransitionTriggers';
-import { TriggerEvent } from '../src/triggeredAbilities';
-import { createEmptyStack } from '../src/stackOperations';
+import { TriggerEvent, TriggerKeyword, type TriggeredAbility } from '../src/triggeredAbilities';
+import { createEmptyStack, type Stack } from '../src/stackOperations';
 
 // Helper to create a triggered ability for testing
 function createTestAbility(
@@ -37,17 +37,16 @@ function createTestAbility(
   event: TriggerEvent,
   sourceName: string,
   effect: string
-) {
+): TriggeredAbility {
   return {
     id,
     sourceId: `source-${id}`,
     sourceName,
+    controllerId: 'player-1',
+    keyword: TriggerKeyword.AT,
     event,
-    condition: undefined,
     effect,
-    controller: 'player-1',
-    isOptional: false,
-    isManaAbility: false,
+    optional: false,
   };
 }
 
@@ -71,8 +70,16 @@ describe('Phase Transition Triggers', () => {
     
     it('should not allow advance when stack is not empty', () => {
       // Create a stack with items using the correct structure
-      const stackWithItems = {
-        objects: [{ id: 'spell-1', type: 'spell' as const, controller: 'player-1', timestamp: Date.now() }],
+      const stackWithItems: Stack = {
+        objects: [{
+          id: 'spell-1',
+          spellId: 'spell-1',
+          cardName: 'Test Spell',
+          type: 'spell',
+          controllerId: 'player-1',
+          targets: [],
+          timestamp: Date.now(),
+        }],
       };
       
       const context = {
@@ -340,8 +347,16 @@ describe('Phase Transition Triggers', () => {
     });
     
     it('should not allow transition when stack is not empty', () => {
-      const stackWithItems = {
-        objects: [{ id: 'spell-1', type: 'spell' as const, controller: 'player-1', timestamp: Date.now() }],
+      const stackWithItems: Stack = {
+        objects: [{
+          id: 'spell-1',
+          spellId: 'spell-1',
+          cardName: 'Test Spell',
+          type: 'spell',
+          controllerId: 'player-1',
+          targets: [],
+          timestamp: Date.now(),
+        }],
       };
       
       const context = {

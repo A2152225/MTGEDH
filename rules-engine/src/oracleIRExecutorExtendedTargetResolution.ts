@@ -74,11 +74,6 @@ function permanentHasDefender(perm: BattlefieldPermanent): boolean {
   return keywordValues.some((value) => /\bdefender\b/i.test(String(value || '')));
 }
 
-function typeLineHasSubtype(perm: BattlefieldPermanent, subtype: string): boolean {
-  const escaped = subtype.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(^|[^a-z0-9])${escaped}s?($|[^a-z0-9])`, 'i').test(getExecutorTypeLineLower(perm));
-}
-
 function collectBoundIds(ctx: OracleIRExecutionContext): string[] {
   return Array.from(
     new Set(

@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import type { GameState } from '../../shared/src/index.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 // Quoted from oracle-cards / Possibility Storm (Dragon's Maze).
 const POSSIBILITY_STORM_ORACLE =
   'Whenever a player casts a spell from their hand, that player exiles it, then exiles cards from the top of their library until they exile a card that shares a card type with it. That player may cast that card without paying its mana cost. Then they put all cards exiled with this enchantment on the bottom of their library in a random order.';
 
 function makeState(overrides: Record<string, unknown> = {}): GameState {
-  return {
+  return asGameState({
     id: 'possibility-storm',
     format: 'commander',
     players: [
@@ -56,7 +57,7 @@ function makeState(overrides: Record<string, unknown> = {}): GameState {
     priority: 'p1',
     active: true,
     ...overrides,
-  } as GameState;
+  });
 }
 
 describe('Possibility Storm IR (exile the cast spell, then until sharing a type)', () => {

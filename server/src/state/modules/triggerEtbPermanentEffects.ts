@@ -1,4 +1,7 @@
-import { oracleTextHasTriggersOnlyOnceEachTurn, recordTurnLimitedEtbTriggerQueued, shouldSkipTurnLimitedEtbTrigger } from './triggerDoThisOnlyOnceEachTurn.js';
+import {
+  recordTurnLimitedEtbTriggerQueued,
+  shouldSkipTurnLimitedEtbTrigger,
+} from './triggerDoThisOnlyOnceEachTurn.js';
 import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 import type { PlayerID } from '../../../../shared/src/index.js';
 import type { GameContext } from '../context.js';
@@ -11,14 +14,14 @@ import { orderTriggersByAPNAP } from './triggers/ordering.js';
 import { stampPermanentControlEntryForEcho } from './upkeep-triggers.js';
 import { ensureInitialDayNightDesignationFromBattlefield, enterPermanentTransformed } from './day-night.js';
 import { cardEntersPrepared, setPermanentPrepared } from './prepared.js';
-import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
-import { createGrantedRiotChoiceResult, processKeywordTriggers, type KeywordTriggerContext } from './keyword-handlers.js';
+import {
+  createGrantedRiotChoiceResult,
+  processKeywordTriggers,
+  type KeywordTriggerContext,
+} from './keyword-handlers.js';
 import { enqueueSupportedKeywordChoiceStep } from './triggerKeywordChoiceUtils.js';
 import { queueSoulbondPairingChoices } from './soulbond.js';
-import {
-  buildInterveningIfSubjectSnapshot,
-  buildTriggerSourcePermanentSnapshot,
-} from './triggerSourceUtils.js';
+import { buildInterveningIfSubjectSnapshot, buildTriggerSourcePermanentSnapshot } from './triggerSourceUtils.js';
 import {
   matchesRequiredTypePhrase,
   persistTriggeredAbilityPush,
@@ -31,29 +34,17 @@ import {
 import { matchesColorRestriction } from './stackResolvePermanentEtbTriggerUtils.js';
 import { permanentIsCommanderCard } from './triggerPermanentUtils.js';
 import { hydratePermanentCardOracleInPlace } from './cardOracleHydration.js';
-import { wouldAutoDeclineOptionalTriggeredAbility } from './stackResolveTriggeredAbilityOptionalUtils.js';
-import { isModalChooseModesEffectText } from './inferTriggeredAbilityTargetMetadata.js';
-import { collectMatchingParsedEventLines, parsedEffectDuplicates } from './triggers/triggerConditionFamilyMatch.js';
 import { filterOneOrMoreEntryDuplicates } from './triggers/simultaneousEntryBatch.js';
 import { syncClassLevelGating } from './classLevelGating.js';
 import { permanentHasTriggeredAbilities } from './triggers/triggeredAbilitySuppression.js';
 import { stampWatcherEtbTriggerTargetMetadata } from './triggerEtbTargetMetadataStamp.js';
 import { appendGraveyardSourceEtbParsedLines } from './etbGraveyardSourceIr.js';
+import { queueGraveyardResidentCreatureEntryTriggers } from './triggerEtbGraveyardResidentEntryTriggers.js';
+import { collectParsedEntersWatcherTriggers, pushPendingEtbTriggerIfNotAutoDeclined } from './triggerEtbParsedEntersWatchers.js';
+import { queuePendingEntryControlChangeStep } from './triggerEtbControlChangeStep.js';
 
-function pushPendingEtbTriggerIfNotAutoDeclined(
-  state: any,
-  pending: any[],
-  stackItem: any,
-): void {
-  if (wouldAutoDeclineOptionalTriggeredAbility(state, stackItem)) {
-    debug(
-      2,
-      `[triggerETBEffectsForPermanent] Skipping auto-decline optional trigger: ${stackItem?.sourceName || 'Unknown'}`,
-    );
-    return;
-  }
-  pending.push(stackItem);
-}
+export { queueGraveyardResidentCreatureEntryTriggers } from './triggerEtbGraveyardResidentEntryTriggers.js';
+
 export function queueSupportedETBKeywordChoices(
   ctx: GameContext,
   permanent: any,
@@ -100,109 +91,6 @@ export function queueSupportedETBKeywordChoices(
   }
 }
 
-export function queueGraveyardResidentCreatureEntryTriggers(
-  ctx: GameContext,
-  enteringPermanent: any,
-  enteringController: PlayerID,
-  enteringIsCreature: boolean,
-): void {
-  if (!enteringIsCreature || (ctx as any).isReplaying) return;
-
-  const state = (ctx as any).state;
-  const zones = state?.zones || {};
-  const enteredFrom = String(
-    enteringPermanent?.enteredFromZone ??
-    enteringPermanent?.card?.enteredFromZone ??
-    ''
-  ).toLowerCase();
-  const castFrom = String(
-    enteringPermanent?.castSourceZone ??
-    enteringPermanent?.card?.castSourceZone ??
-    enteringPermanent?.source ??
-    enteringPermanent?.card?.source ??
-    ''
-  ).toLowerCase();
-  if (enteredFrom !== 'graveyard' && castFrom !== 'graveyard') {
-    return;
-  }
-
-  const pendingGraveyardResidentTriggers: any[] = [];
-
-  for (const [zoneOwnerId, playerZones] of Object.entries(zones as Record<string, any>)) {
-    const graveyard = Array.isArray(playerZones?.graveyard) ? playerZones.graveyard : [];
-    for (const card of graveyard) {
-      const oracle = String(card?.oracle_text || '').replace(/[â€™]/g, "'");
-      if (!oracle) continue;
-
-      const effectMatch = oracle.match(
-        /whenever\s+a\s+creature(\s+you\s+control)?\s+enters(?:\s+the\s+battlefield)?,?\s*(if\s+it\s+entered\s+from\s+your\s+graveyard\s+or\s+you\s+cast\s+it\s+from\s+your\s+graveyard,\s*return\s+(?:this\s+card|~|[^.]+?)\s+from\s+your\s+graveyard\s+to\s+the\s+battlefield\s+tapped\s+at\s+the\s+beginning\s+of\s+the\s+next\s+end\s+step)\.?/i
-      );
-      if (!effectMatch) continue;
-
-      const requiresController = Boolean(effectMatch[1]);
-      if (requiresController && String(enteringController) !== String(zoneOwnerId)) {
-        continue;
-      }
-
-      const effectText = String(effectMatch[2] || '').trim();
-      try {
-        const fullText = `Whenever a creature${requiresController ? ' you control' : ''} enters the battlefield, ${effectText}`;
-        const satisfied = isInterveningIfSatisfied(ctx as any, String(zoneOwnerId), fullText, enteringPermanent);
-        if (satisfied === false) {
-          continue;
-        }
-      } catch (err) {
-        reportHookFailure('intervening-if.eval.generic', err, { source: 'triggerEtbPermanentEffects' });
-        // Keep the trigger if the generic evaluator cannot decide.
-      }
-
-      const triggerId = uid('trigger');
-      const stackItem = {
-        id: triggerId,
-        type: 'triggered_ability',
-        controller: String(zoneOwnerId),
-        source: String(card?.id || triggerId),
-        permanentId: String(card?.id || triggerId),
-        sourceName: String(card?.name || 'Graveyard trigger'),
-        description: effectText,
-        effect: effectText,
-        triggerType: 'creature_etb',
-        mandatory: true,
-        card: { ...(card as any) },
-        targetZone: 'graveyard',
-        targetDestination: 'battlefield',
-        targetGraveyardScope: 'your',
-        destinationUsesSelectedCardOwner: true,
-        battlefieldControllerMode: 'owner',
-        battlefieldTapped: true,
-        delayedReturnAt: 'next_end_step',
-        boundGraveyardCardId: String(card?.id || ''),
-        boundGraveyardOwnerId: String(zoneOwnerId),
-        interveningIfSubjectPermanentId: enteringPermanent?.id,
-        interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(enteringPermanent),
-      } as any;
-
-      pendingGraveyardResidentTriggers.push(stackItem);
-      debug(2, `[triggerETBEffectsForPermanent] ${stackItem.sourceName} triggered from graveyard: ${effectText}`);
-    }
-  }
-
-  state.stack = state.stack || [];
-  const orderedGraveyardResidentTriggers = orderTriggersByAPNAP(
-    ctx as any,
-    pendingGraveyardResidentTriggers.map((stackItem, originalIndex) => ({
-      controllerId: String(stackItem?.controller || ''),
-      originalIndex,
-      stackItem,
-    })),
-  ).map((entry: any) => entry.stackItem);
-
-  for (const stackItem of orderedGraveyardResidentTriggers) {
-    state.stack.push(stackItem);
-    persistTriggeredAbilityPush(ctx, stackItem);
-    try { reactToCausedTrigger(ctx, stackItem, { event: 'etb', permanent: enteringPermanent }); } catch { /* best-effort */ }
-  }
-}
 export function triggerETBEffectsForPermanent(
   ctx: GameContext,
   permanent: any,
@@ -389,7 +277,7 @@ export function triggerETBEffectsForPermanent(
         pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
         recordTurnLimitedEtbTriggerQueued(state, trigger, String(perm.id || ''));
         
-        debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
 
       if (trigger.triggerType === 'chosen_type_creature_etb') {
@@ -416,7 +304,7 @@ export function triggerETBEffectsForPermanent(
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
         } as any;
         pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
-        debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s chosen-type ETB trigger: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s chosen-type ETB trigger: ${trigger.description}`);
       }
 
       if (trigger.triggerType === 'chosen_type_creature_etb_or_attack' && isCreature) {
@@ -443,7 +331,7 @@ export function triggerETBEffectsForPermanent(
           interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
         } as any;
         pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
-        debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s chosen-type enters-or-attacks trigger: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s chosen-type enters-or-attacks trigger: ${trigger.description}`);
       }
 
       // "Whenever a commander you control enters or attacks" and
@@ -565,7 +453,7 @@ export function triggerETBEffectsForPermanent(
         } as any;
         pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
         
-        debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
       
       // permanent_etb triggers (Altar of the Brood style)
@@ -635,7 +523,7 @@ export function triggerETBEffectsForPermanent(
         } as any;
         pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
         
-        debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s triggered ability: ${trigger.description}`);
       }
       
       // opponent_creature_etb triggers (Suture Priest, Authority of the Consuls)
@@ -697,7 +585,7 @@ export function triggerETBEffectsForPermanent(
           } as any;
           pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, stackItem);
           
-          debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
+          debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s opponent creature ETB trigger: ${trigger.description}`);
         }
       }
 
@@ -710,64 +598,12 @@ export function triggerETBEffectsForPermanent(
       );
       if (typedEtbStackItem) {
         pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, typedEtbStackItem);
-        debug(2, `[triggerETBEffectsForPermanent] âš¡ ${trigger.cardName}'s typed ETB trigger: ${trigger.description}`);
+        debug(2, `[triggerETBEffectsForPermanent] ⚡ ${trigger.cardName}'s typed ETB trigger: ${trigger.description}`);
       }
     }
   }
 
-  for (const perm of state.battlefield) {
-    if (!perm?.card || perm.id === permanent.id) continue;
-    const parsedEffects = collectMatchingParsedEventLines({
-      ctx,
-      oracleText: String(perm.card.oracle_text || ''),
-      event: 'enters',
-      subjectPermanent: permanent,
-      subjectControllerId: String(controller),
-      sourcePermanent: perm,
-      fromZone: String(
-        permanent?.enteredFromZone
-        || permanent?.card?.enteredFromZone
-        || permanent?.castSourceZone
-        || permanent?.card?.castSourceZone
-        || '',
-      ).toLowerCase() || undefined,
-    });
-    for (const line of parsedEffects) {
-      const effect = line.effect;
-      const normalizedEffect = effect.toLowerCase().replace(/\s+/g, ' ').trim();
-      const alreadyQueued = pendingExternalEtbTriggers.some((item) => {
-        if (String(item?.source || '') !== String(perm.id)) return false;
-        return parsedEffectDuplicates([item?.effect, item?.description], line);
-      });
-      // "This ability triggers only once each turn." (Caretaker's Talent) applies to the parsed line too.
-      const onceLimited = String(perm.card.oracle_text || '').split(/\n+/).some((ability: string) =>
-        oracleTextHasTriggersOnlyOnceEachTurn(ability) && ability.toLowerCase().includes(normalizedEffect.replace(/\.$/, '')));
-      const onceTrigger = { oncePerTurn: onceLimited, triggerType: 'parsed_enters', permanentId: perm.id };
-      if (onceLimited && shouldSkipTurnLimitedEtbTrigger(state, onceTrigger, String(perm.id || ''))) continue;
-      if (onceLimited && normalizedEffect) recordTurnLimitedEtbTriggerQueued(state, onceTrigger, String(perm.id || ''));
-      if (alreadyQueued || !normalizedEffect) continue;
-      pushPendingEtbTriggerIfNotAutoDeclined(state, pendingExternalEtbTriggers, {
-        id: uid('trigger'),
-        type: 'triggered_ability',
-        controller: perm.controller || controller,
-        source: perm.id,
-        permanentId: perm.id,
-        sourceName: perm.card?.name,
-        description: effect,
-        triggerType: 'parsed_enters',
-        mandatory: !/\byou may\b/i.test(effect),
-        effect,
-        card: perm.card,
-        ...(line.reflexive ? { reflexiveWhenYouDo: line.reflexive } : {}),
-        ...(line.delayed ? { delayedEndStep: line.delayed } : {}),
-        sourcePermanentSnapshot: buildTriggerSourcePermanentSnapshot(perm),
-        interveningIfSubjectPermanentId: permanent.id,
-        interveningIfSubjectSnapshot: buildInterveningIfSubjectSnapshot(permanent),
-        // "that player" in the clause is the entering permanent's controller (re-checked at resolution).
-        triggeringPlayer: String(controller),
-      } as any);
-    }
-  }
+  collectParsedEntersWatcherTriggers(ctx, state, permanent, controller, pendingExternalEtbTriggers);
 
   appendGraveyardSourceEtbParsedLines({
     ctx,
@@ -809,72 +645,6 @@ export function triggerETBEffectsForPermanent(
     queueSelfETBTriggersForPermanent(ctx, permanent, controller);
   }
   
-  // Check for pending control change effects (Vislor Turlough, Xantcha, Akroan Horse)
-  if ((permanent as any).pendingControlChange) {
-    const controlChangeInfo = (permanent as any).pendingControlChange;
-    if (permanent.chosenPlayer || (permanent as any).asEntersControlChangeQueued) {
-      delete (permanent as any).pendingControlChange;
-    } else {
-    debug(2, `[triggerETBEffectsForPermanent] ${permanent.card?.name} has pending control change: ${controlChangeInfo.type}`);
-    
-    // Queue a resolution step for the control change
-    const gameId = (ctx as any).gameId || 'unknown';
-    
-    if (
-      controlChangeInfo.type === 'may_give_opponent' ||
-      controlChangeInfo.type === 'enters_under_opponent_control' ||
-      controlChangeInfo.type === 'opponent_gains'
-    ) {
-      const isOptional = controlChangeInfo.type === 'may_give_opponent';
-      const alreadyQueued = ResolutionQueueManager.getQueue(gameId).steps.some(
-        (step: any) => step?.type === ResolutionStepType.PLAYER_CHOICE && String(step?.permanentId || '') === String(permanent.id),
-      );
-      if (alreadyQueued) {
-        debug(2, `[triggerETBEffectsForPermanent] Skipping duplicate control change step for ${permanent.card?.name}`);
-      } else {
-      const validOpponents = Array.isArray(state.players)
-        ? state.players
-            .filter((player: any) => player && String(player.id || '') !== String(controller) && !player.hasLost)
-            .map((player: any) => ({
-              id: String(player.id || ''),
-              name: String(player.name || player.id || ''),
-              life: Number(state?.life?.[player.id] ?? player.life ?? 40),
-              libraryCount: Number((state?.zones?.[player.id] as any)?.libraryCount ?? 0),
-              isOpponent: true,
-              isSelf: false,
-            }))
-            .filter((player: any) => player.id)
-        : [];
-      
-      ResolutionQueueManager.addStep(gameId, {
-        type: ResolutionStepType.PLAYER_CHOICE,
-        playerId: controller,
-        description: isOptional 
-          ? `${permanent.card?.name}: You may have an opponent gain control of it`
-          : `${permanent.card?.name}: Choose an opponent to control this permanent`,
-        mandatory: !isOptional,
-        sourceId: permanent.id,
-        sourceName: permanent.card?.name,
-        permanentId: permanent.id,
-        sourceImage: permanent.card?.image_uris?.small || permanent.card?.image_uris?.normal,
-        promptTitle: isOptional ? "Control Change (Optional)" : "Choose Opponent",
-        promptDescription: isOptional
-          ? `Do you want to give control of ${permanent.card?.name} to an opponent? If you do, it will be goaded.`
-          : `Choose which opponent will control ${permanent.card?.name}.`,
-        options: [], // Will be filled with opponent list by the resolution handler
-        opponentOnly: true,
-        players: validOpponents,
-        controlChangeData: {
-          permanentId: permanent.id,
-          isOptional,
-          goadsOnChange: controlChangeInfo.goadsOnChange || false,
-          mustAttackEachCombat: controlChangeInfo.mustAttackEachCombat || false,
-          cantAttackOwner: controlChangeInfo.cantAttackOwner || false,
-        },
-      });
-      debug(2, `[triggerETBEffectsForPermanent] Queued control change step for ${permanent.card?.name} (optional: ${isOptional})`);
-      }
-    }
-    }
-  }
+  // Pending control change effects (Vislor Turlough, Xantcha, Akroan Horse)
+  queuePendingEntryControlChangeStep(ctx, state, permanent, controller);
 }

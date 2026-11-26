@@ -189,7 +189,13 @@ export function parseTapUntapAbilityText(text: string): {
   excludeSource: boolean;
   controller?: 'you' | 'opponent' | 'any';
 } | null {
-  const lowerText = text.toLowerCase();
+  // Parse the effect only: a cost such as "Tap three untapped creatures you control:" must not
+  // turn "Tap target creature" into an untap of a creature you control.
+  const fullLowerText = text.toLowerCase();
+  const costColon = fullLowerText.indexOf(':');
+  const lowerText = costColon >= 0 && !/\btarget\b/.test(fullLowerText.slice(0, costColon))
+    ? fullLowerText.slice(costColon + 1)
+    : fullLowerText;
 
   const hasTapUntapTargetPattern =
     /(?:tap or untap|untap or tap)\b[^.:]*\btarget\b/i.test(lowerText) ||
@@ -202,9 +208,9 @@ export function parseTapUntapAbilityText(text: string): {
   let action: 'tap' | 'untap' | 'both' = 'untap';
   if (lowerText.includes('tap or untap') || lowerText.includes('untap or tap')) {
     action = 'both';
-  } else if (lowerText.includes('untap')) {
+  } else if (/\buntap\b/.test(lowerText)) {
     action = 'untap';
-  } else if (lowerText.includes('tap')) {
+  } else if (/\btap\b/.test(lowerText)) {
     action = 'tap';
   } else {
     return null; // Not a tap/untap ability

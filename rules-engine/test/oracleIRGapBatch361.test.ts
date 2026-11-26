@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -18,7 +19,7 @@ const baseParams = {
 
 describe('Oracle IR gap batch 361 — top condition clusters', () => {
   it('evaluates treasure-activate and that-player-most-lands conditions', () => {
-    const activateState = {
+    const activateState = asGameState({
       players: [{ id: controllerId }],
       stack: [
         {
@@ -30,7 +31,7 @@ describe('Oracle IR gap batch 361 — top condition clusters', () => {
         },
       ],
       treasureManaSpentToActivateThisTurn: { [controllerId]: true },
-    } as GameState;
+    });
 
     expect(
       evaluateExtendedConditionalClause({
@@ -41,7 +42,7 @@ describe('Oracle IR gap batch 361 — top condition clusters', () => {
       })
     ).toBe(true);
 
-    const landState = {
+    const landState = asGameState({
       players: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }],
       activePlayerIndex: 1,
       battlefield: [
@@ -50,7 +51,7 @@ describe('Oracle IR gap batch 361 — top condition clusters', () => {
         { id: 'bf-p2-land-b', controller: 'p2', type_line: 'Basic Land — Mountain' },
         { id: 'bf-p2-land-c', controller: 'p2', type_line: 'Basic Land — Swamp' },
       ],
-    } as GameState;
+    });
 
     expect(
       evaluateConditionalWrapperCondition({
@@ -89,7 +90,7 @@ describe('Oracle IR gap batch 361 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         stack: [
           {
@@ -101,7 +102,7 @@ describe('Oracle IR gap batch 361 — top condition clusters', () => {
           },
         ],
         treasureManaSpentToActivateThisTurn: { [controllerId]: true },
-      } as GameState,
+      }),
       [step!],
       {
         controllerId,
@@ -121,7 +122,7 @@ describe('Oracle IR gap batch 361 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         stack: [
           {
@@ -133,7 +134,7 @@ describe('Oracle IR gap batch 361 — top condition clusters', () => {
           },
         ],
         treasureManaSpentToActivateThisTurn: { [controllerId]: true },
-      } as GameState,
+      }),
       [step!],
       {
         controllerId,
@@ -153,7 +154,7 @@ describe('Oracle IR gap batch 361 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: 'p1' }, { id: 'p2' }],
         activePlayerIndex: 1,
         battlefield: [
@@ -163,7 +164,7 @@ describe('Oracle IR gap batch 361 — top condition clusters', () => {
           { id: 'bf-p2-land-b', controller: 'p2', type_line: 'Basic Land — Mountain' },
           { id: 'bf-p2-land-c', controller: 'p2', type_line: 'Basic Land — Swamp' },
         ],
-      } as GameState,
+      }),
       [step!],
       {
         controllerId: 'p1',
@@ -182,7 +183,7 @@ describe('Oracle IR gap batch 361 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: 'p1' }, { id: 'p2' }],
         activePlayerIndex: 1,
         battlefield: [
@@ -192,7 +193,7 @@ describe('Oracle IR gap batch 361 — top condition clusters', () => {
           { id: 'bf-p2-land-b', controller: 'p2', type_line: 'Basic Land — Mountain' },
           { id: 'bf-p2-land-c', controller: 'p2', type_line: 'Basic Land — Swamp' },
         ],
-      } as GameState,
+      }),
       [step!],
       {
         controllerId: 'p1',

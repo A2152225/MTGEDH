@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -18,12 +19,12 @@ const baseParams = {
 
 describe('Oracle IR gap batch 342 — top condition clusters', () => {
   it('evaluates was-cast, crime, legendary, and ring-bearer riders', () => {
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId }],
       battlefield: [
         { id: 'bf-legendary-creature', controller: controllerId, type_line: 'Legendary Creature — Human' },
       ],
-    } as GameState;
+    });
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: 'it was cast' },
@@ -84,11 +85,11 @@ describe('Oracle IR gap batch 342 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature' }],
         committedCrimeThisTurn: { [controllerId]: true },
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -103,12 +104,12 @@ describe('Oracle IR gap batch 342 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-legendary-creature', controller: controllerId, type_line: 'Legendary Creature — Dwarf Warrior' },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'test', targetPermanentId: 'bf-legendary-creature' }
     );
@@ -123,7 +124,7 @@ describe('Oracle IR gap batch 342 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      { players: [{ id: controllerId, ringBearerId: 'bf-creature-1' }], battlefield: [] } as GameState,
+      asGameState({ players: [{ id: controllerId, ringBearerId: 'bf-creature-1' }], battlefield: [] }),
       [step!],
       { controllerId, sourceId: 'bf-aragorn', chosenRingBearerId: 'bf-creature-1' }
     );

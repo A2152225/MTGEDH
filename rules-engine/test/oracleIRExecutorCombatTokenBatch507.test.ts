@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor.js';
 import { collectOracleEffectSteps } from '../../server/src/state/modules/trigger-runtime-wiring.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 describe('Oracle IR batch 507 combat and replacement tokens', () => {
   const p1 = 'p1' as PlayerID;
@@ -122,11 +123,11 @@ describe('Oracle IR batch 507 combat and replacement tokens', () => {
   it('registers a lose-the-game replacement instead of drawing immediately', () => {
     const effectText = 'the next time you would lose the game this turn, instead draw three cards and your life total becomes 5.';
     const steps = collectOracleEffectSteps(effectText, 'Nira, Hellkite Duelist');
-    const state = {
+    const state = asGameState({
       players: [{ id: p1 }],
       life: { p1: 2 },
       library: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
-    } as GameState;
+    });
 
     const ctx = buildOracleIRExecutionContext({
       controllerId: p1,

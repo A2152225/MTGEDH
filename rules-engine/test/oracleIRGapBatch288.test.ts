@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { cardMatchesMoveZoneSingleTargetCriteria } from '../src/oracleIRExecutorZoneOps';
 import { parseMoveZoneSingleTargetFromYourGraveyard } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -182,14 +183,14 @@ describe('Oracle IR gap batch 288 — selector cluster fixes', () => {
     );
     const steps =
       ir.abilities.find((ability) => ability.steps?.some((step) => step.kind === 'move_zone'))?.steps || [];
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [] }],
       battlefield: [
         { id: 'plains-1', name: 'Plains', type_line: 'Basic Land — Plains', controller: controllerId, owner: controllerId },
         { id: 'plains-2', name: 'Plains', type_line: 'Basic Land — Plains', controller: controllerId, owner: controllerId },
         { id: 'forest-1', name: 'Forest', type_line: 'Basic Land — Forest', controller: controllerId, owner: controllerId },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId,

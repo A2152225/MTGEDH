@@ -7,6 +7,7 @@ import {
   parseMoveZoneTypedCardFromAmongThem,
   parseMoveZoneUpToTargetCountFromYourGraveyard,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -103,7 +104,7 @@ describe('Oracle IR gap batch 333 — Bound // Determined / Northampton Farm / D
       cmc: 3,
       exiledWith: sourceId,
     };
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [], exile: [exiledCreature] }],
       battlefield: [
         {
@@ -115,7 +116,7 @@ describe('Oracle IR gap batch 333 — Bound // Determined / Northampton Farm / D
           cmc: 0,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId,

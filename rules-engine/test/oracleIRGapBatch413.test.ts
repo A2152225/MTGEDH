@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   hasExhaustedOnceDuringEachGraveyardCastActivation,
   isOnceDuringEachOfYourTurnActivatedEffect,
-} from '../src/stationPermanentUtils.ts';
+} from '../src/stationPermanentUtils';
 
 describe('oracle IR gap batch413 — once-per-turn graveyard cast exhaustion', () => {
   it('treats castFromGraveyardThisTurn and activatedAbilityIndicesThisTurn as exhausted', () => {

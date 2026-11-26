@@ -14,6 +14,7 @@
 //   Sutured/Shapeshifter via variablePTControlledCountCDA; Rukarumel via TypeExtras.
 
 import type { BattlefieldPermanent } from '../../../../../shared/src/index.js';
+import { normalizeCreatureTypeWord } from '../../../../../shared/src/creatureTypes.js';
 import type { StaticEffectCondition, StaticEffectSpec } from '../staticEffectSpecTypes.js';
 import {
   buildSpec,
@@ -172,7 +173,9 @@ function pushOtherTypeQuotedAbility(
   const text = String(oracle || '').toLowerCase().replace(/\u2019/g, "'");
   const m = text.match(/other ([a-z]+)s? have "([^"]+)"/);
   if (!m) return;
-  const creatureType = String(m[1] || '').trim();
+  // Only a real creature type ("Other Zombies"); "other creatures have" is the generic
+  // other_all_creatures grant (Grothama) and must not become a bogus "Creatures" subtype.
+  const creatureType = normalizeCreatureTypeWord(String(m[1] || '').trim()) || '';
   const abilities = parseLordAbilitiesFromTail(`"${m[2]}"`);
   if (!creatureType || !abilities.length) return;
   specs.push(buildSpec(

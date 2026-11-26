@@ -9,6 +9,7 @@ import {
   parseMoveZoneUpToCountCardsYouOwnFromOutsideGame,
 } from '../src/oracleIRExecutorZoneOps';
 import { parseSimpleBattlefieldSelector } from '../src/oracleIRExecutorBattlefieldParser';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -61,7 +62,7 @@ describe('Oracle IR gap batch 339 — Serene / Research / Blood for Bones / Comm
     );
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: controllerId,
@@ -84,7 +85,7 @@ describe('Oracle IR gap batch 339 — Serene / Research / Blood for Bones / Comm
           cmc: 2,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'bf-serene-source',
@@ -172,7 +173,7 @@ describe('Oracle IR gap batch 339 — Serene / Research / Blood for Bones / Comm
     );
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: opponentId, library: [], hand: [], graveyard: [], exile: [] },
@@ -197,7 +198,7 @@ describe('Oracle IR gap batch 339 — Serene / Research / Blood for Bones / Comm
           attacking: true,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'test',

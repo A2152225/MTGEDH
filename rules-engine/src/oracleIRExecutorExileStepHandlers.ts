@@ -361,7 +361,10 @@ export function applyImpulseExileTopStep(
         && !player?.leftGame
         && !player?.conceded,
     ).length;
-    if (!boundTargetPlayerId && opponentCount > 1) {
+    // "that player's library" names an antecedent player (the damaged/triggering player), not a free target,
+    // so the sole-opponent guess can pick the wrong library; it needs a bound player in every game size.
+    const antecedentPlayerRef = /\bthat player(?:'|\u2019)s\b/i.test(String(step.raw || ''));
+    if (!boundTargetPlayerId && (opponentCount > 1 || antecedentPlayerRef)) {
       return {
         applied: false,
         message: `Skipped impulse exile top (targeting-dependent player): ${step.raw}`,

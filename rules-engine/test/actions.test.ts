@@ -271,14 +271,14 @@ describe('Combat Actions', () => {
       controller: 'player1',
       owner: 'player1',
       tapped: false,
-      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
+      card: { id: 'creature1', name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
     });
     gameState.battlefield.push({
       id: 'creature2',
       controller: 'player2',
       owner: 'player2',
       tapped: false,
-      card: { name: 'Hill Giant', type_line: 'Creature — Giant', power: '3', toughness: '3' },
+      card: { id: 'creature2', name: 'Hill Giant', type_line: 'Creature — Giant', power: '3', toughness: '3' },
     });
     gameState.step = GameStep.DECLARE_ATTACKERS;
     gameStates = new Map([['test-game', gameState]]);
@@ -1236,7 +1236,7 @@ describe('Combat Validation in Actions', () => {
       controller: 'player1',
       owner: 'player1',
       tapped: false,
-      card: { name: 'Cryptolith Rite', type_line: 'Enchantment', oracle_text: '' },
+      card: { id: 'enchantment1', name: 'Cryptolith Rite', type_line: 'Enchantment', oracle_text: '' },
     });
 
     const action = {
@@ -1258,7 +1258,7 @@ describe('Combat Validation in Actions', () => {
       owner: 'player1',
       tapped: false,
       summoningSickness: true,
-      card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
+      card: { id: 'creature1', name: 'Grizzly Bears', type_line: 'Creature — Bear', oracle_text: '' },
     });
 
     const action = {
@@ -1280,7 +1280,7 @@ describe('Combat Validation in Actions', () => {
       owner: 'player1',
       tapped: false,
       summoningSickness: true,
-      card: { name: 'Goblin Guide', type_line: 'Creature — Goblin Scout', oracle_text: 'Haste' },
+      card: { id: 'creature1', name: 'Goblin Guide', type_line: 'Creature — Goblin Scout', oracle_text: 'Haste' },
     });
 
     const action = {
@@ -1308,7 +1308,7 @@ describe('Combat Validation in Actions', () => {
       controller: 'player2',
       owner: 'player2',
       tapped: false,
-      card: { name: 'Sol Ring', type_line: 'Artifact', oracle_text: '' },
+      card: { id: 'artifact1', name: 'Sol Ring', type_line: 'Artifact', oracle_text: '' },
     });
 
     const action = {
@@ -1338,21 +1338,21 @@ describe('Combat Validation in Actions', () => {
         controller: 'player1',
         owner: 'player1',
         tapped: true,
-        card: { name: 'Alpha', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
+        card: { id: 'attacker1', name: 'Alpha', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
       },
       {
         id: 'attacker2',
         controller: 'player1',
         owner: 'player1',
         tapped: true,
-        card: { name: 'Beta', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
+        card: { id: 'attacker2', name: 'Beta', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
       },
       {
         id: 'blocker1',
         controller: 'player2',
         owner: 'player2',
         tapped: false,
-        card: { name: 'Wall Pup', type_line: 'Creature — Dog', power: '1', toughness: '3', oracle_text: '' },
+        card: { id: 'blocker1', name: 'Wall Pup', type_line: 'Creature — Dog', power: '1', toughness: '3', oracle_text: '' },
       }
     );
 
@@ -1386,14 +1386,14 @@ describe('Combat Validation in Actions', () => {
         controller: 'player1',
         owner: 'player1',
         tapped: true,
-        card: { name: 'Alpha', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
+        card: { id: 'attacker1', name: 'Alpha', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
       },
       {
         id: 'attacker2',
         controller: 'player1',
         owner: 'player1',
         tapped: true,
-        card: { name: 'Beta', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
+        card: { id: 'attacker2', name: 'Beta', type_line: 'Creature — Bear', power: '2', toughness: '2', oracle_text: '' },
       },
       {
         id: 'blocker1',
@@ -1401,6 +1401,7 @@ describe('Combat Validation in Actions', () => {
         owner: 'player2',
         tapped: false,
         card: {
+          id: 'blocker1',
           name: 'Hundred-Handed One',
           type_line: 'Creature — Giant',
           power: '3',
@@ -1452,6 +1453,7 @@ describe('Combat Validation in Actions', () => {
         owner: 'player1',
         tapped: true,
         card: {
+          id: 'attacker1',
           name: 'Charging Rhino',
           type_line: 'Creature — Rhino',
           power: '4',
@@ -1464,14 +1466,14 @@ describe('Combat Validation in Actions', () => {
         controller: 'player2',
         owner: 'player2',
         tapped: false,
-        card: { name: 'Guard One', type_line: 'Creature — Soldier', power: '2', toughness: '2', oracle_text: '' },
+        card: { id: 'blocker1', name: 'Guard One', type_line: 'Creature — Soldier', power: '2', toughness: '2', oracle_text: '' },
       },
       {
         id: 'blocker2',
         controller: 'player2',
         owner: 'player2',
         tapped: false,
-        card: { name: 'Guard Two', type_line: 'Creature — Soldier', power: '2', toughness: '2', oracle_text: '' },
+        card: { id: 'blocker2', name: 'Guard Two', type_line: 'Creature — Soldier', power: '2', toughness: '2', oracle_text: '' },
       }
     );
 

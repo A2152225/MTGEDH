@@ -51,10 +51,9 @@ describe('Dr. Beverly Crusher: abbreviation period guard', () => {
   });
 
   it('trigger effect extraction keeps the full clause past "Dr."', () => {
-    const effect = extractTriggerEffectAfterPrefix(
-      'Whenever you gain life, put a +1/+1 counter on Dr. Crusher.',
-      /^whenever you gain life,\s*/i,
-    );
+    const oracleText = 'Whenever you gain life, put a +1/+1 counter on Dr. Crusher.';
+    const prefix = /^whenever you gain life,\s*/i.exec(oracleText);
+    const effect = extractTriggerEffectAfterPrefix(oracleText, prefix ? prefix[0].length : -1);
     expect(effect).toMatch(/put a \+1\/\+1 counter on Dr\. Crusher/i);
   });
 

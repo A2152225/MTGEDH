@@ -35,6 +35,7 @@ import { persistQueuedSpellCastStepContinuation } from "./gameActionsSpellCopyHe
 import { pendingReplicateCountFields } from "../../state/modules/replicateCastUtils.js";
 import { getOwnMainPhaseExtraTargetAugmentation } from "./gameActionsSpellTargetSelection.js";
 import { tryQueueOnCastKeywordPrompts } from "./gameActionsOnCastKeywordPrompts.js";
+import { addTargetStepWithChooser, chooserControlsTargets, opponentChoosesAllTargets, withChooserRouting } from "../opponentChosenTargets.js";
 
 export type RequestCastSpellWithTargetsArgs = {
   io: Server;
@@ -415,7 +416,7 @@ export function tryQueueRequestCastSpellWithTargets(
               costType: 'teamwork',
               amount: 0,
               teamworkMinPower: minPower,
-              title: `Teamwork � ${cardName}`,
+              title: `Teamwork \u2014 ${cardName}`,
               imageUrl: cardForCast.image_uris?.small || cardForCast.image_uris?.normal || cardInHand.image_uris?.small || cardInHand.image_uris?.normal,
               availableTargets: teamworkCreatures.map((p: any) => ({
                 id: p.id,
@@ -580,7 +581,7 @@ export function tryQueueRequestCastSpellWithTargets(
                   keywordBlightStage: 'cast_additional_cost',
                   keywordBlightController: playerId,
                   keywordBlightN: blightN,
-                  keywordBlightSourceName: `${cardName} � Additional Cost (Blight ${blightN})`,
+                  keywordBlightSourceName: `${cardName} \u2014 Additional Cost (Blight ${blightN})`,
                   keywordBlightEffectId: effectId,
                   keywordBlightOptional: blightIsOptional,
                 } as any);
@@ -592,8 +593,8 @@ export function tryQueueRequestCastSpellWithTargets(
 
         if (multiTargetClauses.length > 1) {
           const targetSteps: any[] = [];
-          for (const clause of multiTargetClauses) {
-            const targetStep = ResolutionQueueManager.addStep(gameId, {
+          for (const [clauseIndex, clause] of multiTargetClauses.entries()) {
+            const targetStep = addTargetStepWithChooser(gameId, game, String(playerId), clause, clauseIndex, {
               type: ResolutionStepType.TARGET_SELECTION,
               playerId: playerId as PlayerID,
               description: `Choose ${clause.targetDescription} for ${cardName}`,
@@ -633,7 +634,7 @@ export function tryQueueRequestCastSpellWithTargets(
                 xValue: chosenXValue,
               },
             });
-            targetSteps.push({ ...(targetStep as any) });
+            if (targetStep) targetSteps.push({ ...(targetStep as any) });
           }
 
           persistQueuedSpellCastStepContinuation(gameId, game, {
@@ -664,7 +665,10 @@ export function tryQueueRequestCastSpellWithTargets(
                 ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
                 : spellSpec?.targetDescription || targetReqs?.targetDescription || 'target');
 
-          const targetStep = ResolutionQueueManager.addStep(gameId, {
+          const targetStep = addTargetStepWithChooser(gameId, game, String(playerId), {
+            chosenByOpponent: opponentChoosesAllTargets(oracleText),
+            restrictToChooserControlled: chooserControlsTargets(oracleText),
+          }, undefined, {
             type: ResolutionStepType.TARGET_SELECTION,
             playerId: playerId as PlayerID,
             description: `Choose ${targetDescription} for ${cardName}`,
@@ -786,6 +790,7 @@ export function tryQueueRequestCastSpellWithTargets(
               ...(targetGrouping ? { targetGrouping } : {}),
             },
           };
+          withChooserRouting(serializedTargetStep, targetStep);
 
           persistQueuedSpellCastStepContinuation(gameId, game, {
             playerId,

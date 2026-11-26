@@ -34,6 +34,7 @@ import { getEffectivePower, getEffectiveToughness } from "../util.js";
 import { permanentMatchesTargetTypes } from '../permanentTargetTypeFilter.js';
 import { chooseAICounterDistributionSelection } from "../ai-handlers/aiCounterDistributionChoice.js";
 import { chooseAIDamageDivisionSelection } from "../ai-handlers/aiDamageDivisionChoice.js";
+import { chooseAIOpponentChosenTargets } from "../opponentChosenTargets.js";
 
 export interface AiTargetSelectionStepHelpers {
   getFilteredValidTargetsForStep: (gameId: string, step: TargetSelectionStep) => readonly any[];
@@ -220,10 +221,16 @@ export function buildAiTargetSelectionStepResponse(
     case ResolutionStepType.TARGET_SELECTION: {
       const targetStep = step as TargetSelectionStep;
       const filteredValidTargets = helpers.getFilteredValidTargetsForStep(gameId, targetStep);
-      const selections = chooseAITargetSelectionsForChoiceStep(game, step.playerId, {
-        ...targetStep,
-        validTargets: filteredValidTargets,
-      });
+      const suggestedIds: string[] = Array.isArray((targetStep as any).aiSuggestedSelections) ? (targetStep as any).aiSuggestedSelections.map(String) : [];
+      const suggestionLegal = suggestedIds.length > 0 && suggestedIds.every((id) => filteredValidTargets.some((t: any) => String(t?.id) === id));
+      const selections = suggestionLegal
+        ? suggestedIds
+        : (targetStep as any).opponentChosenTargets === true
+        ? chooseAIOpponentChosenTargets(game, String(step.playerId), targetStep, filteredValidTargets)
+        : chooseAITargetSelectionsForChoiceStep(game, step.playerId, {
+          ...targetStep,
+          validTargets: filteredValidTargets,
+        });
 
       const response: ResolutionStepResponse = {
         stepId: step.id,

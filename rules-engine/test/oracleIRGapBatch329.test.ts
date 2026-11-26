@@ -7,6 +7,8 @@ import {
   parseMoveZoneCreatureCardExiledThisWay,
   parseMoveZoneThatSpell,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -57,7 +59,7 @@ describe('Oracle IR gap batch 329 — Hinder / Fumble / Anzrag\'s Rampage', () =
     const conditional = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'conditional');
     const step = (conditional as any)?.steps?.find((entry: any) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: opponentId, library: [], hand: [], graveyard: [], exile: [] },
@@ -74,7 +76,7 @@ describe('Oracle IR gap batch 329 — Hinder / Fumble / Anzrag\'s Rampage', () =
           card: { id: 'card-hinder-1', name: 'Countered Spell', type_line: 'Instant', cmc: 3 },
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'test',
@@ -94,7 +96,7 @@ describe('Oracle IR gap batch 329 — Hinder / Fumble / Anzrag\'s Rampage', () =
     );
     const attachStep = ir.abilities[1]?.steps?.find((entry) => entry.kind === 'attach');
     expect(attachStep).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: opponentId, library: [], hand: [], graveyard: [], exile: [] },
@@ -125,14 +127,14 @@ describe('Oracle IR gap batch 329 — Hinder / Fumble / Anzrag\'s Rampage', () =
           attachedTo: 'bf-fumble-host',
         },
       ],
-    } as GameState;
+    });
     const result = applyAttachStep(state, attachStep as any, {
       controllerId,
       sourceId: 'test',
       targetCreatureId: 'bf-fumble-host',
       selectorContext: { chosenObjectIds: ['bf-fumble-aura', 'bf-fumble-target'] },
-    });
-    expect(result.applied).toBe(true);
+    }, []);
+    assertApplied(result);
     const aura = (result.state.battlefield || []).find((perm: any) => perm.id === 'bf-fumble-aura');
     expect(aura?.attachedTo).toBe('bf-fumble-target');
   });

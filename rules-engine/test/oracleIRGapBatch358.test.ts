@@ -3,6 +3,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -17,7 +18,7 @@ const baseParams = {
 
 describe('Oracle IR gap batch 358 — top condition clusters', () => {
   it('evaluates cast-both, enchanted power, underpay cast, and creature damage this way', () => {
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId }],
       spellsCastThisTurn: { [controllerId]: 2 },
       noncreatureSpellsCastThisTurn: { [controllerId]: 1 },
@@ -46,7 +47,7 @@ describe('Oracle IR gap batch 358 — top condition clusters', () => {
           toughness: 5,
         },
       ],
-    } as GameState;
+    });
 
     expect(
       evaluateExtendedConditionalClause({
@@ -95,11 +96,11 @@ describe('Oracle IR gap batch 358 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         spellsCastThisTurn: { [controllerId]: 2 },
         noncreatureSpellsCastThisTurn: { [controllerId]: 1 },
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-eshki' }
     );
@@ -114,7 +115,7 @@ describe('Oracle IR gap batch 358 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           {
@@ -131,7 +132,7 @@ describe('Oracle IR gap batch 358 — top condition clusters', () => {
             toughness: 5,
           },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -146,7 +147,7 @@ describe('Oracle IR gap batch 358 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         stack: [
           {
@@ -157,7 +158,7 @@ describe('Oracle IR gap batch 358 — top condition clusters', () => {
             manaSpentTotal: 2,
           },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-tokka', targetSpellId: 'stack-spell-1' }
     );

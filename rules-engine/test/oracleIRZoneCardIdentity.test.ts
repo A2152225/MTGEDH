@@ -36,11 +36,12 @@ describe('Warp World battlefield card identity', () => {
       false,
       false,
       undefined,
+      undefined,
       'library',
     );
     expect(permanents[0]?.card?.name).toBe('Island');
     expect(permanents[0]?.card?.image_uris?.small).toBe('https://example.com/island.jpg');
-    expect(permanents[0]?.card?.card).toBeUndefined();
+    expect(permanents[0]?.card).not.toHaveProperty('card');
   });
 
   it('merges a revealed snapshot onto a nameless duplicate-id stub', () => {

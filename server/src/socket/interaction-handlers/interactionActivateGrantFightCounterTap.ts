@@ -33,6 +33,7 @@ import {
 } from "./interactionActivationEventPersistence.js";
 import { WORD_TO_NUMBER } from "./interactionSpecialLandAndHideaway.js";
 import { canonicalizeCounterKey } from "../../state/modules/counters_tokens.js";
+import { isOpponentChosenTargetText } from "../opponentChosenTargets.js";
 
 export async function tryHandleActivateGrantFightCounterTap(
   ctx: ActivateBattlefieldAbilityContext,
@@ -734,7 +735,7 @@ export async function tryHandleActivateGrantFightCounterTap(
   // Handle Tap/Untap abilities (Saryth, Merrow Reejerey, Argothian Elder, etc.)
   // Parse ability text to detect tap/untap abilities
   const tapUntapParams = parseTapUntapAbilityText(scopedAbilityFullText);
-  const isTapUntapAbility = Boolean(tapUntapParams);
+  const isTapUntapAbility = Boolean(tapUntapParams) && !isOpponentChosenTargetText(scopedAbilityFullText);
   
   if (isTapUntapAbility && tapUntapParams) {
     // Parse the cost

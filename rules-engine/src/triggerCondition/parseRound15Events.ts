@@ -31,6 +31,13 @@ export function parseRound15TriggerSentence(text: string, reparse: Reparse): Par
     return withFields(reparse('whenever ' + attacksEnchanted[1] + ' attacks, ' + attacksEnchanted[2]), { attackedPlayer: 'enchanted', attackedTargetType: 'player' });
   }
 
+  // "Whenever a player attacks one of your opponents" (Combat Calligrapher) triggers once per attacked opponent and the
+  // effect names "that attacking player"; the per-attacked-player legacy detector owns it, so IR stays recognition-only.
+  const playerAttacksOpponent = /^whenever a player attacks one of your opponents,\s*(.+)$/.exec(text);
+  if (playerAttacksOpponent) {
+    return withFields(reparse('whenever a creature attacks, ' + playerAttacksOpponent[1]), { attackedPlayer: 'opponent', attackedTargetType: 'player', quantity: 'one_or_more', ...LEGACY } as any);
+  }
+
   const attacksOpponent = new RegExp('^whenever ' + SUBJECT + ' attacks one of your opponents,\\s*(.+)$').exec(text);
   if (attacksOpponent) {
     return withFields(reparse('whenever ' + attacksOpponent[1] + ' attacks, ' + attacksOpponent[2]), { attackedPlayer: 'opponent', attackedTargetType: 'player' });

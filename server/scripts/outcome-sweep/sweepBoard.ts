@@ -158,6 +158,87 @@ function sideBoard(pid: string, tag: string) {
   return { library, graveyard, hand, battlefield };
 }
 
+/**
+ * Resources only some cards need, seeded per card so they do not change every other card's diff:
+ * energy for {E} costs, speed 4 for "Max speed" abilities, and a big creature for
+ * "sacrifice a creature with power N or greater" costs.
+ */
+export function seedCardResourceNeeds(state: any, card: SweepCard): void {
+  const text = fullOracleText(card).toLowerCase();
+  if (/\{e\}|\benergy\b/.test(text)) state.energy = { ...(state.energy || {}), [SWEEP_P1]: 60 };
+  if (/\bmax speed\b/.test(text)) state.speed = { ...(state.speed || {}), [SWEEP_P1]: 4 };
+  const power = text.match(/sacrifice an? creature with power (\d+) or greater/);
+  if (power && Array.isArray(state.battlefield)) {
+    state.battlefield.push(permanentFrom(vanilla('p1_bf_fodder', 'Sweep Brute', 'Creature \u2014 Beast',
+      { mana_cost: '{4}{G}', cmc: 5, power: power[1], toughness: power[1], colors: ['G'] }), SWEEP_P1));
+  }
+  seedCardTargetNeeds(state, text);
+}
+
+const COLOR_CODES: Array<[string, string]> = [['white', 'W'], ['blue', 'U'], ['black', 'B'], ['red', 'R'], ['green', 'G']];
+
+function seedCreature(state: any, pid: string, id: string, name: string, colors: string[],
+  extra: Record<string, unknown> = {}, cardExtra: Record<string, unknown> = {}): void {
+  const cost = '{1}' + (colors.length ? colors.map((c) => '{' + c + '}').join('') : '{1}');
+  state.battlefield.push(permanentFrom(vanilla(id, name, 'Creature \u2014 Soldier',
+    { mana_cost: cost, cmc: 1 + Math.max(1, colors.length), power: '2', toughness: '2', colors, ...cardExtra }), pid, extra));
+}
+
+function seedHandCard(state: any, pid: string, card: any): void {
+  const zone = state.zones?.[pid];
+  if (!zone || !Array.isArray(zone.hand)) return;
+  zone.hand.push({ ...card, zone: 'hand' });
+  zone.handCount = zone.hand.length;
+}
+
+/**
+ * Legal targets only some cards need, seeded per card (from its lowercased oracle text) so the
+ * other cards' diffs do not change: nonbasic lands, creatures of a named color or multicolored,
+ * tapped, attacking (flagged as attacking during main phase 1 so the source can still be cast),
+ * entered-this-turn and token creatures, Equipment, and matching cards in the opponent's hand.
+ * Planeswalkers and nonX creatures are already on the base board.
+ */
+export function seedCardTargetNeeds(state: any, text: string): void {
+  if (!Array.isArray(state.battlefield)) return;
+  if (/\bnonbasic lands?\b/.test(text)) {
+    for (const i of [1, 2]) {
+      state.battlefield.push(permanentFrom(vanilla('p2_bf_nonbasic_' + i, 'Sweep Ruins ' + i, 'Land', { oracle_text: '{T}: Add {C}.' }), SWEEP_P2));
+    }
+  }
+  for (const [word, code] of COLOR_CODES) {
+    if (!new RegExp('\\b' + word + ' creatures?\\b').test(text)) continue;
+    const title = word[0].toUpperCase() + word.slice(1);
+    // The base board already has a red creature for p2 (Hill Giant) and a green one for p1 (Grizzly Bears).
+    if (word !== 'red') seedCreature(state, SWEEP_P2, 'p2_bf_' + word, 'Sweep ' + title + ' Knight', [code]);
+    if (word !== 'green' && new RegExp('\\b' + word + ' creatures? you control\\b').test(text)) {
+      seedCreature(state, SWEEP_P1, 'p1_bf_' + word, 'Sweep ' + title + ' Squire', [code]);
+    }
+  }
+  if (/\bmulticolou?red creatures?\b/.test(text)) seedCreature(state, SWEEP_P2, 'p2_bf_multicolored', 'Sweep Gold Knight', ['W', 'U']);
+  if (/\btapped creatures?\b/.test(text)) seedCreature(state, SWEEP_P2, 'p2_bf_tapped', 'Sweep Sentry', ['R'], { tapped: true });
+  if (/\battacking (?:or blocking )?creatures?\b/.test(text)) {
+    seedCreature(state, SWEEP_P2, 'p2_bf_attacker', 'Sweep Raider', ['R'], { attacking: SWEEP_P1, attackedThisTurn: true });
+  }
+  if (/\bcreatures? that entered (?:the battlefield )?this turn\b/.test(text)) {
+    seedCreature(state, SWEEP_P2, 'p2_bf_newcomer', 'Sweep Newcomer', ['R'], { enteredThisTurn: true });
+  }
+  const tokenCard = { type_line: 'Token Creature \u2014 Soldier', isToken: true };
+  if (/\btokens? you control\b/.test(text)) seedCreature(state, SWEEP_P1, 'p1_bf_token', 'Sweep Soldier', ['W'], { isToken: true }, tokenCard);
+  else if (/\btarget (?:[a-z-]+ )*token\b/.test(text)) seedCreature(state, SWEEP_P2, 'p2_bf_token', 'Sweep Soldier', ['W'], { isToken: true }, tokenCard);
+  const equipment = (id: string) => vanilla(id, 'Sweep Blade', 'Artifact \u2014 Equipment',
+    { mana_cost: '{1}', cmc: 1, oracle_text: 'Equipped creature gets +1/+1.\nEquip {1}' });
+  if (/\btarget (?:[a-z-]+ )*equipment\b/.test(text)) state.battlefield.push(permanentFrom(equipment('p2_bf_equipment'), SWEEP_P2));
+  if (/\bequipment you control\b/.test(text)) state.battlefield.push(permanentFrom(equipment('p1_bf_equipment'), SWEEP_P1));
+  const handPick = text.match(/\bchoose an? ([a-z ,]+?) card from (?:it|their hand|that player's hand)/);
+  if (handPick) {
+    const words = handPick[1];
+    if (/\bspirit\b/.test(words)) seedHandCard(state, SWEEP_P2, vanilla('p2_hand_spirit', 'Sweep Spirit', 'Creature \u2014 Spirit', { mana_cost: '{1}{U}', cmc: 2, power: '1', toughness: '1', colors: ['U'] }));
+    if (/\barcane\b/.test(words)) seedHandCard(state, SWEEP_P2, vanilla('p2_hand_arcane', 'Sweep Rite', 'Instant \u2014 Arcane', { mana_cost: '{U}', cmc: 1, colors: ['U'], oracle_text: 'Draw a card.' }));
+    if (/\bartifact\b/.test(words)) seedHandCard(state, SWEEP_P2, vanilla('p2_hand_artifact', 'Sweep Bauble', 'Artifact', { mana_cost: '{1}', cmc: 1 }));
+    if (/\benchantment\b/.test(words)) seedHandCard(state, SWEEP_P2, vanilla('p2_hand_enchantment', 'Sweep Charm', 'Enchantment', { mana_cost: '{1}{W}', cmc: 2, colors: ['W'] }));
+  }
+}
+
 /** Seeds the board. The swept card goes to p1's hand unless `placeOnBattlefield` is set. */
 export function seedSweepBoard(game: any, card: SweepCard, options: { placeOnBattlefield?: boolean } = {}): void {
   const p1 = sideBoard(SWEEP_P1, 'p1');
@@ -191,6 +272,7 @@ export function seedSweepBoard(game: any, card: SweepCard, options: { placeOnBat
     battlefield,
     zones: { [SWEEP_P1]: zone(p1, p1Hand), [SWEEP_P2]: zone(p2, p2.hand) },
   });
+  seedCardResourceNeeds(game.state, card);
   game.libraries = game.libraries || new Map();
   game.libraries.set(SWEEP_P1, p1.library);
   game.libraries.set(SWEEP_P2, p2.library);

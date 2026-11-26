@@ -3,12 +3,13 @@ import type { GameState } from '../../shared/src/index.js';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor.js';
 import { resolveBoundSelfOrSourceCreatureTargetId } from '../src/oracleIRExecutorBoundSelfCreatureTarget.js';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 const HIDEOUT_CONNIVE =
   '{3}, {T}: Target Villain you control connives. Activate only as a sorcery. (Draw a card, then discard a card. If you discarded a nonland card, put a +1/+1 counter on that creature.)';
 
 function makeState(): GameState {
-  return {
+  return asGameState({
     players: [
       {
         id: 'p1',
@@ -48,7 +49,7 @@ function makeState(): GameState {
       },
     ],
     stack: [],
-  } as GameState;
+  });
 }
 
 describe('Villainous Hideout connive', () => {

@@ -7,6 +7,7 @@ import {
   parseMoveZoneOpponentChoicePermanentToHand,
   parseMoveZoneTypedCardFromAmongThem,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -146,7 +147,7 @@ describe('Oracle IR gap batch 305 — permanent among-them / discarded-this-way 
       'Teferi, Temporal Pilgrim'
     );
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'move_zone' && (entry as any).to === 'hand');
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [] },
         { id: opponentId, library: [], hand: [], graveyard: [] },
@@ -161,7 +162,7 @@ describe('Oracle IR gap batch 305 — permanent among-them / discarded-this-way 
           colors: ['U'],
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, step ? [step] : [], {
       controllerId,

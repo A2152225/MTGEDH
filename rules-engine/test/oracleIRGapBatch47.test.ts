@@ -64,7 +64,9 @@ describe('Oracle IR gap batch 47 — draw instead, draw-if, compounds', () => {
   it('splits Niv-Mizzet damage, draw, and gain life with shared where-X', () => {
     const triggers = parseTriggeredAbilitiesFromText(
       'Flying, hexproof from multicolored\nWhenever Niv-Mizzet deals combat damage to a player, it deals X damage to any target, target player draws X cards, and you gain X life, where X is the number of different color pairs among permanents you control that are exactly two colors.',
-      'Legendary Creature — Dragon Wizard',
+      'niv-mizzet',
+      'p1',
+      'Niv-Mizzet, Guildpact',
     );
     const effect = triggers.find((t) => t.event === 'deals_combat_damage_to_player')?.effect ?? '';
     const ir = parseOracleTextToIR(effect, 'Niv-Mizzet, Guildpact');

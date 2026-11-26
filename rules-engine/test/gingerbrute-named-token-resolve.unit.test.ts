@@ -11,7 +11,7 @@ describe('Gingerbrute named token resolve', () => {
     expect(String(resolved?.name || '')).toMatch(/Gingerbrute/i);
     expect(String(resolved?.power)).toBe('1');
     expect(String(resolved?.toughness)).toBe('1');
-    const types = String(resolved?.type_line || resolved?.types || '').toLowerCase();
+    const types = [...(resolved?.types ?? []), ...(resolved?.subtypes ?? [])].join(' ').toLowerCase();
     expect(types).toMatch(/golem|food|artifact|creature/);
   });
 });

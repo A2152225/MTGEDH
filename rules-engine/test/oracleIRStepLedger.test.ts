@@ -94,7 +94,7 @@ describe('oracleIRStepLedger', () => {
     const steps: OracleEffectStep[] = [{
       kind: 'exile',
       raw: 'exile target creature',
-      target: { kind: 'target_creature', text: 'target creature' },
+      target: { kind: 'raw', text: 'target creature' },
     }];
 
     const ctx = buildOracleIRExecutionContext({

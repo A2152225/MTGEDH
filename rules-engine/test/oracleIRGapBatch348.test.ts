@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -18,7 +19,7 @@ const baseParams = {
 
 describe('Oracle IR gap batch 348 — top condition clusters', () => {
   it('evaluates specific kicker, warrior subtype, gy entry, and life lead', () => {
-    const state = {
+    const state = asGameState({
       startingLife: 40,
       players: [{ id: controllerId, life: 55 }],
       battlefield: [
@@ -31,7 +32,7 @@ describe('Oracle IR gap batch 348 — top condition clusters', () => {
           castFromZone: 'graveyard',
         },
       ],
-    } as GameState;
+    });
 
     expect(
       evaluateConditionalWrapperCondition({
@@ -87,10 +88,10 @@ describe('Oracle IR gap batch 348 — top condition clusters', () => {
       .find((entry) => entry.kind === 'conditional' && /kicker/i.test(entry.raw || ''));
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature', wasKicked: true }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -105,10 +106,10 @@ describe('Oracle IR gap batch 348 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Human Warrior' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -123,7 +124,7 @@ describe('Oracle IR gap batch 348 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-source', controller: controllerId, type_line: 'Creature' },
@@ -135,7 +136,7 @@ describe('Oracle IR gap batch 348 — top condition clusters', () => {
             castFromZone: 'graveyard',
           },
         ],
-      } as GameState,
+      }),
       [step!],
       {
         controllerId,
@@ -163,11 +164,11 @@ describe('Oracle IR gap batch 348 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         startingLife: 40,
         players: [{ id: controllerId, life: 55 }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Angel' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );

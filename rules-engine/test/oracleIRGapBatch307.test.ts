@@ -8,6 +8,7 @@ import {
   parseMoveZoneCompoundArtifactCreatureLandGyHandsExile,
   parseMoveZoneThatManyCardsFromTopOfLibrary,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -178,7 +179,7 @@ describe('Oracle IR gap batch 307 — Scroll Rack / Cleansing Meditation / Decre
     );
     const step = ir.abilities[0]?.steps?.[0];
     expect(step?.kind).toBe('move_zone');
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: controllerId,
@@ -222,7 +223,7 @@ describe('Oracle IR gap batch 307 — Scroll Rack / Cleansing Meditation / Decre
           cmc: 0,
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,

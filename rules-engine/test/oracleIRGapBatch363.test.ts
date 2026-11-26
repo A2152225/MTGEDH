@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -57,7 +58,7 @@ describe('Oracle IR gap batch 363 — top condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: 'it was kicked twice' },
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }],
           stack: [
             {
@@ -68,7 +69,7 @@ describe('Oracle IR gap batch 363 — top condition clusters', () => {
               kickedTimes: 2,
             },
           ],
-        } as GameState,
+        }),
         controllerId,
         ctx: {
           controllerId,
@@ -82,10 +83,10 @@ describe('Oracle IR gap batch 363 — top condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: 'it was kicked twice' },
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }],
           stack: [{ id: 'stack-spell-1', controller: controllerId, wasKicked: true, kickedTimes: 1 }],
-        } as GameState,
+        }),
         controllerId,
         ctx: {
           controllerId,
@@ -117,7 +118,6 @@ describe('Oracle IR gap batch 363 — top condition clusters', () => {
         controllerId,
         sourceId: 'bf-source',
         creatureDamagePreventedThisWay: true,
-        lastActionOutcome: { kind: 'applied', stepKind: 'prevent_damage' },
       }
     );
     expect(result.automationGaps?.some((gap) => gap.reasonCode === 'unsupported_condition_clause')).toBe(false);
@@ -143,7 +143,6 @@ describe('Oracle IR gap batch 363 — top condition clusters', () => {
         controllerId,
         sourceId: 'bf-source',
         noncreatureDamagePreventedThisWay: true,
-        lastActionOutcome: { kind: 'applied', stepKind: 'prevent_damage' },
       }
     );
     expect(result.automationGaps?.some((gap) => gap.reasonCode === 'unsupported_condition_clause')).toBe(false);
@@ -157,7 +156,7 @@ describe('Oracle IR gap batch 363 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         stack: [
           {
@@ -168,7 +167,7 @@ describe('Oracle IR gap batch 363 — top condition clusters', () => {
             kickedTimes: 2,
           },
         ],
-      } as GameState,
+      }),
       [step!],
       {
         controllerId,

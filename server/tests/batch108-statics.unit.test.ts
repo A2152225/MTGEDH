@@ -146,7 +146,8 @@ describe('B108 parsers and long-tail specs', () => {
     expect(parseStaticEffectSpecsFromOraclePermanent(censusPerm('Master of Cruelties', MASTER) as any).length).toBeGreaterThan(0);
     expect(parseStaticEffectSpecsFromOraclePermanent(censusPerm('Dregscape Sliver', DREGSCAPE) as any).length).toBeGreaterThan(0);
     expect(parseStaticEffectSpecsFromOraclePermanent(censusPerm('Scheming Fence', FENCE) as any).length).toBeGreaterThan(0);
-    expect(parseStaticEffectSpecsFromOraclePermanent(censusPerm('Space Beleren', SPACE, 'Legendary Planeswalker — Jace') as any).length).toBe(0);
+    // Space sculptor is a keyword (batch 112 sector marker), not a batch 108 long-tail static.
+    expect(parseStaticEffectSpecsFromOraclePermanent(censusPerm('Space Beleren', SPACE, 'Legendary Planeswalker — Jace') as any).map((s: any) => s.id)).toEqual(['census-perm:batch112-sectors']);
     const grave = collectBatch108ReplacementSpecs(GRAVEBANE, { sourcePermanentId: 'g', sourceController: 'p1', sourceName: 'Gravebane Zombie' });
     expect(grave.some((s) => s.effectId === 'die-to-library-top')).toBe(true);
     const nissa = collectBatch108ReplacementSpecs(NISSA, { sourcePermanentId: 'n', sourceController: 'p1', sourceName: "Nissa's Chosen" });

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import type { OracleEffectStep } from '../src/oracleIR';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
-function expectNoUnsupportedSelectorGaps(steps: any[], state: GameState, ctx: Record<string, unknown>) {
+function expectNoUnsupportedSelectorGaps(steps: readonly OracleEffectStep[], state: GameState, ctx: Record<string, unknown>) {
   const result = applyOracleIRStepsToGameState(state, steps, ctx as any, { allowOptional: true });
   expect(result.automationGaps?.some((gap) => gap.reasonCode === 'unsupported_selector')).toBe(false);
   return result;
@@ -21,14 +23,14 @@ describe('Oracle IR gap batch 381 — move_zone selector clusters (Track E1)', (
     expect(step?.kind).toBe('conditional');
     expectNoUnsupportedSelectorGaps(
       [step!],
-      {
+      asGameState({
         players: [{ id: controllerId, graveyard: [] }],
         battlefield: [
           { id: 'bf-source', controller: controllerId, type_line: 'Land', tapped: false },
           { id: 'bf-land-1', controller: controllerId, type_line: 'Land', tapped: false },
           { id: 'bf-land-2', controller: controllerId, type_line: 'Land', tapped: false },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-source',
@@ -49,7 +51,7 @@ describe('Oracle IR gap batch 381 — move_zone selector clusters (Track E1)', (
     expect(exileStep).toBeTruthy();
     expectNoUnsupportedSelectorGaps(
       [exileStep!],
-      {
+      asGameState({
         players: [
           {
             id: controllerId,
@@ -57,7 +59,7 @@ describe('Oracle IR gap batch 381 — move_zone selector clusters (Track E1)', (
           },
         ],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Artifact Creature — Construct' }],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-source',
@@ -102,10 +104,10 @@ describe('Oracle IR gap batch 381 — move_zone selector clusters (Track E1)', (
     const glitchSteps = glitch.abilities[0].steps || [];
     const glitchResult = expectNoUnsupportedSelectorGaps(
       glitchSteps,
-      {
+      asGameState({
         players: [{ id: controllerId, hand: [], library: [{ id: 'lib-dread-1' }, { id: 'lib-dread-2' }] }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Artifact Creature — Construct' }],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-source' }
     );
     expect(glitchResult.automationGaps?.some((gap) => gap.stepKind === 'manifest_dread')).toBe(false);
@@ -116,7 +118,7 @@ describe('Oracle IR gap batch 381 — move_zone selector clusters (Track E1)', (
     );
     expectNoUnsupportedSelectorGaps(
       lich.abilities[0].steps?.slice(0, 1) || [],
-      {
+      asGameState({
         players: [
           {
             id: controllerId,
@@ -128,7 +130,7 @@ describe('Oracle IR gap batch 381 — move_zone selector clusters (Track E1)', (
           },
         ],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Enchantment' }],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-source', referenceAmount: 2, damageWouldBeDealtToYou: true }
     );
 

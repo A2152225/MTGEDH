@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const baseParams = {
@@ -27,9 +28,9 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: "it had power greater than drizzt's power",
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'bf-drizzt', controller: controllerId, type_line: 'Legendary Creature', power: 3 }],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-drizzt' },
         lastMovedCards: [{ power: 5 }],
       })
@@ -39,7 +40,7 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'a land you controlled was put into a graveyard from the battlefield this turn',
-        nextState: { landYouControlledPutIntoGraveyardFromBattlefieldThisTurn: { [controllerId]: true } } as GameState,
+        nextState: asGameState({ landYouControlledPutIntoGraveyardFromBattlefieldThisTurn: { [controllerId]: true } }),
       })
     ).toBe(true);
 
@@ -47,12 +48,12 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'defending player controls no walls',
-        nextState: {
+        nextState: asGameState({
           battlefield: [
             { id: 'bf-source', controller: controllerId, type_line: 'Creature — Dragon', attacking: 'p2' },
             { id: 'bf-human', controller: 'p2', type_line: 'Creature — Human' },
           ],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-source', defendingPlayerId: 'p2' },
       })
     ).toBe(true);
@@ -69,9 +70,9 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: "it's a goblin or orc",
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'bf-goblin', controller: controllerId, type_line: 'Creature — Goblin' }],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-source', targetPermanentId: 'bf-goblin' },
       })
     ).toBe(true);
@@ -82,12 +83,12 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'enchanted creature is a wolf or werewolf',
-        nextState: {
+        nextState: asGameState({
           battlefield: [
             { id: 'bf-aura', controller: controllerId, type_line: 'Enchantment — Aura', attachedTo: 'bf-wolf' },
             { id: 'bf-wolf', controller: controllerId, type_line: 'Creature — Wolf' },
           ],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-aura' },
       })
     ).toBe(true);
@@ -96,12 +97,12 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: "that creature's power is greater than this creature's",
-        nextState: {
+        nextState: asGameState({
           battlefield: [
             { id: 'bf-source', controller: controllerId, type_line: 'Creature — Human', power: 2 },
             { id: 'bf-entering', controller: controllerId, type_line: 'Creature — Bear', power: 4 },
           ],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-source', targetCreatureId: 'bf-entering' },
       })
     ).toBe(true);
@@ -110,7 +111,7 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'a creature card was put into your graveyard from anywhere this turn',
-        nextState: { creatureCardPutIntoYourGraveyardThisTurn: { [controllerId]: true } } as GameState,
+        nextState: asGameState({ creatureCardPutIntoYourGraveyardThisTurn: { [controllerId]: true } }),
       })
     ).toBe(true);
 
@@ -127,9 +128,9 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'you control a green or white permanent',
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'bf-green', controller: controllerId, type_line: 'Creature — Elf', colors: ['G'] }],
-        } as GameState,
+        }),
       })
     ).toBe(true);
   });
@@ -139,10 +140,10 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'an opponent drew three or more cards this turn',
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }, { id: 'p2' }],
           cardsDrawnThisTurn: { p1: 0, p2: 3 },
-        } as GameState,
+        }),
       })
     ).toBe(true);
 
@@ -150,9 +151,9 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'exactly one creature is attacking',
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'bf-atk', controller: controllerId, type_line: 'Creature — Soldier', attacking: true }],
-        } as GameState,
+        }),
       })
     ).toBe(true);
 
@@ -160,12 +161,12 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'defending player controls no black permanents',
-        nextState: {
+        nextState: asGameState({
           battlefield: [
             { id: 'bf-source', controller: controllerId, type_line: 'Creature — Spirit', attacking: 'p2' },
             { id: 'bf-green', controller: 'p2', type_line: 'Creature — Elf', colors: ['G'] },
           ],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-source', defendingPlayerId: 'p2' },
       })
     ).toBe(true);
@@ -174,12 +175,12 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'it targets one or more other permanents you control',
-        nextState: {
+        nextState: asGameState({
           battlefield: [
             { id: 'bf-source', controller: controllerId, type_line: 'Creature — Shapeshifter' },
             { id: 'bf-other', controller: controllerId, type_line: 'Creature — Bear' },
           ],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-source', stackItem: { targets: ['bf-other'] } },
       })
     ).toBe(true);
@@ -187,9 +188,9 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: "the gift was promised and that creature isn't legendary" },
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'bf-zombie', controller: controllerId, type_line: 'Creature — Zombie' }],
-        } as GameState,
+        }),
         controllerId,
         ctx: { controllerId, sourceId: 'bf-source', giftPromised: true, targetPermanentId: 'bf-zombie' },
         lastActionOutcome: null,
@@ -200,9 +201,9 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'it has a counter on it',
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'bf-target', controller: controllerId, type_line: 'Creature — Human', counters: { '+1/+1': 1 } }],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-source', targetPermanentId: 'bf-target' },
       })
     ).toBe(true);
@@ -213,7 +214,7 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'a player controls more creatures than each other player',
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }, { id: 'p2' }, { id: 'p3' }],
           battlefield: [
             { id: 'c1', controller: 'p2', type_line: 'Creature — Human' },
@@ -221,7 +222,7 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
             { id: 'c3', controller: 'p3', type_line: 'Creature — Human' },
             { id: 'c4', controller: 'p3', type_line: 'Creature — Human' },
           ],
-        } as GameState,
+        }),
       })
     ).toBe(true);
 
@@ -229,9 +230,9 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'this artifact has loyalty counters on it',
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'bf-beacon', controller: controllerId, type_line: 'Artifact', counters: { loyalty: 2 } }],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-beacon' },
       })
     ).toBe(true);
@@ -239,10 +240,10 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: "you or a player you're attacking has the initiative" },
-        nextState: {
+        nextState: asGameState({
           initiative: controllerId,
           battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Soldier', attacking: 'p2' }],
-        } as GameState,
+        }),
         controllerId,
         ctx: { controllerId, sourceId: 'bf-source' },
         lastActionOutcome: null,
@@ -272,13 +273,13 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'you control neither creature',
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }, { id: 'p2' }, { id: 'p3' }],
           battlefield: [
             { id: 'bf-a', controller: 'p2', type_line: 'Creature — Human' },
             { id: 'bf-b', controller: 'p3', type_line: 'Creature — Bear' },
           ],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-source', targetPermanentId: 'bf-a', secondTargetPermanentId: 'bf-b' },
       })
     ).toBe(true);
@@ -300,7 +301,7 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'its spectacle cost was paid',
-        nextState: { stack: [{ id: 'stack-spell-1', alternateCostId: 'spectacle' }] } as GameState,
+        nextState: asGameState({ stack: [{ id: 'stack-spell-1', alternateCostId: 'spectacle' }] }),
         ctx: { controllerId, sourceId: 'bf-source', targetSpellId: 'stack-spell-1', stackItem: { alternateCostId: 'spectacle' } },
       })
     ).toBe(true);
@@ -310,7 +311,7 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
         ...baseParams,
         normalizedRaw:
           'a creature spell you cast this turn was countered by a spell or ability an opponent controlled',
-        nextState: { creatureSpellsCounteredByOpponentThisTurn: { [controllerId]: true } } as GameState,
+        nextState: asGameState({ creatureSpellsCounteredByOpponentThisTurn: { [controllerId]: true } }),
       })
     ).toBe(true);
 
@@ -318,7 +319,7 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: "you haven't added mana with this ability this turn",
-        nextState: { addedManaWithThisAbilityThisTurn: { [controllerId]: {} } } as GameState,
+        nextState: asGameState({ addedManaWithThisAbilityThisTurn: { [controllerId]: {} } }),
         ctx: { controllerId, sourceId: 'bf-source', abilityId: '0' },
       })
     ).toBe(true);
@@ -341,7 +342,7 @@ describe('Oracle IR gap batch 369 — 36 condition clusters', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'they were attacked this turn by an assassin you controlled',
-        nextState: { attackedByAssassinThisTurnByPlayer: { [controllerId]: { p2: true } } } as GameState,
+        nextState: asGameState({ attackedByAssassinThisTurnByPlayer: { [controllerId]: { p2: true } } }),
         ctx: { controllerId, sourceId: 'bf-source', thatPlayerId: 'p2' },
       })
     ).toBe(true);

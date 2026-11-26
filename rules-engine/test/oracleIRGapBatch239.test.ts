@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asGameState, type GameStateFixture } from './helpers/gameStateFixture';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
@@ -9,12 +10,12 @@ function collectStepsFromText(text: string) {
   return ir.abilities.flatMap((ability) => ability.steps || []);
 }
 
-function baseState(overrides?: Partial<GameState>): GameState {
+function baseState(overrides?: GameStateFixture): GameState {
   const p1 = 'p1' as PlayerID;
   const p2 = 'p2' as PlayerID;
   const p3 = 'p3' as PlayerID;
   const p4 = 'p4' as PlayerID;
-  return {
+  return asGameState({
     turnNumber: 1,
     players: [
       { id: p1, name: 'P1', hand: [], library: [], graveyard: [] },
@@ -39,7 +40,7 @@ function baseState(overrides?: Partial<GameState>): GameState {
       { id: 'p4-creature', controller: p4, type_line: 'Creature — Elf', card: { type_line: 'Creature — Elf' } },
     ],
     ...overrides,
-  } as GameState;
+  });
 }
 
 describe('Oracle IR gap batch 239 support', () => {
@@ -80,10 +81,10 @@ describe('Oracle IR gap batch 239 support', () => {
     const steps = collectStepsFromText('Each opponent sacrifices a creature.');
     const state = baseState({
       battlefield: [
-        { id: 'src', controller: 'p1', type_line: 'Creature — Demon', card: { type_line: 'Creature — Demon' } },
-        { id: 'p2-creature', controller: 'p2', type_line: 'Creature — Bear', card: { type_line: 'Creature — Bear' } },
-        { id: 'p3-creature', controller: 'p3', type_line: 'Creature — Zombie', card: { type_line: 'Creature — Zombie' } },
-        { id: 'p4-creature', controller: 'p4', type_line: 'Creature — Elf', card: { type_line: 'Creature — Elf' } },
+        { id: 'src', controller: 'p1', type_line: 'Creature — Demon', card: { id: 'src', name: '', type_line: 'Creature — Demon' } },
+        { id: 'p2-creature', controller: 'p2', type_line: 'Creature — Bear', card: { id: 'p2-creature', name: '', type_line: 'Creature — Bear' } },
+        { id: 'p3-creature', controller: 'p3', type_line: 'Creature — Zombie', card: { id: 'p3-creature', name: '', type_line: 'Creature — Zombie' } },
+        { id: 'p4-creature', controller: 'p4', type_line: 'Creature — Elf', card: { id: 'p4-creature', name: '', type_line: 'Creature — Elf' } },
       ],
     });
     const result = applyOracleIRStepsToGameState(

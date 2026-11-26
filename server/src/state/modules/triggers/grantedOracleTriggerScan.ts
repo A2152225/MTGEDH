@@ -4,7 +4,7 @@
  * detectors scan these on the recipient, and only while the grant applies.
  * Origin: detectorGrantedOracle.ts mergeDetectorOracleWithContinuousGrants.
  * Public: grantedTriggerTextsForPermanent, oracleTextWithGrantedTriggers,
- *   withRecipientOnBattlefieldForGrantScan.
+ *   withRecipientOnBattlefieldForGrantScan, beginScopedGrantScan.
  */
 
 import { getContinuousGrantedAbilitiesForPermanent } from '../staticEffectSpec.js';
@@ -22,6 +22,17 @@ function normalizeQuotes(text: string): string {
   return String(text || '')
     .replace(/[\u201c\u201d]/g, '"')
     .replace(/\u2019/g, "'");
+}
+
+// Every quoted-grant template needs a quote character; skip normalizing oracle text without one.
+function quotedGrantors(bf: any[]): Array<{ grantor: any; oracle: string }> {
+  const out: Array<{ grantor: any; oracle: string }> = [];
+  for (const grantor of bf) {
+    const raw = String(grantor?.card?.oracle_text || grantor?.oracle_text || '');
+    if (!raw.includes('"') && !raw.includes('\u201c') && !raw.includes('\u201d')) continue;
+    out.push({ grantor, oracle: normalizeQuotes(raw) });
+  }
+  return out;
 }
 
 function typeLineOf(permanent: any): string {
@@ -133,11 +144,35 @@ function recipientMatchesFilter(filter: string, recipient: any, grantor: any, st
   return typeLineOf(recipient).includes(typeWord);
 }
 
+type GrantScanScope = { battlefield: any[]; grantors: Array<{ grantor: any; oracle: string }>; loseAll: boolean };
+let scopedGrantScan: GrantScanScope | null = null;
+
+/**
+ * Battlefield-wide read-only scans (one ETB checked against every permanent) call the grant scan once per
+ * permanent; each call re-read every grantor's oracle (O(n^2) per entering permanent). Inside a scope the
+ * quoted-grant sources and the lose-all flag are computed once for that exact battlefield array.
+ * The caller must not change the battlefield before calling the returned end function.
+ */
+export function beginScopedGrantScan(state: any): () => void {
+  const previous = scopedGrantScan;
+  const bf: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
+  const grantors = quotedGrantors(bf);
+  const loseAll = bf.some((grantor) => /lose all abilities/i.test(String(grantor?.card?.oracle_text || grantor?.oracle_text || '')));
+  scopedGrantScan = { battlefield: bf, grantors, loseAll };
+  return () => {
+    scopedGrantScan = previous;
+  };
+}
+
+function scopeFor(bf: any[]): GrantScanScope | null {
+  return scopedGrantScan && scopedGrantScan.battlefield === bf ? scopedGrantScan : null;
+}
+
 function extractQuotedGrantsForRecipient(recipient: any, state: any): string[] {
   const out: string[] = [];
   const bf: any[] = Array.isArray(state?.battlefield) ? state.battlefield : [];
-  for (const grantor of bf) {
-    const oracle = normalizeQuotes(String(grantor?.card?.oracle_text || grantor?.oracle_text || ''));
+  const entries = scopeFor(bf)?.grantors ?? quotedGrantors(bf);
+  for (const { grantor, oracle } of entries) {
     if (!oracle) continue;
     const eachHas = /(?:^|[.\n])\s*each (creature) has "([^"]+)"/gi;
     let m: RegExpExecArray | null;
@@ -207,7 +242,10 @@ export function grantedTriggerTextsForPermanent(permanent: any, gameState?: any)
     // Skip raw grantedAbilities: those must go through persistedGrantedAbilitiesSurvivingLoss
     // (Humility timestamps). extractQuotedGrants is only a parser-miss fallback, and must
     // not re-add quotes that a lose-all-abilities effect already stripped from the continuous set.
-    const loseAll = (scanState.battlefield || []).some((perm) => /lose all abilities/i.test(String(perm?.card?.oracle_text || perm?.oracle_text || '')));
+    const scope = scopeFor(scanState.battlefield);
+    const loseAll = scope
+      ? scope.loseAll
+      : (scanState.battlefield || []).some((perm) => /lose all abilities/i.test(String(perm?.card?.oracle_text || perm?.oracle_text || '')));
     if (!loseAll) {
       for (const line of extractQuotedGrantsForRecipient(permanent, scanState)) addLine(out, line);
     }

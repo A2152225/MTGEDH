@@ -58,8 +58,9 @@ export async function handleGraveyardSelectionResponse(
   step: ResolutionStep,
   response: ResolutionStepResponse,
 ): Promise<void> {
-  const pid = response.playerId as any;
   const stepData = step as any;
+  // Opponent-chosen target (Mausoleum Turnkey): the ability's controller still gets the card.
+  const pid = (stepData.targetsChosenFor || response.playerId) as any;
 
   // GY-origin move_zone IR prompts (Mirko / Emeria family) resume via choice JSON.
   if (await tryHandleGraveyardSelectionOracleIrChoiceResume(io, game, gameId, step, response)) {

@@ -12,6 +12,7 @@ import { canPermanentAttack, validateDeclareAttackers, type DeclareAttackersActi
 import { validateSacrifice } from '../src/actions/sacrifice';
 import type { GameState, BattlefieldPermanent } from '../../shared/src/types';
 import { GameStep } from '../../shared/src/types';
+import { asGameState } from './helpers/gameStateFixture';
 
 const ALEXIOS_STYLE_ORACLE =
   "Trample\nThis creature attacks each combat if able, can't be sacrificed, and can't attack its owner.\nAt the beginning of each player's upkeep, that player gains control of this creature, untaps it, and puts a +1/+1 counter on it.";
@@ -239,7 +240,7 @@ describe('must-attack and cannot-sacrifice enforcement', () => {
       },
     } as BattlefieldPermanent;
 
-    const state = {
+    const state = asGameState({
       turn: 3,
       step: GameStep.DECLARE_ATTACKERS,
       activePlayerIndex: 0,
@@ -249,7 +250,7 @@ describe('must-attack and cannot-sacrifice enforcement', () => {
         { id: 'p1', life: 40, battlefield: [] },
         { id: 'p3', life: 40, battlefield: [] },
       ],
-    } as GameState;
+    });
 
     const skipped: DeclareAttackersAction = {
       type: 'declareAttackers',

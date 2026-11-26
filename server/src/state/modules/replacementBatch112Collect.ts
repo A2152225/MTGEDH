@@ -30,7 +30,6 @@ import {
   parsePreventAndRemoveCounter,
   parsePreventOne,
   parseSelfExtraTurn,
-  parseSharedFateDraw,
   parseTwoOrMoreManaBecomesColorless,
 } from './batch112Parsers.js';
 import { normalizeBatch113 } from './batch113Remaining.js';
@@ -69,10 +68,13 @@ export function collectBatch112ReplacementSpecsFromState(state: unknown): Replac
         metadata: { lookAtLibraryTop: parseLookOneRestGraveyard(text) },
       }));
     }
-    if (parseChainsDraw(text) || parseSharedFateDraw(text)) {
+    // Shared Fate's wording is owned by the oracle draw template
+    // ('draw-replaced-by-exile-opponent-library': opponent choice, face-down exile in the
+    // opponent's exile, source-linked play). Emitting 'shared-fate-draw' too replaced each draw twice.
+    if (parseChainsDraw(text)) {
       specs.push(asSpec({
         ...base, id: `${sourcePermanentId}:batch112-draw`, event: 'card-draw', match: {}, instead: { choiceRequired: true },
-        effectId: parseChainsDraw(text) ? 'chains-draw-replacement' : 'shared-fate-draw', reason: 'batch112_draw',
+        effectId: 'chains-draw-replacement', reason: 'batch112_draw',
       }));
     }
     if (parseDestroyBecomesHeal(text)) {

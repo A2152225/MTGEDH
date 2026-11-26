@@ -50,7 +50,7 @@ describe('oracleIR move_zone transition bridge', () => {
       undefined,
       undefined,
       undefined,
-      { ctx, stepKind: 'move_zone' },
+      undefined, { ctx, stepKind: 'move_zone' },
     );
 
     expect(result.kind).toBe('applied');

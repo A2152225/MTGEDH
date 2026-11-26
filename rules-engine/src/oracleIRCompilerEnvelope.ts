@@ -39,10 +39,36 @@ export interface OverlayReplacementEffectSpecInput {
   readonly metadata?: Record<string, unknown>;
 }
 
+const OVERLAY_STATIC_SCOPE_KINDS = [
+  'creatures_you_control',
+  'other_creatures_you_control',
+  'planeswalkers_you_control',
+  'all_creatures',
+  'all_creatures_of_type',
+  'other_all_creatures_of_type',
+  'creature_type',
+  'opponent_creatures_of_type',
+  'player_you',
+] as const;
+
+const OVERLAY_STATIC_CONDITION_KINDS = [
+  'controller_life_at_least_starting_plus',
+  'target_is_token',
+  'target_is_not_token',
+  'target_is_token_during_source_controller_turn',
+  'during_source_controller_turn',
+  'target_has_mana_color',
+  'target_is_not_black_creature',
+  'target_is_not_human_creature',
+] as const;
+
+export type OverlayStaticScopeKind = (typeof OVERLAY_STATIC_SCOPE_KINDS)[number];
+export type OverlayStaticConditionKind = (typeof OVERLAY_STATIC_CONDITION_KINDS)[number];
+
 export interface OverlayStaticEffectSpecInput {
   readonly id: string;
   readonly scope: {
-    readonly kind: 'creatures_you_control' | 'other_creatures_you_control' | 'all_creatures' | 'creature_type' | 'player_you';
+    readonly kind: OverlayStaticScopeKind;
     readonly creatureType?: string;
   };
   readonly grant: {
@@ -53,8 +79,10 @@ export interface OverlayStaticEffectSpecInput {
     readonly playerShroud?: boolean;
   };
   readonly condition?: {
-    readonly kind: 'controller_life_at_least_starting_plus' | 'target_is_token' | 'target_is_not_token' | 'during_source_controller_turn';
+    readonly kind: OverlayStaticConditionKind;
     readonly offset?: number;
+    /** Mana color for `target_has_mana_color`. */
+    readonly color?: string;
   };
   readonly layer?: 4 | 5 | 6 | 7;
   readonly sublayer?: '7a' | '7b' | '7c' | '7d';
@@ -459,28 +487,9 @@ export function validateCompiledOracleEffectSteps(
   return { ok: errors.length === 0, errors, steps: valid };
 }
 
-const STATIC_SCOPE_KINDS = new Set([
-  'creatures_you_control',
-  'other_creatures_you_control',
-  'planeswalkers_you_control',
-  'all_creatures',
-  'all_creatures_of_type',
-  'other_all_creatures_of_type',
-  'creature_type',
-  'opponent_creatures_of_type',
-  'player_you',
-]);
+const STATIC_SCOPE_KINDS = new Set<string>(OVERLAY_STATIC_SCOPE_KINDS);
 
-const STATIC_CONDITION_KINDS = new Set([
-  'controller_life_at_least_starting_plus',
-  'target_is_token',
-  'target_is_not_token',
-  'target_is_token_during_source_controller_turn',
-  'during_source_controller_turn',
-  'target_has_mana_color',
-  'target_is_not_black_creature',
-  'target_is_not_human_creature',
-]);
+const STATIC_CONDITION_KINDS = new Set<string>(OVERLAY_STATIC_CONDITION_KINDS);
 
 const REPLACEMENT_SPEC_EVENTS = new Set([
   'zone-change',

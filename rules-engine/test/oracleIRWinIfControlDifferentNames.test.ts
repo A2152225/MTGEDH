@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asBattlefieldPermanent } from './helpers/battlefieldPermanentFixture';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 import type { GameState } from '../../shared/src/index.js';
@@ -16,7 +17,7 @@ function collectActivatedWinSteps(text: string, name: string) {
 }
 
 function makeGate(id: string, name: string, controller = 'p1') {
-  return {
+  return asBattlefieldPermanent({
     id,
     controller,
     owner: controller,
@@ -31,7 +32,7 @@ function makeGate(id: string, name: string, controller = 'p1') {
       types: ['Land'],
       subtypes: ['Gate'],
     },
-  };
+  });
 }
 
 function makeState(gates: readonly ReturnType<typeof makeGate>[]): GameState {
@@ -50,7 +51,7 @@ function makeState(gates: readonly ReturnType<typeof makeGate>[]): GameState {
   } as unknown as GameState;
 }
 
-function applyWinIf(text: string, sourceName: string, gates: readonly ReturnType<typeof makeGate>) {
+function applyWinIf(text: string, sourceName: string, gates: readonly ReturnType<typeof makeGate>[]) {
   const steps = collectActivatedWinSteps(text, sourceName).filter(
     (step) => step.kind === 'conditional' || step.kind === 'win_game',
   );
@@ -71,7 +72,7 @@ describe('win if you control N or more [type] with different names', () => {
     const steps = collectActivatedWinSteps(MAZES_END_ORACLE, "Maze's End");
     const winIf = steps.find((step) => step.kind === 'conditional') as {
       condition?: { raw?: string };
-      steps?: Array<{ kind: string; raw?: string }>;
+      steps?: ReadonlyArray<{ kind: string; raw?: string }>;
     } | undefined;
     expect(winIf).toBeTruthy();
     expect(String(winIf?.condition?.raw || '').toLowerCase()).toBe(

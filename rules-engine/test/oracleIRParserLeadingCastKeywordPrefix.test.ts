@@ -93,7 +93,7 @@ describe('leading cast-keyword prefix strip', () => {
       'Glimpse of Tomorrow',
     );
     const kinds = parsed.abilities.flatMap((ability) => (ability.steps || []).map((step) => step.kind));
-    expect(kinds.some((kind) => kind === 'move_zone' || kind === 'reveal_top' || kind === 'shuffle')).toBe(true);
+    expect(kinds.some((kind) => kind === 'move_zone' || kind === 'reveal_top' || kind === 'shuffle_zones_into_library')).toBe(true);
     expect(kinds).not.toContain('unknown');
   });
 

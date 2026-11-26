@@ -3,6 +3,7 @@ import type { GameState } from '../../shared/src';
 import { applyGainControlStep } from '../src/oracleIRExecutorBattlefieldStepHandlers.js';
 import { applyChangeTargetStep } from '../src/oracleIRExecutorPlayerStepHandlers.js';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 const CHEFS_KISS_TEXT =
   "Gain control of target spell that targets only a single permanent or player. Copy it, then reselect the targets at random for the spell and the copy. The new targets can't be you or a permanent you control.";
@@ -43,7 +44,7 @@ describe('Oracle IR gain control of a stack spell', () => {
       } as any,
     );
 
-    expect(result.applied).toBe(true);
+    assertApplied(result);
     expect((result.state as any).stack[0].controller).toBe('p1');
   });
 

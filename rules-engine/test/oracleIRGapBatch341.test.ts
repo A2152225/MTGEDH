@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -18,10 +19,10 @@ const baseParams = {
 
 describe('Oracle IR gap batch 341 — top condition clusters', () => {
   it('evaluates would-enter, time-counter, cast-from-hand, and life-change riders', () => {
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId }],
       battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature', counters: {} }],
-    } as GameState;
+    });
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
@@ -69,13 +70,13 @@ describe('Oracle IR gap batch 341 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-land-1', controller: controllerId, type_line: 'Land', tapped: false },
           { id: 'bf-land-2', controller: controllerId, type_line: 'Land', tapped: false },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-lotus-vale' }
     );
@@ -90,10 +91,10 @@ describe('Oracle IR gap batch 341 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature', counters: {} }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );

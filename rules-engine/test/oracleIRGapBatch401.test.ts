@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseOracleTextToIR } from '../src/oracleIRParser.ts';
-import { parseActivatedAbility, parseOracleText } from '../src/oracleTextParser.ts';
-import { splitOracleTextIntoParseLines } from '../src/oracleTextParserPreprocess.ts';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
+import { parseActivatedAbility, parseOracleText } from '../src/oracleTextParser';
+import { splitOracleTextIntoParseLines } from '../src/oracleTextParserPreprocess';
 
 describe('oracle IR gap batch401 — Station ability boundaries', () => {
   it('splits Station reminder from threshold activated lines', () => {

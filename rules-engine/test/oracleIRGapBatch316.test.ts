@@ -9,6 +9,7 @@ import {
   parseMoveZoneSingleTargetCriteria,
   parseMoveZoneTargetCreatureOwnerLibraryChoice,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -71,7 +72,7 @@ describe('Oracle IR gap batch 316 — Perplexing Test / Obscura Charm / Ice Magi
     const ir = parseOracleTextToIR("Return all creature tokens to their owners' hands.", 'Perplexing Test');
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: opponentId, library: [], hand: [], graveyard: [], exile: [] },
@@ -101,7 +102,7 @@ describe('Oracle IR gap batch 316 — Perplexing Test / Obscura Charm / Ice Magi
           type_line: 'Creature — Human',
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], { controllerId, sourceId: 'test' });
     expect(result.automationGaps || []).toHaveLength(0);
     expect(result.state.battlefield || []).toHaveLength(1);
@@ -159,7 +160,7 @@ describe('Oracle IR gap batch 316 — Perplexing Test / Obscura Charm / Ice Magi
     );
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [{ id: 'lib-p1-1', name: 'Top', type_line: 'Instant' }], hand: [], graveyard: [], exile: [] },
         {
@@ -180,7 +181,7 @@ describe('Oracle IR gap batch 316 — Perplexing Test / Obscura Charm / Ice Magi
           cmc: 3,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'test',

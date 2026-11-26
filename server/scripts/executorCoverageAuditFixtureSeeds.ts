@@ -10,6 +10,7 @@ import type { OracleEffectStep } from '../../rules-engine/src/oracleIR.js';
 import { buildOracleIRExecutionContext } from '../../rules-engine/src/oracleIRExecutor.js';
 
 import { enrichExecutorCoverageSubtypeTeamSeeds } from './executorCoverageAuditFixtureSeedsSubtypeTeams.js';
+import { bindAuditHandExileChoices } from './executorCoverageAuditHandExileChoiceSeeds.js';
 
 type AuditCtx = ReturnType<typeof buildOracleIRExecutionContext>;
 
@@ -281,5 +282,6 @@ export function enrichExecutorCoverageGapFixtureSeeds(
     });
   }
 
-  return enrichExecutorCoverageSubtypeTeamSeeds(text, nextState, nextCtx);
+  const seeded = enrichExecutorCoverageSubtypeTeamSeeds(text, nextState, nextCtx);
+  return { state: seeded.state, ctx: bindAuditHandExileChoices(steps, seeded.state, seeded.ctx) };
 }

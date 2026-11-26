@@ -8,6 +8,8 @@ import {
   parseMoveZoneAnyNumberDistinctManaValuesFromYourGraveyard,
   selectGraveyardCardIdsWithDistinctManaValues,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -71,7 +73,7 @@ describe('Oracle IR gap batch 328 — Mandate of Peace / Seasons Past / Enchantm
           .toLowerCase() === 'all spells and abilities from the stack, including this spell'
     );
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: opponentId, library: [], hand: [], graveyard: [], exile: [] },
@@ -81,7 +83,7 @@ describe('Oracle IR gap batch 328 — Mandate of Peace / Seasons Past / Enchantm
         { id: 'stack-mp-1', name: 'Stack Bolt', controller: controllerId, owner: controllerId, type_line: 'Instant', cmc: 1 },
         { id: 'stack-mp-2', name: 'Stack Ability', controller: opponentId, owner: opponentId, type_line: 'Ability', cmc: 0 },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'stack-mp-1',
@@ -132,7 +134,7 @@ describe('Oracle IR gap batch 328 — Mandate of Peace / Seasons Past / Enchantm
     );
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'attach');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [], exile: [] }],
       battlefield: [
         {
@@ -160,13 +162,13 @@ describe('Oracle IR gap batch 328 — Mandate of Peace / Seasons Past / Enchantm
           attachedTo: 'bf-ea-host',
         },
       ],
-    } as GameState;
+    });
     const result = applyAttachStep(state, step as any, {
       controllerId,
       sourceId: 'test',
       selectorContext: { chosenObjectIds: ['bf-ea-aura', 'bf-ea-target'] },
-    });
-    expect(result.applied).toBe(true);
+    }, []);
+    assertApplied(result);
     const aura = (result.state.battlefield || []).find((perm: any) => perm.id === 'bf-ea-aura');
     expect(aura?.attachedTo).toBe('bf-ea-target');
   });

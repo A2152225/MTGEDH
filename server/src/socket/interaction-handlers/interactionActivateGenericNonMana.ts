@@ -40,7 +40,9 @@ import type {
 import { detectTutorEffect, parseSearchCriteria } from "./interactionTutorSearchCriteriaParsing.js";
 import { reviewActivatedAbilityTargets } from "../../../../rules-engine/src/aiActivatedAbilityTargets.js";
 import { buildActivatedAbilityValidTargets } from "../resolutionActivatedAbilityTargetingUtils.js";
+import { buildDependentPlayerObjectTargets, parseDependentPlayerObjectTarget } from "./activatedDependentPlayerTargets.js";
 import { paySelfSourceActivationCost, type SelfSourceCostKind } from "./activationSelfSourceCost.js";
+import { addTargetStepWithChooser, chooserControlsTargets, opponentChoosesAllTargets } from "../opponentChosenTargets.js";
 
 export async function tryHandleActivateGenericNonMana(
   ctx: ActivateBattlefieldAbilityContext,
@@ -383,7 +385,10 @@ export async function tryHandleActivateGenericNonMana(
             ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
             ...deferredCostStepFields,
           };
-      const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
+      const targetStep = addTargetStepWithChooser(gameId, game, String(pid), {
+        chosenByOpponent: opponentChoosesAllTargets(resolvedAbilityText),
+        restrictToChooserControlled: chooserControlsTargets(resolvedAbilityText),
+      }, undefined, queuedStep);
 
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
@@ -426,11 +431,12 @@ export async function tryHandleActivateGenericNonMana(
       && !hasParsedGraveyardTargets;
 
     if (hasParsedEffectTargetSelection) {
-      const uniqueTargets = buildActivatedAbilityValidTargets(
+      const dependentPlayerTarget = parseDependentPlayerObjectTarget(resolvedAbilityText);
+      let uniqueTargets = buildActivatedAbilityValidTargets(
         game,
         String(pid),
         parsedGraveyardTargetReqs,
-        { sourcePermanentId: String(permanentId), abilityText: resolvedAbilityText },
+        { sourcePermanentId: String(permanentId), abilityText: resolvedAbilityText, sourceTapCost: Boolean(requiresTap) },
       ).map((target) => ({
         id: String(target.id),
         label: target.name || String(target.id),
@@ -445,6 +451,7 @@ export async function tryHandleActivateGenericNonMana(
         tapped: (target as any).tapped === true,
         typeLine: (target as any).typeLine,
       }));
+      if (dependentPlayerTarget) uniqueTargets = buildDependentPlayerObjectTargets(game, String(pid), dependentPlayerTarget);
 
       if (uniqueTargets.length < parsedGraveyardTargetReqs.minTargets) {
         socket.emit('error', {
@@ -455,6 +462,7 @@ export async function tryHandleActivateGenericNonMana(
       }
 
       const autoSelectSinglePlayerTarget = parsedTargetTypesArePlayersOnly
+        && !dependentPlayerTarget
         && uniqueTargets.length === 1
         && Number(parsedGraveyardTargetReqs.minTargets || 0) <= 1
         && Number(parsedGraveyardTargetReqs.maxTargets ?? 1) <= 1;
@@ -467,13 +475,14 @@ export async function tryHandleActivateGenericNonMana(
         sourceId: permanentId,
         sourceName: cardName,
         sourceImage: (permanent as any).card?.image_uris?.small || (permanent as any).card?.image_uris?.normal,
-        description: `Choose ${parsedGraveyardTargetReqs.targetDescription} for ${cardName}`,
+        description: `Choose ${dependentPlayerTarget?.description || parsedGraveyardTargetReqs.targetDescription} for ${cardName}`,
         mandatory: parsedGraveyardTargetReqs.minTargets > 0,
         validTargets: uniqueTargets,
-        targetTypes: parsedGraveyardTargetReqs.targetTypes,
+        targetTypes: dependentPlayerTarget ? [String(dependentPlayerTarget.objectEntry.split(' ').pop())] : parsedGraveyardTargetReqs.targetTypes,
         minTargets: parsedGraveyardTargetReqs.minTargets,
         maxTargets: parsedGraveyardTargetReqs.maxTargets,
-        targetDescription: parsedGraveyardTargetReqs.targetDescription,
+        targetDescription: dependentPlayerTarget?.description || parsedGraveyardTargetReqs.targetDescription,
+        ...(dependentPlayerTarget ? { dependentPlayerTargetFromController: true } : null),
         battlefieldAbilityTargetSelection: true,
         permanentId,
         abilityId,
@@ -484,7 +493,10 @@ export async function tryHandleActivateGenericNonMana(
         ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
         ...deferredCostStepFields,
       };
-      const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
+      const targetStep = addTargetStepWithChooser(gameId, game, String(pid), {
+        chosenByOpponent: opponentChoosesAllTargets(resolvedAbilityText),
+        restrictToChooserControlled: chooserControlsTargets(resolvedAbilityText),
+      }, undefined, queuedStep);
 
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();
@@ -590,7 +602,10 @@ export async function tryHandleActivateGenericNonMana(
         ...(requiresSelfExert ? { requiresSelfExertForCost: true } : null),
         ...deferredCostStepFields,
       };
-      const targetStep = ResolutionQueueManager.addStep(gameId, queuedStep as any);
+      const targetStep = addTargetStepWithChooser(gameId, game, String(pid), {
+        chosenByOpponent: opponentChoosesAllTargets(resolvedAbilityText),
+        restrictToChooserControlled: chooserControlsTargets(resolvedAbilityText),
+      }, undefined, queuedStep);
 
       if (typeof game.bumpSeq === 'function') {
         game.bumpSeq();

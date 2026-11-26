@@ -1021,7 +1021,7 @@ describe('Trigger Parsing', () => {
         sourceName: 'Grim Harbinger',
         controllerId: 'p1',
         keyword: TriggerKeyword.WHENEVER,
-        event: TriggerEvent.CREATURE_DIES,
+        event: TriggerEvent.DIES,
         effect: 'Target opponent loses 1 life.',
         optional: false,
       } as any;
@@ -1057,7 +1057,7 @@ describe('Trigger Parsing', () => {
         sourceName: 'Grim Harbinger',
         controllerId: 'p1',
         keyword: TriggerKeyword.WHENEVER,
-        event: TriggerEvent.CREATURE_DIES,
+        event: TriggerEvent.DIES,
         effect: 'Target opponent loses 1 life.',
         optional: false,
       } as any;
@@ -1126,7 +1126,7 @@ describe('Trigger Parsing', () => {
         sourceName: 'Benevolent Seer',
         controllerId: 'p1',
         keyword: TriggerKeyword.WHENEVER,
-        event: TriggerEvent.CREATURE_DIES,
+        event: TriggerEvent.DIES,
         effect: 'Target player gains 2 life.',
         optional: false,
       } as any;

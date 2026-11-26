@@ -32,7 +32,7 @@ describe('Oracle IR both players put permanent move_zone deferral', () => {
       controllerId: p1,
       sourceId: 'src1',
       sourceName: 'Test Source',
-      sourceObjectType: 'trigger',
+      sourceObjectType: 'ability',
       selectorContext: { targetPlayerId: p2 },
       interactivePlayerChoices: true,
     });

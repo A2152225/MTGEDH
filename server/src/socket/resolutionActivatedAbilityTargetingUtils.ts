@@ -129,6 +129,11 @@ export function activatedAbilityPermanentTargetMatches(
     if (cardManaValue(perm.card) > Number((targetReqs as any).targetFilterMaxManaValue)) return false;
   }
 
+  // "target tapped creature" / "target untapped creature" (Royal Assassin).
+  const statusRestriction = String((targetReqs as any).targetRestriction?.type || '').toLowerCase();
+  if (statusRestriction === 'tapped' && perm.tapped !== true) return false;
+  if (statusRestriction === 'untapped' && perm.tapped === true) return false;
+
   if (targetType === 'any') return typeLine.includes('creature') || typeLine.includes('planeswalker');
   if (targetType === 'permanent') return true;
   if (targetType === 'nonland' || targetType === 'nonland permanent') return !typeLine.includes('land');
@@ -148,7 +153,7 @@ export function buildActivatedAbilityValidTargets(
   controllerId: string,
   targetReqs: ReturnType<typeof parseTargetRequirements>,
   /** "Another target ..." in abilityText excludes the source permanent from the list. */
-  options?: { sourcePermanentId?: string; abilityText?: string }
+  options?: { sourcePermanentId?: string; abilityText?: string; sourceTapCost?: boolean }
 ): Array<{ id: string; name: string; type: string; controller?: string; zoneOwnerId?: string; imageUrl?: string; life?: number; isOpponent?: boolean }> {
   const validTargets: Array<{ id: string; name: string; type: string; controller?: string; zoneOwnerId?: string; imageUrl?: string; life?: number; isOpponent?: boolean }> = [];
   const stateBattlefield = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
@@ -156,6 +161,11 @@ export function buildActivatedAbilityValidTargets(
   const stateZones = game.state?.zones || {};
   const lifeDict = game.state?.life || {};
   const startingLife = game.state?.startingLife || 40;
+  const statusWord = String(options?.abilityText || '').toLowerCase()
+    .match(/\btarget (?:(?:another|other) )?(?:non-?[a-z]+ )?(tapped|untapped) (?:[a-z-]+ )?(?:creature|permanent|artifact|land)s?\b/)?.[1];
+  if (statusWord && !(targetReqs as any).targetRestriction) {
+    targetReqs = { ...targetReqs, targetRestriction: { type: statusWord, description: `that is ${statusWord}` } } as any;
+  }
 
   for (const rawTargetType of targetReqs.targetTypes || []) {
     const targetType = String(rawTargetType || '').toLowerCase();
@@ -306,7 +316,13 @@ export function buildActivatedAbilityValidTargets(
     }
   }
 
-  const excludeSourceId = options?.sourcePermanentId && detectAnotherTargetRestriction(String(options.abilityText || ''))
+  const abilityLower = String(options?.abilityText || '').toLowerCase();
+  const tapCostColon = abilityLower.indexOf(':');
+  // Targets are chosen before costs are paid (CR 602.2b): a {T}-cost source is still untapped then.
+  const sourceTappedOnlyByCost = statusWord === 'tapped'
+    && (options?.sourceTapCost === true || (tapCostColon >= 0 && abilityLower.slice(0, tapCostColon).includes('{t}')));
+  const excludeSourceId = options?.sourcePermanentId
+    && (detectAnotherTargetRestriction(String(options.abilityText || '')) || sourceTappedOnlyByCost)
     ? String(options.sourcePermanentId)
     : '';
   return validTargets.filter((target, index, all) =>

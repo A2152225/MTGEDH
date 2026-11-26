@@ -45,6 +45,9 @@ function createTestGameId(label: string): string {
 }
 
 describe('AI response-window integration', () => {
+  // Window: the opponent's declare-attackers step (CR 508.2: players get priority). Since 550c7e00 the AI
+  // deliberately quiet-passes an empty stack in the opponent's main phase (aiOffTurnQuietPass, smoke-tested
+  // strategy), so these response-path tests run in combat, where response enumeration still happens.
   // requestCastSpellForSocket now takes (io, socket, payload, options). Assertions
   // accept the 4th argument; the payload shape is unchanged.
   beforeAll(async () => {
@@ -76,8 +79,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
@@ -177,8 +180,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).activePlane = {
       id: 'blue_discount_plane',
@@ -269,8 +272,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).activeSchemes = [
       {
@@ -361,8 +364,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
@@ -462,8 +465,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [
       {
         id: 'shock_stack',
@@ -575,8 +578,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [
       {
         id: 'shock_stack',
@@ -702,8 +705,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = playerId;
     (game.state as any).activePlayer = playerId;
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [
       {
         id: 'tithe_stack',
@@ -783,8 +786,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
@@ -867,8 +870,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
@@ -977,8 +980,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
@@ -1095,8 +1098,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
@@ -1196,8 +1199,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).turnNumber = 4;
     (game.state as any).manaPool = {
@@ -1304,8 +1307,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
@@ -1404,8 +1407,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
@@ -1508,8 +1511,8 @@ describe('AI response-window integration', () => {
     (game.state as any).turnPlayer = 'opp1';
     (game.state as any).activePlayer = 'opp1';
     (game.state as any).priority = playerId;
-    (game.state as any).phase = 'main';
-    (game.state as any).step = 'precombat_main';
+    (game.state as any).phase = 'combat';
+    (game.state as any).step = 'declare_attackers';
     (game.state as any).stack = [];
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 1, black: 0, red: 0, green: 0, colorless: 2 },

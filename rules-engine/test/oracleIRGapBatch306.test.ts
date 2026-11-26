@@ -8,6 +8,7 @@ import {
   parseMoveZoneTheRevealedCards,
   parseMoveZoneUnlessPaysManaFromStepText,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -52,7 +53,7 @@ describe('Oracle IR gap batch 306 — another unless-pays / all colored permanen
       'Withdraw'
     );
     const steps = ir.abilities[0]?.steps || [];
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [] },
         { id: opponentId, library: [], hand: [], graveyard: [] },
@@ -75,7 +76,7 @@ describe('Oracle IR gap batch 306 — another unless-pays / all colored permanen
           colors: ['G'],
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId,
@@ -101,7 +102,7 @@ describe('Oracle IR gap batch 306 — another unless-pays / all colored permanen
         entry.kind === 'move_zone' &&
         String((entry as any).what?.text || '').startsWith('another target')
     );
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [] },
         { id: opponentId, library: [], hand: [], graveyard: [] },
@@ -124,7 +125,7 @@ describe('Oracle IR gap batch 306 — another unless-pays / all colored permanen
           colors: ['G'],
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, step ? [step] : [], {
       controllerId,
@@ -141,7 +142,7 @@ describe('Oracle IR gap batch 306 — another unless-pays / all colored permanen
   it('executes Hibernation return all green permanents', () => {
     const ir = parseOracleTextToIR("Return all green permanents to their owners' hands.", 'Hibernation');
     const step = ir.abilities[0]?.steps?.[0];
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [] },
         { id: opponentId, library: [], hand: [], graveyard: [] },
@@ -172,7 +173,7 @@ describe('Oracle IR gap batch 306 — another unless-pays / all colored permanen
           colors: ['U'],
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, [step], {
       controllerId,

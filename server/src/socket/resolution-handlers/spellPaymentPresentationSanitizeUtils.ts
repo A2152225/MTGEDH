@@ -14,6 +14,8 @@ import {
   buildSpellPaymentPresentationFields,
 } from "./resolutionPendingCastPaymentPrompt.js";
 import { ensureGame } from "../util.js";
+import { games } from "../socket.js";
+import { isDbInitialized } from "../../db/index.js";
 import { reportHookFailure } from '../../../../shared/src/hookFailureReporter.js';
 
 export function mergeExtraAlternateCosts(
@@ -56,7 +58,9 @@ export function hydrateSpellPaymentPresentationFieldsForClient(
   }
 
   try {
-    const game = ensureGame(gameId);
+    // Without an open DB (unit tests, tools) only an in-memory game can be hydrated: ensureGame's
+    // existence check would throw before any presentation field is read.
+    const game = isDbInitialized() ? ensureGame(gameId) : (games.get(gameId as any) as any);
     if (!game?.state) return;
     const effectId = String(fields.effectId || step.effectId || '').trim();
     const pending = effectId

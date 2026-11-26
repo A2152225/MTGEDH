@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor.js';
 import type { GameState, PlayerID } from '../../shared/src/index.js';
 import { parseBareTriggerEffectFragmentSteps } from '../src/oracleIRParserPostprocess.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 describe('oracle IR trigger PT bare fragment parse', () => {
   it('parses team pump and target pump as modify_pt', () => {
@@ -548,13 +549,13 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     const chosenSteps = parseBareTriggerEffectFragmentSteps(
       'the chosen creature gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
     );
-    const chosenState = {
+    const chosenState = asGameState({
       turnNumber: 1,
       players: [{ id: 'p1' as PlayerID }],
       battlefield: [
         { id: 'chosen', controller: 'p1' as PlayerID, counters: { '+1/+1': 2 }, card: { type_line: 'Creature' } },
       ],
-    } as GameState;
+    });
     const chosenResult = applyOracleIRStepsToGameState(
       chosenState,
       chosenSteps!,
@@ -678,7 +679,7 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     const steps = parseBareTriggerEffectFragmentSteps(
       'each creature you control gets +X/+X until end of turn, where X is its power.',
     );
-    const state = {
+    const state = asGameState({
       turnNumber: 1,
       players: [{ id: 'p1' as PlayerID }],
       battlefield: [
@@ -686,7 +687,7 @@ describe('oracle IR trigger PT bare fragment parse', () => {
         { id: 'big', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, power: 6, toughness: 3 },
         { id: 'countered', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, power: 1, toughness: 1, counters: { '+1/+1': 2 } },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(
       state,
       steps!,
@@ -726,14 +727,14 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     const toughnessSteps = parseBareTriggerEffectFragmentSteps(
       'each creature you control gets +X/+X until end of turn, where X is its toughness.',
     );
-    const toughnessState = {
+    const toughnessState = asGameState({
       turnNumber: 1,
       players: [{ id: 'p1' as PlayerID }],
       battlefield: [
         { id: 'small', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, power: 2, toughness: 5 },
         { id: 'big', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, power: 6, toughness: 3 },
       ],
-    } as GameState;
+    });
     const toughnessResult = applyOracleIRStepsToGameState(
       toughnessState,
       toughnessSteps!,
@@ -752,14 +753,14 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     const attackingSteps = parseBareTriggerEffectFragmentSteps(
       'each attacking creature you control gets +X/+X until end of turn, where X is its power.',
     );
-    const attackingState = {
+    const attackingState = asGameState({
       turnNumber: 1,
       players: [{ id: 'p1' as PlayerID }],
       battlefield: [
         { id: 'attacker', controller: 'p1' as PlayerID, attacking: true, card: { type_line: 'Creature' }, power: 4, toughness: 2 },
         { id: 'bench', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, power: 9, toughness: 9 },
       ],
-    } as GameState;
+    });
     const attackingResult = applyOracleIRStepsToGameState(
       attackingState,
       attackingSteps!,
@@ -793,13 +794,13 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     const selfSteps = parseBareTriggerEffectFragmentSteps(
       'until end of turn, it gets +X/+X, where X is the number of +1/+1 counters on it.',
     );
-    const selfState = {
+    const selfState = asGameState({
       turnNumber: 1,
       players: [{ id: 'p1' as PlayerID }],
       battlefield: [
         { id: 'src', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, power: 2, toughness: 2, counters: { '+1/+1': 3 } },
       ],
-    } as GameState;
+    });
     const selfResult = applyOracleIRStepsToGameState(
       selfState,
       selfSteps!,
@@ -888,13 +889,13 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     const selfSteps = parseBareTriggerEffectFragmentSteps(
       'it gets +X/+X until end of turn, where X is the number of +1/+1 counters on it.',
     );
-    const selfState = {
+    const selfState = asGameState({
       turnNumber: 1,
       players: [{ id: 'p1' as PlayerID }],
       battlefield: [
         { id: 'src', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, counters: { '+1/+1': 2 } },
       ],
-    } as GameState;
+    });
     const selfResult = applyOracleIRStepsToGameState(
       selfState,
       selfSteps!,
@@ -909,14 +910,14 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     const qualifiedSteps = parseBareTriggerEffectFragmentSteps(
       'creatures with power 4 or greater you control get +1/+1 until end of turn.',
     );
-    const qualifiedState = {
+    const qualifiedState = asGameState({
       turnNumber: 1,
       players: [{ id: 'p1' as PlayerID }],
       battlefield: [
         { id: 'big', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, power: 5, toughness: 5 },
         { id: 'small', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, power: 2, toughness: 2 },
       ],
-    } as GameState;
+    });
     const qualifiedResult = applyOracleIRStepsToGameState(
       qualifiedState,
       qualifiedSteps!,
@@ -983,14 +984,14 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     const qualifiedSteps = parseBareTriggerEffectFragmentSteps(
       'each creature you control with power 4 or greater gets +1/+1 until end of turn.',
     );
-    const qualifiedState = {
+    const qualifiedState = asGameState({
       turnNumber: 1,
       players: [{ id: 'p1' as PlayerID }],
       battlefield: [
         { id: 'big', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, power: 5, toughness: 5 },
         { id: 'small', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, power: 2, toughness: 2 },
       ],
-    } as GameState;
+    });
     const qualifiedResult = applyOracleIRStepsToGameState(
       qualifiedState,
       qualifiedSteps!,
@@ -1017,10 +1018,10 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     });
     expect(parseBareTriggerEffectFragmentSteps(
       'creatures you control get +1/+1 until end of turn for each creature you control.',
-    )?.[0]?.scaler).toMatchObject({ kind: 'reference_scaler', raw: 'for each creature you control' });
+    )?.[0]).toMatchObject({ scaler: { kind: 'reference_scaler', raw: 'for each creature you control' } });
     expect(parseBareTriggerEffectFragmentSteps(
       'target creature gets +1/+1 until end of turn for each creature you control.',
-    )?.[0]?.target).toMatchObject({ kind: 'raw', text: 'target creature' });
+    )?.[0]).toMatchObject({ target: { kind: 'raw', text: 'target creature' } });
   });
 
   it('executes all-dont-control debuff and per-target for-each counter scaling', () => {
@@ -1160,7 +1161,7 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     });
     expect(parseBareTriggerEffectFragmentSteps(
       'until end of turn, each creature gets +1/+1 for each creature you control.',
-    )?.[0]?.scaler).toMatchObject({ kind: 'reference_scaler', raw: 'for each creature you control' });
+    )?.[0]).toMatchObject({ scaler: { kind: 'reference_scaler', raw: 'for each creature you control' } });
     expect(parseBareTriggerEffectFragmentSteps(
       'all creatures get +X/+X until end of turn for each land you control.',
     )?.[0]).toMatchObject({
@@ -1240,22 +1241,23 @@ describe('oracle IR trigger PT bare fragment parse', () => {
   it('parses opponent for-each, prefix-all for-each, and extended cost-reduction bare fragments', () => {
     expect(parseBareTriggerEffectFragmentSteps(
       "each opponent's creatures get +1/+1 until end of turn for each creature you control.",
-    )?.[0]?.scaler).toMatchObject({ kind: 'reference_scaler', raw: 'for each creature you control' });
+    )?.[0]).toMatchObject({ scaler: { kind: 'reference_scaler', raw: 'for each creature you control' } });
     expect(parseBareTriggerEffectFragmentSteps(
       'until end of turn, all creatures get +1/+1 for each land you control.',
     )?.[0]).toMatchObject({ kind: 'modify_pt', target: { kind: 'raw', text: 'all creatures' } });
     expect(parseBareTriggerEffectFragmentSteps(
       'each creature an opponent controls gets -1/-1 until end of turn for each card in your hand.',
-    )?.[0]?.scaler).toMatchObject({ kind: 'reference_scaler', raw: 'for each card in your hand' });
+    )?.[0]).toMatchObject({ scaler: { kind: 'reference_scaler', raw: 'for each card in your hand' } });
     expect(parseBareTriggerEffectFragmentSteps(
       'this spell costs {1} less to cast for each creature you control.',
     )?.[0]).toMatchObject({ kind: 'grant_static_ability', target: { kind: 'raw', text: 'this spell' } });
     expect(parseBareTriggerEffectFragmentSteps(
       'the first instant or sorcery spell you cast each turn costs {1} less to cast for each land you control.',
     )?.[0]?.kind).toBe('grant_static_ability');
-    expect(parseBareTriggerEffectFragmentSteps(
+    const chosenNameTax = parseBareTriggerEffectFragmentSteps(
       'spells your opponents cast with the chosen name cost {2} more to cast.',
-    )?.[0]?.effectText?.[0]).toContain('more to cast');
+    )?.[0];
+    expect(chosenNameTax && 'effectText' in chosenNameTax ? chosenNameTax.effectText?.[0] : undefined).toContain('more to cast');
   });
 
   it('executes opponent for-each pump and opponent-creature hand-scaled debuff', () => {
@@ -1314,16 +1316,16 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     )?.[0]?.kind).toBe('modify_pt');
     expect(parseBareTriggerEffectFragmentSteps(
       'creatures your opponents control get -1/-1 until end of turn.',
-    )?.[0]?.target).toMatchObject({ kind: 'raw', text: 'creatures your opponents control' });
+    )?.[0]).toMatchObject({ target: { kind: 'raw', text: 'creatures your opponents control' } });
     expect(parseBareTriggerEffectFragmentSteps(
       'this creature gets +X/+X until end of turn where X is the number of players being attacked.',
-    )?.[0]?.powerUsesX).toBe(true);
+    )?.[0]).toMatchObject({ powerUsesX: true });
     expect(parseBareTriggerEffectFragmentSteps(
       'another target creature you control gains deathtouch until end of turn.',
     )?.[0]?.kind).toBe('grant_temporary_ability');
     expect(parseBareTriggerEffectFragmentSteps(
       'all creatures get -1/-1 until end of turn.',
-    )?.[0]?.power).toBe(-1);
+    )?.[0]).toMatchObject({ power: -1 });
   });
 
   it('executes each-other-attacking pump, opponent mass debuff, and blocking scaler', () => {
@@ -1377,7 +1379,7 @@ describe('oracle IR trigger PT bare fragment parse', () => {
     const blockingSteps = parseBareTriggerEffectFragmentSteps(
       'it gets +1/+1 until end of turn for each creature blocking it.',
     );
-    const blockingState = {
+    const blockingState = asGameState({
       turnNumber: 1,
       players: [{ id: 'p1' as PlayerID }, { id: 'p2' as PlayerID }],
       combat: {
@@ -1393,7 +1395,7 @@ describe('oracle IR trigger PT bare fragment parse', () => {
         { id: 'block1', controller: 'p2' as PlayerID, card: { type_line: 'Creature' } },
         { id: 'block2', controller: 'p2' as PlayerID, card: { type_line: 'Creature' } },
       ],
-    } as GameState;
+    });
     const blockingResult = applyOracleIRStepsToGameState(
       blockingState,
       blockingSteps!,

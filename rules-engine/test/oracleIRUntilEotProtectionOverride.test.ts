@@ -26,8 +26,8 @@ function collectOverrideSteps(text: string, name: string) {
   return (ir.abilities || []).flatMap((ability) => ability.steps || [])
     .filter((step) => {
       if (step.kind !== 'grant_static_ability') return false;
-      const tokens = Array.isArray((step as { effectText?: string[] }).effectText)
-        ? (step as { effectText: string[] }).effectText
+      const tokens = Array.isArray((step as { effectText?: readonly string[] }).effectText)
+        ? (step as { effectText: readonly string[] }).effectText
         : [];
       return tokens.some((token) => String(token || '').toLowerCase() === MARKER);
     });

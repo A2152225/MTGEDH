@@ -2731,6 +2731,7 @@ describe('EffectProgram', () => {
 
   it('does not wrap unless_pays_mana in a may-choice even when marked optional', () => {
     const program = buildEffectProgramFromOracleIR({
+      id: 'rhystic-program',
       controllerId: 'p1',
       sourceId: 'rhystic_1',
       sourceName: 'Rhystic Study',

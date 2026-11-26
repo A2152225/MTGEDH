@@ -43,7 +43,7 @@ describe('Transwarp Hub mill + among-them selection', () => {
     expect(built!.searchZone).toBe('graveyard');
     expect(built!.maxSelections).toBe(2);
     expect(built!.minSelections).toBe(0);
-    expect(built!.selectableCardIds.sort()).toEqual(['c1', 'c3']);
+    expect([...built!.selectableCardIds].sort()).toEqual(['c1', 'c3']);
   });
 
   it('moves chosen milled artifacts to hand when choices are supplied', () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -80,13 +81,13 @@ describe('Oracle IR gap batch 382 — parser prune + target clusters (Track E2)'
     expect(cantBlockStep).toBeTruthy();
     expectNoTargetGaps(
       [cantBlockStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-1', controller: controllerId, type_line: 'Creature — Human' },
           { id: 'bf-2', controller: 'p2', type_line: 'Creature — Elf' },
         ],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-source' }
     );
 
@@ -98,14 +99,14 @@ describe('Oracle IR gap batch 382 — parser prune + target clusters (Track E2)'
     expect(destroyStep).toBeTruthy();
     const destroyResult = expectNoTargetGaps(
       [destroyStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-kept', controller: controllerId, type_line: 'Creature — Human' },
           { id: 'bf-rest-1', controller: controllerId, type_line: 'Creature — Zombie' },
           { id: 'bf-rest-2', controller: 'p2', type_line: 'Creature — Elf' },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-source',
@@ -124,13 +125,13 @@ describe('Oracle IR gap batch 382 — parser prune + target clusters (Track E2)'
     expect(cantAttackStep).toBeTruthy();
     expectNoTargetGaps(
       [cantAttackStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-eye', controller: controllerId, type_line: 'Creature — Eye' },
           { id: 'bf-human', controller: controllerId, type_line: 'Creature — Human' },
         ],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-source' }
     );
 
@@ -142,10 +143,10 @@ describe('Oracle IR gap batch 382 — parser prune + target clusters (Track E2)'
     expect(unblockStep).toBeTruthy();
     expectNoTargetGaps(
       [unblockStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-1', controller: controllerId, type_line: 'Creature — Illusion' }],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-source' }
     );
   });

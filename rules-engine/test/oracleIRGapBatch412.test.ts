@@ -5,7 +5,7 @@ import {
   hasUsedOnceDuringEachActivatedAbilityThisTurn,
   isOnceDuringEachOfYourTurnActivatedEffect,
   markOnceDuringEachActivatedAbilityUsedThisTurn,
-} from '../src/stationPermanentUtils.ts';
+} from '../src/stationPermanentUtils';
 
 const BROODSHIP_EFFECT =
   'Once during each of your turns, you may cast a permanent spell from your graveyard by sacrificing a land in addition to paying its other costs.';

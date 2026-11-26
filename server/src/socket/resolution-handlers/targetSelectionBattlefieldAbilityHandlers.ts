@@ -39,7 +39,9 @@ import {
 } from "../resolutionActivatedAbilityTargetingUtils.js";
 import { finalizeBattlefieldAbilitySelfExertCost } from "../resolutionGraveyardSelectionHelperUtils.js";
 import { broadcastGame, emitToPlayer, getPlayerName, parseManaCost } from "../util.js";
+import { queueMixedChooserFollowupTargetStep, readPriorAbilityTargets } from "../opponentChosenTargets.js";
 import { payDeferredStepActivationCosts, sourceLastKnownFromCostStep } from "../interaction-handlers/activationSelfSourceCost.js";
+import { prependDependentPlayerTarget } from "../interaction-handlers/activatedDependentPlayerTargets.js";
 
 function battlefieldAbilityTargetDetails(
   selectedTargetIds: readonly string[],
@@ -74,14 +76,16 @@ export async function handleBattlefieldAbilityTargetSelection(
   response: ResolutionStepResponse,
 ): Promise<void> {
   const pid = response.playerId;
-  const selections = response.selections as string[];
   const stepAny = step as any;
+  // Mixed choosers: the controller's picks ride on the opponent's follow-up step.
+  const prior = readPriorAbilityTargets(stepAny);
+  const selections = [...prior.ids, ...((response.selections as string[]) || [])];
   const targetStepData = stepAny as TargetSelectionStep;
-  let validTargets: any[] = [...(targetStepData.validTargets || [])];
-  const minTargets = targetStepData.minTargets || 0;
-  const maxTargets = targetStepData.maxTargets || Infinity;
+  let validTargets: any[] = [...(targetStepData.validTargets || []), ...prior.entries];
+  const minTargets = (targetStepData.minTargets || 0) + prior.ids.length;
+  const maxTargets = (targetStepData.maxTargets || Infinity) + prior.ids.length;
 
-  const controllerId = String(step.playerId || pid);
+  const controllerId = String(stepAny?.targetsChosenFor || step.playerId || pid);
   const permanentId = String(stepAny?.permanentId || step.sourceId || '').trim();
   const abilityId = String(stepAny?.abilityId || '').trim();
   const cardName = String(stepAny?.cardName || step.sourceName || 'Ability');
@@ -119,6 +123,10 @@ export async function handleBattlefieldAbilityTargetSelection(
       emitToPlayer(io, controllerId as any, 'error', { code: 'INVALID_TARGET', message: 'Invalid target selection' });
       return;
     }
+  }
+  if (queueMixedChooserFollowupTargetStep(io, game, gameId, stepAny, selectedTargetIds, validTargets)) return;
+  if (stepAny?.dependentPlayerTargetFromController === true) {
+    selectedTargetIds = prependDependentPlayerTarget(game, selectedTargetIds, validTargets);
   }
 
   const battlefieldAbilityType = String(stepAny?.abilityType || abilityId || '');
@@ -340,6 +348,9 @@ export async function handleBattlefieldAbilityTargetSelection(
         lifePaidForCost: Number(stepAny?.lifePaidForCost || 0) > 0 ? Number(stepAny.lifePaidForCost) : undefined,
         energyPaidForCost: Number(stepAny?.energyPaidForCost || 0) > 0 ? Number(stepAny.energyPaidForCost) : undefined,
         exiledSelfForCost: stepAny?.exiledSelfForCost ? String(stepAny.exiledSelfForCost) : undefined,
+        returnedPermanentsToHandForCost: Array.isArray(stepAny?.returnedPermanentsToHandForCost) && stepAny.returnedPermanentsToHandForCost.length > 0
+          ? stepAny.returnedPermanentsToHandForCost.map((id: any) => String(id))
+          : undefined,
         exertedPermanentIdForCost,
       });
     } catch {

@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import type { GameState } from '../../shared/src/index.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 // Quoted from Sink into Stupor // Soporific Springs (MH3).
 const SINK_ORACLE = "Return target spell or nonland permanent an opponent controls to its owner's hand.";
 
 function makeState(): GameState {
-  return {
+  return asGameState({
     id: 'sink-into-stupor',
     format: 'commander',
     players: [
@@ -41,7 +42,7 @@ function makeState(): GameState {
     turnPlayer: 'p2',
     priority: 'p1',
     active: true,
-  } as GameState;
+  });
 }
 
 describe('Return target spell to its owner\'s hand', () => {

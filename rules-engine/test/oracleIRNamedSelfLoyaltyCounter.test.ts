@@ -3,6 +3,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import type { OracleEffectStep } from '../src/oracleIR';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -10,7 +11,7 @@ const RAL_EFFECT = 'put a loyalty counter on Ral';
 const RAL_NAME = 'Ral, Crackling Wit';
 
 function ralState(loyalty = 4): GameState {
-  return {
+  return asGameState({
     players: [{ id: controllerId, library: [], hand: [], graveyard: [] }],
     battlefield: [
       {
@@ -27,7 +28,7 @@ function ralState(loyalty = 4): GameState {
         },
       },
     ],
-  } as GameState;
+  });
 }
 
 describe('named self loyalty counters (Ral, Crackling Wit)', () => {

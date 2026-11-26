@@ -46,10 +46,11 @@ function countGrant(phrase: string): Partial<StaticEffectGrant> | null {
   if (m) return { countBasis: 'controller_permanents_of_type', countCardType: `(?:${m[1]}|${m[2]})` };
   m = p.match(/^([a-z]+) counters? (you|your opponents) have$/);
   if (m) return { countBasis: 'player_counters', countCounterType: m[1], countWho: m[2] === 'you' ? 'you' : 'opponents' };
-  m = p.match(/^(other )?creature on the battlefield with ([a-z ]+)$/);
+  // "with the same name as it" (Timberpack Wolf) is a name comparison, not a keyword; batch106 owns it.
+  m = p.match(/^(other )?creature on the battlefield with (?!the same name\b)([a-z ]+)$/);
   if (m) return { countBasis: 'creatures_with_keyword', countKeyword: m[2], ...(m[1] ? { countExcludeSource: true } : {}) };
   // B82: Skycat Sovereign — "other creature you control with flying"
-  m = p.match(/^(other )?creatures? you control with ([a-z ]+)$/);
+  m = p.match(/^(other )?creatures? you control with (?!the same name\b)([a-z ]+)$/);
   if (m) {
     return {
       countBasis: 'creatures_with_keyword',

@@ -27,6 +27,7 @@ import { debug, debugWarn } from "../../utils/debug.js";
 import { broadcastGame, emitToPlayer } from "../util.js";
 import { maybeQueueDamageDivisionAfterSpellTargets } from "./queueDamageDivisionAfterSpellTargets.js";
 import { queuePendingCastManaPaymentAfterTargets } from "./queuePendingCastManaPaymentAfterTargets.js";
+import { listPendingQueueSteps, mergeClauseTargets } from "../opponentChosenTargets.js";
 
 /**
  * AUTO-UNIGNORE: Remove targeted permanents from ignore list.
@@ -107,6 +108,8 @@ export function handleSpellCastPaymentTargetSelection(
   const spellCastContext = (step as any).spellCastContext;
 
   const { cardId, cardName, manaCost, effectId, oracleText, imageUrl } = spellCastContext;
+  // Opponent-chosen target steps are answered by an opponent; the cast stays the caster's.
+  const casterId = String(spellCastContext?.playerId || pid);
 
   // Store targets with the pending cast for validation during payment
   const pendingCast = (game.state as any).pendingSpellCasts?.[effectId];
@@ -137,10 +140,9 @@ export function handleSpellCastPaymentTargetSelection(
       : [];
 
     // Preserve target order across multiple queued target steps for the same spell.
-    pendingCast.targets = [...existingTargets, ...selections.map((targetId: string) => String(targetId))];
+    pendingCast.targets = mergeClauseTargets(pendingCast, step, existingTargets, selections);
 
-    const remainingTargetSteps = ResolutionQueueManager
-      .getStepsForPlayer(gameId, pid as any)
+    const remainingTargetSteps = listPendingQueueSteps(gameId)
       .filter((queueStep: any) =>
         queueStep?.type === ResolutionStepType.TARGET_SELECTION &&
         String((queueStep as any)?.spellCastContext?.effectId || '') === String(effectId)
@@ -165,7 +167,7 @@ export function handleSpellCastPaymentTargetSelection(
       io,
       game,
       gameId,
-      playerId: String(pid),
+      playerId: casterId,
       pendingCast,
       spellCastContext,
       finalTargets,
@@ -181,7 +183,7 @@ export function handleSpellCastPaymentTargetSelection(
       io,
       game,
       gameId,
-      playerId: String(pid),
+      playerId: casterId,
       pendingCast,
       spellCastContext,
       finalTargets,

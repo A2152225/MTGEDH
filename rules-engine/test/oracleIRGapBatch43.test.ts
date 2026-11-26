@@ -3,6 +3,7 @@ import { parseOracleTextToIR } from '../src/oracleIRParser.js';
 import { applyChooseModeStep } from '../src/oracleIRExecutorChooseModeStepHandlers.js';
 import { applyLoseLifeStep } from '../src/oracleIRExecutorPlayerStepHandlers.js';
 import type { GameState } from '../../shared/src/index.js';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 function collectUnknowns(value: unknown): string[] {
   const unknowns: string[] = [];
@@ -49,7 +50,7 @@ describe('oracle IR gap batch 43', () => {
       battlefield: [],
     } as unknown as GameState;
     const result = applyLoseLifeStep(state, step, { controllerId: 'p1', referenceAmount: 5 }, 'p1');
-    expect(result.applied).toBe(true);
+    assertApplied(result);
     expect(result.count).toBe(5);
   });
 

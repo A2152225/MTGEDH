@@ -183,17 +183,21 @@ For a family of fixes:
    ```
 
    The harness is skipped unless `AI_SELFPLAY_GAMES` is set. It asserts `hookFailures: []` on every game. Useful env: `AI_SELFPLAY_SEED`, `AI_SELFPLAY_OUT`, `AI_SELFPLAY_MAX_TURNS` (default 60), `AI_SELFPLAY_CHALLENGER` / `AI_SELFPLAY_BASELINE` (default `v0`).
-4. **Full sweep** into a new `--out` directory, `--compare` against the previous baseline (currently `D:\tmp\mtgpatch\outcome-sweep\full_1125`). Use `--resume` if a worker is interrupted.
+4. **Full sweep** into a new `--out` directory, `--compare` against the previous baseline (currently `D:\tmp\mtgpatch\outcome-sweep\full_1125b`). Use `--resume` if a worker is interrupted.
 5. **Robert commits** once the compare and self-play look good. Do not commit or push from an agent session unless he asks.
 
-## 8. Current baseline (`full_1125`)
+## 8. Current baseline (`full_1125b`)
 
-Directory: `D:\tmp\mtgpatch\outcome-sweep\full_1125\`.
+Directory: `D:\tmp\mtgpatch\outcome-sweep\full_1125b\`.
 
-Command: `npm run sweep:outcomes -- --chunk 200 --workers 4 --out D:/tmp/mtgpatch/outcome-sweep/full_1125`.
+Command: `npm run sweep:outcomes -- --chunk 200 --workers 4 --out D:/tmp/mtgpatch/outcome-sweep/full_1125b --compare D:/tmp/mtgpatch/outcome-sweep/full_1125`.
 
-Finished 25 Nov 2026, 3:08 PM America/New_York (`run-meta.json` `finishedAt` `2026-11-25T20:07:59.426Z`, elapsed `2598586` ms, about 43 minutes, 260 ms/card). **32,643** cards: **ok 27,221 · noop 2,983 · throw 2,012 · stuck 58 · skipped 369**. Hook failures recorded on that run: **none**. Post-pass notes from the same afternoon: `triage.md` (family ranking and artifact-vs-engine estimates) and `ai_builder_bugs.md`.
+Finished 25 Nov 2026, 6:51 PM America/New_York (`run-meta.json` `finishedAt` `2026-11-25T23:51:39.107Z`, elapsed `2432214` ms, about 41 minutes, 264 ms/card). Code under test: commit `a5021c8f` plus one modified test file. **32,643** cards: **ok 28,922 · noop 2,237 · throw 1,074 · stuck 50 · skipped 360**. Hook failures recorded on that run: **none**. Notes: `triage.md` and `final_analysis.txt` in the same directory.
 
-A later 500-card compare the same day (`sample500_before` → `sample500_after`, compare written 3:28 PM America/New_York) had `newly_ok=13`, `newly_broken=0`, `changed_failure=7`, `unchanged_failure=60`.
+Compare against `full_1125`: `newly_ok=1845`, `newly_broken=153`, `changed_failure=179`, `unchanged_failure=3029`, `newly_skipped=0`. About half of the 153 newly broken cards (78) come from one cast-target regression: the generic single-target fallback reads non-target uses of the word "target" ("the target of", "choose a new target for", "each target beyond the first", "if that target is") as a target clause, so the spell is rejected with `NO_VALID_TARGETS`. See `full_1125b\triage.md`.
 
-When you finish a full rerun, point this section at the new directory and keep `full_1125` as the previous `--compare` baseline until Robert says otherwise.
+Same evening: 2-game `ai-selfplay` (seed 1, 20-turn cap) passed with `hookFailures: []` in both games.
+
+Previous baseline: `full_1125` (finished 25 Nov 2026, 3:08 PM America/New_York; ok 27,221 · noop 2,983 · throw 2,012 · stuck 58 · skipped 369). Earlier that afternoon, the 500-card compare `sample500_before` → `sample500_after` (written 3:28 PM America/New_York) had `newly_ok=13`, `newly_broken=0`, `changed_failure=7`, `unchanged_failure=60`.
+
+When you finish a full rerun, point this section at the new directory and keep `full_1125b` as the previous `--compare` baseline until Robert says otherwise.

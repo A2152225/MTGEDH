@@ -234,11 +234,8 @@ export function calculateCostReduction(
         reduction.messages.push(`Stinkdrinker Daredevil: -{2}`);
       }
       
-      const typePairReduction = detectBanneretTypeReduction(permOracle);
-      if (typePairReduction && typePairReduction.types.some((type) => cardTypeLine.includes(type))) {
-        reduction.generic += typePairReduction.reduction;
-        reduction.messages.push(`${perm.card?.name || 'Permanent'}: -{${typePairReduction.reduction}}`);
-      }
+      // Banneret pairs ("Kithkin spells and Soldier spells you cast cost {1} less") come from
+      // buildCostAdjustmentPlan via getSharedStaticCostAdjustments below; counting them here too doubled the reduction.
 
       // B53 subtype spell cost reduction:
       // "Minotaur spells you cast cost {B}{R} less to cast." (Ragemonger / Edgewalker)

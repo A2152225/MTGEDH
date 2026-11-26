@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -22,12 +23,12 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     expect(skipStep).toBeTruthy();
     expectNoTargetGaps(
       [skipStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         battlefield: [
           { id: 'bf-land', controller: 'p2', type_line: 'Basic Land — Forest' },
         ],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-src', selectorContext: { targetPlayerId: 'p2', targetOpponentId: 'p2' } }
     );
 
@@ -39,13 +40,13 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     expect(cantBlockStep).toBeTruthy();
     expectNoTargetGaps(
       [cantBlockStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-green', controller: 'p2', type_line: 'Creature — Elf', colors: ['G'] },
           { id: 'bf-white', controller: 'p2', type_line: 'Creature — Soldier', colors: ['W'] },
         ],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-src' }
     );
 
@@ -60,13 +61,13 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     expect(grantStep).toBeTruthy();
     expectNoTargetGaps(
       [grantStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-equip', controller: controllerId, type_line: 'Artifact — Equipment', attachedTo: 'bf-creature' },
           { id: 'bf-creature', controller: controllerId, type_line: 'Creature — Human', isEquipped: true },
         ],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-equip' }
     );
   });
@@ -77,14 +78,14 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     expect(destroyStep).toBeTruthy();
     expectNoTargetGaps(
       [destroyStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-a', controller: 'p2', type_line: 'Creature — Zombie' },
           { id: 'bf-b', controller: 'p2', type_line: 'Artifact' },
           { id: 'bf-c', controller: 'p2', type_line: 'Enchantment' },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-src',
@@ -100,13 +101,13 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     expect(exileStep).toBeTruthy();
     expectNoTargetGaps(
       [exileStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-art', controller: controllerId, type_line: 'Artifact' },
           { id: 'bf-creature', controller: controllerId, type_line: 'Creature — Human' },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-src',
@@ -119,13 +120,13 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     expect(sacrificeStep).toBeTruthy();
     expectNoTargetGaps(
       [sacrificeStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         battlefield: [
           { id: 'bf-p1', controller: controllerId, type_line: 'Creature — Human' },
           { id: 'bf-p2', controller: 'p2', type_line: 'Creature — Elf' },
         ],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-src' }
     );
 
@@ -137,13 +138,13 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     expect(copyStep).toBeTruthy();
     expectNoTargetGaps(
       [copyStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-stage', controller: controllerId, type_line: 'Land' },
           { id: 'bf-ref', controller: 'p2', type_line: 'Basic Land — Island' },
         ],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-stage', selectorContext: { chosenObjectIds: ['bf-ref'] } }
     );
   });
@@ -156,7 +157,7 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     const copyStep = stage.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'copy_permanent');
     expect(copyStep).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           {
@@ -172,7 +173,7 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
             card: { name: 'Academy Ruins', type_line: 'Legendary Land' },
           },
         ],
-      } as GameState,
+      }),
       [copyStep!],
       {
         controllerId,
@@ -195,10 +196,10 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     expect(setBaseStep).toBeTruthy();
     expectNoTargetGaps(
       [setBaseStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-art', controller: controllerId, type_line: 'Artifact' }],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-art', targetPermanentId: 'bf-art' }
     );
 
@@ -210,10 +211,10 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     expect(forceStep).toBeTruthy();
     expectNoTargetGaps(
       [forceStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-blocker', controller: 'p2', type_line: 'Creature — Human' }],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-src',
@@ -229,13 +230,13 @@ describe('Oracle IR gap batch 388 — target clusters (Track E2 mega-batch)', ()
     expect(animateStep).toBeTruthy();
     expectNoTargetGaps(
       [animateStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-aura', controller: controllerId, type_line: 'Enchantment — Aura', attachedTo: 'bf-forest' },
           { id: 'bf-forest', controller: controllerId, type_line: 'Basic Land — Forest' },
         ],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-aura' }
     );
   });

@@ -101,6 +101,9 @@ export function tryParseTemporaryAbilityClause(args: {
       if (/\bget(?:s)?\s+[+-]?(?:\d+|x)\s*\/\s*[+-]?(?:\d+|x)\b/i.test(targetText)) {
         return null;
       }
+      // "target instant or sorcery card in your graveyard gains flashback until end of turn" (Snapcaster Mage,
+      // Past in Flames, Desdemona) is a graveyard cast permission, not a keyword grant on a permanent.
+      if (/\bgraveyard\b/i.test(targetText) && /^(?:flashback|escape|retrace|jump-start|harmonize)\b/i.test(String(m[2] || '').trim())) return null;
       const abilities = parseKeywordAbilityList(String(m[2] || '').trim());
       if (abilities) {
         return withMeta({

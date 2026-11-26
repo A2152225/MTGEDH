@@ -49,7 +49,7 @@ describe('oracleIRExecutor each-subtype explore APANAP', () => {
       controllerId: 'p1',
       sourceId: 'm1',
       sourceName: 'Hakbal of the Surging Soul',
-      sourceObjectType: 'trigger',
+      sourceObjectType: 'ability',
     });
 
     const result = applyOracleIRStepsToGameState(state, steps, ctx, { allowOptional: true });

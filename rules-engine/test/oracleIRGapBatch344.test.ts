@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -18,7 +19,7 @@ const baseParams = {
 
 describe('Oracle IR gap batch 344 — top condition clusters', () => {
   it('evaluates creature-mana spend, seven-card hand, life lead, and no monarch', () => {
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: controllerId,
@@ -28,7 +29,7 @@ describe('Oracle IR gap batch 344 — top condition clusters', () => {
         { id: 'p2', life: 30 },
       ],
       battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Human' }],
-    } as GameState;
+    });
 
     expect(
       evaluateExtendedConditionalClause({
@@ -74,10 +75,10 @@ describe('Oracle IR gap batch 344 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Construct' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source', manaSpentOnCreatureSpell: true }
     );
@@ -115,10 +116,10 @@ describe('Oracle IR gap batch 344 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId, life: 40 }, { id: 'p2', life: 30 }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Angel' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );

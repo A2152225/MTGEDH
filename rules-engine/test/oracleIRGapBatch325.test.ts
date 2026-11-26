@@ -7,6 +7,7 @@ import {
   parseMoveZoneCreatureYouDontControlLowestToughness,
   parseMoveZoneSingleTargetFromYourGraveyard,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -127,7 +128,7 @@ describe('Oracle IR gap batch 325 — Atzocan Seer / See the Unwritten / Bounce 
     );
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: opponentId, library: [], hand: [], graveyard: [], exile: [] },
@@ -154,7 +155,7 @@ describe('Oracle IR gap batch 325 — Atzocan Seer / See the Unwritten / Bounce 
           power: 4,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'test',

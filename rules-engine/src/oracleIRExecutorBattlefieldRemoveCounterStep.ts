@@ -278,12 +278,19 @@ export function applyRemoveCounterStep(
   ) {
     return { applied: true, state, log: ['No +1/+1 counters to remove'] };
   }
-  const allowMultipleDeterministicTargets =
+  const removeAllMassTargets =
     removeAllCounters &&
     (/^(?:all|each)\b/.test(normalizedTargetText) ||
       normalizedTargetText === 'them' ||
       normalizedTargetText === 'among creatures you control' ||
       /^any number of \+1\/\+1 counters from among creatures you control$/i.test(normalizedTargetText));
+  // "Remove two loyalty counters from each planeswalker" (Pestilent Haze): a fixed amount from every matched
+  // permanent is as deterministic as "all counters"; each loses as many as it has, up to that amount.
+  const fixedAmountFromEach = !removeAllCounters
+    && (amountValue || 0) > 0
+    && /^(?:all|each)\b/.test(normalizedTargetText)
+    && !/\btarget\b/.test(normalizedTargetText);
+  const allowMultipleDeterministicTargets = removeAllMassTargets || fixedAmountFromEach;
   // "another target creature or planeswalker": an unbound/ambiguous target is a player's choice, not a gap.
   const needsTargetChoice = /\btarget\b/.test(normalizedTargetText);
   if (needsTargetChoice && (targets.length > 1 || targets.length === 0) && !allowMultipleDeterministicTargets) {
@@ -402,9 +409,11 @@ export function applyRemoveCounterStep(
       const normalizedCount = Number.isFinite(currentCount) ? currentCount : 0;
       if (normalizedCount <= 0) return perm;
 
-      removedCount += normalizedCount;
+      const removedHere = removeAllCounters ? normalizedCount : Math.min(normalizedCount, amountValue || 0);
+      removedCount += removedHere;
       const counters = { ...((perm?.counters || {}) as Record<string, number>) };
-      delete counters[counterName];
+      if (normalizedCount - removedHere > 0) counters[counterName] = normalizedCount - removedHere;
+      else delete counters[counterName];
       return {
         ...perm,
         counters,

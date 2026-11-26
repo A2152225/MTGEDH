@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asGameState, type GameStateFixture } from './helpers/gameStateFixture';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
@@ -8,10 +9,10 @@ function collectStepsFromText(text: string) {
   return ir.abilities.flatMap((ability) => ability.steps || []);
 }
 
-function baseState(overrides?: Partial<GameState>): GameState {
+function baseState(overrides?: GameStateFixture): GameState {
   const p1 = 'p1' as PlayerID;
   const p2 = 'p2' as PlayerID;
-  return {
+  return asGameState({
     turnNumber: 1,
     players: [
       {
@@ -39,7 +40,7 @@ function baseState(overrides?: Partial<GameState>): GameState {
       { id: 'opp', controller: p2, card: { type_line: 'Creature' }, power: 5, toughness: 5 },
     ],
     ...overrides,
-  } as GameState;
+  });
 }
 
 describe('Oracle IR gap batch 234 support', () => {
@@ -82,7 +83,7 @@ describe('Oracle IR gap batch 234 support', () => {
         {
           id: 'src',
           controller: 'p1' as PlayerID,
-          card: { type_line: 'Creature' },
+          card: { id: 'src', name: '', type_line: 'Creature' },
           counters: { '+1/+1': 2 },
         },
       ],
@@ -151,7 +152,7 @@ describe('Oracle IR gap batch 234 support', () => {
   it('evaluates this creature entered this turn discard unless', () => {
     const state = baseState({
       battlefield: [
-        { id: 'src', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, enteredThisTurn: true },
+        { id: 'src', controller: 'p1' as PlayerID, card: { id: 'src', name: '', type_line: 'Creature' }, enteredThisTurn: true },
       ],
     });
     const steps = collectStepsFromText('discard a card unless this creature entered this turn.');

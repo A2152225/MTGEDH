@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -18,12 +19,12 @@ const baseParams = {
 
 describe('Oracle IR gap batch 362 — top condition clusters', () => {
   it('evaluates thopter-only-self, opponent-discard, and two-players-lost conditions', () => {
-    const thopterState = {
+    const thopterState = asGameState({
       players: [{ id: controllerId }],
       battlefield: [
         { id: 'bf-source', controller: controllerId, type_line: 'Artifact Creature — Thopter' },
       ],
-    } as GameState;
+    });
 
     expect(
       evaluateExtendedConditionalClause({
@@ -47,10 +48,10 @@ describe('Oracle IR gap batch 362 — top condition clusters', () => {
       })
     ).toBe(false);
 
-    const discardState = {
+    const discardState = asGameState({
       players: [{ id: controllerId }, { id: 'p2' }],
       discardedCardThisTurn: { [controllerId]: false, p2: true },
-    } as GameState;
+    });
 
     expect(
       evaluateConditionalWrapperCondition({
@@ -62,7 +63,7 @@ describe('Oracle IR gap batch 362 — top condition clusters', () => {
       })
     ).toBe(true);
 
-    const lostState = {
+    const lostState = asGameState({
       players: [
         { id: 'p1', hasLost: false },
         { id: 'p2', hasLost: false },
@@ -70,7 +71,7 @@ describe('Oracle IR gap batch 362 — top condition clusters', () => {
         { id: 'p4', hasLost: true },
       ],
       playersLostCount: 2,
-    } as GameState;
+    });
 
     expect(
       evaluateExtendedConditionalClause({
@@ -102,10 +103,10 @@ describe('Oracle IR gap batch 362 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Artifact Creature — Thopter' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -120,10 +121,10 @@ describe('Oracle IR gap batch 362 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         discardedCardThisTurn: { [controllerId]: false, p2: true },
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -138,7 +139,7 @@ describe('Oracle IR gap batch 362 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [
           { id: controllerId, hasLost: false },
           { id: 'p2', hasLost: false },
@@ -147,7 +148,7 @@ describe('Oracle IR gap batch 362 — top condition clusters', () => {
         ],
         playersLostCount: 2,
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Enchantment' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -158,10 +159,10 @@ describe('Oracle IR gap batch 362 — top condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: 'an opponent discarded a card this turn' },
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }, { id: 'p2' }],
           discardedCardThisTurn: { [controllerId]: true, p2: false },
-        } as GameState,
+        }),
         controllerId,
         ctx: { controllerId, sourceId: 'bf-source' },
         lastActionOutcome: null,

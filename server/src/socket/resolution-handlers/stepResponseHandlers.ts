@@ -40,7 +40,8 @@ import {
   handleUnleashChoiceResponse,
 } from "../resolutionKeywordChoiceHandlers.js";
 import { getResolutionHandlerDeps } from "../resolutionHandlerDeps.js";
-import { getPlayerName, persistAndResolveTopOfStack } from "../util.js";
+import { broadcastGame, getPlayerName, persistAndResolveTopOfStack } from "../util.js";
+import { payDeferredActivationCostForStep } from "../interaction-handlers/activationTargetsBeforeCosts.js";
 import { finalizeEffectProgramSpellColorChoiceAfterResume } from "./effectProgramSpellColorChoiceFinalize.js";
 import {
   extractFirstResolutionSelectionId,
@@ -84,6 +85,11 @@ async function handleStepResponseBody(
   step: ResolutionStep,
   response: ResolutionStepResponse
 ): Promise<void> {
+  // CR 602.2b: an activation cost deferred until its targets were chosen is paid now.
+  if (!payDeferredActivationCostForStep(io, game, step, response)) {
+    broadcastGame(io, game, gameId);
+    return;
+  }
   if ((step as any)?.effectProgramPrompt === true) {
     restoreEffectProgramRuntimeForPendingStep(game, gameId, step);
     const resumed = resumeEffectProgramResolution({ game, gameId, step, response });

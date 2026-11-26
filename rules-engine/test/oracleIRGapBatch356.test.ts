@@ -3,6 +3,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -17,7 +18,7 @@ const baseParams = {
 
 describe('Oracle IR gap batch 356 — top condition clusters', () => {
   it('evaluates color-mana spent, artifact ETB, toxic target, and another creature ETB', () => {
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId }],
       stack: [
         {
@@ -39,7 +40,7 @@ describe('Oracle IR gap batch 356 — top condition clusters', () => {
           keywords: ['Toxic'],
         },
       ],
-    } as GameState;
+    });
 
     expect(
       evaluateExtendedConditionalClause({
@@ -95,7 +96,7 @@ describe('Oracle IR gap batch 356 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         stack: [
           {
@@ -106,7 +107,7 @@ describe('Oracle IR gap batch 356 — top condition clusters', () => {
           },
         ],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Elemental' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' }
     );
@@ -121,10 +122,10 @@ describe('Oracle IR gap batch 356 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         artifactEnteredThisTurn: { [controllerId]: true },
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-akal' }
     );
@@ -139,7 +140,7 @@ describe('Oracle IR gap batch 356 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         battlefield: [
           {
@@ -149,7 +150,7 @@ describe('Oracle IR gap batch 356 — top condition clusters', () => {
             keywords: ['Toxic'],
           },
         ],
-      } as GameState,
+      }),
       [step!],
       {
         controllerId,
@@ -169,12 +170,12 @@ describe('Oracle IR gap batch 356 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         creaturesEnteredThisTurn: { [controllerId]: 2 },
         creaturesEnteredBattlefieldThisTurnByController: { [controllerId]: 2 },
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Merfolk' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );

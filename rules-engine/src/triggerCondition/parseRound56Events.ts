@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Round 56 trigger wordings: ability-resolves (Tyvar / Gimli Nth), choice-gated
  * (chosen player / name / mana value), reflexive "this way" (Priority Boarding /
  * Inferno power), typed bounce, untap-or-lose-control OR, Dark Depths named-counter
@@ -275,7 +275,8 @@ export function parseRound56TriggerSentence(text: string, reparse: Reparse): Par
   }
 
   // --- Copy-trigger stubs (lightweight) ---------------------------------
-  const copyTrigger = /^(?:whenever|when)\s+you (?:copy a spell|create a token that'?s a copy of (?:a|target) [^,]+),\s*(.+)$/.exec(text);
+  // "Whenever you copy a spell" is the spell_copied event (parseSelfAndPlayerEvents), not a cast trigger.
+  const copyTrigger = /^(?:whenever|when)\s+you (?:create a token that'?s a copy of (?:a|target) [^,]+),\s*(.+)$/.exec(text);
   if (copyTrigger) {
     return withFields(reparse('whenever you cast a spell, ' + copyTrigger[1]), {
       action: 'copy',

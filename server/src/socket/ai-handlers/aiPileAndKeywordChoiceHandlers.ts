@@ -274,6 +274,17 @@ export function chooseAIMoveChosenHandCardToLibrarySelection(
     .filter((entry) => Boolean(entry.id))
     .sort((left, right) => left.score - right.score || left.id.localeCompare(right.id));
 
+  // "Any number" (zero is legal): keep the hand. Multi-select with a required count: the server
+  // rejects any other count, so pick that many of the lowest-value cards.
+  if (step?.moveChosenHandCardToLibraryAnyNumber === true) {
+    return { selections: [], cancelled: false };
+  }
+  const requiredCount = Math.max(1, Number(step?.moveChosenHandCardToLibraryRequiredCount || 0) || 1);
+  if (step?.moveChosenHandCardToLibraryMultiSelect === true || requiredCount > 1) {
+    const pickedIds = ranked.map((entry) => entry.id);
+    for (const id of offeredIds) if (pickedIds.length < requiredCount && !pickedIds.includes(id)) pickedIds.push(id);
+    return { selections: pickedIds.slice(0, requiredCount), cancelled: false };
+  }
   const chosenId = ranked[0]?.id || [...offeredIds][0] || '';
   return { selections: chosenId ? [chosenId] : [], cancelled: false };
 }

@@ -38,6 +38,10 @@ import { handleAttackCostPermanentPaymentTargetSelection } from "./attackCostPer
 import { handleTransformAttachPlayerChoiceResponse } from "../resolutionTransformAttachPlayerResponseHandlers.js";
 import { handleTransformChooseOpponentResponse } from "../resolutionTransformChooseOpponentResponseHandlers.js";
 import { handleSpecialCombatDamageAssignmentResponse } from "../resolutionSpecialCombatDamageResponseHandlers.js";
+import { handleOpponentTargetChooserSelection } from "../opponentChosenTargets.js";
+import { handlePreCostAbilityTargetSelection } from "../interaction-handlers/activationCostStepAfterTargets.js";
+import { handlePayXEnergyActivationStage } from "../interaction-handlers/activationPayXEnergyCost.js";
+import { handleCraftMaterialSelection } from "../interaction-handlers/activationCraftCost.js";
 
 /** TARGET_SELECTION: validate selections then dispatch to the specialized branch. */
 export async function handleTargetSelectionResponse(
@@ -114,6 +118,22 @@ export async function handleTargetSelectionResponse(
   }
   if ((step as any)?.untapCapChoice === true) {
     handleUntapCapChoiceSelection(io, game, gameId, step, String(pid), normalizedSelections);
+    return;
+  }
+  if ((step as any)?.opponentTargetChooserSelection === true) {
+    handleOpponentTargetChooserSelection(io, game, gameId, step, response);
+    return;
+  }
+  if ((step as any)?.preCostAbilityTargetSelection === true) {
+    handlePreCostAbilityTargetSelection(io, game, gameId, step, response);
+    return;
+  }
+  if ((step as any)?.payXEnergyActivationStage) {
+    await handlePayXEnergyActivationStage(io, game, gameId, step, response);
+    return;
+  }
+  if ((step as any)?.craftMaterialSelection === true) {
+    await handleCraftMaterialSelection(io, game, gameId, step, response);
     return;
   }
   const targetGrouping = (step as any)?.targetGrouping;

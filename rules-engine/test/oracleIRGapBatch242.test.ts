@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asGameState } from './helpers/gameStateFixture';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
@@ -41,11 +42,11 @@ describe('Oracle IR gap batch 242 support', () => {
       'Roll a six-sided die. This creature gets +X/+0 until end of turn, where X is the result minus 1.'
     );
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         ...baseState(),
         lastDieRoll: { playerId: 'p1', result: 1 },
         lastDieRollByPlayer: { p1: { result: 1 } },
-      },
+      }),
       steps,
       buildOracleIRExecutionContext({
         controllerId: 'p1' as PlayerID,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseOracleTextToIR } from '../src/oracleIRParser.ts';
-import { applyRemoveCounterStep } from '../src/oracleIRExecutorBattlefieldStepHandlers.ts';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
+import { applyRemoveCounterStep } from '../src/oracleIRExecutorBattlefieldStepHandlers';
 import {
   collectStepsFromIrText,
   dryRunOracleSteps,
@@ -8,8 +8,8 @@ import {
   enrichAuditStateAndContextForTargets,
   buildAuditExecutionContext,
   buildAuditFixtureState,
-} from '../../server/scripts/executor-coverage-audit.ts';
-import { collectUnknownIrGapsFromSteps } from '../../server/scripts/trigger-coverage-audit.ts';
+} from '../../server/scripts/executor-coverage-audit';
+import { collectUnknownIrGapsFromSteps } from '../../server/scripts/trigger-coverage-audit';
 
 describe('oracle IR gap batch397', () => {
   it('repairs Spry and Mighty compound spell steps', () => {
@@ -26,7 +26,7 @@ describe('oracle IR gap batch397', () => {
     let state = buildAuditFixtureState('Spinal Parasite', 'Creature — Horror');
     let ctx = buildAuditExecutionContext('Spinal Parasite');
     const e1 = enrichAuditStateAndContextForCopySteps({ name: 'Spinal Parasite', type_line: 'Creature — Horror' }, steps, state, ctx);
-    const e2 = enrichAuditStateAndContextForTargets(steps, e1.state, e1.ctx, { cardName: 'Spinal Parasite', typeLine: 'Creature — Horror' });
+    const e2 = enrichAuditStateAndContextForTargets(steps, e1.state, e1.ctx);
     const result = applyRemoveCounterStep(e2.state, steps[0] as any, e2.ctx);
     expect(result.applied).toBe(true);
     const dry = dryRunOracleSteps(steps, 'Spinal Parasite', collectUnknownIrGapsFromSteps(steps), { typeLine: 'Creature — Horror' });

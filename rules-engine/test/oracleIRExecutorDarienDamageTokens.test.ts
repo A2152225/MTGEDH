@@ -18,7 +18,7 @@ describe('Oracle IR Darien optional create_token reference_amount', () => {
       controllerId: p2,
       sourceId: 'darien_1',
       sourceName: 'Darien, King of Kjeldor',
-      sourceObjectType: 'trigger',
+      sourceObjectType: 'ability',
       referenceAmount: 6,
     });
 

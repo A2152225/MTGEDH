@@ -5,6 +5,8 @@ import { moveBattlefieldPermanentsByIdToOwnersHands } from '../src/oracleIRExecu
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor.js';
 import { executeTriggeredAbilityEffectWithOracleIR } from '../src/triggeredAbilitiesExecution.js';
 import type { OracleIRPendingTransition } from '../src/oracleIRTransitionTypes.js';
+import { asGameState } from './helpers/gameStateFixture';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 const p1 = 'p1';
 const p2 = 'p2';
@@ -22,7 +24,7 @@ function creature(id: string, extra: Record<string, unknown> = {}) {
 
 describe('mass destroy with a deferred commander replacement', () => {
   it('destroys non-commanders while the commander stays for the command-zone choice', () => {
-    const state = {
+    const state = asGameState({
       players: [
         { id: p1, graveyard: [] },
         { id: p2, graveyard: [] },
@@ -35,7 +37,7 @@ describe('mass destroy with a deferred commander replacement', () => {
           card: { id: 'giada_card', name: 'Giada', type_line: 'Legendary Creature — Angel', cmc: 2 },
         }),
       ],
-    } as GameState;
+    });
 
     const result = applyDestroyStep(
       state,
@@ -60,14 +62,14 @@ describe('mass destroy with a deferred commander replacement', () => {
       } as any,
     );
 
-    expect(result.applied).toBe(true);
+    assertApplied(result);
     const ids = (result.state?.battlefield || []).map((perm: any) => perm.id);
     expect(ids).toContain('giada');
     expect(ids).not.toContain('bear');
   });
 
   it('destroys only creatures with mana value 3 or less', () => {
-    const state = {
+    const state = asGameState({
       players: [{ id: p1, graveyard: [] }],
       battlefield: [
         creature('small', { card: { name: 'Small', type_line: 'Creature', cmc: 2 } }),
@@ -81,7 +83,7 @@ describe('mass destroy with a deferred commander replacement', () => {
           card: { name: 'Plains', type_line: 'Basic Land — Plains', cmc: 0 },
         },
       ],
-    } as GameState;
+    });
 
     const result = applyDestroyStep(
       state,
@@ -93,8 +95,7 @@ describe('mass destroy with a deferred commander replacement', () => {
       { controllerId: p1, sourceId: 'austere' } as any,
     );
 
-    expect(result.applied).toBe(true);
-    expect(result.reason).toBeUndefined();
+    assertApplied(result);
     const ids = (result.state?.battlefield || []).map((perm: any) => perm.id).sort();
     expect(ids).toEqual(['big', 'plains']);
   });
@@ -102,7 +103,7 @@ describe('mass destroy with a deferred commander replacement', () => {
   it('leaves flying creatures indestructible under Sephara and still destroys Sephara', () => {
     const sepharaOracle =
       'Flying, lifelink\nOther creatures you control with flying have indestructible.';
-    const state = {
+    const state = asGameState({
       players: [
         { id: p1, graveyard: [] },
         { id: p2, graveyard: [] },
@@ -138,7 +139,7 @@ describe('mass destroy with a deferred commander replacement', () => {
           card: { name: 'Angel', type_line: 'Creature — Angel', keywords: ['Flying'], cmc: 3 },
         }),
       ],
-    } as GameState;
+    });
 
     const result = applyDestroyStep(
       state,
@@ -150,16 +151,17 @@ describe('mass destroy with a deferred commander replacement', () => {
       { controllerId: p1, sourceId: 'nova' } as any,
     );
 
-    const ids = (result.state?.battlefield || []).map((perm: any) => perm.id);
+    assertApplied(result);
+    const ids = (result.state.battlefield || []).map((perm) => perm.id);
     expect(ids).toContain('giada');
     expect(ids).not.toContain('sephara');
     expect(ids).not.toContain('bear');
     expect(ids).not.toContain('opp-angel');
-    expect(result.log?.some((line) => /Giada/.test(line) && /indestructible/i.test(line))).toBe(true);
+    expect(result.log.some((line) => /Giada/.test(line) && /indestructible/i.test(line))).toBe(true);
   });
 
   it('leaves a commander on the battlefield when a bounce defers the hand replacement', () => {
-    const state = {
+    const state = asGameState({
       players: [
         { id: p1, hand: [], graveyard: [] },
         { id: p2, hand: [], graveyard: [] },
@@ -168,7 +170,7 @@ describe('mass destroy with a deferred commander replacement', () => {
         creature('bear'),
         creature('giada', { isCommander: true }),
       ],
-    } as GameState;
+    });
 
     const result = moveBattlefieldPermanentsByIdToOwnersHands(state, ['bear', 'giada'], {
       controllerId: p1,
@@ -195,7 +197,7 @@ describe('mass destroy with a deferred commander replacement', () => {
 describe('Emeria Shepherd landfall text', () => {
   it('offers hand or battlefield when the Plains is bound beside the target', () => {
     const result = executeTriggeredAbilityEffectWithOracleIR(
-      {
+      asGameState({
         players: [
           {
             id: p1,
@@ -221,7 +223,7 @@ describe('Emeria Shepherd landfall text', () => {
         ],
         priority: p1,
         turnPlayer: p1,
-      } as GameState,
+      }),
       {
         controllerId: p1,
         sourceId: 'emeria',

@@ -168,7 +168,8 @@ function getAvailableGraveyardCastKeywordInfo(
       const manaCost = String(card?.mana_cost || card?.manaCost || '').trim();
       return { keyword, cost: manaCost };
     }
-    if (keyword !== 'mayhem') {
+    // Aftermath is only ever printed (no effect grants it), so only printed info applies.
+    if (keyword !== 'mayhem' && keyword !== 'aftermath') {
       const grantedInfo = getGrantedCastFromGraveyardKeywordInfo(ctx, playerId, card, keyword);
       if (grantedInfo.hasIt) {
         return { keyword, cost: grantedInfo.cost, additionalExileCount: grantedInfo.additionalExileCount };
@@ -312,8 +313,13 @@ function collectCastableSpellCandidates(
       }
 
       for (const castCard of getHandCastEvaluationCards(card)) {
+        // Early response-speed skip only for zones without zone-scoped flash grants. Top-of-library
+        // (Elsha) and durable exile permissions (asThoughFlash) set grantsFlash below and are
+        // checked by spellMatchesCandidateMode.
         if (
           mode === 'response'
+          && sourceZone !== 'library'
+          && sourceZone !== 'exile'
           && !hasFlashOrInstant(castCard)
           && !cardHasGrantedOffBattlefieldFlash(state, playerId, castCard)
           && !sorceryNotOnStackCastsAsInstant(state, castCard)

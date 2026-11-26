@@ -3,6 +3,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { extractTriggeredEffectFromTimingMatch } from '../src/triggerEffectTextExtraction';
+import { asGameState } from './helpers/gameStateFixture';
 
 const ORACLE =
   'When this enchantment enters, suspect target creature an opponent controls. As long as this enchantment remains on the battlefield, that creature is also goaded.\nAt the beginning of combat on your turn, if two or more players have lost the game, gain control of all goaded and/or suspected creatures until end of turn. Untap them. They gain haste until end of turn.';
@@ -27,7 +28,7 @@ function creature(id: string, controller: string, extra: Record<string, unknown>
 }
 
 function lostState(battlefield: any[]): GameState {
-  return {
+  return asGameState({
     players: [
       { id: 'p1', hasLost: false },
       { id: 'p2', hasLost: false },
@@ -37,7 +38,7 @@ function lostState(battlefield: any[]): GameState {
     playersLostCount: 2,
     battlefield,
     turnNumber: 45,
-  } as GameState;
+  });
 }
 
 function applyCombat(battlefield: any[], playersLostCount = 2) {

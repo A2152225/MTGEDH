@@ -10,6 +10,7 @@ import {
   proposeShortcut,
   rejectShortcut,
   validateShortcut,
+  type Shortcut,
   type ShortcutAction,
 } from '../src/specialGameMechanics';
 
@@ -73,9 +74,9 @@ describe('specialGameMechanics shortcuts', () => {
   });
 
   it('rejects invalid shortcut proposals', () => {
-    const invalidShortcut = {
+    const invalidShortcut: Shortcut = {
       proposer: 'player-a',
-      action: { type: 'block_with', blockerId: 'blocker-1', attackerIds: [] as string[] },
+      action: { type: 'block_with', blockerId: 'blocker-1', attackerIds: [] },
       iterations: 0,
       accepted: [],
     };

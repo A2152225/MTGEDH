@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseOracleTextToIR } from '../src/oracleIRParser.ts';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
 import {
   buildMoveZoneSelectionOptions,
   buildPlayerChoiceAmongThemSelectionOptions,
-} from '../src/oracleIRExecutorPlayerStepHandlers.ts';
-import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor.ts';
+} from '../src/oracleIRExecutorPlayerStepHandlers';
+import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 
 describe('oracle IR gap batch398 — resolution queue bridge helpers', () => {
   it('builds among-them player choice options after reveal_top', () => {

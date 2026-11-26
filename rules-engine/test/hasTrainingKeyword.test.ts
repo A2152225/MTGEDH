@@ -16,7 +16,6 @@ describe('hasTrainingKeyword', () => {
   it('ignores unrelated oracle text containing "training"', () => {
     expect(
       hasTrainingKeyword({
-        name: 'Training Grounds',
         oracle_text: 'Activated abilities of creatures you control cost {1} less to activate.',
       }),
     ).toBe(false);

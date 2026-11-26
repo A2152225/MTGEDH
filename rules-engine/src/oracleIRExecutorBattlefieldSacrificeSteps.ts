@@ -403,7 +403,13 @@ function applySacrificeStepUnprotected(
 
   if (parsed?.mode === 'choice_required') {
     const chosenIds = collectSacrificeChoiceBoundIds(battlefield, ctx);
-    const wantsCreature = /\bcreature\b/i.test(sacrificeWhatText);
+    // "an artifact or creature of their choice": any listed type qualifies; no type word / "permanent" = any.
+    const sacrificeTypeWords = Array.from(new Set(
+      (sacrificeWhatText.match(/\b(creature|artifact|enchantment|land|planeswalker|battle)s?\b/gi) || [])
+        .map((word) => word.toLowerCase().replace(/s$/, '')),
+    ));
+    const matchesSacrificeTypes = (perm: any) =>
+      sacrificeTypeWords.length === 0 || sacrificeTypeWords.some((type) => permanentMatchesType(perm, type));
     const wantsAttacking = sacrificeRequiresAttackingCreature(sacrificeWhatText);
     if (
       /\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|\d+)\s+(?:creatures?|permanents?|artifacts?|enchantments?|lands?)\b/i.test(
@@ -421,7 +427,7 @@ function applySacrificeStepUnprotected(
       const sourceId = String(ctx.sourceId || '').trim();
       const matchesPlayer = (perm: any) =>
         String((perm as any)?.controller || '').trim() === playerId &&
-        (!wantsCreature || permanentMatchesType(perm, 'creature')) &&
+        matchesSacrificeTypes(perm) &&
         (!wantsAttacking || isPermanentAttackingForSacrifice(perm));
 
       const boundMatches = battlefield.filter((perm: any) => {
@@ -478,7 +484,7 @@ function applySacrificeStepUnprotected(
         return (
           chosenIds.includes(permanentId) &&
           players.includes(String((perm as any)?.controller || '').trim()) &&
-          (!wantsCreature || permanentMatchesType(perm, 'creature')) &&
+          matchesSacrificeTypes(perm) &&
           (!wantsAttacking || isPermanentAttackingForSacrifice(perm))
         );
       });

@@ -3,6 +3,7 @@ import type { OracleEffectStep } from './oracleIR';
 import type { OracleIRServerExecutionBridge } from './oracleIRServerBridge';
 import type { RuntimeObjectSnapshot } from './oracleIRTransitionTypes';
 import type { OracleIRPendingTransition } from './oracleIRTransitionTypes';
+import type { OracleIRConditionContextFacts } from './oracleIRExecutionConditionContextFacts';
 
 /** Mutable halt carrier shared between server bridge and executor main loop. */
 export interface OracleIRTransitionHaltState {
@@ -33,6 +34,8 @@ export interface OracleIRExecutionOptions {
 }
 
 export interface OracleIRSelectorContext {
+  /** Redistribute-life-totals choice ("Reverse the Sands"): player id -> new life total. */
+  readonly lifeRedistributionByPlayerId?: Readonly<Record<string, number>>;
   /** Bound target for selectors parsed as target player. */
   readonly targetPlayerId?: PlayerID;
   /** Owner of the bound targeted object (may differ from controller). */
@@ -176,7 +179,7 @@ export interface OracleIRSelectorContext {
   readonly thatPlayerId?: PlayerID;
   readonly thoseCreatureIds?: readonly string[];
   readonly toGraveyard?: boolean;
-  readonly unlessDealDamageChoice?: 'pay' | 'decline';
+  readonly unlessDealDamageChoice?: 'pay' | 'deal' | 'decline';
   readonly unlessExiledHistoricFromGraveyard?: boolean;
   readonly unlessPaysEnergyChoice?: 'pay' | 'decline';
   readonly unlessPutCardOnTopOfLibraryChoice?: 'pay' | 'decline';
@@ -294,7 +297,7 @@ export type OracleIRStepOutcome = {
   readonly count?: number;
 };
 
-export interface OracleIRExecutionContext extends OracleIRSelectorContext {
+export interface OracleIRExecutionContext extends OracleIRSelectorContext, OracleIRConditionContextFacts {
   readonly controllerId: PlayerID;
   readonly sourceId?: string;
   readonly sourceName?: string;

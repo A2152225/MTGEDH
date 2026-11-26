@@ -7,6 +7,7 @@ import {
   parseMoveZoneLastChosenCard,
   parseMoveZoneUpToTargetCardsFromGraveyards,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -100,7 +101,7 @@ describe('Oracle IR gap batch 337 — Shrouded Lore / Liliana / Codsworth', () =
     );
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'attach');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [], exile: [] }],
       battlefield: [
         {
@@ -119,13 +120,13 @@ describe('Oracle IR gap batch 337 — Shrouded Lore / Liliana / Codsworth', () =
           cmc: 2,
         },
       ],
-    } as GameState;
+    });
     const result = applyAttachStep(state, step as any, {
       controllerId,
       sourceId: 'bf-codsworth-source',
       targetCreatureId: 'bf-codsworth-target',
       selectorContext: { chosenObjectIds: ['bf-codsworth-equipment', 'bf-codsworth-target'] },
-    });
+    }, []);
     expect(result.applied).toBe(true);
     if (!result.applied) return;
     const equipment = (result.state.battlefield || []).find(

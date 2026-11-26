@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertApplied } from './helpers/stepResultAssertions';
 import type { PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 import { applyLookTopStep } from '../src/oracleIRExecutorPlayerStepHandlers';
@@ -63,10 +64,13 @@ describe('oracleIR look reveal observation ledger', () => {
       { ...ctx, stepLedger: ledger, currentStepIndex: 1, appliedStepKinds: new Map([[0, 'look_top']]) },
     )).toHaveLength(2);
 
-    const direct = applyLookTopStep(state, steps[0], {
+    const lookTopStep = steps[0];
+    if (lookTopStep?.kind !== 'look_top') throw new Error('expected a look_top step');
+    const direct = applyLookTopStep(state, lookTopStep, {
       ...ctx,
       currentStepIndex: 0,
     });
+    assertApplied(direct);
     expect(direct.skipLedgerFlush).toBe(true);
   });
 
@@ -121,10 +125,11 @@ describe('oracleIR look reveal observation ledger', () => {
     };
 
     expect(evaluateExtendedConditionalClause({
-      state,
+      nextState: state,
       ctx: conditionalCtx,
       controllerId: 'p1' as PlayerID,
       normalizedRaw: 'you reveal a creature card this way',
+      raw: 'you reveal a creature card this way',
       lastActionOutcome: { kind: 'applied', stepKind: 'reveal_top' },
     })).toBe(false);
 
@@ -159,7 +164,7 @@ describe('oracleIR look reveal observation ledger', () => {
     expect(revealResult.state).toBeTruthy();
 
     expect(evaluateExtendedConditionalClause({
-      state: creatureTopState,
+      nextState: creatureTopState,
       ctx: {
         ...ctx2,
         stepLedger: ledger2,
@@ -168,6 +173,7 @@ describe('oracleIR look reveal observation ledger', () => {
       },
       controllerId: 'p1' as PlayerID,
       normalizedRaw: 'you reveal a creature card this way',
+      raw: 'you reveal a creature card this way',
       lastActionOutcome: { kind: 'applied', stepKind: 'reveal_top' },
     })).toBe(true);
   });

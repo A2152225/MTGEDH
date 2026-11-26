@@ -11,6 +11,7 @@ import {
   parseMoveZoneMassBattlefieldCreatureBounce,
   parseMoveZoneSingleTargetFromYourGraveyard,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -103,7 +104,7 @@ describe('Oracle IR gap batch 289 — selector cluster fixes', () => {
       'Scapegoat'
     );
     const steps = ir.abilities[0]?.steps || [];
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [] }],
       battlefield: [
         {
@@ -123,7 +124,7 @@ describe('Oracle IR gap batch 289 — selector cluster fixes', () => {
           colors: ['G'],
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId,

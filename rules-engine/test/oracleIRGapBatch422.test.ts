@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseOracleTextToIR } from '../src/oracleIRParser.ts';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
 
 describe('oracle IR gap batch422 — Adagia Station tier boundary guard', () => {
   const adagiaOracle =

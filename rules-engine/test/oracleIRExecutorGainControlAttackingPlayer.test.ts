@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState } from '../../shared/src';
 import { applyGainControlStep } from '../src/oracleIRExecutorBattlefieldStepHandlers.js';
 import { parseTriggerEffectSteps } from '../../server/src/state/modules/trigger-runtime-wiring.js';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 describe('Oracle IR gain control — attacking player artifact', () => {
   it('transfers source artifact to attacking player and untaps it', () => {
@@ -33,7 +34,7 @@ describe('Oracle IR gain control — attacking player artifact', () => {
       } as any,
     );
 
-    expect(result.applied).toBe(true);
+    assertApplied(result);
     expect((result.state as any).battlefield[0].controller).toBe('p1');
     expect((result.state as any).battlefield[0].tapped).toBe(false);
   });

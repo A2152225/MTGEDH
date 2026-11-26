@@ -18,6 +18,7 @@ import { dispatchDamageReceivedTrigger, processDamageReceivedTriggers } from './
 import { attachEquipmentToCreature } from './triggerEquipmentUtils.js';
 import { processMonstrousTriggers } from './triggerEmissionFamilyUtils.js';
 import { drawCards } from './zones.js';
+import { resolveCraftReturnTransformed } from './craftAbility.js';
 
 function resolveCreatureUpgradeAbility(ctx: GameContext, item: any, controller: PlayerID): void {
   const state = (ctx as any).state;
@@ -617,6 +618,11 @@ export function tryResolveStackActivatedAbilityMidHandlers(
   }
   if (abilityType === 'fortify') {
     resolveFortifyAbility(ctx, item, controller);
+    ctx.bumpSeq();
+    return true;
+  }
+  if (abilityType === 'craft') {
+    resolveCraftReturnTransformed(ctx, item, controller);
     ctx.bumpSeq();
     return true;
   }

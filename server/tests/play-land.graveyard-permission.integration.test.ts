@@ -1503,7 +1503,10 @@ describe('playLand graveyard permission windows (integration)', () => {
     const errorCodes = emitted
       .filter((entry) => entry.event === 'error')
       .map((entry) => entry.payload?.code);
-    expect(errorCodes).toContain('NO_PERMISSION');
+    // Crucible grants permission; what fails is timing (CR 305.2 / 116.2a: a land is played only in
+    // your main phase with an empty stack), so the engine now reports LAND_TIMING, not NO_PERMISSION.
+    expect(errorCodes).toContain('LAND_TIMING');
+    expect(errorCodes).not.toContain('NO_PERMISSION');
 
     const battlefield = (game.state as any).battlefield || [];
     const graveyard = (game.state as any).zones?.[playerId]?.graveyard || [];

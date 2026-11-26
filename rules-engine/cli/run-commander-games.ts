@@ -969,7 +969,7 @@ private detectCombos(deck: LoadedDeck, cardNames: string[], combos: DeckCombo[],
   payMana(player: PlayerState, cost: number): string {
     let remaining = cost;
     const spent: string[] = [];
-    const colors: (keyof ManaPool)[] = ['colorless', 'white', 'blue', 'black', 'red', 'green'];
+    const colors = ['colorless', 'white', 'blue', 'black', 'red', 'green'] as const;
     const colorSymbols: Record<string, string> = {
       colorless: 'C',
       white: 'W',

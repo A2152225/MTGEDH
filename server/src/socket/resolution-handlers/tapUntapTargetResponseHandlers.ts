@@ -45,6 +45,8 @@ import {
 import { broadcastGame, emitToPlayer, getEffectivePower, getEffectiveToughness, getPlayerName } from "../util.js";
 import { permanentMatchesTargetTypes } from '../permanentTargetTypeFilter.js';
 import { applyVariableTapXToStep } from '../interaction-handlers/activationCostXAndDiscardClauses.js';
+import { tryResolveTapCostAnyCombinationManaOffStack } from './tapCostAnyCombinationManaOffStack.js';
+import { completePreselectedAbilityTargets } from '../interaction-handlers/activationCostStepAfterTargets.js';
 
 /** TAP_UNTAP_TARGET: tap/untap chosen permanents, or resume the activation whose cost required them. */
 export async function handleTapUntapTargetResponse(
@@ -547,6 +549,24 @@ export async function handleTapUntapTargetResponse(
         // ignore persistence failures
       }
 
+      // Targets were chosen before the cost (CR 602.2b): answer the prompt with them.
+      if (await completePreselectedAbilityTargets(io, game, gameId, stepAny, queuedResolutionStep)) return;
+
+      if (typeof game.bumpSeq === 'function') game.bumpSeq();
+      broadcastGame(io, game, gameId);
+      return;
+    }
+
+    // Mana abilities never use the stack (CR 605.3a).
+    if (tryResolveTapCostAnyCombinationManaOffStack({
+      io, game, gameId, controllerId, permanentId, abilityId, cardName, abilityText,
+      activatedAbilityText: String(stepAny?.activatedAbilityText || '').trim(),
+      sourcePerm, tappedPermanentsForCost, resolvedStepId: String((step as any).id || ''),
+      lifePaidForCost: Number.isFinite(lifeToPayForCost) ? lifeToPayForCost : undefined,
+    })) {
+      if (tappedPermanentsForCost.length > 0) {
+        queueTapTriggersForTappedPermanents(io, game, gameId, tappedPermanentsForCost, controllerId);
+      }
       if (typeof game.bumpSeq === 'function') game.bumpSeq();
       broadcastGame(io, game, gameId);
       return;

@@ -8,13 +8,16 @@
 import { fullOracleText, SWEEP_P1, SWEEP_SOURCE_CARD_ID, type SweepCard } from './sweepBoard.js';
 import { closeSweepTable, openSweepTable, type SweepTable } from './sweepHarness.js';
 import { apply, changeVerdict, failureVerdict, phase, runAction, type SweepPhaseOutcome } from './sweepPhaseCore.js';
-import { normalizeSelfName } from './sweepFamilies.js';
+import { needsStackTarget, normalizeSelfName } from './sweepFamilies.js';
 
 /** Activated abilities whose cost has {X}: the client asks for X first and sends xValue (X = 1 here). */
 export function activationXValue(ability: { cost?: string; fullText?: string }): { xValue?: number } {
   const cost = String(ability.cost || String(ability.fullText || '').split(':')[0] || '');
   return /\{x\}/i.test(cost) ? { xValue: 1 } : {};
 }
+
+/** A cycling keyword line: "cycling {2}", "basic landcycling {1}{g}", "cycling—pay 2 life", not text that only mentions cycling. */
+export const CYCLING_KEYWORD_RE = /^[a-z ]*cycling(?:\s*\{|\s*\u2014|\s+\d)/;
 
 type ZoneAbility = { zone: 'hand' | 'graveyard'; abilityId: string; line: string; event?: 'activateCycling' | 'activateGraveyardAbility' };
 
@@ -34,7 +37,7 @@ export function findZoneAbilities(card: SweepCard): ZoneAbility[] {
   for (const line of lines) {
     const body = line.replace(/^[^\u2014{]{1,40}\u2014\s*/, '');
     // The client sends `<cardId>-cycling-<n>` (n = index among the card's cycling abilities); typecycling included.
-    if (/^[\w ]*cycling\b/.test(body)) add({ zone: 'hand', abilityId: `${SWEEP_SOURCE_CARD_ID}-cycling-0`, line, event: 'activateCycling' });
+    if (CYCLING_KEYWORD_RE.test(body) || CYCLING_KEYWORD_RE.test(line)) add({ zone: 'hand', abilityId: `${SWEEP_SOURCE_CARD_ID}-cycling-0`, line, event: 'activateCycling' });
     const unswept = HAND_UNSWEPT.exec(body);
     if (unswept) add({ zone: 'hand', abilityId: unswept[1], line });
     const keyword = GRAVEYARD_KEYWORDS.find((word) => new RegExp(`^${word}\\b`).test(body));
@@ -71,6 +74,9 @@ function moveSourceToGraveyard(table: SweepTable): void {
 async function sweepZoneAbility(card: SweepCard, entry: ZoneAbility, gameId: string): Promise<SweepPhaseOutcome> {
   const label = `${entry.zone}:${entry.abilityId.replace(`${SWEEP_SOURCE_CARD_ID}-`, '')}`;
   if (!entry.event) return apply(phase('zone', label, entry.line), { cls: 'skipped', detail: `zone_ability_not_swept:${entry.abilityId}` });
+  if (entry.line.includes(':') && needsStackTarget(entry.line.slice(entry.line.indexOf(':') + 1))) {
+    return apply(phase('zone', label, entry.line), { cls: 'skipped', detail: 'needs_stack_target' });
+  }
   const table = openSweepTable(gameId, card);
   try {
     const handler = table.handlers[SWEEP_P1][entry.event];

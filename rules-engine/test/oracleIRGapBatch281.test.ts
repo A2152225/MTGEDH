@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
 function auditState(overrides?: Partial<GameState>): GameState {
-  return {
+  return asGameState({
     players: [
       { id: 'p1', life: 40 },
       { id: 'p2', life: 40 },
@@ -33,7 +34,7 @@ function auditState(overrides?: Partial<GameState>): GameState {
     lifeLostThisTurn: { p1: 0, p2: 3, p3: 0, p4: 0 },
     descendedThisTurn: { p1: true, p2: false, p3: false, p4: false },
     creaturesEnteredThisTurn: { p1: 2, p2: 0, p3: 0, p4: 0 },
-  } as GameState;
+  });
 }
 
 const baseParams = {
@@ -61,7 +62,7 @@ describe('Oracle IR gap batch 281 — full-card conditional riders', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: { ...state, spellsCastLastTurnCount: 0, spellsCastLastTurnByPlayerCounts: { p1: 0, p2: 0 } },
+        nextState: asGameState({ ...state, spellsCastLastTurnCount: 0, spellsCastLastTurnByPlayerCounts: { p1: 0, p2: 0 } }),
         normalizedRaw: 'no spells were cast last turn',
       })
     ).toBe(true);

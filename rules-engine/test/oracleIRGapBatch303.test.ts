@@ -162,6 +162,7 @@ describe('Oracle IR gap batch 303 — aegis exile / up-to-one milled / sorcery G
       kind: 'move_zone' as const,
       what: { kind: 'raw' as const, text: 'up to one enchantment card milled this way' },
       to: 'hand' as const,
+      toRaw: '',
       raw: 'Put up to one enchantment card milled this way into your hand',
     };
     const state = {

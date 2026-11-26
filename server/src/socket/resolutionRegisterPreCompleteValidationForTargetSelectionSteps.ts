@@ -90,7 +90,7 @@ export function validateTargetSelectionStepsBeforeComplete(
       return false;
     }
 
-    if (selectionRequiresSharedCardType(targetStepData.targetDescription, targetStepData.description)) {
+    if ((targetStepData as any).craftMaterialSelection !== true && selectionRequiresSharedCardType(targetStepData.targetDescription, targetStepData.description)) {
       const battlefield: any[] = Array.isArray((game.state as any)?.battlefield) ? (game.state as any).battlefield : [];
       const selectedPermanents = selectedIds
         .map((id) => battlefield.find((permanent: any) => String(permanent?.id || '') === String(id)))

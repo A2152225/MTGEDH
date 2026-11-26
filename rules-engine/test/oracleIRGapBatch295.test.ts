@@ -8,6 +8,7 @@ import {
   parseMoveZoneCountTargetBattlefieldBounce,
   parseMoveZoneTargetFaceUpExiledCard,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -137,7 +138,7 @@ describe('Oracle IR gap batch 295 — selector cluster fixes', () => {
       'Paradoxical Outcome'
     );
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'move_zone');
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [] }],
       battlefield: [
         {
@@ -156,7 +157,7 @@ describe('Oracle IR gap batch 295 — selector cluster fixes', () => {
           isToken: true,
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, [step], {
       controllerId,

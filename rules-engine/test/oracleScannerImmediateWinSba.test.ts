@@ -28,7 +28,7 @@ function makeReactorState(charge: number, step: string = GameStep.MAIN1): GameSt
     ],
     activePlayerIndex: 0,
     step,
-    phase: step === GameStep.UPKEEP ? GamePhase.BEGINNING : GamePhase.MAIN1,
+    phase: step === GameStep.UPKEEP ? GamePhase.BEGINNING : GamePhase.PRECOMBAT_MAIN,
     battlefield: [
       {
         id: 'reactor_1',

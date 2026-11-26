@@ -14,6 +14,8 @@ import { ResolutionQueueManager, ResolutionStepType } from "../../state/resoluti
 import { debug } from "../../utils/debug.js";
 import { broadcastGame, getEffectivePower, getEffectiveToughness } from "../util";
 import type { ActivateBattlefieldAbilityContext } from "./interactionActivateBattlefieldAbilityContext.js";
+import { queueCostStepAfterAbilityTargets } from "./activationCostStepAfterTargets.js";
+import { normalizeCreatureTypeWord } from "../../../../shared/src/creatureTypes.js";
 
 export async function tryHandleActivateCostPromptTapBlight(
   ctx: ActivateBattlefieldAbilityContext,
@@ -267,7 +269,10 @@ export async function tryHandleActivateCostPromptTapBlight(
         // is implicitly a creature. Add 'creature' AND the subtype words to typesFilter so
         // the TAP_UNTAP_TARGET validation matches creatures of that subtype, and tests can
         // verify both dimensions are present.
-        if (typesFilter.length === 0 && subtypesFilter.length > 0) {
+        // Only creature subtypes imply a creature: "Tap an untapped Gate you control" (Sage of the
+        // Maze) taps a land, "an untapped Equipment" an artifact.
+        const namesCreatureSubtype = subtypesFilter.some((sub) => Boolean(normalizeCreatureTypeWord(sub) || normalizeCreatureTypeWord(`${sub}s`)));
+        if (typesFilter.length === 0 && subtypesFilter.length > 0 && namesCreatureSubtype) {
           typesFilter.push('creature');
           // Also push the subtype words into typesFilter so callers can see the full
           // requirement without having to merge types + subtypes themselves.
@@ -330,7 +335,7 @@ export async function tryHandleActivateCostPromptTapBlight(
             if (scopedAbilityText.includes(':')) return scopedAbilityText;
             return costStr ? `${costStr}: ${abilityText}` : (scopedAbilityText || abilityText);
           })();
-          ResolutionQueueManager.addStep(gameId, {
+          queueCostStepAfterAbilityTargets({ gameId, game, pid: String(pid), permanent, cardName, abilityText }, {
             type: ResolutionStepType.TAP_UNTAP_TARGET,
             playerId: pid as PlayerID,
             sourceId: permanentId,

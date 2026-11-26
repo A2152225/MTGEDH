@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { asBattlefieldPermanent, type BattlefieldPermanentFixture } from './helpers/battlefieldPermanentFixture';
 import type { BattlefieldPermanent, KnownCardRef } from '../../shared/src';
 import { hasExecutorClass, isExecutorCreature } from '../src/oracleIRExecutorPermanentUtils';
 
-function createPermanent(overrides: Partial<BattlefieldPermanent> = {}): BattlefieldPermanent {
-  return {
+function createPermanent(overrides: BattlefieldPermanentFixture = {}): BattlefieldPermanent {
+  return asBattlefieldPermanent({
     id: 'perm-1',
     controller: 'p1' as any,
     owner: 'p1' as any,
@@ -14,13 +15,13 @@ function createPermanent(overrides: Partial<BattlefieldPermanent> = {}): Battlef
       oracle_text: '',
     } as KnownCardRef,
     ...overrides,
-  } as BattlefieldPermanent;
+  });
 }
 
 describe('oracleIRExecutorPermanentUtils', () => {
   it('treats cardType-only creature fixtures as creatures', () => {
     const creatureWithoutTypeLine = createPermanent({
-      cardType: 'Creature' as any,
+      cardType: 'Creature',
       card: {
         id: 'card-1',
         name: 'Fixture Bear',
@@ -36,7 +37,7 @@ describe('oracleIRExecutorPermanentUtils', () => {
 
   it('treats animated noncreatures as creatures', () => {
     const animatedArtifact = createPermanent({
-      effectiveTypes: ['Artifact', 'Creature'] as any,
+      effectiveTypes: ['Artifact', 'Creature'],
       card: {
         id: 'card-1',
         name: 'Animated Relic',
@@ -52,7 +53,7 @@ describe('oracleIRExecutorPermanentUtils', () => {
 
   it('does not treat removed creature types as creatures', () => {
     const moonedCreature = createPermanent({
-      effectiveTypes: ['Land'] as any,
+      effectiveTypes: ['Land'],
       card: {
         id: 'card-1',
         name: 'Moon-Bound Bear',
@@ -81,8 +82,8 @@ describe('oracleIRExecutorPermanentUtils', () => {
 
   it('treats supertypes as part of merged executor type text', () => {
     const legendaryCreature = createPermanent({
-      supertypes: ['Legendary'] as any,
-      effectiveTypes: ['Creature'] as any,
+      supertypes: ['Legendary'],
+      effectiveTypes: ['Creature'],
       card: {
         id: 'card-1',
         name: 'Crowned Bear',
@@ -97,8 +98,8 @@ describe('oracleIRExecutorPermanentUtils', () => {
 
   it('treats subtypes as part of merged executor type text', () => {
     const subtypeOnlyLand = createPermanent({
-      effectiveTypes: ['Land'] as any,
-      subtypes: ['Forest', 'Island'] as any,
+      effectiveTypes: ['Land'],
+      subtypes: ['Forest', 'Island'],
       card: {
         id: 'card-1',
         name: 'Subtype Land',

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isCurrentlyCreature } from '../src/actions/combat.ts';
+import { isCurrentlyCreature } from '../src/actions/combat';
 import {
   isStationPermanentCreatureNow,
   isStationPermanentTypeLine,
   readStationChargeCreatureThresholdFromOracleText,
-} from '../src/stationPermanentUtils.ts';
+} from '../src/stationPermanentUtils';
 
 const KAVARON_STATION_LINE =
   "Station (Tap another creature you control: Put charge counters equal to its power on this Planet. Station only as a sorcery. It's an artifact creature at 12+.)";

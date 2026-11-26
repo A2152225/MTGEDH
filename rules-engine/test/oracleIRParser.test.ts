@@ -808,7 +808,7 @@ Whenever this creature attacks, you may cast an Ally spell from among cards you 
         target: { kind: 'raw', text: 'this permanent' },
       }),
     ]);
-    expect(spiderMan.abilities[0]?.steps[0]?.abilities).toHaveLength(2);
+    expect(spiderMan.abilities[0]?.steps[0]).toMatchObject({ abilities: [expect.anything(), expect.anything()] });
   });
 
   it('parses standalone keyword fragments as distinct static and annihilator attack-trigger grants', () => {

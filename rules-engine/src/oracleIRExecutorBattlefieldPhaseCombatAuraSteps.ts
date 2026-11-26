@@ -311,7 +311,7 @@ export function applyBecomeAuraStep(
     };
   }
 
-  const enchantTargetIds = resolveTapOrUntapTargetIds(state, step.enchant, {
+  const enchantTargetIds = resolveTapOrUntapTargetIds(state, step.attachTarget || step.enchant, {
     ...ctx,
     targetPermanentId: String((ctx.selectorContext as any)?.attachmentTargetId || ctx.targetPermanentId || '').trim() || undefined,
   });

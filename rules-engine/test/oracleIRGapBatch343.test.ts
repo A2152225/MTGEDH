@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -18,7 +19,7 @@ const baseParams = {
 
 describe('Oracle IR gap batch 343 — top condition clusters', () => {
   it('evaluates creature-cast-this-way, untapped source, hand lead, and counter riders', () => {
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, hand: [{ id: 'h1' }, { id: 'h2' }, { id: 'h3' }, { id: 'h4' }] },
         { id: 'p2', hand: [{ id: 'p2-h1' }] },
@@ -33,7 +34,7 @@ describe('Oracle IR gap batch 343 — top condition clusters', () => {
           counters: { '+1/+1': 1 },
         },
       ],
-    } as GameState;
+    });
 
     expect(
       evaluateExtendedConditionalClause({
@@ -98,10 +99,10 @@ describe('Oracle IR gap batch 343 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature', tapped: false }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -137,7 +138,7 @@ describe('Oracle IR gap batch 343 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           {
@@ -147,7 +148,7 @@ describe('Oracle IR gap batch 343 — top condition clusters', () => {
             counters: { '+1/+1': 1 },
           },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-nikara', targetPermanentId: 'bf-creature-with-counters' }
     );

@@ -848,6 +848,10 @@ describe('activateBattlefieldAbility detector routing uses selected ability text
     expect(stack).toHaveLength(1);
     expect(String(stack[0]?.description || '').toLowerCase()).toContain('search your library for a forest card');
 
+    // CR 608.2: the tutor searches when the ability resolves (stackResolveDeferredTutorSearch).
+    expect(ResolutionQueueManager.getQueue(tokenTutorGameId).steps).toHaveLength(0);
+    (game as any).resolveTopOfStack();
+
     const queue = ResolutionQueueManager.getQueue(tokenTutorGameId);
     expect(queue.steps).toHaveLength(1);
     expect(String(queue.steps[0]?.type || '')).toBe('library_search');

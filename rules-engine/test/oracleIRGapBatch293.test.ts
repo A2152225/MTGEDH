@@ -7,6 +7,7 @@ import {
   parseMoveZoneTheChosenCards,
   parseMoveZoneTypedCardFromYourHand,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -41,7 +42,7 @@ describe('Oracle IR gap batch 293 — selector cluster fixes', () => {
       'Living Twister'
     );
     const steps = ir.abilities[1]?.steps || [];
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [] }],
       battlefield: [
         {
@@ -53,7 +54,7 @@ describe('Oracle IR gap batch 293 — selector cluster fixes', () => {
           tapped: true,
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId,

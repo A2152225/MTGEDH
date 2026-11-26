@@ -6,7 +6,7 @@ import {
   checkDelayedTriggers,
   createDelayedTriggerRegistry,
 } from '../src/delayedTriggeredAbilities.js';
-import type { GameState } from '../src/types.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 const ARCBOND_ORACLE =
   'Choose target creature. Whenever that creature is dealt damage this turn, it deals that much damage to each other creature and each player.';
@@ -27,7 +27,7 @@ describe('Arcbond-style delayed dealt-damage watchers', () => {
     const ir = parseOracleTextToIR(ARCBOND_ORACLE, 'Arcbond');
     const steps = ir.abilities.flatMap((a) => a.steps || []);
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: 'p1' }, { id: 'p2' }],
         battlefield: [
           { id: 'c1', controller: 'p1', type_line: 'Creature — Beast', power: 2, toughness: 2 },
@@ -35,7 +35,7 @@ describe('Arcbond-style delayed dealt-damage watchers', () => {
         ],
         delayedTriggerRegistry: createDelayedTriggerRegistry(),
         turnNumber: 1,
-      } as GameState,
+      }),
       steps,
       {
         controllerId: 'p1',

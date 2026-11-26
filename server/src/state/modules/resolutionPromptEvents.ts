@@ -4,6 +4,7 @@ import { debugWarn } from '../../utils/debug.js';
 import { ResolutionQueueManager, type CreateResolutionStepConfig } from '../resolution/index.js';
 import { bindCanonicalResolutionQueueGameId } from '../resolution/resolutionQueueGameIds.js';
 import { attachZoneHandSnapshotToStep } from './promptZoneHandSnapshot.js';
+import { routeTriggerPromptConfigToChooser } from './opponentChosenTargetRouting.js';
 
 export function appendQueuedResolutionPromptEvent(
   ctx: GameContext,
@@ -69,7 +70,7 @@ export function queueResolveTopOfStackPrompt(
   config: CreateResolutionStepConfig,
 ): void {
   const gameId = bindCanonicalResolutionQueueGameId(ctx) || String((ctx as any).gameId || '').trim();
-  const step = ResolutionQueueManager.addStep(gameId || 'unknown', config);
+  const step = ResolutionQueueManager.addStep(gameId || 'unknown', routeTriggerPromptConfigToChooser(ctx, config));
 
   appendQueuedResolutionPromptEvent(ctx, {
     playerId: String((step as any).playerId || (config as any).playerId || '').trim(),

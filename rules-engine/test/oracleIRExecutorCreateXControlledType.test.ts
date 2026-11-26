@@ -60,7 +60,7 @@ describe('Oracle IR create_token X by controlled type count', () => {
     const nextState = result.state as GameState;
     const tokens = nextState.battlefield?.filter((perm) => perm.isToken) ?? [];
 
-    expect(steps[0]?.token).toBe('1/1 white Human Soldier');
+    expect(steps[0]).toMatchObject({ token: '1/1 white Human Soldier' });
     expect(tokens).toHaveLength(2);
     expect(tokens.every((token) => token.card?.name === 'Human Soldier')).toBe(true);
   });
@@ -93,7 +93,7 @@ describe('Oracle IR create_token X by controlled type count', () => {
     expect(tokens).toHaveLength(2);
     expect(tokens.every((token) => token.card?.name === 'Soldier')).toBe(true);
     expect(tokens.every((token) => String(token.card?.type_line || '').toLowerCase().includes('artifact'))).toBe(true);
-    expect(tokens.every((token) => (token.card?.colors || []).length === 0)).toBe(true);
+    expect(tokens.every((token) => (token.card && 'colors' in token.card ? token.card.colors ?? [] : []).length === 0)).toBe(true);
     expect(tokens.every((token) => token.controller === p1)).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseOracleTextToIR } from '../src/oracleIRParser.ts';
-import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor.ts';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
+import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 
 describe('oracle IR gap batch399 — flicker those cards return', () => {
   it('returns exiled creatures to the battlefield for Displace', () => {

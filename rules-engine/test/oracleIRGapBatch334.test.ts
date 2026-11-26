@@ -44,6 +44,7 @@ describe('Oracle IR gap batch 334 — Recommission / Patron of the Moon / Tezzer
       kind: 'move_zone' as const,
       what: { kind: 'raw' as const, text: 'target artifact or creature card with mana value 3 or less from your graveyard' },
       to: 'battlefield' as const,
+      toRaw: '',
       withCounters: { '+1/+1': 1 },
       withCountersCondition: { kind: 'if' as const, raw: 'a creature enters this way' },
       raw: 'Return target artifact or creature card with mana value 3 or less from your graveyard to the battlefield. If a creature enters this way, it enters with an additional +1/+1 counter on it',

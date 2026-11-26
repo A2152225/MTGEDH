@@ -328,7 +328,7 @@ export async function runExclusiveAIAction(
       });
       noteGameStallAiFailure(gameId, playerId, err, `runExclusiveAIAction:${kind}:timeout`);
       try {
-        // Dynamic import avoids a static cycle with aiPriorityPassCombatExecutors -> aiScheduler.
+        // Best-effort: an unstick failure (no game, import error) must not skip the bail pass below.
         aiActionDebugStage.set(key, `${kind}:timeout-bail-unstick`);
         const stuckMod = await import("./aiStuckStackUnstick.js");
         const gameForUnstick = (await import("../util.js")).ensureGame(gameId);
@@ -338,6 +338,11 @@ export async function runExclusiveAIAction(
         if (gameForUnstick && topId) {
           stuckMod.forceUnstickAiStuckStackTop(io, gameForUnstick, gameId, playerId, topId);
         }
+      } catch (unstickErr) {
+        debugWarn(1, '[AI] Timeout bail unstick failed; still passing priority', unstickErr);
+      }
+      try {
+        // Dynamic import avoids a static cycle with aiPriorityPassCombatExecutors -> aiScheduler.
         aiActionDebugStage.set(key, `${kind}:timeout-bail-pass`);
         const passMod = await import("./aiPriorityPassCombatExecutors.js");
         await passMod.executePassPriority(io, gameId, playerId, { allowActiveMainPhaseAutoAdvance: true });

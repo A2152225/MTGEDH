@@ -65,8 +65,8 @@ describe('this-turn prevent life gain oracle IR', () => {
   it('parses Skullcrack players-this-turn as grant_static_ability duration this_turn', () => {
     const grants = collectGrantSteps(SKULLCRACK_ORACLE, 'Custom Bloodcrack');
     const lock = grants.find((step) => {
-      const text = Array.isArray((step as { effectText?: string[] }).effectText)
-        ? String((step as { effectText?: string[] }).effectText?.[0] || '')
+      const text = Array.isArray((step as { effectText?: readonly string[] }).effectText)
+        ? String((step as { effectText?: readonly string[] }).effectText?.[0] || '')
         : '';
       return text.toLowerCase().includes("can't gain life");
     }) as { duration?: string; target?: { text?: string } } | undefined;

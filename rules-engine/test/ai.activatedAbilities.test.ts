@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext } from '../src/AIEngine';
 import { SynergyArchetype } from '../src/CardAnalyzer';
-import type { GameState, BattlefieldPermanent, PlayerID } from '../../shared/src/types';
+import { GamePhase, GameStep, type GameState, type BattlefieldPermanent, type PlayerID } from '../../shared/src/types';
 
 describe('AI Activated Abilities', () => {
   const aiEngine = new AIEngine();
@@ -30,6 +30,7 @@ describe('AI Activated Abilities', () => {
         summoningSickness: false,
         counters: {},
         card: {
+          id: 'perm1',
           name: 'Humble Defector',
           type_line: 'Creature — Human Rogue',
           oracle_text: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',
@@ -40,7 +41,7 @@ describe('AI Activated Abilities', () => {
       };
       
       const gameState: Partial<GameState> = {
-        phase: 'MAIN',
+        phase: GamePhase.PRECOMBAT_MAIN,
         turnPlayer: playerId,
         priority: playerId,
         battlefield: [humbleDefector],
@@ -78,6 +79,7 @@ describe('AI Activated Abilities', () => {
         summoningSickness: false,
         counters: {},
         card: {
+          id: 'perm1',
           name: 'Humble Defector',
           type_line: 'Creature — Human Rogue',
           oracle_text: '{T}: Draw two cards. Target opponent gains control of Humble Defector.',
@@ -87,7 +89,7 @@ describe('AI Activated Abilities', () => {
       };
       
       const gameState: Partial<GameState> = {
-        phase: 'MAIN',
+        phase: GamePhase.PRECOMBAT_MAIN,
         turnPlayer: playerId,
         priority: playerId,
         battlefield: [tappedDefector],
@@ -120,6 +122,7 @@ describe('AI Activated Abilities', () => {
         summoningSickness: true, // Just entered battlefield
         counters: {},
         card: {
+          id: 'perm1',
           name: 'Humble Defector',
           type_line: 'Creature — Human Rogue',
           oracle_text: '{T}: Draw two cards. Target opponent gains control of Humble Defector.',
@@ -129,7 +132,7 @@ describe('AI Activated Abilities', () => {
       };
       
       const gameState: Partial<GameState> = {
-        phase: 'MAIN',
+        phase: GamePhase.PRECOMBAT_MAIN,
         turnPlayer: playerId,
         priority: playerId,
         battlefield: [sickDefector],
@@ -164,6 +167,7 @@ describe('AI Activated Abilities', () => {
         summoningSickness: false,
         counters: {},
         card: {
+          id: 'perm1',
           name: 'Archmage Emeritus',
           type_line: 'Creature — Human Wizard',
           oracle_text: '{T}: Draw two cards.',
@@ -180,6 +184,7 @@ describe('AI Activated Abilities', () => {
         summoningSickness: false,
         counters: {},
         card: {
+          id: 'perm2',
           name: 'Mana Rock',
           type_line: 'Artifact',
           oracle_text: '{T}: Add {C}.',
@@ -187,7 +192,7 @@ describe('AI Activated Abilities', () => {
       };
       
       const gameState: Partial<GameState> = {
-        phase: 'MAIN',
+        phase: GamePhase.PRECOMBAT_MAIN,
         turnPlayer: playerId,
         priority: playerId,
         battlefield: [cardDrawer, makerRock],
@@ -229,8 +234,8 @@ describe('AI Activated Abilities', () => {
       };
 
       const gameState: Partial<GameState> = {
-        phase: 'MAIN',
-        step: 'precombat_main',
+        phase: GamePhase.PRECOMBAT_MAIN,
+        step: GameStep.MAIN1,
         turnPlayer: playerId,
         priority: playerId,
         battlefield: [sphere],
@@ -265,6 +270,7 @@ describe('AI Activated Abilities', () => {
         summoningSickness: false,
         counters: {},
         card: {
+          id: 'perm1',
           name: 'Expedition Map',
           type_line: 'Artifact',
           oracle_text: '{2}, {T}, Sacrifice Expedition Map: Search your library for a land card, reveal it, put it into your hand, then shuffle.',
@@ -272,7 +278,7 @@ describe('AI Activated Abilities', () => {
       };
       
       const gameState: Partial<GameState> = {
-        phase: 'MAIN',
+        phase: GamePhase.PRECOMBAT_MAIN,
         turnPlayer: playerId,
         priority: playerId,
         battlefield: [tutor],
@@ -306,6 +312,7 @@ describe('AI Activated Abilities', () => {
         summoningSickness: false,
         counters: {},
         card: {
+          id: 'perm3',
           name: 'Mind Stone',
           type_line: 'Artifact',
           oracle_text: '{T}: Add {C}.',
@@ -313,8 +320,8 @@ describe('AI Activated Abilities', () => {
       };
 
       const gameState: Partial<GameState> = {
-        phase: 'MAIN',
-        step: 'precombat_main',
+        phase: GamePhase.PRECOMBAT_MAIN,
+        step: GameStep.MAIN1,
         turnPlayer: playerId,
         priority: playerId,
         battlefield: [manaRock],
@@ -345,6 +352,7 @@ describe('AI Activated Abilities', () => {
         summoningSickness: false,
         counters: {},
         card: {
+          id: 'swamp_1',
           name: 'Swamp',
           type_line: 'Basic Land — Swamp',
           oracle_text: '({T}: Add {B}.)',
@@ -352,8 +360,8 @@ describe('AI Activated Abilities', () => {
       };
 
       const gameState: Partial<GameState> = {
-        phase: 'BEGINNING',
-        step: 'upkeep',
+        phase: GamePhase.BEGINNING,
+        step: GameStep.UPKEEP,
         turnPlayer: playerId,
         priority: playerId,
         battlefield: [swamp],
@@ -418,6 +426,7 @@ describe('AI Activated Abilities', () => {
         isCommander: true as any,
         counters: {},
         card: {
+          id: 'perm4',
           name: 'Rafiq of the Many',
           type_line: 'Legendary Creature — Human Knight',
           oracle_text: '{T}: Draw a card.',
@@ -427,8 +436,8 @@ describe('AI Activated Abilities', () => {
       };
 
       const gameState: Partial<GameState> = {
-        phase: 'MAIN',
-        step: 'precombat_main',
+        phase: GamePhase.PRECOMBAT_MAIN,
+        step: GameStep.MAIN1,
         turnPlayer: playerId,
         priority: playerId,
         battlefield: [commander],
@@ -461,6 +470,7 @@ describe('AI Activated Abilities', () => {
         summoningSickness: false,
         counters: {},
         card: {
+          id: 'perm1',
           name: 'Humble Defector',
           type_line: 'Creature — Human Rogue',
           oracle_text: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only as a sorcery.',
@@ -470,7 +480,7 @@ describe('AI Activated Abilities', () => {
       };
       
       const gameState: Partial<GameState> = {
-        phase: 'MAIN',
+        phase: GamePhase.PRECOMBAT_MAIN,
         turnPlayer: opponentId, // Opponent's turn!
         priority: playerId,
         battlefield: [defector],
@@ -503,6 +513,7 @@ describe('AI Activated Abilities', () => {
         summoningSickness: false,
         counters: {},
         card: {
+          id: 'perm1',
           name: 'Humble Defector',
           type_line: 'Creature — Human Rogue',
           oracle_text: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only as a sorcery.',
@@ -512,7 +523,7 @@ describe('AI Activated Abilities', () => {
       };
       
       const gameState: Partial<GameState> = {
-        phase: 'MAIN',
+        phase: GamePhase.PRECOMBAT_MAIN,
         turnPlayer: playerId,
         priority: playerId,
         battlefield: [defector],
@@ -564,8 +575,8 @@ describe('AI Activated Abilities', () => {
 
     function xantchaContext(controller: PlayerID, turnPlayer: PlayerID = opponentId): AIDecisionContext {
       const gameState: Partial<GameState> = {
-        phase: 'precombatMain',
-        step: 'MAIN1',
+        phase: GamePhase.PRECOMBAT_MAIN,
+        step: GameStep.MAIN1,
         turnPlayer,
         priority: playerId,
         battlefield: [xantchaPermanent(controller)],

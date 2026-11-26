@@ -23,7 +23,7 @@ import { stackItemMeetsSingleTargetRequirement } from "../../rules-engine/target
 import { cardManaValue } from "../../state/utils";
 import { resolveCastSpellParsedTargeting } from "./gameActionsCastSpellParsedTargeting.js";
 import { stripCastTargetReminderText } from "./castTargetReminderText.js";
-import { permanentMatchesCastTargetPatternExtras, splitMultiTargetClause } from "./castSpellTargetPatternFallbacks.js";
+import { permanentMatchesCastTargetPatternExtras, splitMultiTargetClauseWithChoosers } from "./castSpellTargetPatternFallbacks.js";
 
 export { shouldPreferParsedTargetReqs } from "./gameActionsCastSpellParsedTargeting.js";
 
@@ -139,11 +139,29 @@ export function mapSpellTargetRefToDisplay(game: any, playerId: string, targetRe
   };
 }
 
+/** Normalize each oracle line alone: a keyword line ("Kicker - Return a land ...") must not swallow the rest. */
+function normalizeClauseLines(text: string): string {
+  return text.split(/\n+/).map((line) => normalizeGameplayEffectText(line)).filter(Boolean).join('\n');
+}
+
+/** it gains "Whenever this creature deals damage, destroy target Equipment ...": the granted ability targets later. */
+function targetsOnlyInsideQuotes(clauseText: string): boolean {
+  const re = /["\u201c\u201d]|\btargets?\b/gi;
+  let inQuote = false;
+  let sawTarget = false;
+  for (const m of String(clauseText || '').matchAll(re)) {
+    if (/^["\u201c\u201d]$/.test(m[0])) inQuote = !inQuote;
+    else if (!inQuote) return false;
+    else sawTarget = true;
+  }
+  return sawTarget;
+}
+
 function splitSpellTargetClauses(oracleText: string): string[] {
-  const normalized = normalizeGameplayEffectText(
+  const normalized = normalizeClauseLines(
     String(oracleText || '')
-      .replace(/[�]/g, "'")
-      .replace(/[-��]/g, '-')
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u2013\u2014]/g, '-')
       .replace(/\r\n?/g, '\n')
       .trim(),
   );
@@ -152,7 +170,7 @@ function splitSpellTargetClauses(oracleText: string): string[] {
 
   return normalized
     .split(/\n+/)
-    .map((line) => line.replace(/^(?:�|\*|-)\s*/, '').trim())
+    .map((line) => line.replace(/^(?:\u2022|\*|-)\s*/, '').trim())
     .filter(Boolean)
     .flatMap((line) => line.split(/(?<=[.;])\s+/))
     .flatMap((chunk) => chunk.split(/\bthen\b/i).map((part, index) => (index === 0 ? part : `then ${part}`).trim()))
@@ -160,7 +178,9 @@ function splitSpellTargetClauses(oracleText: string): string[] {
     .filter(Boolean);
 }
 
-function expandEmbeddedTargetClauses(clauseText: string): string[] {
+type ExpandedTargetClause = { text: string; chosenByOpponent?: boolean; restrictToChooserControlled?: boolean };
+
+function expandEmbeddedTargetClauses(clauseText: string): ExpandedTargetClause[] {
   const normalized = String(clauseText || '').trim();
   if (!normalized) {
     return [];
@@ -169,24 +189,24 @@ function expandEmbeddedTargetClauses(clauseText: string): string[] {
   const donateMatch = normalized.match(/target\s+(opponent|player)\s+gains\s+control\s+of\s+target\s+([^.]+)$/i);
   if (donateMatch) {
     return [
-      `target ${String(donateMatch[1] || '').trim()}`,
-      `target ${String(donateMatch[2] || '').trim()}`,
+      { text: `target ${String(donateMatch[1] || '').trim()}` },
+      { text: `target ${String(donateMatch[2] || '').trim()}` },
     ];
   }
 
   const exchangeMatch = normalized.match(/exchange\s+control\s+of\s+target\s+(.+?)\s+and\s+target\s+([^.]+)$/i);
   if (exchangeMatch) {
     return [
-      `target ${String(exchangeMatch[1] || '').trim()}`,
-      `target ${String(exchangeMatch[2] || '').trim()}`,
+      { text: `target ${String(exchangeMatch[1] || '').trim()}` },
+      { text: `target ${String(exchangeMatch[2] || '').trim()}` },
     ];
   }
 
   // Generic "target X fights target Y" / "choose target X and target Y" / "destroy target A and target B".
-  const multiTargetSplit = splitMultiTargetClause(normalized);
+  const multiTargetSplit = splitMultiTargetClauseWithChoosers(normalized);
   if (multiTargetSplit) return multiTargetSplit;
 
-  return [normalized];
+  return [{ text: normalized }];
 }
 
 function normalizeRequirementTargetType(rawTargetType: string | undefined): string {
@@ -513,6 +533,8 @@ export function buildSpellTargetSelectionClauses(
   minTargets: number;
   maxTargets: number;
   targetDescription: string;
+  chosenByOpponent?: boolean;
+  restrictToChooserControlled?: boolean;
 }> {
   const clauses = splitSpellTargetClauses(stripCastTargetReminderText(oracleText)).flatMap((clauseText) => expandEmbeddedTargetClauses(clauseText));
   const targetClauses: Array<{
@@ -521,12 +543,16 @@ export function buildSpellTargetSelectionClauses(
     minTargets: number;
     maxTargets: number;
     targetDescription: string;
+    chosenByOpponent?: boolean;
+    restrictToChooserControlled?: boolean;
   }> = [];
 
-  for (const clauseText of clauses) {
+  for (const clauseEntry of clauses) {
+    const clauseText = clauseEntry.text;
     // Main-phase "up to one other target" is an augmentation of the first
     // selection (min 1 / max 2), not a second TARGET_SELECTION prompt.
     if (isMainPhaseConditionalExtraTargetClause(clauseText)) continue;
+    if (targetsOnlyInsideQuotes(clauseText)) continue;
 
     const { spellSpec, targetReqs, preferParsedTargetReqs } = resolveCastSpellParsedTargeting({
       cardName,
@@ -563,6 +589,8 @@ export function buildSpellTargetSelectionClauses(
       targetDescription: preferParsedTargetReqs
         ? targetReqs?.targetDescription || spellSpec?.targetDescription || 'target'
         : spellSpec?.targetDescription || targetReqs?.targetDescription || 'target',
+      ...(clauseEntry.chosenByOpponent ? { chosenByOpponent: true } : null),
+      ...(clauseEntry.restrictToChooserControlled ? { restrictToChooserControlled: true } : null),
     });
   }
 

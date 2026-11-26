@@ -11,6 +11,7 @@ import { buildSweepSummary } from '../scripts/outcome-sweep/sweepReport.js';
 import { compareSweepRuns } from '../scripts/outcome-sweep/sweepCompare.js';
 import { parseSweepArgs } from '../scripts/outcome-sweep/sweepSelect.js';
 import { activationXValue, findZoneAbilities } from '../scripts/outcome-sweep/sweepZoneAbilities.js';
+import { seedCardResourceNeeds, seedCardTargetNeeds } from '../scripts/outcome-sweep/sweepBoard.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -40,6 +41,44 @@ describe('outcome sweep hook failure capture', () => {
 });
 
 describe('outcome sweep harness gaps', () => {
+  it('sweeps cycling only for a cycling keyword with a cost, not text that mentions cycling', () => {
+    const ids = (oracle_text: string) => findZoneAbilities({ name: 'Sweep Cycler', type_line: 'Artifact', oracle_text } as any).map((entry) => entry.abilityId);
+    expect(ids('You may cast spells that have a cycling ability from your graveyard.')).toEqual([]);
+    expect(ids('Cycling abilities you activate cost up to {2} less to activate.')).toEqual([]);
+    expect(ids('Cycling {2} ({2}, Discard this card: Draw a card.)')).toEqual(['sweep_source-cycling-0']);
+    expect(ids('Basic landcycling {1}{G}')).toEqual(['sweep_source-cycling-0']);
+  });
+
+  it('seeds energy, max speed and power-N sacrifice fodder only for cards that need them', () => {
+    const state: any = { battlefield: [] };
+    seedCardResourceNeeds(state, { name: 'Sweep Plain', oracle_text: 'Draw a card.' } as any);
+    expect(state).toEqual({ battlefield: [] });
+    seedCardResourceNeeds(state, { name: 'Sweep Engine', oracle_text: 'Max speed \u2014 {T}, Pay {E}{E}: Draw a card.\nAs an additional cost to cast this spell, sacrifice a creature with power 4 or greater.' } as any);
+    expect(state.energy.p1).toBeGreaterThanOrEqual(50);
+    expect(state.speed.p1).toBe(4);
+    expect(state.battlefield[0].card.power).toBe('4');
+  });
+
+  it('seeds per-card legal targets only for cards whose text needs them', () => {
+    const fresh = () => ({ battlefield: [] as any[], zones: { p1: { hand: [], handCount: 0 }, p2: { hand: [], handCount: 0 } } });
+    const plain = fresh();
+    seedCardTargetNeeds(plain, 'destroy target creature. draw a card.');
+    expect(plain.battlefield).toEqual([]);
+    const s = fresh();
+    seedCardTargetNeeds(s, 'destroy target white creature. exile target nonbasic land. destroy target tapped creature. exile target nonwhite attacking creature.');
+    const byId = (id: string) => s.battlefield.find((p: any) => p.id === 'perm_' + id);
+    expect(byId('p2_bf_white')?.card.colors).toEqual(['W']);
+    expect(byId('p2_bf_nonbasic_1')?.card.type_line).toBe('Land');
+    expect(byId('p2_bf_tapped')?.tapped).toBe(true);
+    expect(byId('p2_bf_attacker')?.attacking).toBe('p1');
+    const h = fresh();
+    seedCardTargetNeeds(h, 'target player reveals their hand. you choose a spirit or arcane card from it. that player discards that card. create x tokens that are copies of target token you control.');
+    expect(h.zones.p2.hand.map((c: any) => c.type_line)).toEqual(['Creature \u2014 Spirit', 'Instant \u2014 Arcane']);
+    expect(h.zones.p2.handCount).toBe(2);
+    expect(h.battlefield[0].isToken).toBe(true);
+    expect(h.battlefield[0].controller).toBe('p1');
+  });
+
   it('activates abilities as the source permanent\'s current controller', () => {
     const table = { handlers: { p1: {}, p2: {} } } as any;
     expect(sweepActivatingPlayer(table, { controller: 'p2' })).toBe('p2');

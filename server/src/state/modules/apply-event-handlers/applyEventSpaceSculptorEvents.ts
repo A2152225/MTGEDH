@@ -12,7 +12,9 @@ export function applySpaceSculptorEvents(ctx: GameContext, event: GameEvent): bo
   const type = String((event as any)?.type || '');
   if (type === 'assignSector') {
     const permanentId = String((event as any).permanentId || '').trim();
-    const permanent = (ctx.state.battlefield || []).find((entry: any) => String(entry?.id || '') === permanentId);
+    const permanent = (ctx.state.battlefield || []).find((entry: any) => String(entry?.id || '') === permanentId) as unknown as
+      | { sector?: string }
+      | undefined;
     const sector = (event as any).sector;
     const stateAny = ctx.state as any;
     stateAny.spaceSculptorSectors = stateAny.spaceSculptorSectors || {};

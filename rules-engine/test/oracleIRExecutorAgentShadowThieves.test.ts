@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor.js';
 import { collectOracleEffectSteps } from '../../server/src/state/modules/trigger-runtime-wiring.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 describe('Oracle IR Agent of the Shadow Thieves attack trigger', () => {
   const effectText =
@@ -11,7 +12,7 @@ describe('Oracle IR Agent of the Shadow Thieves attack trigger', () => {
   it('applies counter and temporary abilities when life condition is met', () => {
     const p1 = 'p1' as PlayerID;
     const steps = collectOracleEffectSteps(effectText, 'Commander');
-    const state = {
+    const state = asGameState({
       startingLife: 40,
       life: { p1: 30, p2: 25, p3: 20 },
       players: [{ id: p1 }, { id: 'p2' }, { id: 'p3' }],
@@ -21,7 +22,7 @@ describe('Oracle IR Agent of the Shadow Thieves attack trigger', () => {
         counters: {},
         card: { name: 'Commander', type_line: 'Creature — Human Rogue' },
       }],
-    } as GameState;
+    });
 
     const ctx = buildOracleIRExecutionContext({
       controllerId: p1,
@@ -50,7 +51,7 @@ describe('Oracle IR Agent of the Shadow Thieves attack trigger', () => {
   it('stamps deathtouch and indestructible on the source creature when the attack trigger binds the defending player', () => {
     const p1 = 'p1' as PlayerID;
     const steps = collectOracleEffectSteps(effectText, 'Baeloth Barrityl, Entertainer');
-    const state = {
+    const state = asGameState({
       startingLife: 40,
       life: { p1: 40, p2: 40, p3: 36 },
       players: [{ id: p1 }, { id: 'p2' }, { id: 'p3' }],
@@ -63,7 +64,7 @@ describe('Oracle IR Agent of the Shadow Thieves attack trigger', () => {
           type_line: 'Legendary Creature — Elf Shaman',
         },
       }],
-    } as GameState;
+    });
 
     const ctx = buildOracleIRExecutionContext({
       controllerId: p1,
@@ -94,7 +95,7 @@ describe('Oracle IR Agent of the Shadow Thieves attack trigger', () => {
   it('skips the effect when an opponent has more life than the attacked player', () => {
     const p1 = 'p1' as PlayerID;
     const steps = collectOracleEffectSteps(effectText, 'Commander');
-    const state = {
+    const state = asGameState({
       startingLife: 40,
       life: { p1: 30, p2: 25, p3: 30 },
       players: [{ id: p1 }, { id: 'p2' }, { id: 'p3' }],
@@ -104,7 +105,7 @@ describe('Oracle IR Agent of the Shadow Thieves attack trigger', () => {
         counters: {},
         card: { name: 'Commander', type_line: 'Creature — Human Rogue' },
       }],
-    } as GameState;
+    });
 
     const ctx = buildOracleIRExecutionContext({
       controllerId: p1,

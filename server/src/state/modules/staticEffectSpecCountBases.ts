@@ -27,7 +27,7 @@ type SpecLike = {
   effectSourcePermanentId?: string;
   grant?: { countBasis?: string; countCardType?: string; countAttachmentKinds?: readonly string[]; countExcludeSource?: boolean;
     countCounterType?: string; countWho?: string; countKeyword?: string; countQualifier?: any; countName?: string;
-    countColor?: string };
+    countColor?: string; countNamedYouControl?: boolean };
 };
 
 function playerCounterCount(state: any, players: any[], id: string, kind: string): number {
@@ -247,7 +247,7 @@ export function resolveExtendedCountMultiplier(spec: SpecLike, battlefield: read
     case 'creatures_named': {
       const wanted = String(grant.countName || '').toLowerCase();
       const skip = grant.countExcludeSource ? String(spec.sourcePermanentId || '') : '';
-      return battlefield.filter((p) => p && !p.phasedOut && String(p?.controller || '') === controller
+      return battlefield.filter((p) => p && !p.phasedOut && (!grant.countNamedYouControl || String(p?.controller || '') === controller)
         && /\bcreature\b/.test(typeLine(p)) && !(skip && String(p?.id || '') === skip)
         && String(p?.card?.name || p?.name || '').toLowerCase() === wanted).length;
     }

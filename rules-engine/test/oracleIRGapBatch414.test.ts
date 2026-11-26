@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { applyModifyGraveyardPermissionsStep, applyGrantGraveyardPermissionStep } from '../src/oracleIRExecutorPlayerStepHandlers.ts';
-import { mergeGrantedGraveyardPermissionSourceText } from '../src/oracleIRExecutorPlayerStepHandlers.ts';
-import { parseOracleTextToIR } from '../src/oracleIRParser.ts';
+import { applyModifyGraveyardPermissionsStep, applyGrantGraveyardPermissionStep } from '../src/oracleIRExecutorPlayerStepHandlers';
+import { mergeGrantedGraveyardPermissionSourceText } from '../src/oracleIRExecutorPlayerStepHandlers';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 const BROODSHIP_EFFECT =
   'Once during each of your turns, you may cast a permanent spell from your graveyard by sacrificing a land in addition to paying its other costs.';
@@ -53,7 +54,7 @@ describe('oracle IR gap batch414 — graveyard permission sourceText dedupe', ()
       sourceId: 'broodship_1',
       sourceName: 'Exploration Broodship',
     } as any);
-    expect(grantResult.applied).toBe(true);
+    assertApplied(grantResult);
 
     const modifyResult = applyModifyGraveyardPermissionsStep(
       grantResult.state as any,

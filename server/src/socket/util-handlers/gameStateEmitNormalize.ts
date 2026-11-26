@@ -25,6 +25,8 @@ import { getGrantedCyclingCost, cardHasPrintedCycling } from "../../state/module
 import { getGraveyardAbilityHints } from "./getGraveyardAbilityHints.js";
 import { defaultPlayerZones } from "./playerStateZones.js";
 import { getCirclingVulturesDiscardActions } from "../../state/modules/circlingVulturesDiscardAction.js";
+import { getBecomeAuraEndEffectActions } from "../../state/modules/becomeAuraEndEffectAction.js";
+import { reportHookFailure } from "../../../../shared/src/hookFailureReporter.js";
 
 type SharedEmitBattlefieldCache = {
   seq: number;
@@ -433,6 +435,13 @@ export function normalizeViewForEmit(rawView: any, game: any) {
               (view as any).circlingVulturesDiscardActions = vulturesActions;
             }
           } catch { /* optional listing */ }
+          try {
+            // Licid "pay {U} to end this effect": per-viewer list with a `payable` flag for the button.
+            const becomeAuraEndEffectActions = getBecomeAuraEndEffectActions(game.state, String(viewerId));
+            if (becomeAuraEndEffectActions.length > 0) Object.assign(view, { becomeAuraEndEffectActions });
+          } catch (err) {
+            reportHookFailure('becomeAuraEndEffect.view', err, { playerId: String(viewerId), source: 'gameStateEmitNormalize' });
+          }
         } catch { /* optional listing */ }
       }
     } catch (e) {

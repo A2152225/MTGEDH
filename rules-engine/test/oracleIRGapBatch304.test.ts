@@ -8,6 +8,7 @@ import {
   parseMoveZoneCountCardsExiledWithThisPermanent,
   selectGraveyardCardIdsWithDifferentNames,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -94,7 +95,7 @@ describe('Oracle IR gap batch 304 — any-number different names / count exiled-
       "Vault 13: Dweller's Journey"
     );
     const step = ir.abilities[0]?.steps?.[0];
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: controllerId,
@@ -129,7 +130,7 @@ describe('Oracle IR gap batch 304 — any-number different names / count exiled-
       battlefield: [
         { id: 'vault-saga', name: 'Vault 13', type_line: 'Enchantment — Saga', cmc: 3, ownerId: controllerId },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, [step], {
       controllerId,

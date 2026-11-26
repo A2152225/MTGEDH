@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState } from '../../shared/src/index.js';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor.js';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 const ABILITY =
   '{2}{G}: Put a +1/+1 counter on each creature you control that entered this turn. If you put two or more +1/+1 counters on creatures this way, draw a card.';
@@ -15,7 +16,7 @@ function board(): GameState {
     card: { id: `${id}-card`, name: id, type_line: 'Creature — Elf', oracle_text: '' },
     counters: {},
   });
-  return {
+  return asGameState({
     players: [
       { id: 'p1', hand: [], library: [{ id: 'drawn', name: 'Forest' }], exile: [], graveyard: [] },
       { id: 'p2', hand: [], library: [], exile: [], graveyard: [] },
@@ -25,7 +26,7 @@ function board(): GameState {
       p1: { hand: [], library: [{ id: 'drawn', name: 'Forest' }], graveyard: [], exile: [] },
       p2: { hand: [], library: [], graveyard: [], exile: [] },
     },
-  } as GameState;
+  });
 }
 
 describe('Guinan entered-this-turn counters', () => {

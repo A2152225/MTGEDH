@@ -17,11 +17,12 @@ import { payCommittedActivationEnergy } from "./activationEnergyCost.js";
  */
 
 import { movePermanentToGraveyard } from "../../state/modules/counters_tokens.js";
+import { movePermanentToHand } from "../../state/modules/zones-handlers/zonesMovePermanentToHand.js";
 import { payLifeAmount } from "../../state/modules/batch97PayLife.js";
 import { reportHookFailure } from "../../../../shared/src/hookFailureReporter.js";
 import { getEffectivePower, getEffectiveToughness } from "../util.js";
 
-export type SelfSourceCostKind = 'sacrifice' | 'exile';
+export type SelfSourceCostKind = 'sacrifice' | 'exile' | 'return_to_hand';
 
 // Flat shape: the server tsconfig is non-strict, so a discriminated `ok` union does not narrow.
 export type SelfSourceCostResult = {
@@ -83,7 +84,7 @@ function ensureTokenGraveyardSnapshot(game: any, ownerId: string, tokenCard: any
   }
 }
 
-/** Sacrifice or exile the ability's own source as an activation cost. */
+/** Sacrifice, exile or return to hand the ability's own source (or another chosen permanent) as an activation cost. */
 export function paySelfSourceActivationCost(
   game: any,
   gameId: string,
@@ -115,7 +116,9 @@ export function paySelfSourceActivationCost(
   } as any;
   let moved = false;
   try {
-    moved = Boolean(movePermanentToGraveyard(ctx, String(permanentId), true));
+    moved = kind === 'return_to_hand'
+      ? Boolean(movePermanentToHand(ctx, String(permanentId)))
+      : Boolean(movePermanentToGraveyard(ctx, String(permanentId), true));
   } catch (err) {
     reportHookFailure('activation.selfSourceCost.move', err, { cardName, cardId: String(permanentId), gameId, playerId: controllerId });
     return {
@@ -183,7 +186,23 @@ export function payDeferredStepActivationCosts(
       return { code: 'INSUFFICIENT_LIFE', message: `Cannot activate ${cardName}: need to pay ${life} life.` };
     }
   }
-  if (kind === 'sacrifice' || kind === 'exile') {
+  // "Sacrifice a creature" chosen during activation (Chthonian Nightmare): still controlled?
+  const sacrificeIds: string[] = Array.isArray(stepAny.deferredSacrificeChoiceIds)
+    ? stepAny.deferredSacrificeChoiceIds.map((id: any) => String(id)).filter(Boolean)
+    : [];
+  const battlefieldNow: any[] = Array.isArray(game.state?.battlefield) ? game.state.battlefield : [];
+  if (sacrificeIds.some((id) => !battlefieldNow.some((perm: any) => perm && String(perm.id) === id && String(perm.controller || '') === controllerId))) {
+    return { code: 'SACRIFICE_NOT_AVAILABLE', message: `Cannot activate ${cardName}: the permanent chosen to sacrifice is gone.` };
+  }
+  for (const id of sacrificeIds) {
+    const result = paySelfSourceActivationCost(game, gameId, controllerId, id, 'sacrifice', cardName);
+    if (!result.ok) return { code: result.code, message: result.message };
+    const prior = Array.isArray(stepAny.sacrificedPermanentsForCost) ? stepAny.sacrificedPermanentsForCost : [];
+    stepAny.sacrificedPermanentsForCost = Array.from(new Set([...prior.map((entry: any) => String(entry)), id]));
+    stepAny.lastSacrificedPermanents = [...(Array.isArray(stepAny.lastSacrificedPermanents) ? stepAny.lastSacrificedPermanents : []), result.snapshot];
+  }
+  delete stepAny.deferredSacrificeChoiceIds;
+  if (kind === 'sacrifice' || kind === 'exile' || kind === 'return_to_hand') {
     const result = paySelfSourceActivationCost(game, gameId, controllerId, permanentId, kind, cardName);
     if (!result.ok) return { code: result.code, message: result.message };
     stepAny.sourceLastKnown = result.snapshot;
@@ -192,6 +211,9 @@ export function payDeferredStepActivationCosts(
       stepAny.sacrificedPermanentsForCost = Array.from(new Set([...prior.map((id: any) => String(id)), String(permanentId)]));
       const priorSnapshots = Array.isArray(stepAny.lastSacrificedPermanents) ? stepAny.lastSacrificedPermanents : [];
       stepAny.lastSacrificedPermanents = [...priorSnapshots, result.snapshot];
+    } else if (kind === 'return_to_hand') {
+      const prior = Array.isArray(stepAny.returnedPermanentsToHandForCost) ? stepAny.returnedPermanentsToHandForCost : [];
+      stepAny.returnedPermanentsToHandForCost = [...prior.map((id: any) => String(id)), String(permanentId)];
     } else {
       stepAny.exiledSelfForCost = String(permanentId);
     }

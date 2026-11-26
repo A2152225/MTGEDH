@@ -6,6 +6,7 @@ import {
   parseMoveZoneSingleTargetFromYourGraveyard,
   parseMoveZoneThisPermanentAndAnotherTargetCreature,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -56,7 +57,7 @@ describe('Oracle IR gap batch 332 — Nahiri / The Five Doctors / Lady Sun', () 
         String((entry as any).what?.text || '').includes('graveyard')
     );
     expect(moveStep).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: controllerId,
@@ -81,7 +82,7 @@ describe('Oracle IR gap batch 332 — Nahiri / The Five Doctors / Lady Sun', () 
           counters: { loyalty: 5 },
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [moveStep!], {
       controllerId,
       sourceId: 'bf-nahiri',
@@ -126,7 +127,7 @@ describe('Oracle IR gap batch 332 — Nahiri / The Five Doctors / Lady Sun', () 
     );
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: opponentId, library: [], hand: [], graveyard: [], exile: [] },
@@ -149,7 +150,7 @@ describe('Oracle IR gap batch 332 — Nahiri / The Five Doctors / Lady Sun', () 
           cmc: 2,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'bf-lady-sun',

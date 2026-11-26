@@ -525,7 +525,9 @@ describe('sacrificeUnlessPayChoice validate-before-complete (integration)', () =
           id: 'relay_card_1',
           name: 'Choice Relay',
           type_line: 'Artifact',
-          oracle_text: '{T}: Add {C}.\nPay 1 life, {T}: Add {U}{R}.',
+          // Paying life is a supported mana-ability cost since 3ebe6ad5 (CR 118.3/119.4: a player can pay life they have),
+          // so the unsupported non-mana additional cost here is a discard.
+          oracle_text: '{T}: Add {C}.\nDiscard a card, {T}: Add {U}{R}.',
         },
       },
     ]);

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import type { GameState } from '../../shared/src/index.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 // Quoted from mtg_data.db cards.text WHERE is_token = 0.
 const APEX_FIGHT = "it fights up to one target creature you don't control.";
@@ -35,13 +36,13 @@ describe('Oracle IR fight damage', () => {
     const steps = collectDealDamageSteps(APEX_FIGHT, 'Apex Altisaur');
     expect(steps.length).toBeGreaterThan(0);
 
-    const state = {
+    const state = asGameState({
       players: [{ id: 'p1' }, { id: 'p2' }],
       battlefield: [
         makeCreature('apex', 'p1', 10, 10, 'Apex Altisaur'),
         makeCreature('bear', 'p2', 2, 2, 'Grizzly Bears'),
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId: 'p1',
@@ -63,13 +64,13 @@ describe('Oracle IR fight damage', () => {
     const steps = collectDealDamageSteps('Then those creatures fight each other.', 'Malamet Battle Glyph');
     expect(steps.length).toBeGreaterThan(0);
 
-    const state = {
+    const state = asGameState({
       players: [{ id: 'p1' }, { id: 'p2' }],
       battlefield: [
         makeCreature('bf-a', 'p1', 2, 2, 'Cat'),
         makeCreature('bf-b', 'p2', 3, 2, 'Snake'),
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId: 'p1',

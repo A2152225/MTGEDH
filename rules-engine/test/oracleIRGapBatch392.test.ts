@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -77,13 +78,13 @@ describe('Oracle IR gap batch 392 — general parse→execute clusters', () => {
     expect(fightStep).toBeTruthy();
     expectNoGeneralGaps(
       [fightStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         battlefield: [
           { id: 'bf-a', controller: controllerId, type_line: 'Creature — Cat', power: 2, toughness: 2 },
           { id: 'bf-b', controller: 'p2', type_line: 'Creature — Snake', power: 3, toughness: 2 },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         lastMovedBattlefieldPermanentIds: ['bf-a', 'bf-b'],
@@ -98,10 +99,10 @@ describe('Oracle IR gap batch 392 — general parse→execute clusters', () => {
     expect(tokenStep).toBeTruthy();
     expectNoGeneralGaps(
       [tokenStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         nontokenCreaturesDiedThisTurnByController: { p1: 2 },
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-src', xValue: 2 }
     );
   });
@@ -114,7 +115,7 @@ describe('Oracle IR gap batch 392 — general parse→execute clusters', () => {
     expect(doubleStep).toBeTruthy();
     expectNoGeneralGaps(
       [doubleStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           {
@@ -125,7 +126,7 @@ describe('Oracle IR gap batch 392 — general parse→execute clusters', () => {
             toughness: 3,
           },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         targetCreatureId: 'bf-target',
@@ -140,12 +141,12 @@ describe('Oracle IR gap batch 392 — general parse→execute clusters', () => {
     expect(tribalStep).toBeTruthy();
     expectNoGeneralGaps(
       [tribalStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-human', controller: controllerId, type_line: 'Creature — Human', power: 1, toughness: 1 },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         xValue: 2,

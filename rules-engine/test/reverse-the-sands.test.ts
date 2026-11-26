@@ -3,6 +3,8 @@ import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyRedistributeLifeTotalsStep } from '../src/oracleIRExecutorPlayerStepHandlers';
 import { buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 import type { GameState } from '../../shared/src';
+import { asGameState } from './helpers/gameStateFixture';
+import { assertSkipped } from './helpers/stepResultAssertions';
 
 function collectSteps(value: unknown): any[] {
   if (!value || typeof value !== 'object') return [];
@@ -28,14 +30,14 @@ describe('Reverse the Sands life redistribution', () => {
   });
 
   it('requires player choice until redistribution is supplied', () => {
-    const state = {
+    const state = asGameState({
       players: [
         { id: 'p1', name: 'Alice', life: 20 },
         { id: 'p2', name: 'Bob', life: 30 },
         { id: 'p3', name: 'Carol', life: 40 },
       ],
       life: { p1: 20, p2: 30, p3: 40 },
-    } as GameState;
+    });
 
     const step = {
       kind: 'redistribute_life_totals',
@@ -44,7 +46,7 @@ describe('Reverse the Sands life redistribution', () => {
 
     const ctx = buildOracleIRExecutionContext({ controllerId: 'p1', sourceName: 'Reverse the Sands' });
     const pending = applyRedistributeLifeTotalsStep(state, step, ctx);
-    expect(pending.applied).toBe(false);
+    assertSkipped(pending);
     expect(pending.reason).toBe('player_choice_required');
 
     const applied = applyRedistributeLifeTotalsStep(state, step, {

@@ -145,8 +145,8 @@ describe('oracleIRThisWayBinding', () => {
       {
         kind: 'conditional',
         raw: 'If you searched your library this way, draw a card.',
-        condition: { kind: 'raw', raw: 'you searched your library this way' },
-        thenSteps: [{ kind: 'draw', raw: 'draw a card', amount: { kind: 'number', value: 1 }, who: { kind: 'you' } }],
+        condition: { kind: 'if', raw: 'you searched your library this way' },
+        steps: [{ kind: 'draw', raw: 'draw a card', amount: { kind: 'number', value: 1 }, who: { kind: 'you' } }],
       },
     ];
 
@@ -282,6 +282,7 @@ describe('oracleIRThisWayBinding', () => {
       condition: { kind: 'if', raw: 'you searched your library this way' },
       thisWayAntecedentStepIndex: 0,
       thisWayAntecedentStepKind: 'search_library',
+      steps: [],
     } as OracleEffectStep;
 
     const ctx = buildOracleIRExecutionContext({
@@ -324,6 +325,7 @@ describe('oracleIRThisWayBinding', () => {
       condition: { kind: 'if', raw: 'you searched your library this way' },
       thisWayAntecedentStepIndex: 0,
       thisWayAntecedentStepKind: 'search_library',
+      steps: [],
     } as OracleEffectStep;
 
     const ctx = buildOracleIRExecutionContext({
@@ -485,7 +487,7 @@ describe('oracleIRThisWayBinding', () => {
     });
 
     expect(resolveGreatestPerPlayerDiscardCountThisWay(ctx, 0)).toBe(3);
-    expect(resolveOracleQuantity(state, 'p1', drawStep.amount as any, ctx, { step: drawStep })).toBe(3);
+    expect(resolveOracleQuantity(state, 'p1', (drawStep as Extract<OracleEffectStep, { kind: 'draw' }>).amount, ctx, { step: drawStep })).toBe(3);
   });
 
   it('evaluateModifyPtWhereX resolves nonland discarded this way from ledger', () => {
@@ -512,7 +514,7 @@ describe('oracleIRThisWayBinding', () => {
       kind: 'add_counter',
       raw: 'where X is the number of nonland cards discarded this way',
       target: { kind: 'raw', text: 'target creature' },
-      counterType: '+1/+1',
+      counter: '+1/+1',
       amount: { kind: 'x' },
       thisWayAntecedentStepIndex: 0,
       thisWayAntecedentStepKind: 'discard',

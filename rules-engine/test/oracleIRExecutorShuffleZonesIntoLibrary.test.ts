@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor.js';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 const p1 = 'p1' as PlayerID;
 const p2 = 'p2' as PlayerID;
@@ -29,7 +30,7 @@ describe('Oracle IR shuffle_zones_into_library', () => {
       type_line: 'Instant',
     }));
 
-    const state = {
+    const state = asGameState({
       players: [
         { id: p1, hand: [...p1Hand], graveyard: [...p1Graveyard], library: [...p1Library] },
         { id: p2, hand: [...p2Hand], graveyard: [...p2Graveyard], library: [...p2Library] },
@@ -47,7 +48,7 @@ describe('Oracle IR shuffle_zones_into_library', () => {
         },
       },
       battlefield: [],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId: p1,

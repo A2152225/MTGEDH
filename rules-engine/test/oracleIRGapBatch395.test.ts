@@ -6,8 +6,8 @@ import {
   buildAuditFixtureState,
   enrichAuditStateAndContextForCopySteps,
   enrichAuditStateAndContextForTargets,
-} from '../../server/scripts/executor-coverage-audit.ts';
-import { collectUnknownIrGapsFromSteps } from '../../server/scripts/trigger-coverage-audit.ts';
+} from '../../server/scripts/executor-coverage-audit';
+import { collectUnknownIrGapsFromSteps } from '../../server/scripts/trigger-coverage-audit';
 
 function runAuditAbility(name: string, oracleText: string, typeLine?: string) {
   const parsed = parseOracleTextToIR(oracleText, name);

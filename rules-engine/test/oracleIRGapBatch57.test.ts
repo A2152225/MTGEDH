@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
-import { lookupLocalCardByNameSync } from '../../server/src/services/localCardLookup.ts';
+import { lookupLocalCardByNameSync } from '../../server/src/services/localCardLookup';
 
 function collectUnknowns(value: unknown): string[] {
   const unknowns: string[] = [];

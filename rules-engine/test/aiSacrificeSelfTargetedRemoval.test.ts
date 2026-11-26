@@ -29,6 +29,7 @@ const mite = perm({
   id: 'mite',
   controller: 'p1',
   card: {
+    id: 'mite',
     name: 'Haywire Mite',
     type_line: 'Artifact Creature — Insect',
     oracle_text: ABILITY,
@@ -45,6 +46,7 @@ describe('sacrifice-self targeted removal', () => {
         perm({
           id: 'sol-ring',
           card: {
+            id: 'sol-ring',
             name: 'Sol Ring',
             type_line: 'Artifact',
             oracle_text: '{T}: Add {C}{C}.',
@@ -67,6 +69,7 @@ describe('sacrifice-self targeted removal', () => {
         perm({
           id: 'rhystic',
           card: {
+            id: 'rhystic',
             name: 'Rhystic Study',
             type_line: 'Enchantment',
             oracle_text: 'Whenever an opponent casts a spell, you may draw a card unless that player pays {1}.',
@@ -90,6 +93,7 @@ describe('sacrifice-self targeted removal', () => {
           id: 'sol-ring',
           controller: 'p1',
           card: {
+            id: 'sol-ring',
             name: 'Sol Ring',
             type_line: 'Artifact',
             oracle_text: '{T}: Add {C}{C}.',
@@ -112,6 +116,7 @@ describe('sacrifice-self targeted removal', () => {
         perm({
           id: 'thopter',
           card: {
+            id: 'thopter',
             name: 'Ornithopter',
             type_line: 'Artifact Creature — Thopter',
             oracle_text: 'Flying',

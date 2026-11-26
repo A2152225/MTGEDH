@@ -3,6 +3,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -17,7 +18,7 @@ const baseParams = {
 
 describe('Oracle IR gap batch 354 — top condition clusters', () => {
   it('evaluates no attack, no damage yet, second land, and opponent damage', () => {
-    const state = {
+    const state = asGameState({
       players: [{ id: 'p1' }, { id: 'p2' }],
       creaturesAttackedThisTurn: {},
       landsEnteredBattlefieldThisTurn: { p2: 2 },
@@ -25,7 +26,7 @@ describe('Oracle IR gap batch 354 — top condition clusters', () => {
       battlefield: [
         { id: 'bf-source', controller: controllerId, type_line: 'Creature — Angel', hasDealtDamage: false },
       ],
-    } as GameState;
+    });
 
     expect(
       evaluateExtendedConditionalClause({
@@ -69,11 +70,11 @@ describe('Oracle IR gap batch 354 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         creaturesAttackedThisTurn: {},
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Elemental Ox' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -88,12 +89,12 @@ describe('Oracle IR gap batch 354 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-source', controller: controllerId, type_line: 'Creature — Angel', hasDealtDamage: false },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -108,10 +109,10 @@ describe('Oracle IR gap batch 354 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         landsEnteredBattlefieldThisTurn: { p2: 2 },
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-ignus', targetPlayerId: 'p2' }
     );
@@ -126,11 +127,11 @@ describe('Oracle IR gap batch 354 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         creaturesThatDealtDamageToPlayer: { p2: { 'bf-source': true } },
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Human Monk' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );

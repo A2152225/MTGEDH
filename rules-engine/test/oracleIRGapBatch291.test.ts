@@ -9,6 +9,7 @@ import {
   parseMoveZoneOpponentChoiceFromTargetPlayersGraveyard,
   parseMoveZoneSingleTargetFromYourGraveyard,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -105,7 +106,7 @@ describe('Oracle IR gap batch 291 — selector cluster fixes', () => {
       'Soulquake'
     );
     const steps = ir.abilities[0]?.steps || [];
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: controllerId,
@@ -123,7 +124,7 @@ describe('Oracle IR gap batch 291 — selector cluster fixes', () => {
           type_line: 'Creature — Bear',
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, { controllerId, sourceId: 'soulquake' });
     expect(result.automationGaps?.some((gap) => gap.reasonCode === 'unsupported_selector')).toBe(false);

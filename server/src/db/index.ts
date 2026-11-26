@@ -390,6 +390,11 @@ function ensureDB(): void {
   if (!db) throw new Error('DB not initialized. Call initDb() first.');
 }
 
+/** True once initDb() has opened the database; callers with an in-memory fallback can skip DB lookups. */
+export function isDbInitialized(): boolean {
+  return db !== null;
+}
+
 function safeParseJSON(text: string | null): unknown {
   if (!text) return undefined;
   try { return JSON.parse(text); } catch { return undefined; }

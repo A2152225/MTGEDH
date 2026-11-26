@@ -4,6 +4,7 @@ import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { buildOracleIRExecutionContext } from '../src/oracleIRExecutorExecutionContext';
 import type { GameState } from '../../shared/src';
+import { asGameState } from './helpers/gameStateFixture';
 
 function collectStepsFromText(text: string, name: string) {
   const ir = parseOracleTextToIR(text, name);
@@ -12,7 +13,7 @@ function collectStepsFromText(text: string, name: string) {
 
 function buildState(targetIds: readonly string[]): GameState {
   const playerId = 'p1' as PlayerID;
-  return {
+  return asGameState({
     players: [{ id: playerId, name: 'Player', life: 40 }],
     battlefield: targetIds.map((id, index) => ({
       id,
@@ -27,7 +28,7 @@ function buildState(targetIds: readonly string[]): GameState {
     turnNumber: 1,
     phase: 'main1',
     active: true,
-  } as GameState;
+  });
 }
 
 describe('distribute counters among targets (IR execute)', () => {

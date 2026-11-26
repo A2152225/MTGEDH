@@ -2,7 +2,7 @@
 // creature. Attach it to target creature. You may pay {U} to end this effect."): the ability splitter cut
 // the activation after "enchant creature", leaving "Attach it to target creature" as a stray spell
 // ability, so the become_aura step had no enchant target and the activation did nothing. Fold the attach
-// sentence back into the become_aura step (its enchant selector becomes the attach target) and keep the
+// sentence back into the become_aura step as `attachTarget` (enchant stays the printed restriction) and keep the
 // "pay {X} to end this effect" cost on the step.
 //
 // Public entry points:
@@ -51,7 +51,7 @@ export function mergeBecomeAuraAttachAbilities(abilities: OracleIRAbility[]): Or
     }
     const merged = {
       ...last,
-      enchant: parseObjectSelector(attachMatch[1]),
+      attachTarget: parseObjectSelector(attachMatch[1]),
       ...(endMatch ? { endEffectCost: endMatch[1] } : {}),
     };
     const followText = String(follow.text || '').trim();

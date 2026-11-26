@@ -3,7 +3,7 @@
  * Origin parent: match.ts triggerConditionMatches (late checks).
  * Public: matchRound67Filters.
  */
-import type { TriggerConditionIR, TriggerMatchContext, TriggerMatchPermanent } from './types.js';
+import type { TriggerConditionIR, TriggerMatchContext, TriggerMatchPermanent, TriggerMatchSource } from './types.js';
 
 const COLOR_LETTER: Record<string, string> = {
   white: 'W', w: 'W', blue: 'U', u: 'U', black: 'B', b: 'B', red: 'R', r: 'R', green: 'G', g: 'G',
@@ -18,7 +18,7 @@ function colorLetter(raw: string): string {
 export function matchRound67Filters(
   condition: TriggerConditionIR,
   subject: TriggerMatchPermanent,
-  source: TriggerMatchPermanent,
+  source: TriggerMatchSource,
   context?: TriggerMatchContext,
 ): boolean {
   if (condition.crewedBySourceThisTurn) {

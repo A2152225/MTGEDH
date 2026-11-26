@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import type { GameState } from '../../shared/src/index.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 // Quoted from local cards DB (Descendants' Path, Avacyn Restored).
 const DESCENDANTS_PATH_ORACLE =
   "At the beginning of your upkeep, reveal the top card of your library. If it's a creature card that shares a creature type with a creature you control, you may cast it without paying its mana cost. If you don't cast it, put it on the bottom of your library.";
 
 function makeState(overrides: Record<string, unknown> = {}): GameState {
-  return {
+  return asGameState({
     id: 'descendants-path',
     format: 'commander',
     players: [
@@ -43,7 +44,7 @@ function makeState(overrides: Record<string, unknown> = {}): GameState {
     priority: 'p1',
     active: true,
     ...overrides,
-  } as GameState;
+  });
 }
 
 function triggerSteps() {

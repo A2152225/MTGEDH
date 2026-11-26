@@ -4,6 +4,7 @@ import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { buildOracleIRExecutionContext } from '../src/oracleIRExecutorExecutionContext';
 import type { GameState } from '../../shared/src';
+import { asGameState } from './helpers/gameStateFixture';
 
 const crashingWaveText =
   'Tap up to X target creatures, then distribute three stun counters among any number of tapped creatures your opponents control.';
@@ -11,7 +12,7 @@ const crashingWaveText =
 function buildOpponentTappedState(): GameState {
   const p1 = 'p1' as PlayerID;
   const p2 = 'p2' as PlayerID;
-  return {
+  return asGameState({
     players: [
       { id: p1, name: 'P1', life: 40 },
       { id: p2, name: 'P2', life: 40 },
@@ -41,7 +42,7 @@ function buildOpponentTappedState(): GameState {
     turnNumber: 1,
     phase: 'main1',
     active: true,
-  } as GameState;
+  });
 }
 
 describe('Oracle IR gap batch 231 support', () => {

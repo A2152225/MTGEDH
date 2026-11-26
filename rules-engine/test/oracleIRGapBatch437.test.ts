@@ -4,6 +4,8 @@ import { applyCopyPermanentStep } from '../src/oracleIRExecutorBattlefieldStepHa
 import { applyExileStep, applyDestroyStep } from '../src/oracleIRExecutorBattlefieldStepHandlers.js';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor.js';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
+import { asGameState } from './helpers/gameStateFixture';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 const controllerId = 'p1';
 
@@ -66,7 +68,7 @@ describe('E2 target gap batch 437', () => {
     const step = ir.abilities[0]?.steps[0];
     expect(step?.kind).toBe('copy_permanent');
 
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: controllerId,
@@ -91,7 +93,7 @@ describe('E2 target gap batch 437', () => {
           card: { name: 'Grizzly Bears', type_line: 'Creature — Bear', power: '2', toughness: '2' },
         },
       ],
-    } as GameState;
+    });
 
     const result = applyCopyPermanentStep(
       state,
@@ -103,21 +105,20 @@ describe('E2 target gap batch 437', () => {
       } as any,
     );
 
-    expect(result.applied).toBe(true);
-    expect(result.reason).toBeUndefined();
+    assertApplied(result);
     const self = (result.state?.battlefield || []).find((perm: any) => perm.id === 'taskmaster');
     expect(String((self as any)?.name || '')).toBe('Grizzly Bears');
   });
 
   it('exiles any number of other target permanents you control', () => {
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId }],
       battlefield: [
         { id: 'surfer', controller: controllerId, type_line: 'Legendary Creature — Human' },
         { id: 'bear', controller: controllerId, type_line: 'Creature — Bear' },
         { id: 'rock', controller: controllerId, type_line: 'Artifact' },
       ],
-    } as GameState;
+    });
 
     const result = applyExileStep(
       state,
@@ -133,13 +134,12 @@ describe('E2 target gap batch 437', () => {
       } as any,
     );
 
-    expect(result.applied).toBe(true);
-    expect(result.reason).toBeUndefined();
+    assertApplied(result);
     expect((result.state?.battlefield || []).map((perm: any) => perm.id)).toEqual(['surfer']);
   });
 
   it('destroys a tapped nonland permanent that player controls', () => {
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId }, { id: 'p2' }],
       battlefield: [
         {
@@ -154,7 +154,7 @@ describe('E2 target gap batch 437', () => {
           type_line: 'Artifact',
         },
       ],
-    } as GameState;
+    });
 
     const result = applyDestroyStep(
       state,
@@ -170,8 +170,7 @@ describe('E2 target gap batch 437', () => {
       } as any,
     );
 
-    expect(result.applied).toBe(true);
-    expect(result.reason).toBeUndefined();
+    assertApplied(result);
     expect((result.state?.battlefield || []).map((perm: any) => perm.id)).toEqual(['spear']);
   });
 });

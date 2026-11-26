@@ -28,6 +28,9 @@ const OPTION_CHOICE_FLAGS_WITHOUT_DIRECT_AI_BOOLEAN_CHECK = new Set([
   // Block tax is paid in processBlockCostPaymentBeforeStepComplete / AI
   // applyAIDeclareBlockersBlockTax before the option-choice step is consumed.
   'blockCostPayment',
+  // Face selection only: the resolution handler casts the back face; the AI cast/decline
+  // choice is the generic castFromExile prompt routed by chooseAICastFreePromptSelection.
+  'castFromExileAsTransformed',
 ]);
 
 function readSource(filePath: string): string {

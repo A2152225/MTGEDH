@@ -39,7 +39,7 @@ describe("Oracle IR Nomads' Assembly create_token for each creature", () => {
     expect(tokens).toHaveLength(3);
     expect(
       tokens.every((token) =>
-        /soldier/i.test(String(token.card?.name || token.name || token.card?.type_line || '')),
+        /soldier/i.test(String(token.card?.name || token.card?.type_line || '')),
       ),
     ).toBe(true);
     expect(tokens.every((token) => token.controller === p1)).toBe(true);

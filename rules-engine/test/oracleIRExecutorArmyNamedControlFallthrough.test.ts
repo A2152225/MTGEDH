@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import type { BattlefieldPermanent } from '../../shared/src';
+import { asBattlefieldPermanent } from './helpers/battlefieldPermanentFixture';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import {
   applyOracleIRStepsToGameState,
@@ -6,8 +8,8 @@ import {
 } from '../src/oracleIRExecutor';
 import { resolveDeterministicArmyCreatureSelection } from '../src/oracleIRExecutorBattlefieldArmySelection';
 
-function creature(id: string, over: Record<string, unknown> = {}) {
-  return {
+function creature(id: string, over: Record<string, unknown> = {}): BattlefieldPermanent {
+  return asBattlefieldPermanent({
     id,
     controller: 'p1',
     owner: 'p1',
@@ -17,7 +19,7 @@ function creature(id: string, over: Record<string, unknown> = {}) {
     toughness: 2,
     card: { name: id, type_line: 'Creature — Bear' },
     ...over,
-  };
+  });
 }
 
 function state(battlefield: any[]) {

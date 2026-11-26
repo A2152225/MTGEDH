@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
 import { cardMatchesType, parseSimpleCardTypeFromText } from '../src/oracleIRExecutorZoneOpsCardTypeMatchers';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const baseParams = {
@@ -61,18 +62,18 @@ describe('generic typed-creature N conditionals', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'a goblin is attacking',
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'g1', controller: controllerId, type_line: 'Creature — Goblin', attacking: true }],
-        } as GameState,
+        }),
       }),
     ).toBe(true);
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'a goblin is attacking',
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'b1', controller: controllerId, type_line: 'Creature — Bear', attacking: true }],
-        } as GameState,
+        }),
       }),
     ).toBe(false);
   });
@@ -82,9 +83,9 @@ describe('generic typed-creature N conditionals', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'this creature is an elf',
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Elf' }],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-source' },
       }),
     ).toBe(true);
@@ -113,25 +114,25 @@ describe('generic typed-creature N conditionals', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'another goblin entered the battlefield under your control this turn',
-        nextState: {
+        nextState: asGameState({
           battlefield: [
             { id: 'bf-source', controller: controllerId, type_line: 'Creature — Goblin', enteredThisTurn: false },
             { id: 'g2', controller: controllerId, type_line: 'Creature — Goblin', enteredThisTurn: true },
           ],
-        } as GameState,
+        }),
       }),
     ).toBe(true);
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'another goblin entered the battlefield under your control this turn',
-        nextState: {
+        nextState: asGameState({
           humansEnteredBattlefieldUnderControlThisTurn: { [controllerId]: true },
           battlefield: [
             { id: 'bf-source', controller: controllerId, type_line: 'Creature — Goblin', enteredThisTurn: false },
             { id: 'h1', controller: controllerId, type_line: 'Creature — Human', enteredThisTurn: true },
           ],
-        } as GameState,
+        }),
       }),
     ).toBe(false);
   });
@@ -141,22 +142,22 @@ describe('generic typed-creature N conditionals', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: "it's not a spirit",
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Elf' }],
-        } as GameState,
-        ctx: { controllerId, sourceId: 'bf-source', referencedObjectId: 'bf-source' },
+        }),
+        ctx: { controllerId, sourceId: 'bf-source' },
       }),
     ).toBe(true);
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'enchanted creature is a wolf or werewolf',
-        nextState: {
+        nextState: asGameState({
           battlefield: [
             { id: 'bf-source', controller: controllerId, type_line: 'Enchantment — Aura', attachedTo: 'c1' },
             { id: 'c1', controller: controllerId, type_line: 'Creature — Wolf' },
           ],
-        } as GameState,
+        }),
         ctx: { controllerId, sourceId: 'bf-source' },
       }),
     ).toBe(true);
@@ -167,10 +168,10 @@ describe('generic typed-creature N conditionals', () => {
       evaluateExtendedConditionalClause({
         ...baseParams,
         normalizedRaw: 'there is an elf card in your graveyard and this creature has a -1/-1 counter on it',
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId, graveyard: [{ type_line: 'Creature — Elf' }] }],
           battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Elf', counters: { '-1/-1': 1 } }],
-        } as GameState,
+        }),
       }),
     ).toBe(true);
   });

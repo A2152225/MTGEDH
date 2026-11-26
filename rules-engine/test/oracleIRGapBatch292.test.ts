@@ -8,6 +8,7 @@ import {
   parseMoveZoneCountTargetBattlefieldBounce,
   parseMoveZoneTypedCardFromHandOrGraveyard,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -95,7 +96,7 @@ describe('Oracle IR gap batch 292 — selector cluster fixes', () => {
       'Aether Burst'
     );
     const steps = ir.abilities[0]?.steps || [];
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [] }],
       battlefield: [
         {
@@ -106,7 +107,7 @@ describe('Oracle IR gap batch 292 — selector cluster fixes', () => {
           type_line: 'Creature — Bear',
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId,
@@ -125,7 +126,7 @@ describe('Oracle IR gap batch 292 — selector cluster fixes', () => {
       'Nissa of Shadowed Boughs'
     );
     const steps = ir.abilities[2]?.steps || [];
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: controllerId,
@@ -150,7 +151,7 @@ describe('Oracle IR gap batch 292 — selector cluster fixes', () => {
           type_line: 'Basic Land — Island',
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(
       state,

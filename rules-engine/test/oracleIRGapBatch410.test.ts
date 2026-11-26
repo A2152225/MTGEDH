@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isActivatableStationThresholdEffect } from '../src/stationPermanentUtils.ts';
+import { isActivatableStationThresholdEffect } from '../src/stationPermanentUtils';
 
 describe('oracle IR gap batch410 — Station threshold static vs activated', () => {
   it('treats keyword-only threshold lines as non-activatable', () => {

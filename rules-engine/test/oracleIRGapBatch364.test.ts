@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -21,10 +22,10 @@ describe('Oracle IR gap batch 364 — top condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }],
           battlefield: [{ id: 'bf-warrior-source', controller: 'p2', type_line: 'Creature — Human Warrior' }],
-        } as GameState,
+        }),
         normalizedRaw: 'any of that damage was dealt by a warrior',
         ctx: {
           ...baseParams.ctx,
@@ -37,10 +38,10 @@ describe('Oracle IR gap batch 364 — top condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: 'this permanent entered this turn' },
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }],
           battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Human Soldier', enteredThisTurn: true }],
-        } as GameState,
+        }),
         controllerId,
         ctx: { controllerId, sourceId: 'bf-source' },
         lastActionOutcome: null,
@@ -50,13 +51,13 @@ describe('Oracle IR gap batch 364 — top condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }],
           battlefield: [
             { id: 'bf-source', controller: controllerId, type_line: 'Creature — Merfolk' },
             { id: 'bf-counter-creature', controller: controllerId, type_line: 'Creature — Elf', counters: { '+1/+1': 1 } },
           ],
-        } as GameState,
+        }),
         normalizedRaw: 'you control another creature with a +1/+1 counter on it',
       })
     ).toBe(true);
@@ -64,10 +65,10 @@ describe('Oracle IR gap batch 364 — top condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }],
           battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Merfolk' }],
-        } as GameState,
+        }),
         normalizedRaw: 'you control another creature with a +1/+1 counter on it',
       })
     ).toBe(false);
@@ -81,10 +82,10 @@ describe('Oracle IR gap batch 364 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         battlefield: [{ id: 'bf-warrior-source', controller: 'p2', type_line: 'Creature — Human Warrior' }],
-      } as GameState,
+      }),
       [step!],
       {
         controllerId,
@@ -104,10 +105,10 @@ describe('Oracle IR gap batch 364 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Human Soldier', enteredThisTurn: true }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -122,13 +123,13 @@ describe('Oracle IR gap batch 364 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-source', controller: controllerId, type_line: 'Creature — Merfolk Wizard' },
           { id: 'bf-counter-creature', controller: controllerId, type_line: 'Creature — Elf', counters: { '+1/+1': 1 } },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );

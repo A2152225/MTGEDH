@@ -32,7 +32,7 @@ type SwarmShortCircuitDeps = {
     io: Server,
     gameId: string,
     playerId: PlayerID,
-    attackerIds: string[],
+    attackers: Array<{ creatureId: string; defendingPlayerId: string }>,
   ) => Promise<void>;
   executeDeclareBlockers: (
     io: Server,

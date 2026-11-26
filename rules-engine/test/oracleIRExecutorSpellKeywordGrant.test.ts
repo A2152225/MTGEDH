@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor.js';
 import { collectOracleEffectSteps } from '../../server/src/state/modules/trigger-runtime-wiring.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 describe('Oracle IR grant keywords to that spell', () => {
   it('stamps deathtouch and lifelink on the triggering stack spell', () => {
@@ -13,7 +14,7 @@ describe('Oracle IR grant keywords to that spell', () => {
     );
     expect(steps.some((step) => step.kind === 'grant_static_ability')).toBe(true);
 
-    const state = {
+    const state = asGameState({
       startingLife: 40,
       life: { p1: 40, p2: 40 },
       players: [{ id: p1 }, { id: 'p2' }],
@@ -29,7 +30,7 @@ describe('Oracle IR grant keywords to that spell', () => {
           oracle_text: 'Reckless Blaze deals 5 damage to each creature.',
         },
       }],
-    } as GameState;
+    });
 
     const ctx = buildOracleIRExecutionContext({
       controllerId: p1,
@@ -60,7 +61,7 @@ describe('Oracle IR grant keywords to that spell', () => {
       'Reckless Blaze',
     );
 
-    const state = {
+    const state = asGameState({
       startingLife: 40,
       life: { p1: 20, p2: 40 },
       players: [{ id: p1, life: 20 }, { id: 'p2', life: 40 }],
@@ -80,7 +81,7 @@ describe('Oracle IR grant keywords to that spell', () => {
           type_line: 'Sorcery — Lesson',
         },
       }],
-    } as GameState;
+    });
 
     const grantCtx = buildOracleIRExecutionContext({
       controllerId: p1,
@@ -116,7 +117,7 @@ describe('Oracle IR grant keywords to that spell', () => {
       'Reckless Blaze',
     );
 
-    const state = {
+    const state = asGameState({
       startingLife: 40,
       life: { p1: 20, p2: 40 },
       players: [{ id: p1, life: 20 }, { id: 'p2', life: 40 }],
@@ -136,7 +137,7 @@ describe('Oracle IR grant keywords to that spell', () => {
           type_line: 'Sorcery — Lesson',
         },
       }],
-    } as GameState;
+    });
 
     const grantCtx = buildOracleIRExecutionContext({
       controllerId: p1,

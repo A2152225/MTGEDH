@@ -7,6 +7,8 @@ import {
   parseMoveZoneAllExiledCardsWithCounter,
   parseMoveZoneSingleCardFromEachPlayersGraveyard,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -142,7 +144,7 @@ describe('Oracle IR gap batch 330 — Valigarmanda / Flamewar / Balan', () => {
     );
     const attachStep = ir.abilities[2]?.steps?.find((entry) => entry.kind === 'attach');
     expect(attachStep).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [], exile: [] }],
       battlefield: [
         {
@@ -179,13 +181,13 @@ describe('Oracle IR gap batch 330 — Valigarmanda / Flamewar / Balan', () => {
           cmc: 2,
         },
       ],
-    } as GameState;
+    });
     const result = applyAttachStep(state, attachStep as any, {
       controllerId,
       sourceId: 'bf-balan',
       selectorContext: { chosenObjectIds: ['bf-eq-1', 'bf-eq-2', 'bf-balan'] },
-    });
-    expect(result.applied).toBe(true);
+    }, []);
+    assertApplied(result);
     const eq1 = (result.state.battlefield || []).find((perm: any) => perm.id === 'bf-eq-1');
     const eq2 = (result.state.battlefield || []).find((perm: any) => perm.id === 'bf-eq-2');
     expect(eq1?.attachedTo).toBe('bf-balan');

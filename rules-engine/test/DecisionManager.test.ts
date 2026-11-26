@@ -109,7 +109,7 @@ describe('DecisionManager combat validation', () => {
     manager.initGame('test-game');
 
     const attacker = createCreature('drake1', 'Wind Drake', 'player1', 'Flying', {
-      attacking: true,
+      attacking: 'player2',
     });
     const blocker = createCreature('bear1', 'Grizzly Bears', 'player2', '', {
       attachedEquipment: ['kitesail1'],

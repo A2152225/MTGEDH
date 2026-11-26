@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { asGameState, type GameStateFixture } from './helpers/gameStateFixture';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseBareTriggerEffectFragmentSteps } from '../src/oracleIRParserPostprocess';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 
-function combatState(overrides?: Partial<GameState>): GameState {
+function combatState(overrides?: GameStateFixture): GameState {
   const p1 = 'p1' as PlayerID;
   const p2 = 'p2' as PlayerID;
-  return {
+  return asGameState({
     turnNumber: 1,
     turnPlayer: p1,
     players: [{ id: p1, name: 'P1' }, { id: p2, name: 'P2' }],
@@ -23,7 +24,7 @@ function combatState(overrides?: Partial<GameState>): GameState {
       blockers: [{ permanentId: 'blocker', blocking: ['attacker'] }],
     },
     ...overrides,
-  } as GameState;
+  });
 }
 
 describe('Oracle IR gap batch 232 support', () => {
@@ -112,8 +113,8 @@ describe('Oracle IR gap batch 232 support', () => {
     )!;
     const state = combatState({
       battlefield: [
-        { id: 'host', controller: 'p1' as PlayerID, mutateCount: 2, card: { type_line: 'Creature' } },
-        { id: 'ally', controller: 'p1' as PlayerID, card: { type_line: 'Creature' } },
+        { id: 'host', controller: 'p1' as PlayerID, mutateCount: 2, card: { id: 'host', name: '', type_line: 'Creature' } },
+        { id: 'ally', controller: 'p1' as PlayerID, card: { id: 'ally', name: '', type_line: 'Creature' } },
       ],
     });
     const result = applyOracleIRStepsToGameState(

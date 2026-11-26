@@ -90,6 +90,9 @@ function queueSacrificeChoicePromptsFromOracleIRResult(
   const sourceName = String(params.sourceName || 'Ability').trim() || 'Ability';
   const sourceId = String(params.sourceId || '').trim() || undefined;
   const queuedKeys = new Set<string>();
+  const boundTargetPlayerId = String(
+    params.targetPlayerId || (params.irCtx as any)?.selectorContext?.targetPlayerId || '',
+  ).trim() || undefined;
   let hadUnqueueableSacrificeGap = false;
   const fizzledSacrificeSteps: OracleEffectStep[] = [];
 
@@ -154,6 +157,7 @@ function queueSacrificeChoicePromptsFromOracleIRResult(
       oracleIrControllerId: params.controller,
       oracleIrSourceId: sourceId,
       oracleIrSourceName: sourceName,
+      ...(boundTargetPlayerId ? { oracleIrTargetPlayerId: boundTargetPlayerId } : {}),
     } as any, result, params) as any);
   }
 
@@ -950,6 +954,9 @@ export function maybeApplyOracleIrChoiceStepFromResolution(
     sourceId: String(step?.oracleIrSourceId || step?.sourceId || '').trim() || undefined,
     sourceName: String(step?.oracleIrSourceName || step?.sourceName || '').trim() || undefined,
     steps: choiceSteps,
+    ...(String(step?.oracleIrTargetPlayerId || '').trim()
+      ? { targetPlayerId: String(step.oracleIrTargetPlayerId).trim() as PlayerID }
+      : {}),
     ...(chosenObjectIds ? { chosenObjectIds } : {}),
     ...(Object.keys(mergedSelectorContext).length > 0 ? { selectorContext: mergedSelectorContext } : {}),
     ...(Number.isFinite(Number(step?.oracleIrXValue)) ? { xValue: Number(step.oracleIrXValue) } : {}),

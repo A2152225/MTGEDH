@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asGameState, type GameStateFixture } from './helpers/gameStateFixture';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseBareTriggerEffectFragmentSteps } from '../src/oracleIRParserPostprocess';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
@@ -9,10 +10,10 @@ function collectStepsFromText(text: string): ReturnType<typeof parseOracleTextTo
   return ir.abilities.flatMap((ability) => ability.steps || []);
 }
 
-function counterState(overrides?: Partial<GameState>): GameState {
+function counterState(overrides?: GameStateFixture): GameState {
   const p1 = 'p1' as PlayerID;
   const p2 = 'p2' as PlayerID;
-  return {
+  return asGameState({
     turnNumber: 1,
     players: [{ id: p1, name: 'P1' }, { id: p2, name: 'P2' }],
     battlefield: [
@@ -24,7 +25,7 @@ function counterState(overrides?: Partial<GameState>): GameState {
       { id: 'aura', controller: p1, card: { type_line: 'Enchantment — Aura' }, attachedTo: 'ally' },
     ],
     ...overrides,
-  } as GameState;
+  });
 }
 
 describe('Oracle IR gap batch 233 support', () => {
@@ -203,9 +204,9 @@ describe('Oracle IR gap batch 233 support', () => {
   it('executes each creature you control with a counter on it pump', () => {
     const state = counterState({
       battlefield: [
-        { id: 'src', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, power: 1, toughness: 1 },
-        { id: 'buffed', controller: 'p1' as PlayerID, card: { type_line: 'Creature' }, counters: { '+1/+1': 1 } },
-        { id: 'plain', controller: 'p1' as PlayerID, card: { type_line: 'Creature' } },
+        { id: 'src', controller: 'p1' as PlayerID, card: { id: 'src', name: '', type_line: 'Creature' }, power: 1, toughness: 1 },
+        { id: 'buffed', controller: 'p1' as PlayerID, card: { id: 'buffed', name: '', type_line: 'Creature' }, counters: { '+1/+1': 1 } },
+        { id: 'plain', controller: 'p1' as PlayerID, card: { id: 'plain', name: '', type_line: 'Creature' } },
       ],
     });
     const steps = parseBareTriggerEffectFragmentSteps(

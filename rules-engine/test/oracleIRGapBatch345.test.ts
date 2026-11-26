@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -18,12 +19,12 @@ const baseParams = {
 
 describe('Oracle IR gap batch 345 — top condition clusters', () => {
   it('evaluates non-hand cast, zero mana spent, would-lose, and no untapped lands', () => {
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId }],
       battlefield: [
         { id: 'bf-land-1', controller: controllerId, type_line: 'Basic Land — Forest', tapped: true },
       ],
-    } as GameState;
+    });
 
     expect(
       evaluateConditionalWrapperCondition({
@@ -48,10 +49,10 @@ describe('Oracle IR gap batch 345 — top condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: 'no mana was spent to cast it' },
-        nextState: {
+        nextState: asGameState({
           ...state,
           stack: [{ id: 'stack-spell-1', type: 'spell', manaSpentTotal: 0 }],
-        } as GameState,
+        }),
         controllerId,
         ctx: { ...baseParams.ctx, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' },
         lastActionOutcome: null,
@@ -61,10 +62,10 @@ describe('Oracle IR gap batch 345 — top condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: 'no mana was spent to cast it' },
-        nextState: {
+        nextState: asGameState({
           ...state,
           stack: [{ id: 'stack-spell-1', type: 'spell', manaSpentTotal: 2 }],
-        } as GameState,
+        }),
         controllerId,
         ctx: { ...baseParams.ctx, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' },
         lastActionOutcome: null,
@@ -128,10 +129,10 @@ describe('Oracle IR gap batch 345 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Angel' }],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source', wouldLoseTheGame: true }
     );
@@ -146,12 +147,12 @@ describe('Oracle IR gap batch 345 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-land-1', controller: controllerId, type_line: 'Basic Land — Plains', tapped: true },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-well' }
     );

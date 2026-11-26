@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { describe, expect, it, vi } from 'vitest';
-
 import { generateCoinFlipResultWithIgnoreOne, resolveCoinFlipWithIgnoreOne } from '../src/coinFlipIgnoreOneReplacement.js';
 
 const THUMB_TEXT = 'If you would flip a coin, instead flip two coins and ignore one.';

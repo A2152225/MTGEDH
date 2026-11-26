@@ -9,6 +9,7 @@ import {
   parseMoveZoneSingleCardFromEachPlayersGraveyard,
   parseMoveZoneThisCreatureAndTargetYouControl,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -106,7 +107,7 @@ describe('Oracle IR gap batch 296 — selector cluster fixes', () => {
       'Snow Hound'
     );
     const step = ir.abilities[0]?.steps?.[0];
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [] }],
       battlefield: [
         {
@@ -125,7 +126,7 @@ describe('Oracle IR gap batch 296 — selector cluster fixes', () => {
           colors: ['U'],
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, [step], {
       controllerId,

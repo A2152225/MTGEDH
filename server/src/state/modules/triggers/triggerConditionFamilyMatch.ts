@@ -104,8 +104,6 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string, s
     counters: permanent?.counters && typeof permanent.counters === 'object' ? permanent.counters : undefined,
     faceDown: Boolean(permanent?.faceDown || permanent?.isFaceDown || permanent?.card?.faceDown),
     tapped: permanent?.tapped === true,
-    // Goad is tracked as goadedBy (goader ids, with expiry) or granted statically (Baeloth); the legacy boolean is kept for older fixtures.
-    goaded: permanent?.goaded === true || getGoadedBy(permanent, state?.turn, state?.battlefield).length > 0,
     attackingOrBlocking: permanentIsAttackingOrBlocking(permanent),
     attacking: permanentIsAttacking(permanent),
     blocking: permanentIsBlocking(permanent),
@@ -113,10 +111,11 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string, s
     ownerId: String(permanent?.owner || permanent?.card?.owner || '').trim() || undefined,
     saddled: Boolean(permanent?.saddled),
     enteredThisTurn: permanent?.enteredThisTurn === true,
-    colors: state
-      ? colorLetters(getEffectiveColors(permanent?.card || permanent, state))
-      : colorLetters(permanent?.card?.colors || permanent?.colors),
   } as TriggerMatchPermanent;
+  // Effective colors run the layer-5 color effects (O(board)); most conditions never read them.
+  defineLazy(match, 'colors', () => (state
+    ? colorLetters(getEffectiveColors(permanent?.card || permanent, state))
+    : colorLetters(permanent?.card?.colors || permanent?.colors)));
   // Keywords (battlefield-wide grant scan) and current P/T are O(board) each and most
   // conditions never read them ("counters are put on this creature"); compute on first
   // read only. Values are the same as eager evaluation at match time.
@@ -129,6 +128,9 @@ export function permanentToTriggerMatch(permanent: any, controllerId?: string, s
     obj.wasKicked === true || Number(obj.kickerPaidCount || 0) > 0 || Number(obj.timesKicked || 0) > 0
   )));
   defineLazy(match, 'keywords', () => keywordsOnPermanent(permanent, Array.isArray(state?.battlefield) ? state.battlefield : undefined));
+  // Goad is tracked as goadedBy (goader ids, with expiry) or granted statically (Baeloth); the legacy boolean is kept for older fixtures.
+  // Lazy: the static-goad check builds a processed battlefield (O(board)) and few conditions read it.
+  defineLazy(match, 'goaded', () => permanent?.goaded === true || getGoadedBy(permanent, state?.turn, state?.battlefield).length > 0);
   defineLazy(match, 'power', () => currentStat(getPermanentPowerMaybe(permanent, statContext)));
   defineLazy(match, 'toughness', () => currentStat(getPermanentToughnessMaybe(permanent, statContext)));
   defineLazy(match, 'equipped', () => {
@@ -546,10 +548,12 @@ export function collectMatchingParsedEventLines(options: {
   blockPartnerPermanent?: any;
   /** Extra match context fields (attackerCount, targeting*, damageRecipient*). */
   matchContext?: Record<string, unknown>;
+  /** Read-only state copy with derived continuous effects primed once for a battlefield-wide scan. */
+  grantScanState?: any;
 }): Array<{ effect: string; interveningIf?: string; condition?: import('../../../../../rules-engine/src/triggerCondition/index.js').TriggerConditionIR; reflexive?: { actor: 'you' | 'they'; effect: string; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }; delayed?: { timing: 'next_end_step' | 'your_next_end_step'; effect: string } }> {
   const effects = [];
   const sourceCardName = String(options.sourcePermanent?.card?.name || options.sourcePermanent?.name || '').trim() || undefined;
-  const oracleText = oracleTextWithGrantedTriggers(String(options.oracleText || ''), options.sourcePermanent, options.ctx?.state);
+  const oracleText = oracleTextWithGrantedTriggers(String(options.oracleText || ''), options.sourcePermanent, options.grantScanState ?? options.ctx?.state);
   const sentences = parsedTriggerSentencesFor(oracleText, sourceCardName);
   // No sentence for this event: nothing can match, so skip the (board-wide) ability-loss gate.
   if (!sentences.some(({ parsed }) => parsed?.effect

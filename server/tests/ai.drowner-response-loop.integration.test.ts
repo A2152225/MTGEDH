@@ -58,6 +58,9 @@ describe('AI Drowner of Secrets response-window activation', () => {
     }
   });
 
+  // Response window: an opponent spell is on the stack during their upkeep. Since 550c7e00 the AI
+  // deliberately skips the activated-ability scan on an empty off-turn stack (aiOffTurnQuietPass and
+  // tryAIResponseActions perf gate), so the activation-cost path is exercised while responding.
   it('taps a Merfolk as the activation cost instead of no-op looping on an opponent upkeep', async () => {
     const gameId = createTestGameId();
     createGameIfNotExists(gameId, 'commander', 40);
@@ -75,7 +78,15 @@ describe('AI Drowner of Secrets response-window activation', () => {
     (game.state as any).priority = playerId;
     (game.state as any).phase = 'beginning';
     (game.state as any).step = 'upkeep';
-    (game.state as any).stack = [];
+    (game.state as any).stack = [
+      {
+        id: 'opp_spell',
+        type: 'spell',
+        controller: opponentId,
+        owner: opponentId,
+        card: { id: 'opp_spell_card', name: 'Opt', type_line: 'Instant', oracle_text: 'Scry 1. Draw a card.', mana_cost: '{U}' },
+      },
+    ];
     (game.state as any).manaPool = {
       [playerId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },
       [opponentId]: { white: 0, blue: 0, black: 0, red: 0, green: 0, colorless: 0 },

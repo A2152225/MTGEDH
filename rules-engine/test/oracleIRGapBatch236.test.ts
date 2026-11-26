@@ -4,6 +4,7 @@ import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 import { evaluateModifyPtWhereX } from '../src/oracleIRExecutorModifyPtWhereEvaluator';
 import { parseBareTriggerEffectFragmentSteps } from '../src/oracleIRParserPostprocess';
+import { asGameState } from './helpers/gameStateFixture';
 
 function collectStepsFromText(text: string) {
   const ir = parseOracleTextToIR(text, 'Batch236');
@@ -92,7 +93,7 @@ describe('Oracle IR gap batch 236 support', () => {
     const steps = collectStepsFromText(
       'it gets +X/+0 until end of turn, where X is your devotion to red.'
     );
-    const state = baseState({
+    const state = baseState(asGameState({
       battlefield: [
         { id: 'src', controller: 'p1', type_line: 'Creature', card: { type_line: 'Creature', mana_cost: '{R}' } },
         {
@@ -103,7 +104,7 @@ describe('Oracle IR gap batch 236 support', () => {
           card: { type_line: 'Artifact', mana_cost: '{R}{R}' },
         },
       ],
-    } as Partial<GameState>);
+    }));
     const result = applyOracleIRStepsToGameState(
       state,
       steps,
@@ -187,7 +188,7 @@ describe('Oracle IR gap batch 236 support', () => {
   });
 
   it('evaluates greatest power among tapped creatures your opponents control', () => {
-    const state = baseState({
+    const state = baseState(asGameState({
       battlefield: [
         { id: 'src', controller: 'p1', type_line: 'Creature', card: { type_line: 'Creature' } },
         {
@@ -200,7 +201,7 @@ describe('Oracle IR gap batch 236 support', () => {
           card: { type_line: 'Creature — Beast', power: '6', toughness: '2' },
         },
       ],
-    } as Partial<GameState>);
+    }));
     const whereX = evaluateModifyPtWhereX(
       state,
       'p1' as PlayerID,

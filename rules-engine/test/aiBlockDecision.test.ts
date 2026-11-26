@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AIEngine, AIStrategy, AIDecisionType, type AIDecisionContext } from '../src/AIEngine';
 import type { BattlefieldPermanent, GameState } from '../../shared/src/types';
 import { GameStep } from '../../shared/src/types';
+import { asGameState } from './helpers/gameStateFixture';
 
 function makeBlockContext(args: {
   strategy?: AIStrategy;
@@ -24,7 +25,7 @@ function makeBlockContext(args: {
     ...(args.otherPermanents || []),
   ];
 
-  const gameState: GameState = {
+  const gameState: GameState = asGameState({
     turn: 5,
     step: GameStep.DECLARE_BLOCKERS,
     activePlayerIndex: 0,
@@ -35,7 +36,7 @@ function makeBlockContext(args: {
       { id: 'attacker', life: 40, battlefield: [] } as any,
       { id: 'bystander', life: 40, battlefield: [] } as any,
     ],
-  } as GameState;
+  });
 
   const context: AIDecisionContext = {
     gameState,

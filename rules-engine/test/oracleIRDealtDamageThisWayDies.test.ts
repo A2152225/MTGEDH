@@ -4,6 +4,7 @@ import { collectSpellResolutionEffectStepsWithOverlay } from '../src/oracleIRCom
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor.js';
 import { DelayedTriggerTiming } from '../src/delayedTriggeredAbilities.js';
 import type { GameState, PlayerID } from '../../shared/src/index.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 const RECKLESS_BLAZE =
   'Reckless Blaze deals 5 damage to each creature. Whenever a creature you control dealt damage this way dies this turn, add {R}.';
@@ -42,7 +43,7 @@ describe('dealt-damage-this-way dies this turn (Reckless Blaze family)', () => {
   it('schedules WHEN_DIES watchers only on creatures you control that were damaged this way', () => {
     const p1 = 'p1' as PlayerID;
     const steps = collectSpellSteps(RECKLESS_BLAZE, 'Reckless Blaze');
-    const state = {
+    const state = asGameState({
       startingLife: 40,
       life: { p1: 40, p2: 40 },
       players: [{ id: p1 }, { id: 'p2' }],
@@ -65,7 +66,7 @@ describe('dealt-damage-this-way dies this turn (Reckless Blaze family)', () => {
           card: { name: 'Wall', type_line: 'Creature — Wall' },
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(
       state,

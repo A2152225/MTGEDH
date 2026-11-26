@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseOracleTextToIR } from '../src/oracleIRParser.ts';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
 
 const BROODSHIP_EFFECT =
   'Once during each of your turns, you may cast a permanent spell from your graveyard by sacrificing a land in addition to paying its other costs.';

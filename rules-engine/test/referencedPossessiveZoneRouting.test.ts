@@ -13,6 +13,7 @@ import {
   oracleIrTargetBindingToBaseContext,
   oracleIrTargetBindingToEventHint,
 } from '../src/oracleIrTargetBinding';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 const COUNTERBORE_TEXT =
   "Search its controller's graveyard, hand, and library for all cards with the same name as that spell and exile them.";
@@ -131,6 +132,7 @@ describe('referenced possessive zone routing', () => {
       kind: 'move_zone' as const,
       what: { kind: 'raw' as const, text: "the top card of its controller's library" },
       to: 'exile' as const,
+      toRaw: '',
       raw: "Exile the top card of its controller's library.",
     };
     const ctx = buildOracleIRExecutionContext(
@@ -139,7 +141,6 @@ describe('referenced possessive zone routing', () => {
         lastReferencedPermanentId: 'perm_creature',
         selectorContext: { lastReferencedPermanentId: 'perm_creature' },
       },
-      { lastReferencedPermanentId: 'perm_creature' },
     );
 
     const result = applyOracleIRStepsToGameState(state, [step], ctx, { allowOptional: true });
@@ -184,6 +185,7 @@ describe('referenced possessive zone routing', () => {
       kind: 'move_zone' as const,
       what: { kind: 'raw' as const, text: "target creature card from its controller's graveyard" },
       to: 'battlefield' as const,
+      toRaw: '',
       raw: "Return target creature card from its controller's graveyard to the battlefield.",
     };
     const ctx = buildOracleIRExecutionContext(
@@ -195,7 +197,7 @@ describe('referenced possessive zone routing', () => {
           lastReferencedPermanentId: 'perm_creature',
         },
       },
-      { chosenObjectIds: ['g1'], lastReferencedPermanentId: 'perm_creature' },
+      { chosenObjectIds: ['g1'] },
     );
 
     const result = applyOracleIRStepsToGameState(state, [step], ctx, { allowOptional: true });
@@ -211,6 +213,7 @@ describe('referenced possessive zone routing', () => {
       kind: 'move_zone' as const,
       what: { kind: 'raw' as const, text: "a card from its controller's hand at random" },
       to: 'exile' as const,
+      toRaw: '',
       raw: "Exile a card from its controller's hand at random.",
     };
     const ctx = buildOracleIRExecutionContext(
@@ -219,7 +222,6 @@ describe('referenced possessive zone routing', () => {
         lastReferencedPermanentId: 'perm_creature',
         selectorContext: { lastReferencedPermanentId: 'perm_creature' },
       },
-      { lastReferencedPermanentId: 'perm_creature' },
     );
 
     const result = applyOracleIRStepsToGameState(state, [step], ctx, { allowOptional: true });
@@ -242,11 +244,10 @@ describe('referenced possessive zone routing', () => {
         lastReferencedPermanentId: 'perm_creature',
         selectorContext: { lastReferencedPermanentId: 'perm_creature' },
       },
-      { lastReferencedPermanentId: 'perm_creature' },
     );
 
     const result = applyExileStep(state, step, ctx);
-    expect(result.applied).toBe(true);
+    assertApplied(result);
     const victim = (result.state as any).players.find((p: any) => p.id === 'p_victim');
     expect(victim.hand).toHaveLength(0);
     expect(victim.exile).toHaveLength(1);

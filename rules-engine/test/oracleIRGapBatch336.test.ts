@@ -7,6 +7,7 @@ import {
   parseMoveZoneSingleTargetFromAGraveyard,
   parseMoveZoneTypedCardFromAmongThem,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -89,7 +90,7 @@ describe('Oracle IR gap batch 336 — Reenact / Hurkyl / Back for Seconds', () =
     );
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         {
@@ -118,7 +119,7 @@ describe('Oracle IR gap batch 336 — Reenact / Hurkyl / Back for Seconds', () =
           cmc: 2,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'test',

@@ -35,6 +35,7 @@ import { detectTriggeredAbilityEvent } from '../../rules-engine/src/triggeredAbi
 import { TriggerEvent, type TriggeredAbility } from '../../rules-engine/src/triggeredAbilitiesTypes.js';
 import { detectCastTrigger } from '../../rules-engine/src/cards/castTriggers.js';
 import { evaluateInterveningIfClauseDetailed } from '../src/state/modules/triggers/intervening-if.js';
+import type { GameContext } from '../src/state/context.js';
 import { detectAttackTriggers, detectAttachmentAttackTriggers, detectTransformTriggers, detectRoomTriggers, detectAbilityActivatedTriggers, detectMonstrousTriggers } from '../src/state/modules/triggered-abilities.js';
 import { detectCounterPlacedTriggers, detectCounterRemovedTriggers } from '../src/state/modules/triggers/counters.js';
 import { detectLeftGraveyardTriggers, detectPutIntoGraveyardTriggers, detectExiledFromBattlefieldTriggers } from '../src/state/modules/triggers/zone-change.js';
@@ -181,7 +182,7 @@ const FAKE_PERMANENT = { id: 'AUDIT_SRC', controller: 'P1', owner: 'P1', attache
 
 /** Probe battlefield permanent for server trigger detectors during coverage audit. */
 export function buildAuditProbePermanent(oracleText: string): typeof FAKE_PERMANENT & Record<string, unknown> {
-  const permanent: Record<string, unknown> = { ...FAKE_PERMANENT };
+  const permanent: typeof FAKE_PERMANENT & Record<string, unknown> = { ...FAKE_PERMANENT };
   const oracleLower = String(oracleText || '').toLowerCase();
   if (/\bchoose a creature type\b/.test(oracleLower)) {
     permanent.chosenCreatureType = 'Human';
@@ -195,7 +196,7 @@ export function buildAuditProbePermanent(oracleText: string): typeof FAKE_PERMAN
   return permanent;
 }
 
-type ParseOracleTextToIR = (oracleText: string, cardName?: string) => { abilities?: Array<{ steps?: unknown[] }> };
+type ParseOracleTextToIR = (oracleText: string, cardName?: string) => { readonly abilities?: ReadonlyArray<{ readonly steps?: readonly unknown[] }> };
 let parseOracleTextToIR: ParseOracleTextToIR | null = null;
 let effectIrAuditEnabled = false;
 
@@ -233,6 +234,14 @@ const PROBE_CTX = {
     commandZone: { P1: { commanderIds: ['CMD1'], inCommandZone: ['CMD1'] } },
   },
 };
+
+/**
+ * The probe carries only the state slices intervening-if evaluation reads; this is the one
+ * documented boundary where it stands in for a full server GameContext.
+ */
+function asAuditProbeContext(probe: typeof PROBE_CTX): GameContext {
+  return probe as unknown as GameContext;
+}
 
 const PROBE_SOURCE = {
   id: 'AUDIT_SRC',
@@ -3578,7 +3587,7 @@ function assessTrigger(card: OracleCard, trigger: TriggeredAbility): CoverageSta
 
   if (trigger.interveningIfClause) {
     const detailed = evaluateInterveningIfClauseDetailed(
-      PROBE_CTX,
+      asAuditProbeContext(PROBE_CTX),
       'P1',
       trigger.interveningIfClause,
       PROBE_SOURCE,

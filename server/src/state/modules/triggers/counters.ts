@@ -20,6 +20,7 @@ import { collectMatchingParsedEventLines, parsedEffectDuplicates, sameTriggerSou
 import { isOneOrMoreIRBatchDuplicate } from './triggerIRVerdict.js';
 import { dropTriggersFromAbilitylessSources, permanentHasTriggeredAbilities } from './triggeredAbilitySuppression.js';
 import { counterTargetSubjectMatches } from './counterTargetSubject.js';
+import { beginScopedGrantScan } from './grantedOracleTriggerScan.js';
 
 export interface CounterPlacedTrigger {
   permanentId: string;
@@ -362,6 +363,9 @@ export function getCounterPlacedTriggers(
     }
   }
 
+  // Read-only scan of every watcher: one quoted-grant source pass for this battlefield.
+  const endGrantScan = beginScopedGrantScan(ctx.state);
+  try {
   for (const permanent of battlefield) {
     if (!permanent?.card) continue;
     // A counter_placed event line needs the word "counter" in this oracle text.
@@ -396,6 +400,9 @@ export function getCounterPlacedTriggers(
         placedCounterType: wanted && wanted !== 'any' ? wanted : positiveEntries[0]?.counterType || 'counter',
       } as any);
     }
+  }
+  } finally {
+    endGrantScan();
   }
 
   return dropTriggersFromAbilitylessSources(triggers, ctx.state, (t: any) => String(t?.permanentId || ''), { event: 'counters' });

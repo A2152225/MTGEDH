@@ -51,7 +51,7 @@ describe('oracle IR gap batch 45', () => {
   });
 
   it('collectStepsFromIrText preserves magus sisters random saga choose_mode', async () => {
-    const { collectStepsFromIrText } = await import('../../server/scripts/executor-coverage-audit.ts');
+    const { collectStepsFromIrText } = await import('../../server/scripts/executor-coverage-audit');
     const text =
       'I, II, III — Choose one at random —\n• Combine Powers! — Put three +1/+1 counters on target creature.\n• Defense! — Put a shield counter on target creature. You gain 3 life.\n• Fight! — This creature fights up to one target creature an opponent controls.';
     const steps = collectStepsFromIrText(text, 'Summon: Magus Sisters');
@@ -62,8 +62,8 @@ describe('oracle IR gap batch 45', () => {
   }, 120000);
 
   it('executes brain pry they cant branch when named discard is impossible', async () => {
-    const { collectStepsFromIrText, dryRunOracleSteps } = await import('../../server/scripts/executor-coverage-audit.ts');
-    const { hasUnknownIRSteps, loadEffectIrParser } = await import('../../server/scripts/trigger-coverage-audit.ts');
+    const { collectStepsFromIrText, dryRunOracleSteps } = await import('../../server/scripts/executor-coverage-audit');
+    const { hasUnknownIRSteps, loadEffectIrParser } = await import('../../server/scripts/trigger-coverage-audit');
     await loadEffectIrParser();
     const text =
       "Choose a nonland card name. Target player reveals their hand. That player discards a card with that name. If they can't, you draw a card.";

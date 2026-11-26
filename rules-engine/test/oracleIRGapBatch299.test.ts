@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { assertApplied } from './helpers/stepResultAssertions';
 import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { applyAttachStep } from '../src/oracleIRExecutorAttachStepHandlers';
@@ -50,6 +51,7 @@ describe('Oracle IR gap batch 299 — selector cluster fixes', () => {
           controllerId,
           selectorContext: { chosenObjectIds: ['lib-turntimber-1'] },
         },
+        lastActionOutcome: null,
       })
     ).toBe(true);
   });
@@ -164,8 +166,8 @@ describe('Oracle IR gap batch 299 — selector cluster fixes', () => {
       selectorContext: { chosenObjectIds: ['aura-finesse-1', 'creature-new'] },
       targetPermanentId: 'creature-new',
     }, []);
-    expect(result.reason).not.toBe('unsupported_selector');
-    const aura = (result.state?.battlefield || []).find((entry) => (entry as any).id === 'aura-finesse-1') as any;
+    assertApplied(result);
+    const aura = (result.state.battlefield || []).find((entry) => (entry as any).id === 'aura-finesse-1') as any;
     expect(aura?.attachedTo).toBe('creature-new');
   });
 });

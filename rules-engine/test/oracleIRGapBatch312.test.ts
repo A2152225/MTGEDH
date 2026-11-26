@@ -7,6 +7,7 @@ import {
   parseMoveZoneCountTargetBattlefieldBounce,
   parseMoveZoneTypedCardFromAmongThem,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -57,7 +58,7 @@ describe('Oracle IR gap batch 312 — Wanderwine / Mayael / Jace', () => {
     );
     const step = ir.abilities[0]?.steps?.[0];
     expect(step?.kind).toBe('move_zone');
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: opponentId, library: [], hand: [], graveyard: [], exile: [] },
@@ -80,7 +81,7 @@ describe('Oracle IR gap batch 312 — Wanderwine / Mayael / Jace', () => {
           cmc: 1,
         },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,

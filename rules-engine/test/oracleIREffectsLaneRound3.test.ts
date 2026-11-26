@@ -79,7 +79,12 @@ describe('effects lane round 3: Licid becomes an Aura', () => {
     const ir = parseOracleTextToIR(LICID, 'Gliding Licid');
     expect((ir.abilities || []).some((ability: any) => ability.type === 'spell')).toBe(false);
     const [step] = abilitySteps(LICID, 'Gliding Licid', 'activated');
-    expect(step).toMatchObject({ kind: 'become_aura', enchant: { kind: 'raw', text: 'target creature' }, endEffectCost: '{U}' });
+    expect(step).toMatchObject({
+      kind: 'become_aura',
+      enchant: { kind: 'raw', text: 'creature' },
+      attachTarget: { kind: 'raw', text: 'target creature' },
+      endEffectCost: '{U}',
+    });
   });
 
   it('turns the Licid into a non-creature Aura attached to the chosen creature', () => {

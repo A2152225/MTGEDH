@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
 function auditState(): GameState {
-  return {
+  return asGameState({
     players: [
       { id: 'p1', life: 40 },
       { id: 'p2', life: 40 },
@@ -34,7 +35,7 @@ function auditState(): GameState {
     ],
     lastVoteResults: { planeswalk: 3, chaos: 1 },
     lifePaidThisWay: { p1: true },
-  } as GameState;
+  });
 }
 
 const baseParams = {

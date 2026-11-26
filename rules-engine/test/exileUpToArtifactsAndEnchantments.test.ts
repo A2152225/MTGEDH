@@ -3,6 +3,7 @@ import type { GameState } from '../../shared/src/index.js';
 import { applyExileStep } from '../src/oracleIRExecutorBattlefieldStepHandlers.js';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor.js';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
+import { assertApplied } from './helpers/stepResultAssertions';
 
 const SYLVAN_ORACLE =
   'Exile up to two target artifacts and/or enchantments. Basic landcycling {2} ({2}, Discard this card: Search your library for a basic land card, reveal it, put it into your hand, then shuffle.)';
@@ -31,8 +32,7 @@ describe('Exile up to N target artifacts and/or enchantments', () => {
       } as any,
     );
 
-    expect(result.applied).toBe(true);
-    expect(result.reason).toBeUndefined();
+    assertApplied(result);
     expect((result.state?.battlefield || []).map((perm: any) => perm.id)).toEqual(['bear']);
   });
 
@@ -57,8 +57,7 @@ describe('Exile up to N target artifacts and/or enchantments', () => {
       } as any,
     );
 
-    expect(result.applied).toBe(true);
-    expect(result.reason).toBeUndefined();
+    assertApplied(result);
     expect((result.state?.battlefield || []).map((perm: any) => perm.id)).toEqual(['sol-ring']);
   });
 

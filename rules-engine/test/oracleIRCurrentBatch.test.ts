@@ -577,7 +577,7 @@ describe('Oracle IR current audit batch support', () => {
     expect(stepsByName.get('Heraldic Banner')).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'grant_static_ability', power: 1, toughness: 0 }),
     ]));
-    for (const name of ['Reflecting Pool', 'Mox Amber', 'Bloom Tender']) {
+    for (const name of ['Reflecting Pool', 'Mox Amber', 'Bloom Tender'] as const) {
       expect(stepsByName.get(name)).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'add_mana', requiresChosenMana: true }),
       ]));
@@ -676,7 +676,7 @@ describe('Oracle IR current audit batch support', () => {
       expect(stepsByName.get(name)?.some((step) => step.kind === 'create_token'), `${name} should surface create_token`).toBe(true);
     }
 
-    for (const name of ['Securitron Squadron', 'Ultramarines Honour Guard', 'Sicarian Infiltrator', 'Vanguard Suppressor']) {
+    for (const name of ['Securitron Squadron', 'Ultramarines Honour Guard', 'Sicarian Infiltrator', 'Vanguard Suppressor'] as const) {
       expect(stepsByName.get(name)).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: 'create_token', token: 'copy of it' }),
       ]));

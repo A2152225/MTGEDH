@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src/index.js';
 import { parseOracleTextToIR } from '../src/oracleIRParser.js';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor.js';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -15,12 +16,12 @@ describe('Waterbender Ascension grant_temporary_ability target', () => {
     expect(grantStep).toBeTruthy();
 
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-target', controller: controllerId, type_line: 'Creature — Human', card: { type_line: 'Creature — Human' } },
         ],
-      } as GameState,
+      }),
       grantStep ? [grantStep] : [],
       {
         controllerId,

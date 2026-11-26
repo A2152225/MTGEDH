@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseOracleTextToIR } from '../src/oracleIRParser.ts';
+import { parseOracleTextToIR } from '../src/oracleIRParser';
 
 function collectSteps(value: unknown): any[] {
   const steps: any[] = [];

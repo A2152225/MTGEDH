@@ -1,4 +1,5 @@
 ﻿import { describe, it, expect, vi } from 'vitest';
+import { getMarkedDamage } from '../../shared/src/markedDamage';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
@@ -10224,8 +10225,7 @@ describe('Oracle IR Executor', () => {
       },
     });
 
-    expect((result.state.battlefield || []).find((permanent: any) => permanent?.id === 'c1')?.counters?.damage
-      ?? (result.state.battlefield || []).find((permanent: any) => permanent?.id === 'c1')?.markedDamage).toBe(3);
+    expect(getMarkedDamage((result.state.battlefield || []).find((permanent) => permanent?.id === 'c1'))).toBe(3);
     expect((result.state.players.find(p => p.id === 'p2') as any).life).toBe(40);
     expect(result.appliedSteps.some(s => s.kind === 'deal_damage')).toBe(true);
   });

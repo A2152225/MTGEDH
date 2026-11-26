@@ -260,6 +260,9 @@ export function inferTriggeredAbilityTargetMetadata(effectText: string, context?
     // (and optional subtype words) do not contain the contiguous substring "target creature".
     else if (/\btarget\s+(?:attacking(?:\s+or\s+blocking)?|blocking)\s+(?:[a-z0-9'-]+\s+)*creature\b/.test(lower)) targetType = 'creature';
     else if (lower.includes('target creature')) targetType = 'creature';
+    // Color / status adjectives before the noun: "destroy target nonblack creature" (Chime of Night, Dakmor Lancer),
+    // "target tapped creature", "target green or white creature".
+    else if (/\btarget\s+(?:(?:non-?[a-z]+|white|blue|black|red|green|colorless|multicolored|monocolored|tapped|untapped|legendary|or|and\/or),?\s+)+creature\b/.test(lower)) targetType = 'creature';
     else if (lower.includes('target player') || lower.includes('target opponent')) targetType = 'player';
     else if (/target permanent or opponent\b/.test(lower) || /target opponent or permanent\b/.test(lower)) targetType = 'permanent or player';
     else if (lower.includes('target permanent')) targetType = 'permanent';

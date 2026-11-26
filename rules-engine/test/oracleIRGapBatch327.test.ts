@@ -8,6 +8,7 @@ import {
   parseMoveZoneTargetNonlandSameNameMassExile,
   parseMoveZoneUpToOneNonlandAmongThemRestLibraryBottom,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -106,7 +107,7 @@ describe('Oracle IR gap batch 327 — Meek Attack / Moratorium Stone / Duelist\'
     );
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: controllerId,
@@ -136,7 +137,7 @@ describe('Oracle IR gap batch 327 — Meek Attack / Moratorium Stone / Duelist\'
           cmc: 1,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'test',

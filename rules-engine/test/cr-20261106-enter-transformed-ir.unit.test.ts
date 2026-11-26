@@ -130,7 +130,7 @@ describe('CR 20261106 IR enter-transformed parse and restore', () => {
     expect(created).toHaveLength(1);
     expect(created.rejected).toHaveLength(0);
     expect(created[0].card.name).toBe('Likeness of the Seeker');
-    expect(created[0].transformed).toBe(true);
+    expect(created[0]).toMatchObject({ transformed: true });
     expect(created[0].basePower).toBe(3);
     expect(created[0].baseToughness).toBe(3);
   });

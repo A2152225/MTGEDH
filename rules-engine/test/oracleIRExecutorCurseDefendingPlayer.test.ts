@@ -19,7 +19,7 @@ describe('Oracle IR curse defending player create_token', () => {
       controllerId: p1,
       sourceId: 'curse_source_1',
       sourceName: 'Curse Source',
-      sourceObjectType: 'trigger',
+      sourceObjectType: 'ability',
       selectorContext: { targetPlayerId: p2 },
     });
 

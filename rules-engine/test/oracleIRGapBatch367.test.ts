@@ -4,6 +4,7 @@ import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateConditionalWrapperCondition } from '../src/oracleIRExecutorConditionalStepSupport';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -21,7 +22,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }],
           battlefield: [
             {
@@ -31,7 +32,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
               counters: { '+1/+1': 1 },
             },
           ],
-        } as GameState,
+        }),
         normalizedRaw: "it's modified",
       })
     ).toBe(true);
@@ -39,10 +40,10 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           players: [{ id: controllerId }],
           battlefield: [{ id: 'bf-human', controller: controllerId, type_line: 'Creature — Human' }],
-        } as GameState,
+        }),
         normalizedRaw: 'you control no goblins',
       })
     ).toBe(true);
@@ -50,9 +51,9 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           artifactOrCreaturePutIntoGraveyardFromBattlefieldThisTurn: true,
-        } as GameState,
+        }),
         normalizedRaw: 'an artifact or creature was put into a graveyard from the battlefield this turn',
       })
     ).toBe(true);
@@ -62,14 +63,14 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           stack: [
             {
               id: 'stack-spell-1',
               manaSpentBreakdown: { colorless: 2, white: 0, blue: 0, black: 0, red: 0, green: 0 },
             },
           ],
-        } as GameState,
+        }),
         normalizedRaw: 'no colored mana was spent to cast it',
         ctx: { controllerId, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' },
       })
@@ -78,7 +79,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           battlefield: [
             {
               id: 'bf-source',
@@ -86,7 +87,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
               type_line: 'Legendary Creature — Human Noble Ally',
             },
           ],
-        } as GameState,
+        }),
         normalizedRaw: 'she was a nonland creature',
       })
     ).toBe(true);
@@ -94,7 +95,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: "this creature didn't attack or come under your control this turn" },
-        nextState: {
+        nextState: asGameState({
           battlefield: [
             {
               id: 'bf-source',
@@ -106,7 +107,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
               enteredThisTurn: false,
             },
           ],
-        } as GameState,
+        }),
         controllerId,
         ctx: { controllerId, sourceId: 'bf-source' },
         lastActionOutcome: null,
@@ -116,9 +117,9 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           stack: [{ id: 'stack-spell-1', oracle_text: 'Mutate {1}{G}', type_line: 'Creature — Frog' }],
-        } as GameState,
+        }),
         normalizedRaw: 'it has mutate',
         ctx: { controllerId, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' },
       })
@@ -127,11 +128,11 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     expect(
       evaluateExtendedConditionalClause({
         ...baseParams,
-        nextState: {
+        nextState: asGameState({
           battlefield: [
             { id: 'bf-white', controller: controllerId, type_line: 'Creature — Soldier', colors: ['W'] },
           ],
-        } as GameState,
+        }),
         normalizedRaw: 'you control a white or blue permanent',
       })
     ).toBe(true);
@@ -139,9 +140,9 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     expect(
       evaluateConditionalWrapperCondition({
         condition: { kind: 'if', raw: "this creature wasn't kicked" },
-        nextState: {
+        nextState: asGameState({
           battlefield: [{ id: 'bf-source', controller: controllerId, type_line: 'Creature — Elemental', wasKicked: false }],
-        } as GameState,
+        }),
         controllerId,
         ctx: { controllerId, sourceId: 'bf-source' },
         lastActionOutcome: null,
@@ -157,7 +158,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     const step = ir.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           {
@@ -168,7 +169,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
             attacking: true,
           },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );
@@ -183,12 +184,12 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     const stenchStep = stenchskipper.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'conditional');
     expect(
       applyOracleIRStepsToGameState(
-        {
+        asGameState({
           players: [{ id: controllerId }],
           battlefield: [
             { id: 'bf-source', controller: controllerId, type_line: 'Creature — Human' },
           ],
-        } as GameState,
+        }),
         [stenchStep!],
         { controllerId, sourceId: 'bf-source' }
       ).automationGaps?.some((g) => g.reasonCode === 'unsupported_condition_clause')
@@ -201,7 +202,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     const ichorStep = ichor.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'conditional');
     expect(
       applyOracleIRStepsToGameState(
-        { artifactOrCreaturePutIntoGraveyardFromBattlefieldThisTurn: true } as GameState,
+        asGameState({ artifactOrCreaturePutIntoGraveyardFromBattlefieldThisTurn: true }),
         [ichorStep!],
         { controllerId, sourceId: 'bf-source' }
       ).automationGaps?.some((g) => g.reasonCode === 'unsupported_condition_clause')
@@ -214,14 +215,14 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     const voidStep = voidMirror.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'conditional');
     expect(
       applyOracleIRStepsToGameState(
-        {
+        asGameState({
           stack: [
             {
               id: 'stack-spell-1',
               manaSpentBreakdown: { colorless: 2, white: 0, blue: 0, black: 0, red: 0, green: 0 },
             },
           ],
-        } as GameState,
+        }),
         [voidStep!],
         { controllerId, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' }
       ).automationGaps?.some((g) => g.reasonCode === 'unsupported_condition_clause')
@@ -236,7 +237,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     const yueStep = yue.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'conditional');
     expect(
       applyOracleIRStepsToGameState(
-        {
+        asGameState({
           battlefield: [
             {
               id: 'bf-source',
@@ -244,7 +245,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
               type_line: 'Legendary Creature — Human Noble Ally',
             },
           ],
-        } as GameState,
+        }),
         [yueStep!],
         { controllerId, sourceId: 'bf-source' }
       ).automationGaps?.some((g) => g.reasonCode === 'unsupported_condition_clause')
@@ -257,7 +258,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     const madStep = madDog.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'conditional');
     expect(
       applyOracleIRStepsToGameState(
-        {
+        asGameState({
           battlefield: [
             {
               id: 'bf-source',
@@ -269,7 +270,7 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
               enteredThisTurn: false,
             },
           ],
-        } as GameState,
+        }),
         [madStep!],
         { controllerId, sourceId: 'bf-source' }
       ).automationGaps?.some((g) => g.reasonCode === 'unsupported_condition_clause')
@@ -282,9 +283,9 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     const pollyStep = pollywog.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'conditional');
     expect(
       applyOracleIRStepsToGameState(
-        {
+        asGameState({
           stack: [{ id: 'stack-spell-1', oracle_text: 'Mutate {1}{G}', type_line: 'Creature — Frog' }],
-        } as GameState,
+        }),
         [pollyStep!],
         { controllerId, sourceId: 'bf-source', targetSpellId: 'stack-spell-1' }
       ).automationGaps?.some((g) => g.reasonCode === 'unsupported_condition_clause')
@@ -297,12 +298,12 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     const rakaStep = raka.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'conditional');
     expect(
       applyOracleIRStepsToGameState(
-        {
+        asGameState({
           battlefield: [
             { id: 'bf-enchant', controller: controllerId, type_line: 'Enchantment' },
             { id: 'bf-white', controller: controllerId, type_line: 'Creature — Soldier', colors: ['W'] },
           ],
-        } as GameState,
+        }),
         [rakaStep!],
         { controllerId, sourceId: 'bf-enchant' }
       ).automationGaps?.some((g) => g.reasonCode === 'unsupported_condition_clause')
@@ -315,11 +316,11 @@ describe('Oracle IR gap batch 367 — nine condition clusters', () => {
     const skizzikStep = skizzik.abilities.flatMap((a) => a.steps || []).find((s) => s.kind === 'conditional');
     expect(
       applyOracleIRStepsToGameState(
-        {
+        asGameState({
           battlefield: [
             { id: 'bf-source', controller: controllerId, type_line: 'Creature — Elemental', wasKicked: false },
           ],
-        } as GameState,
+        }),
         [skizzikStep!],
         { controllerId, sourceId: 'bf-source' }
       ).automationGaps?.some((g) => g.reasonCode === 'unsupported_condition_clause')

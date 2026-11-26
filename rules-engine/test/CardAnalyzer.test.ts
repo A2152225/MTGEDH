@@ -661,11 +661,12 @@ describe('CardAnalyzer', () => {
     it('does not infer triggers from card name when oracle_text is missing', () => {
       const analysis = cardAnalyzer.analyzeCard(
         createMockPermanent({
+          id: 'card_zulaport_cutthroat',
           name: 'Zulaport Cutthroat',
           type_line: 'Creature — Human Rogue Ally',
           power: '1',
           toughness: '1',
-        }),
+        }, 'player1'),
       );
       expect(analysis.details.hasAnotherCreatureTrigger).toBe(false);
       expect(analysis.categories).not.toContain(CardCategory.ARISTOCRAT);

@@ -520,7 +520,9 @@ export function resolveOracleQuantity(
       }
     }
 
-    if (qty.stat === 'mana_value') {
+    const permanentSubject = subject === 'that_permanent' || subject === 'that_creature' || subject === 'that_wall'
+      || subject === 'that_equipment' || /^the_sacrificed_/.test(String(subject || ''));
+    if (qty.stat === 'mana_value' && !permanentSubject) {
       const spellMv = Number((ctx as any).lastCastSpellManaValue ?? (ctx as any).targetSpellManaValue);
       if (Number.isFinite(spellMv)) return Math.max(0, spellMv);
     }
@@ -530,6 +532,7 @@ export function resolveOracleQuantity(
     if (
       sacrificedEntry &&
       (subject === 'that_creature' ||
+        subject === 'that_permanent' ||
         subject === 'the_sacrificed_creature' ||
         subject === 'the_sacrificed_permanent' ||
         subject === 'the_sacrificed_enchantment')

@@ -253,7 +253,8 @@ export function parseOpponentsWithCountersCantAttackOrBlock(text: string): boole
 }
 
 export function parseEnchantedCantBeBlockedExceptBy(text: string): string {
-  const match = text.match(/enchanted creature can't be blocked except by ([a-z]+)/);
+  // Single-type form only ("except by Walls."); "artifact creatures and/or white creatures" is Seeker's batch107 rule.
+  const match = text.match(/enchanted creature can't be blocked except by ([a-z]+)(?: creatures)?(?=\s*(?:[.,;\n]|$))/);
   return match ? match[1].replace(/s$/, '') : '';
 }
 

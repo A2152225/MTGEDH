@@ -159,8 +159,15 @@ function pushMustBeBlockedByAtLeast(
   oracle: string,
 ): void {
   const text = String(oracle || '').toLowerCase().replace(/\u2019/g, "'");
-  // Gorm compound: also grant plain must-be-blocked-if-able when present.
-  if (/(?:this creature|~|[a-z' ,.-]+?) must be blocked if able/.test(text)) {
+  // Gorm compound: also grant plain must-be-blocked-if-able when present. Only an unconditional
+  // sentence whose subject is this permanent counts; "as long as ..., it must be blocked" (Frodo,
+  // Enkira) and "enchanted creature ... must be blocked" (Predatory Impetus) have their own
+  // conditioned / attached specs.
+  const fullName = String(source.sourceName || '').toLowerCase().replace(/\u2019/g, "'");
+  const selfNames = [fullName, fullName.split(',')[0].trim()].filter(Boolean)
+    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const selfSubject = ['this creature', '~', ...selfNames].join('|');
+  if (new RegExp(`(?:^|[\\n.]\\s*)(?:${selfSubject}) must be blocked if able`).test(text)) {
     specs.push(buildSpec(
       source,
       'must-be-blocked-if-able',

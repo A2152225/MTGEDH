@@ -52,7 +52,7 @@ describe('Rule 701.15: Goad Mechanic', () => {
         id: 'creature1',
         controller: 'player1',
         owner: 'player1',
-        card: { name: 'Test Creature' },
+        card: { id: 'creature1-card', name: 'Test Creature' },
         goaded: { player2: true },
       } as BattlefieldPermanent;
 
@@ -77,7 +77,7 @@ describe('Rule 701.15: Goad Mechanic', () => {
         id: 'creature1',
         controller: 'player1',
         owner: 'player1',
-        card: { name: 'Test Creature' },
+        card: { id: 'creature1-card', name: 'Test Creature' },
         goadedBy: ['player2'],
         goadedUntil: { player2: 5 },
       } as BattlefieldPermanent;
@@ -172,7 +172,7 @@ describe('Rule 701.15: Goad Mechanic', () => {
         id: 'creature1',
         controller: 'player1',
         owner: 'player1',
-        card: { name: 'Test Creature' },
+        card: { id: 'creature1-card', name: 'Test Creature' },
         goadedBy: ['player2', 'player3'],
         goadedUntil: { player2: 5, player3: 8 },
       } as BattlefieldPermanent;

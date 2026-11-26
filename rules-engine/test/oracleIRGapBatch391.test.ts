@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -27,7 +28,7 @@ describe('Oracle IR gap batch 391 — general parse→execute clusters', () => {
     };
     expectNoGeneralGaps(
       [step],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           {
@@ -38,7 +39,7 @@ describe('Oracle IR gap batch 391 — general parse→execute clusters', () => {
             toughness: 2,
           },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-src',
@@ -54,13 +55,13 @@ describe('Oracle IR gap batch 391 — general parse→execute clusters', () => {
     expect(fightStep).toBeTruthy();
     expectNoGeneralGaps(
       [fightStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         battlefield: [
           { id: 'bf-a', controller: controllerId, type_line: 'Creature — Cat', power: 2, toughness: 2 },
           { id: 'bf-b', controller: 'p2', type_line: 'Creature — Snake', power: 3, toughness: 2 },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-src',
@@ -77,12 +78,12 @@ describe('Oracle IR gap batch 391 — general parse→execute clusters', () => {
     expect(damageStep).toBeTruthy();
     expectNoGeneralGaps(
       [damageStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }, { id: 'p2' }],
         battlefield: [
           { id: 'bf-src', controller: controllerId, type_line: 'Creature — Human', power: 4, toughness: 3 },
         ],
-      } as GameState,
+      }),
       { controllerId, sourceId: 'bf-src', selectorContext: { targetOpponentId: 'p2' } }
     );
 
@@ -115,7 +116,7 @@ describe('Oracle IR gap batch 391 — general parse→execute clusters', () => {
     };
     expectNoGeneralGaps(
       [modifyStep],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           {
@@ -127,7 +128,7 @@ describe('Oracle IR gap batch 391 — general parse→execute clusters', () => {
             toughness: 1,
           },
         ],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-src',
@@ -143,10 +144,10 @@ describe('Oracle IR gap batch 391 — general parse→execute clusters', () => {
     expect(preventStep).toBeTruthy();
     expectNoGeneralGaps(
       [preventStep!],
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-target', controller: controllerId, type_line: 'Creature — Human' }],
-      } as GameState,
+      }),
       {
         controllerId,
         sourceId: 'bf-src',

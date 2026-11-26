@@ -108,6 +108,8 @@ export interface StaticEffectGrant {
   countKeyword?: string;
   /** creatures_named: lower-case card name. */
   countName?: string;
+  /** creatures_named: "named X you control" counts only the controller's (Seven Dwarves); "on the battlefield" counts all (Relentless Rats). */
+  countNamedYouControl?: boolean;
   /** B74: recipient_mana_symbols — color word (white/blue/…) or letter (W/U/…). */
   countColor?: string;
   /** source_counters: count counters on the Aura/Equipment (effectSourcePermanentId), e.g. Sigil of Distinction. */

@@ -67,8 +67,8 @@ describe('until-next-turn attack-you except-keywords oracle IR', () => {
   it('does not parse idle Island Sanctuary replacement text as a continuous lock grant', () => {
     const grants = collectGrantSteps(ISLAND_SANCTUARY_ORACLE, 'Island Sanctuary');
     expect(grants.some((step) => {
-      const text = Array.isArray((step as { effectText?: string[] }).effectText)
-        ? String((step as { effectText?: string[] }).effectText?.[0] || '')
+      const text = Array.isArray((step as { effectText?: readonly string[] }).effectText)
+        ? String((step as { effectText?: readonly string[] }).effectText?.[0] || '')
         : '';
       return text.toLowerCase().includes("can't be attacked except");
     })).toBe(false);

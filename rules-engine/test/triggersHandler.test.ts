@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { asGameState } from './helpers/gameStateFixture';
 import type { GameState } from '../../shared/src';
 import { buildResolutionEventDataFromGameState, TriggerEvent } from '../src/triggeredAbilities';
 import {
@@ -4278,7 +4279,6 @@ describe('triggersHandler Oracle automation', () => {
         sourceId: 'mentor-source',
         sourceControllerId: 'p1',
         targetOpponentId: 'p2',
-        targetCreatureId: 'second-smaller-attacker',
         chosenObjectIds: ['second-smaller-attacker'],
         affectedOpponentIds: ['p2'],
       })
@@ -5639,12 +5639,12 @@ describe('triggersHandler Oracle automation', () => {
       }
     );
     const delayedRegistry = registerDelayedTrigger(createDelayedTriggerRegistry(), delayedTrigger);
-    const start = makeState({
+    const start = makeState(asGameState({
       turnPlayer: 'p1',
-      activePlayerIndex: 0 as any,
-      turnNumber: 6 as any,
-      delayedTriggerRegistry: delayedRegistry as any,
-    });
+      activePlayerIndex: 0,
+      turnNumber: 6,
+      delayedTriggerRegistry: delayedRegistry,
+    }));
 
     const result = checkStepTriggers(start, TriggerEvent.BEGINNING_OF_COMBAT, 'p1', {
       autoExecuteOracle: true,

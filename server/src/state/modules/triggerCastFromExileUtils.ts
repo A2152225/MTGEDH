@@ -109,7 +109,9 @@ export function queueCastFromExileResolutionPrompt(
     extras?.castAsTransformed === true
     || (exiledCard as any)?.castAsTransformed === true
     || String((exiledCard as any)?.castWithAbility || '').toLowerCase() === 'siege-defeat';
-  const omitDecline = extras?.omitDecline === true || extras?.mandatory === true;
+  // "mandatory" means a choice must be made. With a labelled decline (Discover: "cast it or put it
+  // into your hand") the decline is one of the required alternatives, so keep it.
+  const omitDecline = extras?.omitDecline === true || (extras?.mandatory === true && !extras?.declineLabel);
   if (stateAny && exiledCardId) {
     upsertDurablePermission(stateAny, buildDurablePlayableFromExilePermission({
       playerId,

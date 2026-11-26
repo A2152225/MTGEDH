@@ -31,6 +31,23 @@ import {
 import { requiresExplicitControllerOverride } from './oracleIRExecutorMoveZoneContextualCardResolvers';
 import { moveTargetedCardFromGraveyard } from './oracleIRExecutorZoneOps';
 
+// "N target cards from <player>'s graveyard" when that graveyard holds exactly N cards: every card
+// there must be chosen as a target (CR 601.2c needs N distinct legal targets), so the choice is forced.
+function resolveForcedGraveyardTargetIds(
+  state: MoveZoneGuardArgs['nextState'],
+  playerId: string,
+  requiredCount: number,
+): string[] {
+  if (!playerId || requiredCount <= 0) return [];
+  const player = (state.players || []).find((entry) => String(entry?.id || '') === playerId);
+  const graveyard: readonly unknown[] = player && Array.isArray(player.graveyard) ? player.graveyard : [];
+  if (graveyard.length !== requiredCount) return [];
+  const ids = graveyard.map((card) =>
+    card && typeof card === 'object' && 'id' in card ? String(card.id || '').trim() : '',
+  );
+  return ids.every(Boolean) ? ids : [];
+}
+
 function resolveGraveyardOwnerFromChosenIds(
   state: MoveZoneGuardArgs['nextState'],
   preferredIds: readonly string[],
@@ -68,7 +85,10 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
   if (parsedNTargetCardsFromOpponentOrPlayerGy && step.to === 'hand') {
     const preferred = getChosenObjectIds(ctx);
     const requiredCount = parsedNTargetCardsFromOpponentOrPlayerGy.count;
-    const gyChosen = preferred.filter((id) => findBoundCardZoneLocation(nextState, id)?.zone === 'graveyard');
+    const boundGyChosen = preferred.filter((id) => findBoundCardZoneLocation(nextState, id)?.zone === 'graveyard');
+    const gyChosen = boundGyChosen.length > 0
+      ? boundGyChosen
+      : resolveForcedGraveyardTargetIds(nextState, String(getTargetPlayerId(ctx) || ''), requiredCount);
     if (gyChosen.length === 0) {
       return {
         applied: false,
@@ -130,7 +150,7 @@ export function tryApplyMoveZoneGuardsFromTargetCountFromGraveyard(args: MoveZon
         return {
           applied: false,
           message: `Skipped move zone (failed to move targeted card): ${step.raw}`,
-          reason: 'failed_to_apply',
+          reason: 'impossible_action',
         };
       }
       workingState = result.state;

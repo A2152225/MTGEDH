@@ -1,4 +1,4 @@
-import type { BattlefieldPermanent, GameState } from '../../shared/src';
+import type { BattlefieldPermanent, GameState } from '../../../shared/src';
 
 type PermanentOptions = {
   id: string;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getMarkedDamage } from '../../shared/src/markedDamage';
 
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
@@ -154,7 +155,7 @@ describe('pay any amount of energy then unless-pay', () => {
     expect(result.appliedSteps.map((step) => step.kind)).toContain('pay_energy');
     expect(result.appliedSteps.map((step) => step.kind)).toContain('deal_damage');
     const bear = result.state.battlefield.find((entry: any) => entry.id === 'bear');
-    const marked = Number(bear?.markedDamage ?? bear?.damageMarked ?? 0);
+    const marked = getMarkedDamage(bear);
     expect(marked).toBeGreaterThanOrEqual(3);
   });
 });

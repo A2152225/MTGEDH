@@ -16,6 +16,7 @@ import { graveyardCardsAreUntargetable } from './graveyardTargetingRestriction.j
 import { ResolutionQueueManager, ResolutionStepType } from '../resolution/index.js';
 import { inferTriggeredAbilityTargetMetadata } from './inferTriggeredAbilityTargetMetadata.js';
 import { appendQueuedResolutionPromptEvent } from './resolutionPromptEvents.js';
+import { routeOpponentChosenTriggerTargetSpec } from './opponentChosenTargetRouting.js';
 
 function buildTriggeredAbilityGraveyardValidTargets(
   ctx: GameContext,
@@ -125,7 +126,7 @@ export function queueSelfEtbGraveyardTargetPrompt(
       || (/\bexiles?\s+(?:up to\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+)?target\b/i.test(options.effectText)
         ? 'exile'
         : 'battlefield');
-    const queueStep = ResolutionQueueManager.addStep(gameIdLocal, {
+    const queueStep = ResolutionQueueManager.addStep(gameIdLocal, routeOpponentChosenTriggerTargetSpec((ctx as any).state, String(options.controller), options.effectText, {
       type: ResolutionStepType.GRAVEYARD_SELECTION,
       playerId: options.controller as any,
       sourceId: options.triggerId,
@@ -149,7 +150,7 @@ export function queueSelfEtbGraveyardTargetPrompt(
       triggeredAbilityEffectText: options.effectText,
       triggeredAbilitySourcePermanentId: options.permanentId,
       triggerSourcePermanentId: options.permanentId,
-    } as any);
+    }) as any);
     appendQueuedResolutionPromptEvent(ctx, {
       playerId: String(options.controller),
       sourceId: options.triggerId,

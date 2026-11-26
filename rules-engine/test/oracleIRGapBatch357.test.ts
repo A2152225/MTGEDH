@@ -3,6 +3,7 @@ import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { evaluateExtendedConditionalClause } from '../src/oracleIRExecutorConditionalStepSupportExtended';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -17,7 +18,7 @@ const baseParams = {
 
 describe('Oracle IR gap batch 357 — top condition clusters', () => {
   it('evaluates same-name permanent, clues sacrificed, prowl paid, and lesson in graveyard', () => {
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: controllerId,
@@ -29,7 +30,7 @@ describe('Oracle IR gap batch 357 — top condition clusters', () => {
         { id: 'bf-source', controller: controllerId, type_line: 'Creature — Faerie', prowlCostWasPaid: true },
         { id: 'bf-named-perm', controller: 'p2', name: 'Lightning Bolt', type_line: 'Instant' },
       ],
-    } as GameState;
+    });
 
     expect(
       evaluateExtendedConditionalClause({
@@ -73,10 +74,10 @@ describe('Oracle IR gap batch 357 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [{ id: 'bf-named-perm', controller: 'p2', name: 'Lightning Bolt', type_line: 'Instant' }],
-      } as GameState,
+      }),
       [step!],
       {
         controllerId,
@@ -95,10 +96,10 @@ describe('Oracle IR gap batch 357 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId, hand: [{ id: 'h-creature', type_line: 'Creature — Human' }] }],
         cluesSacrificedThisTurn: { [controllerId]: 3 },
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-patrol' }
     );
@@ -113,12 +114,12 @@ describe('Oracle IR gap batch 357 — top condition clusters', () => {
     const step = ir.abilities.flatMap((ability) => ability.steps || []).find((entry) => entry.kind === 'conditional');
     expect(step).toBeTruthy();
     const result = applyOracleIRStepsToGameState(
-      {
+      asGameState({
         players: [{ id: controllerId }],
         battlefield: [
           { id: 'bf-source', controller: controllerId, type_line: 'Creature — Faerie', prowlCostWasPaid: true },
         ],
-      } as GameState,
+      }),
       [step!],
       { controllerId, sourceId: 'bf-source' }
     );

@@ -5,6 +5,7 @@ import { parseOracleTextToIR } from '../src/oracleIRParser';
 import {
   parseMoveZoneThisCreatureAndAnotherTargetCreature,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const opponentId = 'p2' as PlayerID;
@@ -91,7 +92,7 @@ describe('Oracle IR gap batch 331 — Rejoin the Fight / Coastal Wizard / Spell 
       (entry) => entry.kind === 'move_zone'
     );
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: opponentId, library: [], hand: [], graveyard: [], exile: [] },
@@ -114,7 +115,7 @@ describe('Oracle IR gap batch 331 — Rejoin the Fight / Coastal Wizard / Spell 
           cmc: 1,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'bf-coastal',
@@ -137,7 +138,7 @@ describe('Oracle IR gap batch 331 — Rejoin the Fight / Coastal Wizard / Spell 
     );
     const step = (conditional as any)?.steps?.find((entry: any) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [], exile: [] },
         { id: opponentId, library: [], hand: [], graveyard: [], exile: [] },
@@ -154,7 +155,7 @@ describe('Oracle IR gap batch 331 — Rejoin the Fight / Coastal Wizard / Spell 
           card: { id: 'card-sc-1', name: 'Countered Spell', type_line: 'Instant', cmc: 2 },
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'test',

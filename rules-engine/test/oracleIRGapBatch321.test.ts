@@ -6,6 +6,7 @@ import {
   parseMoveZoneBottomCardFromLibrary,
   parseMoveZoneUpToTargetCardsFromGraveyards,
 } from '../src/oracleIRExecutorZoneOps';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 const targetId = 'p2' as PlayerID;
@@ -78,7 +79,7 @@ describe('Oracle IR gap batch 321 — Cellar Door / Grenzo / Boneyard Parley', (
     );
     const step = ir.abilities[0]?.steps?.find((entry) => entry.kind === 'move_zone');
     expect(step).toBeTruthy();
-    const state = {
+    const state = asGameState({
       players: [
         {
           id: controllerId,
@@ -102,7 +103,7 @@ describe('Oracle IR gap batch 321 — Cellar Door / Grenzo / Boneyard Parley', (
           power: 2,
         },
       ],
-    } as GameState;
+    });
     const result = applyOracleIRStepsToGameState(state, [step!], {
       controllerId,
       sourceId: 'bf-grenzo',

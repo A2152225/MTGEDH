@@ -4,6 +4,7 @@ import { parseOracleTextToIR } from '../src/oracleIRParser';
 import { applyOracleIRStepsToGameState, buildOracleIRExecutionContext } from '../src/oracleIRExecutor';
 import { evaluateModifyPtWhereX } from '../src/oracleIRExecutorModifyPtWhereEvaluator';
 import { parseBareTriggerEffectFragmentSteps } from '../src/oracleIRParserPostprocess';
+import { asGameState } from './helpers/gameStateFixture';
 
 function collectStepsFromText(text: string) {
   const ir = parseOracleTextToIR(text, 'Batch237');
@@ -118,7 +119,7 @@ describe('Oracle IR gap batch 237 support', () => {
     const steps = collectStepsFromText(
       "For each opponent other than defending player, create a token that's a copy of it. Those tokens enter tapped and attacking. Exile them at end of combat."
     );
-    const state = baseState({
+    const state = baseState(asGameState({
       players: [
         { id: 'p1', name: 'P1', hand: [], library: [], graveyard: [] },
         { id: 'p2', name: 'P2', hand: [], library: [], graveyard: [] },
@@ -133,7 +134,7 @@ describe('Oracle IR gap batch 237 support', () => {
           card: { type_line: 'Legendary Creature — Human Ninja' },
         },
       ],
-    } as Partial<GameState>);
+    }));
     const result = applyOracleIRStepsToGameState(
       state,
       steps,

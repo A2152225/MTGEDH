@@ -31,6 +31,7 @@ describe('mana pool synergy activated abilities', () => {
           controller: 'p1',
           effectivePower: 7,
           card: {
+            id: 'omnath',
             name: 'Omnath, Locus of Mana',
             type_line: 'Legendary Creature — Elemental',
             oracle_text: "You don't lose unspent green mana as steps and phases end.\nOmnath gets +1/+1 for each unspent green mana you have.",
@@ -41,6 +42,7 @@ describe('mana pool synergy activated abilities', () => {
           controller: 'p1',
           tapped: false,
           card: {
+            id: 'rancher',
             name: 'Bighorner Rancher',
             type_line: 'Creature — Human Ranger',
             oracle_text: '{T}: Add an amount of {G} equal to the greatest power among creatures you control.',
@@ -67,6 +69,7 @@ describe('mana pool synergy activated abilities', () => {
         id: 'elf',
         controller: 'p1',
         card: {
+          id: 'elf',
           name: 'Llanowar Elves',
           type_line: 'Creature — Elf Druid',
           oracle_text: '{T}: Add {G}.',
@@ -99,6 +102,7 @@ describe('mana pool synergy activated abilities', () => {
           isCommander: true,
           effectivePower: 10,
           card: {
+            id: 'omnath',
             name: 'Omnath, Locus of Mana',
             type_line: 'Legendary Creature — Elemental',
             oracle_text: "You don't lose unspent green mana as steps and phases end.",
@@ -108,6 +112,7 @@ describe('mana pool synergy activated abilities', () => {
           id: 'tanuki',
           controller: 'p1',
           card: {
+            id: 'tanuki',
             name: 'Tanuki Transplanter',
             type_line: 'Artifact Creature — Equipment Dog',
             oracle_text: "Whenever this creature or equipped creature attacks, add an amount of {G} equal to its power. Until end of turn, you don't lose this mana as steps and phases end.\nReconfigure {3}",
@@ -138,6 +143,7 @@ describe('mana pool synergy activated abilities', () => {
           isCommander: true,
           effectivePower: 8,
           card: {
+            id: 'beatstick',
             name: 'Mossborn Hydra',
             type_line: 'Creature — Hydra',
             oracle_text: 'Trample',
@@ -173,6 +179,7 @@ describe('mana pool synergy activated abilities', () => {
         tapped: false,
         summoningSickness: false,
         card: {
+          id: 'omnath',
           name: 'Omnath, Locus of Mana',
           type_line: 'Legendary Creature — Elemental',
           oracle_text: "You don't lose unspent green mana as steps and phases end.",
@@ -185,6 +192,7 @@ describe('mana pool synergy activated abilities', () => {
         tapped: false,
         summoningSickness: false,
         card: {
+          id: 'hydra',
           name: 'Mossborn Hydra',
           type_line: 'Creature — Hydra',
           oracle_text: 'Trample',
@@ -226,6 +234,7 @@ describe('mana pool synergy activated abilities', () => {
       controller: 'p1',
       attachedTo: 'hydra',
       card: {
+        id: 'tanuki',
         name: 'Tanuki Transplanter',
         type_line: 'Artifact Creature — Equipment Dog',
         oracle_text: "Whenever this creature or equipped creature attacks, add an amount of {G} equal to its power. Until end of turn, you don't lose this mana as steps and phases end.\nReconfigure {3}",
@@ -246,6 +255,7 @@ describe('mana pool synergy activated abilities', () => {
           tapped: false,
           summoningSickness: false,
           card: {
+            id: 'omnath',
             name: 'Omnath, Locus of Mana',
             type_line: 'Legendary Creature — Elemental',
             oracle_text: "You don't lose unspent green mana as steps and phases end.",
@@ -258,6 +268,7 @@ describe('mana pool synergy activated abilities', () => {
           tapped: false,
           summoningSickness: false,
           card: {
+            id: 'hydra',
             name: 'Mossborn Hydra',
             type_line: 'Creature — Hydra',
             oracle_text: 'Trample',
@@ -318,6 +329,7 @@ describe('mana pool synergy activated abilities', () => {
           controller: 'p1',
           counters: {},
           card: {
+            id: 'battery',
             name: 'Gemstone Array',
             type_line: 'Artifact',
             oracle_text:
@@ -366,6 +378,7 @@ describe('mana pool synergy activated abilities', () => {
       controller: 'p1',
       counters: {},
       card: {
+        id: 'battery',
         name: 'Gemstone Array',
         type_line: 'Artifact',
         oracle_text:
@@ -430,6 +443,7 @@ describe('quoted granted combat-damage draws', () => {
           controller: 'p1',
           tapped: false,
           card: {
+            id: 'heirloom',
             name: 'Herd Heirloom',
             type_line: 'Artifact',
             oracle_text: '{T}: Add one mana of any color. Spend this mana only to cast a creature spell.\n{T}: Until end of turn, target creature you control with power 4 or greater gains trample and "Whenever this creature deals combat damage to a player, draw a card."',
@@ -456,6 +470,7 @@ describe('quoted granted combat-damage draws', () => {
         controller: 'p1',
         tapped: false,
         card: {
+          id: 'defector',
           name: 'Humble Defector',
           type_line: 'Creature — Human Rogue',
           oracle_text: '{T}: Draw two cards. Target opponent gains control of Humble Defector. Activate only during your turn.',

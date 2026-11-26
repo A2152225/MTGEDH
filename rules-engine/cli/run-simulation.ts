@@ -273,7 +273,7 @@ class EnhancedSimulator {
   private analyzeEvents(events: RulesEvent[]): void {
     for (const event of events) {
       // Track trigger counts
-      if (event.type === RulesEngineEvent.ABILITY_TRIGGERED) {
+      if (event.type === RulesEngineEvent.TRIGGERED_ABILITY) {
         const cardName = event.data?.sourceName || 'Unknown';
         const current = this.triggerCounts.get(cardName) || 0;
         this.triggerCounts.set(cardName, current + 1);
@@ -291,10 +291,8 @@ class EnhancedSimulator {
         });
       }
       
-      // Track unexpected behaviors
-      if (event.type === RulesEngineEvent.WARNING || event.type === RulesEngineEvent.ERROR) {
-        this.unexpectedBehaviors.push(event.data?.message || 'Unknown issue');
-      }
+      // RulesEngineEvent has no WARNING/ERROR members; unexpected behaviours are
+      // recorded from the adapter's thrown errors instead of from the event stream.
     }
   }
   

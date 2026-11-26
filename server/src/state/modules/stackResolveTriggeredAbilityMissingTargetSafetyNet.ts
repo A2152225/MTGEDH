@@ -77,6 +77,9 @@ export function stampMissingTargetMetadataAfterOptionalAccept(
   // IR-primary Effect Program asks the may-choice itself, after stack-level targeting).
   const stampsMandatory = MANDATORY_STAMP_TRIGGER_TYPES.has(String(options.triggerType || item.triggerType || '').toLowerCase());
   if (item.optionalTriggeredAbilityDecisionApplied !== true && item.mandatory !== false && !stampsMandatory) return false;
+  // Keyword death triggers that queue their own choice step (modular, soulshift, haunt) pick their target
+  // there; stamping stack-level targeting would bypass that step.
+  if (stampsMandatory && item.requiresChoice === true) return false;
   if ((ctx as any)?.isReplaying) return false;
   if (SKIPPED_TRIGGER_TYPES.has(String(options.triggerType || item.triggerType || '').toLowerCase())) return false;
   if (hasAnyChosenTarget(item)) return false;

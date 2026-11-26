@@ -256,7 +256,9 @@ describe('B100 Arvinox isn\'t a creature unless', () => {
 
 describe('B100 borrowed activated abilities', () => {
   it('parses Skill Borrower\'s top library card and Territory Forge\'s exiled card', () => {
-    expect(parseBorrowedActivatedClause('that card')).toMatchObject({ zone: 'top_library' });
+    // Bare "that card" has no antecedent. Skill Borrower's top-of-library reading comes from the
+    // full "as long as the top card of your library" sentence in pushBorrowedActivatedSelfSpecs (below).
+    expect(parseBorrowedActivatedClause('that card')).toBeNull();
     expect(parseBorrowedActivatedClause('the top card of your library')).toMatchObject({ zone: 'top_library' });
     expect(parseBorrowedActivatedClause('the exiled card')).toMatchObject({ zone: 'the_exiled_card' });
     const specs: any[] = [];

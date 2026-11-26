@@ -80,6 +80,7 @@ function pushOtherNamedCreatureAnthem(
       toughness: buff.toughness,
       countBasis: 'creatures_named',
       countName: cardName,
+      countNamedYouControl: true,
       countExcludeSource: true,
     } as any,
   ));

@@ -50,17 +50,27 @@ export function collectStaticAbilities(
 const STATIC_RESULT_CACHE_MAX = 8;
 const staticResultCache = new Map<string, BattlefieldPermanent[]>();
 
+// The cache key must cover every characteristic the static pass reads. A key of only id/controller/tapped/
+// card name/counters returned stale permanents after an animation changed type_line or base P/T (Noyan Dar:
+// "that land becomes a 0/0 Elemental creature" was silently reverted once the land had +1/+1 counters).
+const CARD_KEY_FIELDS = ['name', 'type_line', 'oracle_text', 'power', 'toughness', 'colors', 'subtypes', 'keywords'] as const;
+function permanentCacheKey(perm: BattlefieldPermanent): string {
+  try {
+    return JSON.stringify(perm, function (this: unknown, field: string, value: unknown) {
+      if (field === 'card' && this === perm && value && typeof value === 'object') {
+        const card = value as Record<string, unknown>;
+        return CARD_KEY_FIELDS.map((name) => card[name]);
+      }
+      return value;
+    });
+  } catch {
+    return `uncacheable:${Math.random()}`;
+  }
+}
+
 function staticBattlefieldCacheKey(battlefield: BattlefieldPermanent[], gameState?: GameState): string {
   let key = String(battlefield.length);
-  for (const perm of battlefield) {
-    const card = perm?.card as { name?: string; power?: string; toughness?: string } | undefined;
-    const counters = (perm as { counters?: Record<string, number> })?.counters;
-    let counterKey = '';
-    if (counters && typeof counters === 'object') {
-      for (const name of Object.keys(counters)) counterKey += `${name}${counters[name]}`;
-    }
-    key += `|${perm?.id}:${perm?.controller}:${(perm as { tapped?: boolean })?.tapped ? 1 : 0}:${card?.name || ''}:${card?.power || ''}/${card?.toughness || ''}:${counterKey}:${(perm as { attachedTo?: string })?.attachedTo || ''}`;
-  }
+  for (const perm of battlefield) key += `|${permanentCacheKey(perm)}`;
   const players = gameState?.players;
   if (players) {
     for (const player of players) {
@@ -84,10 +94,11 @@ export function applyStaticAbilitiesToBattlefield(
   if (hit) {
     staticResultCache.delete(key);
     staticResultCache.set(key, hit);
-    return hit;
+    // Fresh top-level objects so a caller that mutates its result cannot poison the cached copy.
+    return hit.map((perm) => ({ ...(perm as object) }) as BattlefieldPermanent);
   }
   const result = applyStaticAbilitiesToBattlefieldImpl(battlefield, parseStaticAbilities, gameState);
-  staticResultCache.set(key, result);
+  staticResultCache.set(key, result.map((perm) => ({ ...(perm as object) }) as BattlefieldPermanent));
   while (staticResultCache.size > STATIC_RESULT_CACHE_MAX) {
     const oldest = staticResultCache.keys().next().value;
     if (oldest === undefined) break;

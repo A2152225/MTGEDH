@@ -601,6 +601,8 @@ export interface TriggerMatchSource {
 
 export interface TriggerMatchContext {
   readonly castFromZone?: string;
+  /** The triggering event happened "this way" (the condition's thisWay flag requires it). */
+  readonly thisWay?: boolean;
   /** True during any combat step; undefined when the caller does not know. */
   readonly inCombat?: boolean;
   /** Permanent id the subject just attached to (becomes_attached). */

@@ -59,7 +59,7 @@ describe('Inspiring Call oracle IR', () => {
       sourceName: 'Inspiring Call',
     });
 
-    expect(result.skippedSteps?.some((entry) => entry.step?.kind === 'draw')).toBe(false);
+    expect(result.skippedSteps?.some((entry) => entry.kind === 'draw')).toBe(false);
     expect(result.appliedSteps.some((step) => step.kind === 'draw')).toBe(true);
     const player = (result.state as any).players.find((entry: any) => entry.id === 'p1');
     expect((player?.hand || []).length).toBe(2);

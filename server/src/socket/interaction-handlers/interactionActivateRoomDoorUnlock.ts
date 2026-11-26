@@ -62,13 +62,15 @@ export async function tryHandleActivateRoomDoorUnlock(
 
   const gameCtx = ((game as any).ctx || game) as any;
   const paid = payToUnlockRoomDoor(gameCtx, permanent, pid as any, faceIndex);
-  if (!paid.ok) {
+  if (paid.ok === false) {
+    // Server tsconfig is non-strict, so the boolean discriminant does not narrow.
+    const reason = (paid as { ok: false; reason: string }).reason;
     const code =
-      paid.reason === 'insufficient mana' ? 'INSUFFICIENT_MANA'
-        : paid.reason === 'sorcery speed only' ? 'SORCERY_SPEED_ONLY'
-          : paid.reason === 'not your turn' ? 'NOT_YOUR_TURN'
+      reason === 'insufficient mana' ? 'INSUFFICIENT_MANA'
+        : reason === 'sorcery speed only' ? 'SORCERY_SPEED_ONLY'
+          : reason === 'not your turn' ? 'NOT_YOUR_TURN'
             : 'ROOM_DOOR_UNLOCK_FAILED';
-    socket.emit('error', { code, message: paid.reason });
+    socket.emit('error', { code, message: reason });
     return true;
   }
 

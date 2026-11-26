@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameState, PlayerID } from '../../shared/src';
 import { applyOracleIRStepsToGameState } from '../src/oracleIRExecutor';
 import { parseOracleTextToIR } from '../src/oracleIRParser';
+import { asGameState } from './helpers/gameStateFixture';
 
 const controllerId = 'p1' as PlayerID;
 
@@ -12,14 +13,14 @@ describe('Oracle IR gap batch 286 — selector cluster fixes', () => {
       'Gush'
     );
     const steps = ir.abilities.find((ability) => ability.steps?.some((step) => step.kind === 'move_zone'))?.steps || [];
-    const state = {
+    const state = asGameState({
       players: [{ id: controllerId, library: [], hand: [], graveyard: [] }],
       battlefield: [
         { id: 'island-1', name: 'Island', type_line: 'Basic Land — Island', controller: controllerId, owner: controllerId },
         { id: 'island-2', name: 'Island', type_line: 'Basic Land — Island', controller: controllerId, owner: controllerId },
         { id: 'forest-1', name: 'Forest', type_line: 'Basic Land — Forest', controller: controllerId, owner: controllerId },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId,
@@ -73,7 +74,7 @@ describe('Oracle IR gap batch 286 — selector cluster fixes', () => {
     );
     const steps =
       ir.abilities.find((ability) => ability.steps?.some((step) => step.kind === 'move_zone'))?.steps || [];
-    const state = {
+    const state = asGameState({
       players: [
         { id: controllerId, library: [], hand: [], graveyard: [] },
         { id: 'p2', library: [], hand: [], graveyard: [] },
@@ -83,7 +84,7 @@ describe('Oracle IR gap batch 286 — selector cluster fixes', () => {
         { id: 'creature-2', name: 'Elf', type_line: 'Creature — Elf', controller: 'p2', owner: 'p2' },
         { id: 'creature-3', name: 'Goblin', type_line: 'Creature — Goblin', controller: 'p2', owner: 'p2' },
       ],
-    } as GameState;
+    });
 
     const result = applyOracleIRStepsToGameState(state, steps, {
       controllerId,
